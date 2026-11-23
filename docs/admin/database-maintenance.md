@@ -1,325 +1,167 @@
-# Database growth and on-demand maintenance
+---
+title: Database growth and maintenance
+screen: true
+---
+# Database growth and maintenance
 
-Open **Observability → Database** for file, occupied-page and reusable-page sizes,
-WAL size, connection details and pool usage. Quick reports do not scan mail bodies.
-The visible history graph has 15-minute, one-hour, six-hour and all-available
-ranges, regional date/time labels and hover readouts. Samples use elapsed-time
-positions; the file/occupied chart fits its vertical scale to show small changes.
-WAL is plotted in its own chart so its smaller values remain readable. A table
-alternative remains available for accessibility.
-A background sampler runs once a minute even when the console is closed. It keeps
-up to 720 samples in memory, separately reporting file allocation and WAL size.
-Growth rates use occupied SQLite pages when available, so reuse of free pages does
-not conceal increasing live data. History starts again after a restart.
+This page covers how to see how large the database is and what fills it, and how to keep it in check: background clean-up, cached mail bodies, sync history, converting an SQLite database online, and the offline repair commands. The console screens are **Observability → Database**, **Observability → Resources** and the **Database**, **Cache** and **Repair jobs** tabs of **Maintenance**.
 
-The page automatically performs one read-only, time-bounded storage analysis after
-loading its quick figures. **Inspect storage** repeats it. The report ranks measured
-table consumers and names their largest text/binary columns. Logical payload bytes
-are separate from physical sizes including indexes and page overhead. A physical
-scan hitting its limit does not hide a measured payload total. Cached-body totals,
-referenced bodies and unreferenced bodies are measured separately; unknown values
-stay unavailable. A large file alone does not establish ongoing uncontrolled growth.
-Old unreferenced bodies and reusable pages can remain after deduplication is deployed.
-Repeat an inspection to see each table's size change; select the growth heading to
-sort by that change. Unknown measurements stay unavailable rather than becoming zero.
-PostgreSQL row counts are estimates. SQLite inspection is interrupted after 30 seconds
-and partial results are labelled.
+![The Database tab of Observability: file size, occupied pages, reusable space and write-ahead log size, with connection details and pool usage below.](/screenshots/admin-ops/opsa-database-storage.webp){.mw-shot}
 
-Recent write origins identify operation, table and store source file/line. These
-are successful calls through the store SQL adapter, including transaction statements
-and returning mutations; migration/encryption tools and external SQL clients are not
-covered. Input bytes are parameter lengths, **not bytes committed to disk**. Affected
-rows can include a transaction subsequently rolled back. No SQL text, parameter values,
-credentials, email addresses or message contents are retained. The process-wide
-15-minute window has bounded cardinality; it is not an exhaustive database audit.
+## Before you start
 
-`observability.database.growthMiBPerMinute` defaults to **64 MiB/minute**. Two
-consecutive samples above the threshold trigger a visible warning and, when
-`observability.database.growthAlerts` is enabled (default), an audit/server-log event.
-Events include the leading write origins and are limited to one per 30 minutes.
-Both settings are administrator-controlled global policies. No automatic deletion
-or mail-ingestion throttling occurs when growth is detected.
+- **Observability → Database** and **Resources** need the `observability.read` permission without a domain restriction. **Maintenance → Database** and **Cache** need `maintenance.read`, and **Repair jobs** needs `maintenance.run`.
+- Changing a maintenance setting needs settings access. All `maintenance.database.*` settings are global.
+- The offline commands run on the deployment host, with the application image that is deployed.
 
-## Known cached-body duplication
+## See what uses the space
 
-Repeated ingestion formerly allocated a new encrypted raw-body row and replaced
-the message's reference, leaving the old body unreferenced. Raw MIME includes
-attachments, so repeated synchronization could multiply their storage. New writes
-now deduplicate identical content within an account using a private keyed reference.
-Existing orphan bodies are not removed automatically. Measure their bytes before
-attributing a particular production database's size to this issue.
+1. Open **Observability → Database**. **Refresh** reads the figures again, and **Updated** gives the time of the reading. The page is read-only and shows no credentials or message content.
+2. **Storage** shows the **Database file**, **Occupied pages**, **Reusable space**, **Write-ahead log**, **Pages** and **Page size**. Reusable SQLite pages stay inside the file after deletions until the space is reclaimed, so a large file does not by itself mean the data grew.
+3. **Connection** shows the **Driver**, **Server version**, **Database name**, **Server** (for SQLite, **Local file**), **Journal mode**, **Database response** and **Migrations applied**.
+4. **Connection pool** shows the connections **Open**, **Idle** and **In use**, the **Minimum / maximum**, the **Connection wait limit** and counters for acquisitions, failures, waiting time, measured reads and writes. Connections grow with demand and shrink when idle, within the minimum and maximum. The limits are set in `database.pool` and change only after a full restart. For SQLite the card **SQLite page cache** also reports the cache targets and sampled hits and misses.
+5. **Size history** plots the database file and the occupied pages, and the write-ahead log on a chart of its own, for **15 min**, **1 h 0 min**, **6 h 0 min** or **All available**. **View as table** gives the same numbers as a table. The server samples the database once a minute even when no console is open and keeps the samples in memory, so the history starts again after a restart.
+6. **What uses the space** runs one read-only analysis when the page opens. **Inspect storage** repeats it. It ranks the tables that use the most space and names their largest text and binary columns, and it shows **Cached bodies**, **Cached body bytes**, **Referenced cached body bytes**, **Unreferenced bodies** and **Unreferenced body bytes**. Unreferenced bodies are cached message bodies that no message row points to; the inspection does not remove them. Payload sizes exclude indexes and page overhead, and a measurement that is not available is shown as unavailable, not as zero. On SQLite the inspection stops after 30 seconds and a partial result is labelled; PostgreSQL row counts are estimates. Press **Inspect storage** again later and compare table sizes to see what grows.
+7. **Database growth** says **Collecting a baseline; at least two samples are needed.**, **No sustained rapid growth detected.** or **Sustained rapid growth detected. Inspect the largest tables and write origins.**, with the **Recent growth** and the **Alert threshold**. **Write origin** lists the operations, tables and source locations that wrote most in the last 15 minutes, with their **Statements** and **Input bytes**. Input bytes are the sizes of bound parameters, not bytes committed to disk. The list covers successful writes through the server's own database layer, in this process; it is not an audit of every write, and it contains no SQL text, parameter values, credentials, addresses or message content.
 
-## Skip the deployment backup copy
+Two consecutive samples above [`observability.database.growthMiBPerMinute`](/admin/settings#observability.database.growthmibperminute) show the warning. When [`observability.database.growthAlerts`](/admin/settings#observability.database.growthalerts) is on, the server also writes the log line `Sustained database growth: inspect Observability > Database` and a `database-rapid-growth` audit event with the leading write origins, at most one every 30 minutes. Nothing is deleted and mail ingestion is not slowed.
 
-Backups remain the default. To explicitly omit a pre-deploy copy:
+### Resources
 
-```sh
-./deploy.sh deploy --skip-backup
-```
+**Observability → Resources** shows **CPU capabilities** (the architecture, the processor features the server found, and how often its ASCII lowercasing code used the vector paths), **Effective server capacity** (**Effective CPU cores** including fractional container quotas, **Memory limit** and **Available memory headroom**), the **Server process** (**Resident memory** and **CPU usage**), **Host memory** and the **Data filesystem** (**Filesystem capacity** and **Filesystem available**). It refreshes every 10 seconds while it is visible. **CPU usage** needs two readings, so the first is **Not available**, and 100% means one logical core. A measurement that cannot be read is never shown as zero. The filesystem figures describe the folder with the SQLite data, or the local working folder for another database; remote PostgreSQL storage is not included. Container detection is a hint, not proof that no limit exists.
 
-This disables automatic rollback for that deployment and clears its rollback
-pointer; older backup files are retained. SQLite-to-full-stack migration requires
-its consistent source snapshot and refuses this flag. It is not a persistent
-configuration change.
+## Background maintenance
 
-## Offline SQLite cleanup
+![The Database tab of Maintenance: online SQLite conversion, retained databases, and background database maintenance with Configure maintenance and Run a batch.](/screenshots/admin-ops/opsa-maintenance-database.webp){.mw-shot}
 
-In **Maintenance → Repair jobs**, the console provides copyable commands.
-Execute them on the deployment host with the newly built application image.
-The wrapper uses the deployed image; `--no-build` does not replace an old image.
+The server runs small clean-up batches in the background: it collects cached bodies that no message points to, and it reclaims free SQLite pages. The first batch starts 30 seconds after startup, and then one batch runs every [`maintenance.database.intervalSeconds`](/admin/settings#maintenance.database.intervalseconds) seconds. A batch uses its own connection with a short lock wait and yields when other work owns the database.
 
-Preview, without deleting or compacting anything:
+1. Open **Maintenance → Database** and find **Background database maintenance**. It shows the time of the last batch (**Updated**), **Scanned**, **Removed** (with the bytes) and **Reclaimed pages**, and the **Next batch**.
+2. Choose **Run a batch** to run one batch now with the same limits as the scheduler.
+3. Choose **Configure maintenance** to open the settings.
 
-```sh
-./deploy.sh maintenance --orphan-bodies --compact
-```
+If a batch could not do its work, the card says **Maintenance yielded to a busy database, its work budget, or WAL pressure. It will retry automatically.** The status and the body scan position are kept in memory and start again after a restart. The grace times of unreferenced bodies are stored, so they survive a restart.
 
-Apply: stop the app, take a consistent backup, clean selected data, then resume it:
+- Collecting unreferenced bodies never deletes messages. It deletes only cached bodies that still have no message reference when the batch reaches them. The first time a body is seen without a reference starts its grace period ([`maintenance.database.graceHours`](/admin/settings#maintenance.database.gracehours), 24 hours by default). A body larger than the per-batch payload limit is left for the offline repair.
+- Reclaiming pages needs an SQLite database in incremental vacuum mode. For an existing database that is not, the card says **This database needs conversion before incremental reclamation can run. Use online conversion, or preview the offline command without --apply.**
+- Both are deferred when the write-ahead log is larger than [`maintenance.database.maxWalMiB`](/admin/settings#maintenance.database.maxwalmib) (32 MiB by default), so that the background job does not checkpoint an arbitrarily large log. Free pages can be reused without shrinking the file, and long-running readers can delay shrinking.
+- Full `VACUUM` is not run in the background. It is the offline command `--compact`.
 
-```sh
-./deploy.sh maintenance --apply --orphan-bodies --compact
-```
+### Convert SQLite online
 
-If a verified backup already exists and another full copy is deliberately unwanted:
+**Online SQLite conversion** builds a new SQLite database generation while mail stays online. Database requests may queue briefly while the server switches, extra disk space is needed, and the previous generation is retained.
 
-```sh
-./deploy.sh maintenance --apply --skip-backup --orphan-bodies --compact
-```
+1. Choose **Start conversion**. The card shows the **Stage** (**Preparing**, **Copying data**, **Verifying the copy**, **Applying recent changes**, **Waiting to switch**, **Switching database**, **Publishing the new generation**, then **Completed**), **Pending changes**, **Copied rows**, **Copied bytes**, **Started**, **Elapsed time** and **Average copy rate**. It checks the conversion every 2 seconds while the page is open.
+2. **Cancel conversion** is possible until publication; later it says **Cancellation is no longer available at this stage.**
+3. A conversion that stops with **Recovery review required** or **Failed** needs a look at the server log before you try again.
 
-Additional independent targets can be combined:
+The same conversion can be started and followed from the host with `./deploy.sh maintenance --online`, `--online-status` and `--online-cancel`. The conversion needs no stop and no snapshot.
 
-| Option | Effect |
+**Retained databases** lists the previous generation after a conversion. Only a verified previous generation can be deleted (**Delete database copy**, after a confirmation that names the file and its size). Keep an independent backup first. Deletion is refused while database maintenance is running (**Database maintenance is running. Try again after it finishes.**) and while SQLite recovery files are still present.
+
+## Cached bodies and sync history
+
+The **Cache** tab of **Maintenance** holds the settings for cached mail bodies, unreferenced bodies and sync history. Its other cards, **Prepared mail metadata cache** and **Public static asset RAM cache**, are memory caches described in [Caching](/deploy/cache).
+
+- **Cached message lifetime**: with **Automatically expire cached message bodies** on, a cached body that was not opened for **Days without use before expiry** (60 by default) is detached. Only bodies that can be fetched again from an upstream mailbox are eligible, and the card says **No connected mailbox currently has a confirmed refetch path. Protected content is kept.** when none can. Opening an expired message fetches it again. Message headers stay. Opening and downloading a message renew its lifetime; scans and header refreshes do not. The first time a cached body is seen, its lifetime starts from then, not from the message's date. **Scanned**, **Detached cache references** and **Protected** show the last batch.
+- **Unreferenced bodies and space reclamation**: the same background batch described above, with the batch limits under **Batch limits and timing**.
+- **Sync history**: old change records expire after 60 days by default. A client that holds an older sync token receives a full-resync answer. Each batch removes at most [`maintenance.database.changeLogBatchRows`](/admin/settings#maintenance.database.changelogbatchrows) rows, so cleaning is gradual; 0 days turns pruning off. Deleting history frees space inside the file; shrinking the file needs page reclamation or the offline repair.
+- **Inspect cache storage** opens **Observability → Database** to measure cached payload, referenced bodies and orphaned copies. **Run a batch** runs one expiry batch now.
+
+Statistics are kept as compact counts, not request records. See [Statistics that survive a restart](/admin/metrics-persistence) and [Request latency and 404 paths](/admin/latency-metrics). Sign-in, audit, incident and compliance records have their own retention (see [Retention](/admin/retention)); a counter does not replace them.
+
+## Offline repair of an SQLite database
+
+![The Offline database repair card on the Repair jobs tab: the preview and apply commands with a Copy command button each, and the optional flags.](/screenshots/admin-ops/opsa-maintenance-repair-commands.webp){.mw-crop}
+
+Run these commands on the deployment host. They are for SQLite installations.
+
+1. Preview, which changes nothing. Choose **Copy command** under **Preview cleanup** or type:
+
+   ```sh
+   ./deploy.sh maintenance --orphan-bodies --compact
+   ```
+
+2. Apply. The wrapper stops the app, takes a backup, cleans the selected data and starts the app again, also after a failure:
+
+   ```sh
+   ./deploy.sh maintenance --apply --orphan-bodies --compact
+   ```
+
+3. If a verified backup already exists and you do not want another full copy, add `--skip-backup` to the apply command. This also disables automatic rollback for that run.
+
+| Option | What it does |
 |---|---|
-| `--orphan-bodies` | Delete encrypted cached bodies with no message reference. Retain referenced mail. |
-| `--compact` | Rebuild SQLite with VACUUM and checkpoint its WAL to reclaim free pages. |
-| `--logs-older-than-days 30` | Purge browser-error diagnostics and finished job/diagnostic records older than 30 days. `0` selects all eligible history. Running jobs remain. |
-| `--purge-search-index` | Remove the default sibling search index. Rebuild it in Maintenance afterwards. Does not delete messages. Custom index paths use the existing online rebuild instead. |
+| `--orphan-bodies` | Deletes encrypted cached bodies that no message points to. Referenced mail is kept. |
+| `--compact` | Rebuilds the SQLite file with `VACUUM` and checkpoints its write-ahead log to reclaim free pages. |
+| `--logs-older-than-days N` | Purges operational diagnostics older than N days. `0` selects all of them. |
+| `--purge-search-index` | Removes the default search index next to the database. Rebuild it afterwards in **Maintenance → Repair jobs**. |
+| `--enable-incremental-vacuum` | Turns on page reclamation for a database that is not in incremental vacuum mode. It rebuilds the database once and can need a lot of temporary disk space. |
+| `--skip-backup` | Skips the copy that is normally made before applying. |
 
-Manual log ages are an explicit operator-selected override, not a replacement for
-the regular retention policies. Historical statistics, audit, sign-in/security and compliance records are
-excluded from this operational-log target list. Use the retention controls for them.
+`VACUUM` can need up to twice the size of the database in free space. Compaction reclaims pages; it does not compress encrypted mail. Existing backups keep their size, and `./deploy.sh prune` applies the configured backup retention. Deleted rows cannot be restored without a backup.
 
-SQLite VACUUM can require up to twice the database's original size in free space;
-see the [SQLite documentation](https://www.sqlite.org/lang_vacuum.html). Compaction
-reclaims pages; it does not compress encrypted mail payloads. Existing snapshots
-keep their original size. `./deploy.sh prune` applies configured backup retention.
-Cleanup is batched, but once applied, row deletions require a backup to undo.
-
-The wrapper resumes an originally running app after success or failure. It stops
-this deployment's container only: operators sharing a SQLite file with other
-processes must stop those writers too. Direct CLI users must acknowledge this:
+The wrapper stops only this deployment's container. If other processes use the same SQLite file, stop them too. Without the wrapper, the same work is the `db` command of the program, which refuses to apply unless you confirm that every writer is stopped:
 
 ```sh
 mailwoman db --db-path /data/mailwoman.db cleanup --apply --offline --orphan-bodies --compact
 ```
 
-Whole-database encryption keys continue to come from the existing environment/key
-providers. No decrypted copy is written. Offline cleanup currently supports SQLite;
-full-stack PostgreSQL installations keep their native maintenance tooling and the
-existing policy-based retention/reindex jobs.
+Whole-database encryption keys come from the same environment and key providers as for the server, and no decrypted copy is written. A deployment with PostgreSQL uses the database's own maintenance tools and the retention settings.
 
-## Logs and counters have separate retention
+### Skip the backup before a deploy
 
-Application-managed files support configured size/time rotation, gzip compression,
-file-count/total-size limits, age retention, and address/IP/token redaction. The
-console's **Cleanup** and **Rotate now** actions apply these existing policies
-immediately. Compression may finish in the background. Docker stdout logs are
-managed separately: deployed services retain three 10 MB files and compress rotated
-files. These limits apply when containers are created with the new configuration;
-see [Docker's logging options](https://docs.docker.com/engine/logging/drivers/json-file/).
-
-For retained statistics, keep compact counts and histograms rather than individual
-request records. The general statistics store already folds minutes into hours and
-days using `retention.metrics.*`. Request history keeps minute buckets for up to
-48 hours and hourly aggregates for `metrics.rollupDays` (normally three years).
-`retention.requestMetrics.detailDays` now separately expires sampled normalized
-404 paths after **30 days** by default, preserving request/404 counts and latency
-histograms. Set it to 0 for counters-only history after a bucket closes. Periodic
-minimization is bounded and runs at most hourly; scheduled/on-demand retention
-also processes it using the configured batch limit.
-
-Do not infer that a counter replaces security evidence: sign-in, audit, incident,
-compliance and legal-hold retention keep their own policy and minimization rules.
-
-## Background maintenance
-
-The server starts bounded batches 30 seconds after startup. Defaults are one batch
-per minute, 64 bodies, at most 16 MiB of deleted sealed payload, a 24-hour orphan
-grace period, and 1,024 SQLite pages in eight-page steps. The SQL work budget is
-250 ms; a short lock wait and a size-limited passive checkpoint can add time.
-The worker uses a dedicated connection with a 50 ms lock timeout and yields when
-foreground work owns the database. It never runs a full SQLite `VACUUM` online.
-
-Observability → Database shows the last batch, scanned and removed bodies, freed
-pages, deferral reasons, and the next batch. **Run a batch** uses the same limits
-and policy as the scheduler. **Configure maintenance** opens the administrator
-settings. All `maintenance.database.*` controls are global and hot-reloaded for
-the next batch. Batch history and body-cleanup cursors are in memory; restarting
-starts a new body scan. Orphan grace timestamps and the background change-log
-cleanup cursor are durable and survive a restart.
-
-Orphan cleanup never deletes messages. It deletes only sealed cache bodies that
-still have no message reference at the point of deletion. A first observation
-starts the grace period, including for legacy rows. Ingestion stores a body and
-its reference in one transaction. PostgreSQL additionally serializes that
-lifecycle per account with transaction advisory locks. Standalone body writers
-renew a lease, and attaching a missing body is refused instead of creating a
-dangling reference. Oversized individual bodies are left for offline cleanup;
-raise the batch byte limit or use the existing offline orphan command.
-
-New SQLite databases use incremental auto-vacuum. An existing database in NONE
-mode needs one offline conversion, which rebuilds the database once and can need
-substantial temporary disk space. Preview first:
+Backups before a deploy are the default. To omit one deliberately:
 
 ```sh
-./deploy.sh maintenance --enable-incremental-vacuum
-./deploy.sh maintenance --apply --enable-incremental-vacuum
+./deploy.sh deploy --skip-backup
 ```
 
-The apply command stops the app, takes a backup by default, converts, and resumes
-it. `--skip-backup` is an explicit operator opt-out. Whole-database encryption is
-preserved. No startup or background job performs this conversion automatically.
-Existing FULL auto-vacuum databases keep their mode. PostgreSQL uses its native
-autovacuum for physical reclamation; body collection uses the same grace policy.
+This disables automatic rollback for that deploy. It is not a saved setting, and older backups are kept.
 
-Offline cleanup reports each phase and a heartbeat every five seconds: phase
-elapsed time, approximate SQLite VM steps, and database/WAL sizes. These are
-activity measurements, not a completion percentage. SQLite cannot provide a
-reliable percentage for a full `VACUUM`; encrypted large databases can require
-substantial CPU, temporary disk space and disk I/O. A conversion-only request
-does not scan orphan bodies; that potentially expensive scan runs only when
-`--orphan-bodies` is selected. The final JSON report includes phase timings and
-marks unrequested orphan statistics as unmeasured.
+## Log files
 
-In versions with cooperative offline cancellation, Ctrl+C or SIGTERM requests a
-SQLite VM interruption. The command waits for the active statement to finish or
-roll back and for the database connection to close. Keep the app stopped until
-the maintenance worker has exited; never delete journal or WAL files. Cancellation
-does not undo cleanup batches that committed before the active statement. A
-blocked filesystem operation or SQLite lock wait can delay interruption because
-the progress callback runs at VM boundaries. Installing this version does not
-add progress or cooperative cancellation to an already-running older worker.
+The application's own log files have size, age and count limits, and compression. **Cleanup** and **Rotate now** in **Maintenance → Repair jobs** apply them at once; see [Maintenance](/admin/maintenance#other-tabs). Docker's own logging of the containers is separate: the deployed services keep three files of 10 MB and compress the rotated ones, as the compose files configure it for newly created containers.
 
-The deployment wrapper launches a named detached maintenance worker and streams
-its logs while the app is stopped. Ctrl+C or SIGTERM asks only that owned worker
-to terminate cooperatively. The wrapper waits up to `--timeout` seconds for a
-verified stopped state, checks that its process ID is zero and restart policy
-is disabled, and removes the stopped container before resuming the app. Docker
-control requests have a separate ten-second client deadline. It never uses a
-forced worker removal as its normal cancellation path.
+## Options
 
-If the worker remains active, Docker is unavailable, ownership/state cannot be
-verified, or removal fails, the wrapper leaves the app stopped and prints exact
-inspection/recovery commands. Keep the worker's journal/WAL files intact. Confirm
-that the named maintenance container has exited before manually restarting the
-app. Replacing files on disk does not change an already-running older deployment
-script or maintenance process.
+| Label | What it does | Default | Who can change it |
+|---|---|---|---|
+| **Background database maintenance** ([`maintenance.database.enabled`](/admin/settings#maintenance.database.enabled)) | Run the background batches. | On | Administrators (global) |
+| **Collect unreferenced cached bodies** ([`maintenance.database.orphanBodies`](/admin/settings#maintenance.database.orphanbodies)) | Collect cached bodies that no message points to, after the grace period. | On | Administrators (global) |
+| **Expire inactive cached bodies** ([`maintenance.database.expireCachedBodies`](/admin/settings#maintenance.database.expirecachedbodies)) | Detach cached bodies that were not used for the lifetime below, when they can be fetched again. | On | Administrators (global) |
+| **Cached body lifetime (days)** ([`maintenance.database.cachedBodyRetentionDays`](/admin/settings#maintenance.database.cachedbodyretentiondays)) | Days without use before expiry, 1 to 3650. | 60 | Administrators (global) |
+| **Mail change-log retention (days)** ([`maintenance.database.changeLogRetentionDays`](/admin/settings#maintenance.database.changelogretentiondays)) | Days of sync history kept, 0 to 3650; 0 keeps it without limit. | 60 | Administrators (global) |
+| **Change-log batch limit (rows)** ([`maintenance.database.changeLogBatchRows`](/admin/settings#maintenance.database.changelogbatchrows)) | Change rows removed per batch, 1 to 10000. | 1000 | Administrators (global) |
+| **Incremental SQLite reclamation** ([`maintenance.database.incrementalVacuum`](/admin/settings#maintenance.database.incrementalvacuum)) | Reclaim free SQLite pages in the background. An existing database needs one conversion first. | On | Administrators (global) |
+| **Maintenance interval (seconds)** ([`maintenance.database.intervalSeconds`](/admin/settings#maintenance.database.intervalseconds)) | Idle seconds between batches, 15 to 86400. | 60 | Administrators (global) |
+| **Bodies per batch** ([`maintenance.database.batchRows`](/admin/settings#maintenance.database.batchrows)) | Bodies scanned and collected per batch, 1 to 512. | 64 | Administrators (global) |
+| **Body deletion limit (MiB)** ([`maintenance.database.batchMiB`](/admin/settings#maintenance.database.batchmib)) | Sealed body payload deleted per batch, 1 to 256; larger bodies need the offline repair. | 16 | Administrators (global) |
+| **Orphan body grace period (hours)** ([`maintenance.database.graceHours`](/admin/settings#maintenance.database.gracehours)) | Hours a body without a reference waits before deletion, 1 to 720. | 24 | Administrators (global) |
+| **SQLite pages per batch** ([`maintenance.database.batchPages`](/admin/settings#maintenance.database.batchpages)) | Pages reclaimed per batch in steps of eight, 8 to 16384. | 1024 | Administrators (global) |
+| **Batch work budget (milliseconds)** ([`maintenance.database.maxRunMs`](/admin/settings#maintenance.database.maxrunms)) | SQL time per batch, 25 to 2000. Lock waits and the bounded checkpoint can add time. | 250 | Administrators (global) |
+| **Minimum reclaimable space (MiB)** ([`maintenance.database.minFreeMiB`](/admin/settings#maintenance.database.minfreemib)) | Free space SQLite needs before pages are reclaimed, 0 to 65536. | 16 | Administrators (global) |
+| **Maximum background checkpoint input (MiB)** ([`maintenance.database.maxWalMiB`](/admin/settings#maintenance.database.maxwalmib)) | Background work is deferred when the write-ahead log is larger, 1 to 1024. | 32 | Administrators (global) |
+| **Database growth alerts** ([`observability.database.growthAlerts`](/admin/settings#observability.database.growthalerts)) | Log and audit a sustained growth. | On | Administrators (global) |
+| **Database growth warning threshold (MiB/minute)** ([`observability.database.growthMiBPerMinute`](/admin/settings#observability.database.growthmibperminute)) | Growth per minute of the database file that raises the warning. The write-ahead log is measured separately. | 64 | Administrators (global) |
 
-Free pages may be reused without making the file smaller. Both body collection and incremental reclamation
-are deferred when the WAL file exceeds `maintenance.database.maxWalMiB` (32 MiB by
-default), avoiding a background job checkpointing an arbitrarily large WAL.
-Long readers can delay physical shrinkage. No background checkpoint uses TRUNCATE
-or waits for readers. The daily retention and weekly vacuum jobs delegate SQLite reclamation to
-this worker; the explicit full-compaction maintenance command remains offline.
+The settings are read for the next batch without a restart. Orphan collection, expiry, reclamation and sync-history pruning each need **Background database maintenance** to be on.
 
+## Troubleshooting
 
-## Cache maintenance and inactivity expiry
+- **The file is large but "Reusable space" is also large.** Pages freed by deletions stay inside the file. Let background reclamation work, or run the offline `--compact`.
+- **"Maintenance yielded to a busy database, its work budget, or WAL pressure."** A batch gave way. If it repeats, the write-ahead log may be above `maintenance.database.maxWalMiB`, or the batch limits are too small for the amount of work.
+- **"This database needs conversion before incremental reclamation can run."** The SQLite file is not in incremental vacuum mode. Use **Start conversion**, or preview `--enable-incremental-vacuum`.
+- **Large bodies are never removed by the background batch.** They are larger than the per-batch limit (**Large bodies deferred**). Use the offline `--orphan-bodies`.
+- **Cache storage inspection says "Some measurements reached the scan limit or are unavailable on this database."** The analysis hit its time limit. The figures shown are still measured values.
+- **Start-up is slow after a crash.** See [SQLite start-up and recovery](/admin/database-startup).
+- **The growth warning appears during a large import.** The warning compares the growth rate of the file with the threshold. Check **Write origin**, and raise the threshold if the growth is expected.
 
-Maintenance → Cache contains the administrator policy controls for cached MIME
-bodies, orphan collection, sync-history retention and batch limits. Maintenance →
-Database contains online SQLite conversion, background page reclamation and
-verified retained-generation deletion. Observability → Database remains the
-read-only storage breakdown and growth view.
+## Related
 
-Cached-body expiry is enabled by default with a 60-day inactivity lifetime,
-controlled by `maintenance.database.expireCachedBodies` and
-`maintenance.database.cachedBodyRetentionDays`. A first observation of a legacy
-cache entry starts a full grace period; its email's received date is not treated
-as evidence of when the cached copy was last used. Explicit reader opens and
-downloads renew the lease, with database writes throttled to once per hour.
-Header refreshes, scans and background prefetch do not renew it.
-
-Expiry preserves message headers and detaches only cached content with a proven
-refetch path. IMAP is the first supported source; local originals, POP3 messages,
-drafts, queued submissions and other unproven sources remain protected. Opening
-an expired message fetches and caches its content again. Ordinary background
-ingestion cannot repeatedly refill the same expired copy. A shared body is
-deleted only after its final message reference is gone. Expiry also removes the
-parsed text/HTML body values from the encrypted message envelope, preserving
-headers and MIME part descriptors. A reader restores those values from the raw
-source with a revision check. This policy does not purge the separate search
-index, which can retain indexed message text.
-
-Orphan cleanup has a separate 24-hour grace period by default, controlled by
-`maintenance.database.graceHours`. Scanning an orphan does not renew that period.
-Existing duplicate copies are not removed just by installing the deduplication
-fix: they must be identified as unreferenced and pass this grace period. Batch
-payload limits still apply; oversized entries are reported rather than forcing
-an arbitrarily large live deletion. Use the Cache tab's batch controls or the
-explicit offline cleanup procedure for these cases.
-
-Mail sync history expires after 60 days by default, controlled by
-`maintenance.database.changeLogRetentionDays` (`0` disables pruning). Maintenance
-removes at most `maintenance.database.changeLogBatchRows` rows in each bounded
-run, including chunks of a larger state. The checkpoint invalidates older
-state tokens before chunk deletion in the same transaction, so clients cannot
-read a partial state. An expired token returns `cannotCalculateChanges` and
-requires a full resync; state numbers remain monotonic. A recent or malformed
-timestamp visible in the sample protects that state's selected rows. Such a row
-found only in a later chunk remains protected, while previously expired chunks
-stay removed. Cleanup rotates across accounts/types and is gradual; sustained
-writes above its global batch capacity can extend the configured age window.
-
-The background change-log cleanup position is durable across restarts and database
-copies. One global cursor row is updated in place; progress does not depend on the
-observability page's in-memory status. Each worker reserves the next account/type
-before attempting cleanup, so a busy group or interrupted cleanup cannot keep
-restarting the round at the first account. A crash after reservation can defer that
-group until its next round, while its history remains untouched. Checkpoint/floor
-updates still commit atomically with actual history deletion. Explicitly supplied
-cursors on the manual Store API remain independent of the background cursor.
-
-The `changes` table stores account/message IDs, operation names, state numbers
-and timestamps; it does not store message bodies. Identical ingest replays do
-not add history. Real ingest mutations and their Email/Mailbox history commit
-atomically, so a failed history write can be retried without losing a mutation.
-Index repair still runs on identical retries.
-
-Repeating an already-applied keyword, pin, snooze or follow-up update is also a
-successful no-op: it does not rewrite flags/metadata, append history or reindex.
-Malformed cached flags still get repaired. Replayed upstream removals record
-history only when the matching account, folder and source message is actually
-deleted. That deletion, its counters and its Email/Mailbox history commit in one
-transaction; a failed history write leaves the message available for retry.
-These checks prevent new duplicate history. Existing rows still pass through the
-configured retention window and bounded cleanup; installing a fix does not
-immediately remove old history or shrink the physical SQLite file.
-
-At the default 1,000 rows per 60-second interval, the theoretical global ceiling
-is about 1.44 million removed rows per day. Actual cleanup is lower when groups
-have no expired rows, the cursor wraps, or idle/WAL/time budgets defer work. This
-is eventual retention, not a hard size cap or a guarantee for high-write loads.
-Deleting history frees logical database space; reclaiming the physical SQLite
-file requires the separate incremental/offline vacuum mechanisms described above.
-
-Already-checkpointed, oversized allocated WAL files may be recycled by SQLite
-without checkpointing arbitrary pending data. A WAL that still needs recovery or
-has blocking readers remains protected and reports that cleanup is deferred.
-Checkpoint size limits are best-effort I/O safeguards, not hard wall-clock limits.
-
-## Server resources
-
-Observability → Resources reports effective CPU capacity (including fractional
-container quotas), memory limits and available headroom, process RSS and CPU,
-host memory, and the local data filesystem's total/available space. CPU usage is
-interval-based: the first read is unavailable until a later sample, and 100%
-means one logical core. It covers the webmail process, not separate renderer
-children. Memory headroom is conservative and is not exact container memory usage.
-
-The page refreshes every ten seconds while visible and offers manual refresh.
-It requires an unscoped administrator with observability permission. Readings are
-not cached by the browser or persisted as a new database row on every poll.
-Unknown metrics stay unavailable. Filesystem readings describe the SQLite data
-folder, or the local working filesystem for non-file databases; they do not
-measure storage on a remote PostgreSQL server. Container detection is a hint,
-not proof that resource limits are absent when no container is detected.
+- [SQLite start-up and recovery](/admin/database-startup)
+- [Maintenance](/admin/maintenance)
+- [Observability](/admin/observability)
+- [Online SQLite maintenance](/deploy/online-sqlite-maintenance)
+- [Backups](/deploy/backups)
+- [Retention](/admin/retention)
