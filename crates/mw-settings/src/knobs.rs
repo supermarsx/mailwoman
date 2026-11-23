@@ -472,8 +472,8 @@ pub static CATALOGUE: &[Knob] = &[
         Gr::Listener,
         Plain,
         R::Boot,
-        "false",
-        "built-in ACME certificates",
+        "",
+        "comma-separated domain names to get built-in ACME certificates for; setting it enables HTTPS on the bind address, and an empty value is a startup error",
     ),
     boot(
         "MW_ACME_CONTACT",
@@ -648,8 +648,8 @@ pub static CATALOGUE: &[Knob] = &[
         Gr::Listener,
         Plain,
         R::ClientState,
-        "false",
-        "send Strict-Transport-Security",
+        "on",
+        "send Strict-Transport-Security; off, 0 or false turns it off",
     ),
     boot(
         "MW_HSTS_MAX_AGE",
