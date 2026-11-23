@@ -1,48 +1,50 @@
-# Masked-email (SPEC §28.4)
+---
+title: Masked email addresses
+---
 
-> **Status:** scaffold (t10-e0). Filled by t10-e7; live-E2E by t10-e14/e15.
+# Masked email addresses
 
-Masked-email lets a user generate a per-target alias address so a recipient (a shop,
-a newsletter) never sees the real mailbox. Aliases can be enabled, disabled, and
-deleted; incoming mail to a disabled/deleted alias is dropped upstream.
+A masked address is a generated alias that a person can give to a shop or a newsletter instead of their real address. Mailwoman keeps the list of aliases, lets the owner switch each one on or off, and lets mail be sent from an enabled alias.
 
-## Two halves
+::: warning Interface and delivery
+- The web client has no screen for masked addresses and the composer has no control to pick or create one. Aliases are managed through the HTTP routes below.
+- Mailwoman does not receive or forward mail for an alias. The alias domain's mail server must deliver mail for the alias to the mailbox. Switching an alias off in Mailwoman does not by itself stop delivery.
+:::
 
-- **Server-side lifecycle** (`crates/mw-server/src/masked.rs` + `mw-store` 0010
-  `masked_email`, `mw_store::MaskedEmailRow`): generate / list / enable / disable /
-  delete an alias, plus a user-facing target description. Routes:
-  `GET/POST /api/masked`, `POST /api/masked/{id}/state`, `DELETE /api/masked/{id}`.
-- **On-send rewrite** (`plugins/masked-email`, a `message-pipeline::message-out`
-  component): rewrites the outgoing message's sender to the selected alias so the
-  recipient only ever sees the masked address.
+This page is not about the `plugins/masked-email` source in the repository. That component is not built, not registered and not used; masked addresses are implemented in the server.
 
-## Composer surfacing
+## Before you start
 
-**Not built (recorded 26.19).** This section described the composer offering "send
-from a masked alias" and minting a new alias inline. Neither affordance exists in
-`Compose.tsx`. The alias set is scoped to the session account and is reachable
-through the routes above and the settings surface only.
+- The server runs in engine mode.
+- The feature **masked** is on (`cap.masked`, default on) for the user.
+- Choose the alias domain with the setting `maskedEmail.domain` (environment `MW_MASKED_EMAIL_DOMAIN`). When it is empty, aliases are created under the domain of the signed-in address. The admin settings help says an empty value turns masked addresses off; the server does not do that, so set the permission rather than relying on an empty domain.
 
-Two related facts worth having in one place, because the naming invites the wrong
-conclusion:
+## Manage aliases
 
-- **The masked-email feature works.** Alias lifecycle and on-send `From`
-  enforcement are server-side (`crates/mw-server/src/masked.rs`, `MaskedSubmitter`),
-  with a live end-to-end test.
-- **The `plugins/masked-email` crate does not.** It is the abandoned first design
-  and is unreachable from anything: no crate depends on it, `plugins/dist/masked-email.wasm`
-  is absent while the other seven are present, it has no `FIRST_PARTY_DIGESTS`
-  entry so the host could never resolve it, and it has no `plugin.toml`, no
-  `build.sh` and no CI step. Its one hook is still the original
-  `fn message_out(raw) { Ok(raw) }` scaffold. Deleting the crate or finishing and
-  registering it is an open decision; until then, the "on-send rewrite" half of
-  the section above describes the crate's *intent*, and the enforcement that
-  actually runs is the server-side one.
+All routes need a mailbox session and only ever see the signed-in account's aliases. An alias that belongs to another account answers as not found.
 
-## Data
+| Request | Effect |
+|---|---|
+| `GET /api/masked` | List the account's aliases that are not deleted, newest first. |
+| `POST /api/masked` | Create an alias. The body is optional: `target` (where the alias forwards, default the account's own address), `description` and `forDomain` (the site the alias is for). The alias is enabled on creation. |
+| `POST /api/masked/{id}/state` | Set the state to `enabled` or `disabled`. |
+| `DELETE /api/masked/{id}` | Delete the alias. It is kept with the state `deleted` and is no longer listed. |
 
-`masked_email(id, account_id, alias_addr, target_desc, state, created_at,
-last_used_at)`. `state` is `enabled | disabled | deleted`. No mail content is stored.
+An alias looks like `<12 hex characters>@<alias domain>`. The characters are derived from a fresh random value, so they cannot be guessed, and the server checks that the address is not already in use.
 
-<!-- e7: fill the alias generator (unique local-part), the on-send header rewrite,
-and the composer integration. -->
+Each alias is returned with `id`, `email`, `state`, `target`, `description`, `forDomain`, `createdAt` and `lastUsedAt`. Mail content is never stored.
+
+## Sending from an alias
+
+For accounts that send through SMTP, a message whose sender address is an alias is checked before it is submitted:
+
+- An enabled alias that belongs to the account is used as the envelope sender, so bounces and replies route through the alias domain, and `lastUsedAt` is updated.
+- A disabled or deleted alias, or another account's alias, is refused and the message is not sent.
+- Any other sender address is sent unchanged.
+
+Accounts served by a bridge (Graph, Gmail, EWS) send through the provider and are not checked. The server changes only the envelope sender; the `From:` header is left as the composer set it.
+
+## Related
+
+- [Mail provider bridges](../bridges/index.md)
+- [Administrator settings](../admin/settings.md)
