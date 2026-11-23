@@ -63,10 +63,16 @@
             "enabled": true,
             "config": {
               "kind": "oidc",
-              "issuer_url": "https://login.example.com",
-              "client_id": "mailwoman",
-              "redirect_url": "http://localhost/api/sso/harbour-lane/callback"
-            }
+              "issuerUrl": "https://login.example.com",
+              "clientId": "mailwoman",
+              "redirectUrl": "https://mail.example.com/api/sso/harbour-lane/callback",
+              "scopes": [
+                "openid",
+                "email",
+                "profile"
+              ]
+            },
+            "scope": "deployment"
           }
         }
       ]
