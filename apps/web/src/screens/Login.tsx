@@ -13,6 +13,7 @@ import { BrandLabel } from '../brands/BrandLogo.tsx';
 import { PROVIDER_CATEGORIES, brandInText } from '../brands/registry.ts';
 import { listSsoProviders, ssoBeginPath, type SsoProviderSummary } from '../modules/sso';
 import { TwoFactorChallenge } from './Settings/TwoFactorChallenge.tsx';
+import { LoginEnrolment, enrolMethods } from './LoginEnrolment.tsx';
 import { authCard, authPage } from '../styles/authCard.css.ts';
 import { PasswordInput } from '../components/PasswordInput.tsx';
 import { publicConfig, type PublicConfig } from '../api/publicConfig.ts';
@@ -176,19 +177,36 @@ export function Login(props: { returnPath?: string } = {}): JSX.Element {
         <main class={`login ${authPage}`}>
           <div class={`login__card ${authCard}`}>
             <h1 class="login__title">{t('auth-app-name')}</h1>
+            {/* Required but nothing enrolled: enrol here (t47-e2). The step has
+                its own "Back to sign in", hidden once the session is issued. */}
             <Show
-              when={!ch().enrollmentRequired}
+              when={!(ch().enrollmentRequired && enrolMethods(ch(), !native).length > 0)}
               fallback={
-                <p class="login__hint" role="status" data-testid="twofa-enroll-required">
-                  {t('login-2fa-enroll-required')}
-                </p>
+                <LoginEnrolment
+                  challenge={ch()}
+                  allowPasskey={!native}
+                  onComplete={onFactorCleared}
+                  onBack={() => setChallenge(null)}
+                  onExpired={() => { setChallenge(null); setError(t('login-2fa-enrol-expired')); }}
+                />
               }
             >
-              <TwoFactorChallenge challenge={ch()} onSuccess={() => void onFactorCleared()} />
+              <Show
+                when={!ch().enrollmentRequired}
+                fallback={
+                  // Only when the server offers no factor this client can enrol
+                  // (a passkey-only offer in a shell or a browser without passkeys).
+                  <p class="login__hint" role="status" data-testid="twofa-enroll-required">
+                    {t('login-2fa-enroll-required')}
+                  </p>
+                }
+              >
+                <TwoFactorChallenge challenge={ch()} onSuccess={() => void onFactorCleared()} />
+              </Show>
+              <button type="button" class="btn btn--ghost" onClick={() => setChallenge(null)}>
+                {t('login-2fa-back')}
+              </button>
             </Show>
-            <button type="button" class="btn btn--ghost" onClick={() => setChallenge(null)}>
-              {t('login-2fa-back')}
-            </button>
           </div>
           {policyFooter()}
         </main>

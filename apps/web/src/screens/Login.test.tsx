@@ -284,21 +284,77 @@ describe('Login › 2FA', () => {
     await vi.waitFor(() => expect(client.me).toHaveBeenCalled());
   });
 
-  it('shows an enrollment notice when a required user has nothing enrolled', async () => {
+  it('enrols a required user with nothing enrolled, then signs in (no administrator dead end)', async () => {
+    const calls: { path: string; body: unknown }[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input), 'http://localhost').pathname;
+      calls.push({ path, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      if (path === '/api/login/2fa/enroll/totp/begin') return new Response(JSON.stringify({ ok: true, secret: 'JBSWY3DPEHPK3PXP', otpauthUri: 'otpauth://totp/x?secret=JBSWY3DPEHPK3PXP' }));
+      if (path === '/api/login/2fa/enroll/totp/confirm') return new Response(JSON.stringify({ username: 'u@example.org', recoveryCodes: ['aaaa-bbbb'] }));
+      return new Response('{}');
+    }));
     const client = fakeClient({
       login: vi.fn(async () => {
-        throw new TwoFactorRequired({
-          pendingToken: 'tok',
-          factors: ['totp', 'webauthn'],
-          enrollmentRequired: true,
-        });
+        throw new TwoFactorRequired({ pendingToken: 'tok', factors: ['totp', 'webauthn'], enrollmentRequired: true });
+      }),
+    });
+    renderLogin(client);
+    submitCreds();
+
+    expect(await screen.findByTestId('twofa-enrol')).toBeInTheDocument();
+    expect(screen.queryByTestId('twofa-enroll-required')).toBeNull();
+    // The verify challenge is NOT offered (there is nothing to verify against).
+    expect(screen.queryByTestId('twofa-challenge')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('enrol-totp'));
+    await screen.findByTestId('enrol-totp-setup');
+    fireEvent.input(screen.getByLabelText('Authenticator code'), { target: { value: '123456' } });
+    fireEvent.click(screen.getByTestId('enrol-totp-confirm'));
+    await screen.findByTestId('enrol-recovery-codes');
+    expect(calls.filter(c => c.path.startsWith('/api/login/2fa/enroll/'))).toEqual([
+      { path: '/api/login/2fa/enroll/totp/begin', body: { pendingToken: 'tok' } },
+      { path: '/api/login/2fa/enroll/totp/confirm', body: { pendingToken: 'tok', code: '123456' } },
+    ]);
+    expect(client.me).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('enrol-recovery-ack'));
+    fireEvent.click(screen.getByTestId('enrol-continue'));
+    await vi.waitFor(() => expect(client.me).toHaveBeenCalled());
+    vi.unstubAllGlobals();
+  });
+
+  it('returns to the credential form with a timed-out message when the pending sign-in is gone', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = new URL(String(input), 'http://localhost').pathname;
+      if (path.startsWith('/api/login/2fa/enroll/')) return new Response(JSON.stringify({ error: 'second factor required' }), { status: 401 });
+      return new Response('{}');
+    }));
+    const client = fakeClient({
+      login: vi.fn(async () => {
+        throw new TwoFactorRequired({ pendingToken: 'tok', factors: ['totp'], enrollmentRequired: true });
+      }),
+    });
+    renderLogin(client);
+    submitCreds();
+    fireEvent.click(await screen.findByTestId('enrol-totp'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Sign-in timed out before setup was finished.');
+    expect(screen.getByLabelText('Email or username')).toBeInTheDocument();
+    expect(client.me).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps the administrator notice only when no offered method can be set up here', async () => {
+    // A passkey-only offer in a browser without passkey support (jsdom has none).
+    const client = fakeClient({
+      login: vi.fn(async () => {
+        throw new TwoFactorRequired({ pendingToken: 'tok', factors: ['webauthn'], enrollmentRequired: true });
       }),
     });
     renderLogin(client);
     submitCreds();
 
     expect(await screen.findByTestId('twofa-enroll-required')).toBeInTheDocument();
-    // The verify challenge is NOT offered (there is nothing to verify against).
+    expect(screen.queryByTestId('twofa-enrol')).toBeNull();
     expect(screen.queryByTestId('twofa-challenge')).toBeNull();
     expect(client.me).not.toHaveBeenCalled();
   });
