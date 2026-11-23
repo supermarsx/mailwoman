@@ -1,77 +1,188 @@
-# Composer Format tab features
+---
+title: Composer features
+screen: true
+---
 
-Every control of the composer's Format tab is a feature an administrator or a user can switch off. Each has a setting `compose.feature.<id>` (Boolean, on by default, user and admin scope, with an admin lock and default). The list lives in `apps/web/src/components/compose/composeFeatures.ts`; Settings and Admin render their cards from it. A switched-off feature is not drawn and its keyboard shortcut does nothing.
+# Composer features
 
-Both visual editors (the rich text editor and the native HTML editor) honour the same flags.
+**Composer features** lets you switch individual controls of the message composer on or off for everyone, or for one domain, and lock the choice so that users cannot change it. Every control that has a switch is one of about sixty features in four groups: **Format**, **Insert**, **Layout** and **Options**. A feature that is off is not drawn in the composer.
 
-## Format features
+The card is part of the console's **Settings** screen. Users see a matching card, also called **Composer features**, in their own settings, where it shows "Set by your administrator" for anything you lock.
 
-| Id | What it controls | Shortcut |
-| --- | --- | --- |
-| `format.fontSizeStep` | Increase and decrease font size buttons (standard sizes 8 to 72 pt; Shift steps 1 pt) | Ctrl+Shift+> and Ctrl+Shift+<, Ctrl+] and Ctrl+[ for 1 pt |
-| `format.lists` | The bulleted and numbered list buttons | |
-| `format.listTypes` | The dropdown on each list button: bullet shapes, numbering styles, checklist, outline and 1.1.1 numbering, restart, continue, set start value | |
-| `format.indent` | Increase and decrease indent (40 px steps; list items change level) | Tab and Shift+Tab in a list |
-| `format.clearFormatting` | Clear formatting and its menu (all, text only, paragraph only, everything including links) | Ctrl+Space, Ctrl+\ |
-| `format.painter` | The Format Painter group: Copy formatting, Apply formatting, the chip. Double-click Copy formatting to paint several selections until Esc | |
-| `format.lineSpacing` | Line spacing (1.0, 1.15, 1.5, 2.0, custom) and space before and after | |
-| `format.direction` | Left-to-right and right-to-left buttons | |
-| `format.pasteOptions` | Keep formatting, merge formatting, text only | |
-| `format.strikethrough` | The strikethrough button | |
-| `format.doubleStrikethrough`, `format.superscript`, `format.subscript`, `format.smallCaps`, `format.allCaps`, `format.underlineStyle`, `format.ligatures`, `format.textScale`, `format.textOutline` | The entries of the Text effects menu | Ctrl+= subscript, Ctrl+Shift+= superscript |
-| `format.stylesRibbon` | The Styles group: tiles, the all-styles dropdown, style sets, Reset to Normal | Ctrl+Alt+0 to 6, Ctrl+Shift+N |
-| `format.customStyles` | Create style from selection, Update style, keeping your own styles | |
-| `format.fontDialog` | The Font dialog (family, size, colour, effects, underline style, spacing, live preview, Set as default) | Ctrl+D |
-| `format.sort` | The Sort control | |
+![The Settings screen searched for compose, with the Composer features card at the top of the list.](/screenshots/admin-ops/composer-features-card.webp){.mw-shot}
 
-## What goes out in the message
+## Before you start
 
-The sent HTML is plain: inline `style` attributes and legacy tags, no classes and no editor attributes.
+- You need a console role that can read and change settings. Without the change capability the card is read-only.
+- A feature is stored as a setting with the key `compose.feature.<id>` ([`compose.feature.*`](/admin/settings#compose.feature.*)). Each is a yes or no value that is on unless set otherwise, and it can be set globally, for a domain or by the user. The card writes the global and domain values.
 
-| Feature | Written as |
+## Switch features on or off
+
+1. Open **Settings** in the **Configuration** group.
+2. Type `compose` in **Search settings**. The **Composer features** card appears above the list. It also appears when you filter by the **Interface** category.
+3. Under **Applies to**, choose **Everyone (deployment default)** or **One domain**. For one domain, type the domain name in **Domain**. Everything below stays disabled until the domain name is valid.
+4. Tick or untick **Value** for a feature to turn it on or off.
+5. Tick **Lock for users** to stop users from changing the feature. The lock is stored with the value.
+6. Choose **Use default** to remove your value and lock again, so the feature falls back to the next level.
+
+Each change is saved as you make it, and the card says "Saved."
+
+![The top of the Composer features card with markers 1 and 2 on the Applies to and Profiles selectors, marker 3 on Apply profile, and markers 4 to 6 on the Value checkbox, the Lock for users checkbox and the Use default button of the first feature.](/screenshots/admin-ops/composer-features-controls.webp){.mw-crop}
+
+1. **Applies to** chooses everyone or one domain.
+2. **Profiles** chooses a set of features, see [Profiles](#profiles).
+3. **Apply profile** writes that set to every feature.
+4. **Value** switches the feature.
+5. **Lock for users** stops users from changing it.
+6. **Use default** removes the value and the lock at the chosen level.
+{.mw-callouts}
+
+## Profiles
+
+A profile sets every feature in one step, as the value at the level you chose in **Applies to**. It keeps each feature's lock as it is. Choose it in **Profiles** and then **Apply profile**.
+
+| Profile | Result |
 | --- | --- |
-| Bullet shapes disc, circle, square | `<ul style="list-style-type: square">` |
-| Numbering 1. a. A. i. I. | `<ol style="list-style-type: lower-alpha" type="a">` (the `type` attribute is for Outlook) |
-| Start value | `<ol start="4">` |
-| Dash, arrow, tick, checklist, `1)`, `01.`, `1.1.1` | `list-style-type: none` and the marker as text in front of each item (`<span>1.1&nbsp;</span>`). A checklist uses the glyphs U+2610 and U+2611 |
-| Indent | `margin-left: 40px` per step, or a nested list for a list item |
-| Text direction | `dir="rtl"` or `dir="ltr"` on the paragraph |
+| **Everything** | Every feature on |
+| **Simple (plain formatting only)** | Every feature on except those marked "no" in the **Simple** column below |
+| **Locked-down (no inserts, no rich features)** | Only the **Format** features marked "yes" in the **Locked-down** column below. Every **Insert**, **Layout** and **Options** feature is off |
+
+## Options
+
+Each row is one feature. All of them default to on, can be set globally, per domain and by users, and can be locked.
+
+### Format
+
+| Label | Setting key | What it controls | On in **Simple** | On in **Locked-down** |
+| --- | --- | --- | --- | --- |
+| Font size steps | `compose.feature.format.fontSizeStep` | Buttons and shortcuts that grow or shrink the font size along the standard sizes. | yes | yes |
+| Bulleted and numbered lists | `compose.feature.format.lists` | The two list buttons. | yes | yes |
+| List types | `compose.feature.format.listTypes` | The dropdown on each list button: bullet shapes, numbering styles, checklists and numbering controls. | no | no |
+| Indent | `compose.feature.format.indent` | Increase and decrease indent, and Tab and Shift+Tab in lists. | yes | yes |
+| Clear formatting | `compose.feature.format.clearFormatting` | The clear formatting button, its options and Ctrl+Space. | yes | yes |
+| Format painter | `compose.feature.format.painter` | Copy formatting and apply formatting. | no | no |
+| Line spacing | `compose.feature.format.lineSpacing` | Line spacing and the space before and after paragraphs. | no | no |
+| Text direction | `compose.feature.format.direction` | Left-to-right and right-to-left buttons. | no | no |
+| Paste options | `compose.feature.format.pasteOptions` | Keep formatting, merge formatting or paste text only. | no | no |
+| Strikethrough | `compose.feature.format.strikethrough` | The strikethrough button. | yes | yes |
+| Double strikethrough | `compose.feature.format.doubleStrikethrough` | Double strikethrough in the text effects menu. Some mail apps show a single line. | no | no |
+| Superscript | `compose.feature.format.superscript` | Superscript and Ctrl+Shift+=. | no | no |
+| Subscript | `compose.feature.format.subscript` | Subscript and Ctrl+=. | no | no |
+| Small caps | `compose.feature.format.smallCaps` | Small caps in the text effects menu. | no | no |
+| All caps | `compose.feature.format.allCaps` | All caps as a style, without changing the typed text. | no | no |
+| Underline styles | `compose.feature.format.underlineStyle` | Double, dotted, dashed, wavy and thick underlines. | no | no |
+| Ligatures | `compose.feature.format.ligatures` | Turn ligatures off for the selected text. Many mail apps ignore this. | no | no |
+| Text scale and spacing | `compose.feature.format.textScale` | Character width scale and condensed or expanded spacing. | no | no |
+| Text outline and shadow | `compose.feature.format.textOutline` | Outline and shadow built from text shadows. Client dependent. | no | no |
+| Styles gallery | `compose.feature.format.stylesRibbon` | The Styles group with headings, title, quote and code styles. | yes | yes |
+| Sort selection | `compose.feature.format.sort` | Sort lines, list items or table rows. | no | no |
+| Custom styles | `compose.feature.format.customStyles` | Create, update and keep your own styles in the Styles gallery. | no | no |
+| Font dialog | `compose.feature.format.fontDialog` | The Font dialog and Ctrl+D. | no | no |
+
+### Insert
+
+| Label | Setting key | What it controls | On in **Simple** | On in **Locked-down** |
+| --- | --- | --- | --- | --- |
+| Attach file | `compose.feature.insert.attachFile` | Attach a file from this device. | yes | no |
+| Signatures | `compose.feature.insert.signature` | Signatures | yes | no |
+| Manage signatures | `compose.feature.insert.signatureEdit` | Manage signatures | yes | no |
+| Attach from messages | `compose.feature.insert.attachFromMessages` | Pick attachments from other messages. | yes | no |
+| Picture from file | `compose.feature.insert.pictureFile` | Insert pictures from files, with size presets. | yes | no |
+| Picture from messages | `compose.feature.insert.pictureFromMessages` | Pick pictures from the attachments of other messages. | no | no |
+| Shapes | `compose.feature.insert.shapes` | Insert drawn shapes as pictures. | no | no |
+| Screenshot | `compose.feature.insert.screenshot` | Capture the screen or a window as a picture. | no | no |
+| Picture from web address | `compose.feature.insert.onlinePicture` | Fetch a picture from a web address through the image proxy. | no | no |
+| Business card | `compose.feature.insert.businessCard` | Insert a business card and its vCard. | no | no |
+| Calendar blocks | `compose.feature.insert.calendar` | Insert availability, an agenda or a month snapshot. | no | no |
+| Event | `compose.feature.insert.event` | Insert an event with an iCalendar invitation. | no | no |
+| Symbols | `compose.feature.insert.symbols` | Special characters and emoji. | yes | no |
+| Horizontal line | `compose.feature.insert.horizontalLine` | Insert a dividing line. | yes | no |
+| Date and time | `compose.feature.insert.dateStamp` | Insert the current date and time. | yes | no |
+| Link dialog | `compose.feature.insert.link` | Links with their own text, tooltip and safety check (Ctrl+K). | yes | no |
+| Drop to attach | `compose.feature.insert.dragDropAttach` | Drop files on the composer to attach them. | yes | no |
+| Drop images inline | `compose.feature.insert.dragDropInline` | Drop images into the body to place them inline. | no | no |
+| Drop messages | `compose.feature.insert.dropMessages` | Drop a message from the list to attach it as .eml. | no | no |
+
+### Layout
+
+| Label | Setting key | What it controls | On in **Simple** | On in **Locked-down** |
+| --- | --- | --- | --- | --- |
+| Columns | `compose.feature.layout.columns` | Write in two or three columns using mail-safe tables. | no | no |
+| Content width | `compose.feature.layout.contentWidth` | Limit the message to a fixed width and align it left or centred. | no | no |
+| Page and content colour | `compose.feature.layout.pageColor` | Colour the page behind the message and the content card. These colours are sent. | no | no |
+| Message themes | `compose.feature.layout.themes` | Apply a stationery theme with fonts, colours and spacing. | no | no |
+| Default message font | `compose.feature.layout.defaultFont` | Set the font family, size and colour used for new text. | yes | no |
+| Spacing | `compose.feature.layout.spacing` | Cell padding, column gutter and paragraph spacing presets. | no | no |
+| Collapsible message header | `compose.feature.layout.headerCollapse` | The corner button, Alt+H and the folded summary line for To, Cc, Bcc and Subject. | yes | no |
+| Ribbon auto-hide button | `compose.feature.layout.ribbonAutoHide` | The pin button in the ribbon's corner, Ctrl+F1 and double-click on a tab. | yes | no |
+
+### Options
+
+| Label | Setting key | What it controls | On in **Simple** | On in **Locked-down** |
+| --- | --- | --- | --- | --- |
+| Signature position | `compose.feature.options.signaturePosition` | Signature position | yes | no |
+| Save sent item to a folder | `compose.feature.options.sentFolder` | Choose the folder that receives the copy of a sent message, or skip the copy. | no | no |
+| Reply-To address | `compose.feature.options.replyTo` | Add a Reply-To header so replies go to a different address. | no | no |
+| Reply-By | `compose.feature.options.replyBy` | Ask recipients to answer by a date (Reply-By header). | yes | no |
+| Return receipt (legacy) | `compose.feature.options.returnReceipt` | The old Return-Receipt-To header, off unless an administrator allows it. | no | no |
+| Importance | `compose.feature.options.importance` | Mark a message as high or low importance. | yes | no |
+| Sensitivity | `compose.feature.options.sensitivity` | Mark a message as personal, private or company confidential. | no | no |
+| Expiry date | `compose.feature.options.expires` | Say after which date the message is no longer relevant (Expires header). | no | no |
+| Auto-Submitted | `compose.feature.options.autoSubmitted` | Mark a message as automatically generated (administrator gated). | no | no |
+| Conversation headers | `compose.feature.options.inReplyTo` | Show In-Reply-To and References, and start a new thread. | no | no |
+| Replaces an earlier message | `compose.feature.options.supersedes` | Name the message this one replaces (Supersedes header). | no | no |
+| Custom headers | `compose.feature.options.customHeaders` | Add your own headers (administrator gated). | no | no |
+
+
+## What the composer writes
+
+The message that leaves is plain HTML: inline `style` attributes and a few legacy tags, no classes and no editor markers. Some of what the controls write:
+
+| Control | Written as |
+| --- | --- |
+| Bullet shapes disc, circle, square | `list-style-type` on the list |
+| Numbering 1. a. A. i. I. | `list-style-type` and the `type` attribute |
+| Dash, arrow, tick, checklist, `1)`, `01.`, `1.1.1` | `list-style-type: none` and the marker as text in front of each item, because these have no dependable style in mail programs |
+| Indent | `margin-left` in steps of 40 px, or a nested list |
+| Text direction | the `dir` attribute on the paragraph |
 | Line spacing and space before and after | `line-height`, `margin-top`, `margin-bottom` |
 
-## Text effects and mail clients
+The text effects are written as follows. The menu in the composer shows the same two support levels.
 
 | Effect | Written as | Support |
 | --- | --- | --- |
-| Superscript, subscript | `<sup>`, `<sub>` | Works in most mail apps |
-| All caps | `text-transform: uppercase` (the typed text is not changed) | Works in most mail apps |
-| Character spacing | `letter-spacing: -0.05em` or `0.1em` | Works in most mail apps |
-| Small caps | `font-variant: small-caps` | Some apps ignore this |
-| Double strikethrough | `text-decoration: line-through; text-decoration-style: double` | Some apps ignore this: they show a single line |
-| Underline style | `text-decoration: underline; text-decoration-style: double, dotted, dashed or wavy`; thick uses `text-decoration-thickness: 2px` | Some apps ignore this: they show a single underline |
-| Ligatures off | `font-variant: no-common-ligatures` | Some apps ignore this |
-| Text scale 50 to 200% | `font-stretch` with a matching `letter-spacing` | Some apps ignore this. There is no mail-safe character width scaling; the letter spacing is the part that shows |
-| Outline | Four 1 px `text-shadow` copies in the chosen colour | Some apps ignore this: they show plain text. `-webkit-text-stroke` is not used because the sanitiser does not allow it |
-| Shadow | `text-shadow: 1px 1px 2px` | Some apps ignore this |
-
-The Text effects menu shows this support level next to each effect. The sanitiser (`mw-sanitize`, used by the server and by the editor in the browser) already allows each of these properties, and `apps/web/src/components/compose/NativeFormatTab.test.tsx` checks that they survive it.
+| Superscript, subscript | `<sup>`, `<sub>` | most mail programs |
+| All caps | `text-transform: uppercase`, the typed text is unchanged | most mail programs |
+| Condensed or expanded spacing | `letter-spacing: -0.05em` or `0.1em` | most mail programs |
+| Small caps | `font-variant: small-caps` | some programs show plain text |
+| Double strikethrough | `text-decoration: line-through` with `text-decoration-style: double` | some programs show a single line |
+| Underline style (double, dotted, dashed, wavy) | `text-decoration: underline` with `text-decoration-style`. Thick uses `text-decoration-thickness: 2px` | some programs show a single underline |
+| Ligatures off | `font-variant: no-common-ligatures` | some programs ignore it |
+| Text scale 50 to 200% | `font-stretch` and a matching `letter-spacing` | some programs ignore it |
+| Outline | four 1 px `text-shadow` copies in the chosen colour | some programs show plain text |
+| Shadow | `text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.4)` | some programs show plain text |
 
 ## Styles
 
-The Styles group has four tiles with live previews (Normal, No spacing, Heading 1, Heading 2), an All styles dropdown and three buttons: Create style from selection, Update style to match selection and Reset to Normal. The dropdown lists Normal, No spacing, Heading 1 to 6, Title, Subtitle, Strong, Emphasis, Intense emphasis, Quote, Intense quote, List paragraph, Task list item, Code (inline), Code and Caption, then the four style sets (Default, Modern, Classic, Compact) and the user's own styles.
+Three more settings belong to the **Styles** group of the **Format text** tab.
 
-A style is written as plain tags and inline CSS: `h1` to `h6`, `blockquote`, `pre` or `p`, with `margin-top`/`margin-bottom`/`line-height`/`text-align`/`margin-left` on the block and a `span` with `font-size`, `font-family`, `color`, `font-weight` and `font-style` (or the rich editor's `strong`/`em`) around the text. A Task list item is a checklist (see above). No classes and no editor attributes are sent.
+| Label | What it does | Default | Who can change it |
+| --- | --- | --- | --- |
+| **Style set** ([`compose.styles.defaultSet`](/admin/settings#compose.styles.defaultset)) | The style set the gallery starts with: `default`, `modern`, `classic` or `compact` | `default` | Administrators globally and per domain, and users, unless locked |
+| **Custom styles per user** ([`compose.styles.maxCustom`](/admin/settings#compose.styles.maxcustom)) | The most custom styles a user keeps, 0 to 100. 0 turns **Custom styles** off | 20 | Same |
+| [`compose.styles.custom`](/admin/settings#compose.styles.custom) | A user's own styles as JSON, written by the gallery | empty | Users, through the gallery |
 
-| Setting | What it does |
-| --- | --- |
-| `compose.styles.defaultSet` | The style set a user starts with (`default`, `modern`, `classic`, `compact`). Users switch set in the gallery; an administrator can lock it |
-| `compose.styles.maxCustom` | Most custom styles a user keeps (0 to 100, default 20). 0 turns Create style off. Updating a built-in style stores an override that does not count |
-| `compose.styles.custom` | The user's styles as JSON, written by the gallery |
+The **Font dialog** writes its **Set as default** choice to **Default message font** ([`compose.layout.defaultFont`](/admin/settings#compose.layout.defaultfont)), which is the same setting the **Layout** tab uses.
 
-The Font dialog's Set as default writes `compose.layout.defaultFont` (family|size in px|colour), the setting the Layout tab uses.
+## Troubleshooting
 
-## Not built
+- **The Composer features card does not appear.** It is shown when the **Interface** category is selected, or when the search text contains `compos`, and only after the settings list has loaded. Search for `compose`.
+- **The checkboxes are disabled.** Either your role cannot change settings, or **Applies to** is **One domain** and the domain name is not valid yet. Type the full domain name, for example `example.com`.
+- **A user cannot switch a feature.** You locked it. Choose **Use default** to remove the lock.
 
-- Fallbacks for clients that ignore an effect. A nested-span pair for double strikethrough would draw a different line in the clients that support it, and a small caps fallback of smaller uppercase spans would change the typed text, so both stay as one declaration that such clients show as plain text.
-- `-webkit-text-stroke` for the outline. It is not in the `mw-sanitize` allow-list (`crates/mw-sanitize/src/lib.rs`, `is_allowed_property`). Adding it needs that allow-list extended with a test and the wasm rebuilt.
-- `font-variant-ligatures` is not in the allow-list either, so the ligature effect uses `font-variant: no-common-ligatures`.
-- Style shortcuts in the native editor use the style set from the settings, not a set picked in the gallery during the same session.
+## Related
+
+- [Composer ribbon](/deploy/composer-ribbon) for the layout of the ribbon
+- [Fonts](/deploy/fonts) for the fonts the editor offers
+- [Settings](/admin/settings) for every setting key
+- [Outbox, recall and scheduled sending](/admin/outbox-recall) for the delivery side of the composer
