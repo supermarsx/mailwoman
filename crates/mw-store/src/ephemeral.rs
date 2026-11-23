@@ -114,29 +114,28 @@ impl Store {
     }
 
     /// Count the persisted sessions that are still within their deadlines.
+    /// Three independent reads, sent as one read unit.
     pub async fn session_counts(&self) -> Result<SessionCounts, StoreError> {
         let now = Utc::now().timestamp();
-        let count = |row: crate::backend::Row| row.get_i64("n");
-        let mailbox = count(
-            q("SELECT COUNT(*) AS n FROM sessions WHERE linked_internal = 0")
-                .fetch_one(&self.backend)
-                .await?,
-        );
-        let native = count(
-            q("SELECT COUNT(*) AS n FROM native_sessions")
-                .fetch_one(&self.backend)
-                .await?,
-        );
-        let admin = count(
-            q("SELECT COUNT(*) AS n FROM admin_sessions WHERE expires_at > ?1 AND absolute_expires_at > ?1")
-                .bind(now)
-                .fetch_one(&self.backend)
-                .await?,
-        );
+        let rows = self
+            .backend
+            .fetch_all_unit(vec![
+                q("SELECT COUNT(*) AS n FROM sessions WHERE linked_internal = 0"),
+                q("SELECT COUNT(*) AS n FROM native_sessions"),
+                q("SELECT COUNT(*) AS n FROM admin_sessions WHERE expires_at > ?1 AND absolute_expires_at > ?1")
+                    .bind(now),
+            ])
+            .await?;
+        let count = |i: usize| -> Result<i64, StoreError> {
+            Ok(rows[i]
+                .first()
+                .ok_or_else(|| StoreError::Corrupt("session count returned no row".into()))?
+                .get_i64("n"))
+        };
         Ok(SessionCounts {
-            mailbox,
-            native,
-            admin,
+            mailbox: count(0)?,
+            native: count(1)?,
+            admin: count(2)?,
         })
     }
 
@@ -581,6 +580,24 @@ mod session_touch_tests {
                 .unwrap();
             assert_eq!(due, changed == 1, "{last_seen:?}");
         }
+    }
+    #[tokio::test]
+    async fn session_counts_are_one_read_unit() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let first = session(&store).await;
+        session(&store).await;
+        q("UPDATE sessions SET linked_internal=1 WHERE id=?1")
+            .bind(&first)
+            .execute(&store.backend)
+            .await
+            .unwrap();
+        let (counts, queries) =
+            crate::pool_telemetry::measure_queries(store.session_counts()).await;
+        let counts = counts.unwrap();
+        assert_eq!((counts.mailbox, counts.native, counts.admin), (1, 0, 0));
+        assert_eq!(queries.read.calls, 3);
+        assert_eq!(queries.acquire.calls, 1);
+        store.close().await;
     }
     #[tokio::test]
     async fn precheck_predicts_the_sqlite_update() {

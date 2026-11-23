@@ -135,7 +135,17 @@ async fn untracked_writes_are_found_by_the_wal_modification_time() {
         }
     }
     assert!(settled, "untracked WAL frames were never checkpointed");
-    assert!(live.wal_checkpoint_stats().rounds > before);
+    // The round is counted after its private connection closes, which can be
+    // just after the database file has grown.
+    let mut counted = false;
+    for _ in 0..40 {
+        if live.wal_checkpoint_stats().rounds > before {
+            counted = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(counted, "the checkpoint was not made by a background round");
     assert_eq!(live.wal_checkpoint_stats().failures, 0);
     store.close().await;
 }

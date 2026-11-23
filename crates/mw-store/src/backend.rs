@@ -680,6 +680,181 @@ impl Row {
     }
 }
 
+// ── read units ──────────────────────────────────────────────────────────────
+
+/// Read units kept as one SQLite text, keyed by the addresses of their static
+/// statements. Bounded: a unit built from runtime SQL beyond this is rebuilt.
+const READ_UNIT_CAPACITY: usize = 1024;
+thread_local! {
+    static READ_UNITS: std::cell::RefCell<std::collections::HashMap<Vec<(usize, usize)>, &'static UnitText>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// One SQLite text holding every statement of a unit, `;`-separated, with
+/// every `?n` turned into an anonymous `?`. `slots[i]` lists, for statement
+/// `i`, the 0-based argument behind each `?` in order. SQLx binds anonymous
+/// parameters of a multi-statement text one after another; numbered ones
+/// would leave unused lower slots that its binder counts as positional.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct UnitText {
+    text: String,
+    slots: Vec<Vec<usize>>,
+}
+fn build_unit_text(parts: &[&'static str]) -> UnitText {
+    let mut text = String::new();
+    let mut slots = Vec::with_capacity(parts.len());
+    for part in parts {
+        let part = part.trim().trim_end_matches(';').trim_end();
+        let mut used = Vec::new();
+        let bytes = part.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'?' && bytes.get(i + 1).is_some_and(u8::is_ascii_digit) {
+                let start = i + 1;
+                let mut end = start;
+                while end < bytes.len() && bytes[end].is_ascii_digit() {
+                    end += 1;
+                }
+                let n: usize = part[start..end].parse().unwrap_or(0);
+                used.push(n.saturating_sub(1));
+                text.push('?');
+                i = end;
+            } else {
+                let c = part[i..].chars().next().expect("char boundary");
+                text.push(c);
+                i += c.len_utf8();
+            }
+        }
+        text.push_str(";
+");
+        slots.push(used);
+    }
+    UnitText { text, slots }
+}
+fn sqlite_unit_text(parts: &[&'static str]) -> std::borrow::Cow<'static, UnitText> {
+    let key: Vec<(usize, usize)> = parts.iter().map(|s| (s.as_ptr() as usize, s.len())).collect();
+    if let Some(hit) = READ_UNITS.with(|cache| cache.borrow().get(&key).copied()) {
+        return std::borrow::Cow::Borrowed(hit);
+    }
+    let unit = build_unit_text(parts);
+    READ_UNITS.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if cache.len() < READ_UNIT_CAPACITY {
+            let leaked: &'static UnitText = Box::leak(Box::new(unit));
+            cache.insert(key, leaked);
+            std::borrow::Cow::Borrowed(leaked)
+        } else {
+            std::borrow::Cow::Owned(unit)
+        }
+    })
+}
+
+fn is_read_statement(sql: &str) -> bool {
+    let head = sql.trim_start();
+    ["SELECT", "WITH", "VALUES"]
+        .iter()
+        .any(|verb| head.len() >= verb.len() && head[..verb.len()].eq_ignore_ascii_case(verb))
+}
+
+impl Backend {
+    /// Run independent read statements as one unit and return each statement's
+    /// rows in order. On SQLite the unit takes one pooled connection and is sent
+    /// to its worker thread as ONE multi-statement command, instead of one
+    /// acquisition, one command and one release check per statement. On
+    /// PostgreSQL it takes one pooled connection for all statements.
+    ///
+    /// Every statement still runs on its own, in autocommit mode, exactly as
+    /// separate calls would: this does not add a shared snapshot. Only reads
+    /// (SELECT / WITH / VALUES) are accepted. Use it for small sets of reads
+    /// that do not depend on each other's results. Telemetry still counts each
+    /// statement; the unit's elapsed time is recorded for every statement.
+    pub(crate) async fn fetch_all_unit(&self, reads: Vec<Sql>) -> Result<Vec<Vec<Row>>, sqlx::Error> {
+        if reads.is_empty() {
+            return Ok(Vec::new());
+        }
+        if let Some(bad) = reads.iter().find(|read| !is_read_statement(read.sql)) {
+            return Err(sqlx::Error::Protocol(format!(
+                "read unit accepts read statements only ({})",
+                bad.origin
+            )));
+        }
+        let mut timers: Vec<_> = reads
+            .iter()
+            .map(|read| crate::pool_telemetry::QueryTimer::start(read.sql))
+            .collect();
+        let inputs: Vec<u64> = reads
+            .iter()
+            .map(|read| crate::database_growth::input_bytes(&read.args))
+            .collect();
+        let meta: Vec<(&'static str, &'static std::panic::Location<'static>)> =
+            reads.iter().map(|read| (read.sql, read.origin)).collect();
+        let results: Vec<Vec<Row>> = match self {
+            Backend::Sqlite(p) => {
+                use futures_util::TryStreamExt;
+                let parts: Vec<&'static str> = reads.iter().map(|read| read.sql).collect();
+                let unit = sqlite_unit_text(&parts);
+                let mut args = Vec::new();
+                for (read, slots) in reads.into_iter().zip(&unit.slots) {
+                    for &slot in slots {
+                        // An unbound ?n is NULL in SQLite; keep that meaning.
+                        args.push(read.args.get(slot).cloned().unwrap_or(Arg::OptInt(None)));
+                    }
+                }
+                let mut stream = sqlx::Executor::fetch_many(p, build_sqlite(&unit.text, args));
+                let mut out: Vec<Vec<Row>> = vec![Vec::new()];
+                while let Some(item) = stream.try_next().await? {
+                    match item {
+                        sqlx::Either::Left(_) => out.push(Vec::new()),
+                        sqlx::Either::Right(row) => {
+                            out.last_mut().expect("current statement").push(Row::Sqlite(row))
+                        }
+                    }
+                }
+                drop(stream);
+                // Each statement ends with one completion; drop the empty tail.
+                out.pop();
+                if out.len() != parts.len() {
+                    return Err(sqlx::Error::Protocol(format!(
+                        "read unit returned {} results for {} statements",
+                        out.len(),
+                        parts.len()
+                    )));
+                }
+                out
+            }
+            Backend::Postgres(p) => {
+                let mut connection = crate::pool_telemetry::acquire(p).await?;
+                let mut out = Vec::with_capacity(reads.len());
+                for read in &reads {
+                    let sql = dialect::postgres_static(read.sql);
+                    out.push(
+                        build_pg(&sql, &read.args)
+                            .fetch_all(&mut *connection)
+                            .await?
+                            .into_iter()
+                            .map(Row::Postgres)
+                            .collect(),
+                    );
+                }
+                out
+            }
+        };
+        for (((timer, rows), input), (sql, origin)) in
+            timers.iter_mut().zip(&results).zip(inputs).zip(meta)
+        {
+            crate::database_growth::record_write_bytes(sql, origin, input, rows.len() as u64);
+            #[cfg(feature = "query-shape-diagnostics")]
+            timer.returned_rows(rows.len() as u64);
+            timer.success();
+        }
+        Ok(results)
+    }
+}
+
+#[cfg(test)]
+#[path = "backend_read_unit_tests.rs"]
+mod read_unit_tests;
+
 // ── transactions ────────────────────────────────────────────────────────────
 
 /// A backend-tagged transaction (pool-derived, hence `'static`).

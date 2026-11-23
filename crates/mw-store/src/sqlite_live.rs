@@ -4,7 +4,8 @@
 //! replacement. This is an application admission gate, not cross-process fencing.
 use futures_util::{TryStreamExt, future::BoxFuture, stream::BoxStream};
 use sqlx::{
-    Describe, Either, Error, Execute, Executor, Sqlite, SqliteConnection, SqlitePool, Transaction,
+    Describe, Either, Error, Execute, Executor, Sqlite, SqliteConnection, SqlitePool,
+    TransactionManager,
     pool::PoolConnection,
     sqlite::{SqliteConnectOptions, SqliteQueryResult, SqliteRow, SqliteStatement, SqliteTypeInfo},
 };
@@ -302,18 +303,23 @@ impl LiveSqlite {
     pub(crate) async fn begin(&self) -> Result<LiveTransaction, Error> {
         let pin = self.pin().await;
         let connection = acquire_pinned(&pin).await?;
-        // SQLx custom-BEGIN completion contains an await before its rollback guard
-        // exists. An owning task covers both that transition and the admission lease.
-        tokio::spawn(async move {
-            let transaction =
-                Transaction::begin(connection, Some("BEGIN IMMEDIATE".into())).await?;
-            Ok(LiveTransaction {
-                transaction: Some(transaction),
-                pin,
-            })
-        })
-        .await
-        .map_err(|error| Error::Protocol(format!("SQLite transaction task failed: {error}")))?
+        // The guard exists, marked open, BEFORE the first BEGIN await. SQLx's
+        // custom-BEGIN completion awaits again (its in-transaction check) after
+        // the worker ran BEGIN; a cancellation at either await drops this guard,
+        // which queues a rollback ahead of the connection's return to the pool.
+        // The worker treats that rollback as a no-op at depth 0 and rolls back
+        // a BEGIN it already ran, so no task is needed to own the transition.
+        let mut transaction = LiveTransaction {
+            connection,
+            open: true,
+            pin,
+        };
+        <Sqlite as sqlx::Database>::TransactionManager::begin(
+            &mut *transaction.connection,
+            Some("BEGIN IMMEDIATE".into()),
+        )
+        .await?;
+        Ok(transaction)
     }
     pub(crate) async fn exclusive(&self) -> ExclusiveSqlite {
         ExclusiveSqlite {
@@ -576,20 +582,30 @@ impl DerefMut for GuardedConnection {
 }
 
 pub(crate) struct LiveTransaction {
-    // Dropping a transaction queues rollback before the pool lease is released.
-    transaction: Option<Transaction<'static, Sqlite>>,
+    // Field drop order is significant: Drop queues the rollback, then the
+    // connection returns to the pool (its release ping flushes the rollback),
+    // and only then is the generation pin released.
+    connection: PoolConnection<Sqlite>,
+    open: bool,
     #[allow(dead_code)]
     pin: PinnedPool,
+}
+impl Drop for LiveTransaction {
+    fn drop(&mut self) {
+        if self.open {
+            <Sqlite as sqlx::Database>::TransactionManager::start_rollback(&mut *self.connection);
+        }
+    }
 }
 impl Deref for LiveTransaction {
     type Target = SqliteConnection;
     fn deref(&self) -> &Self::Target {
-        self.transaction.as_ref().expect("live transaction")
+        &self.connection
     }
 }
 impl DerefMut for LiveTransaction {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.transaction.as_mut().expect("live transaction")
+        &mut self.connection
     }
 }
 impl LiveTransaction {
@@ -597,20 +613,15 @@ impl LiveTransaction {
         self.pin.active_options().get_filename().to_path_buf()
     }
     pub(crate) async fn commit(mut self) -> Result<(), Error> {
-        self.transaction
-            .take()
-            .expect("live transaction")
-            .commit()
-            .await?;
+        <Sqlite as sqlx::Database>::TransactionManager::commit(&mut *self.connection).await?;
+        self.open = false;
         self.pin._owner.wal.note_write();
         Ok(())
     }
     pub(crate) async fn rollback(mut self) -> Result<(), Error> {
-        self.transaction
-            .take()
-            .expect("live transaction")
-            .rollback()
-            .await
+        <Sqlite as sqlx::Database>::TransactionManager::rollback(&mut *self.connection).await?;
+        self.open = false;
+        Ok(())
     }
 }
 
