@@ -15,6 +15,9 @@ const shapes=Object.freeze({identity:['authenticated-identity'],mailboxes:['Mail
 // headers and unmarked ordinary headers, which Rust can support; labels alone
 // do not distinguish them. Exclusion is not proof of server ineligibility.
 const eligible=new Set(['authenticated-identity','Mailbox/get','Email/query','paged-query-and-headers','body-and-attachment-metadata','mark-read-and-restore','move-and-restore']);
+// Whether a campaign endpoint group contains at least one request in the conservative
+// known subset above, i.e. whether published inputs are expected to be consumed for it.
+export function requestInputsGroupConsumes(endpoint){const names=shapes[endpoint];return Array.isArray(names)&&names.some(name=>eligible.has(name));}
 const add=(a,b)=>{const sum=a+b;if(!Number.isSafeInteger(sum))throw Error('Request-input receipt counter overflow');return sum;};
 // Published inputs are built and consumed only on the SQLite store (the server
 // skips them when `!store.uses_sqlite()`, request_inputs.rs). Only a backend the

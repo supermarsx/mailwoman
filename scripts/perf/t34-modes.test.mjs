@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseT34Selection,ARMS,armEnvLines,armSelection,t34ModesEvidence,sqlStatementsPerHttp,checkReport,buildCampaign,runOrder,SELECTORS} from './t34-modes.mjs';
+import {requestInputsGroupConsumes} from './request-inputs-experiment.mjs';
+import {GUARD_SNAPSHOT_LOOKUPS,parseT34Selection,ARMS,armEnvLines,armSelection,t34ModesEvidence,sqlStatementsPerHttp,checkReport,buildCampaign,runOrder,SELECTORS} from './t34-modes.mjs';
 import {indexPublicationReport} from './index-publication-health.mjs';
 
 const pub=(o={})=>({running:true,poisoned:false,requiresFullRebuild:false,pendingJobs:0,pendingBytes:0,queuedJobs:0,submittedJobs:10,completedJobs:10,failedJobs:0,publishedBatches:5,publishedChanges:10,revalidations:0,pendingRepairMessages:0,erasingAccounts:0,maxPendingJobs:128,maxPendingBytes:16777216,maxBatchDocuments:4096,
@@ -190,4 +191,37 @@ test('missing stages or handoff never throw: legacy has no evidence, empty is in
  assert.equal(t34ModesEvidence(undefined,[]),null);
  assert.equal(t34ModesEvidence(handoff('baseline'),[]).valid,false);
  assert.equal(t34ModesEvidence({schema:2},[stage('identity',{},{})]).valid,false);
+});
+
+// ---- backend and per-group expectations ----
+test('request-input verdict is backend aware: a non-SQLite backend must consume nothing and is not invalid',()=>{
+ const st=[stage('identity',snap(),snap())],pg=(consumed,backend='postgres')=>({expectedMode:'published',startup:{mode:'published'},consumedFramesDelta:consumed,backend});
+ const ok=t34ModesEvidence(handoff('baseline'),st,{requestInputsEvidence:pg(0)});
+ assert.equal(ok.valid,true,ok.invalidReasons.join());assert.equal(ok.modes.requestInputs.status,'not-applicable-backend');
+ const bad=t34ModesEvidence(handoff('baseline'),st,{requestInputsEvidence:pg(3)});
+ assert.equal(bad.valid,false);assert.match(bad.invalidReasons.join(),/does not publish/);
+ for(const backend of ['sqlite-or-unnamed',null]){const r=t34ModesEvidence(handoff('baseline'),st,{requestInputsEvidence:{...pg(0),backend}});assert.equal(r.valid,false);assert.match(r.invalidReasons.join(),/zero frames/);}
+});
+test('published inputs are required only when an accepted group is in the consuming subset',()=>{
+ const idle={expectedMode:'published',startup:{mode:'published'},consumedFramesDelta:0};
+ for(const endpoint of ['headers','attachment','refresh','jmap-session','list-batch','changes','account-polls'])assert.equal(requestInputsGroupConsumes(endpoint),false,endpoint);
+ for(const endpoint of ['identity','mailboxes','query','mixed','representative','paged-headers','reader','flag-write','move-write'])assert.equal(requestInputsGroupConsumes(endpoint),true,endpoint);
+ assert.equal(t34ModesEvidence(handoff('baseline'),[stage('headers',snap(),snap())],{requestInputsEvidence:idle}).valid,true);
+ assert.equal(t34ModesEvidence(handoff('baseline'),[stage('account-polls',snap(),snap())],{requestInputsEvidence:idle}).valid,true);
+ const mixed=t34ModesEvidence(handoff('baseline'),[stage('headers',snap(),snap()),stage('identity',snap(),snap())],{requestInputsEvidence:idle});
+ assert.equal(mixed.valid,false);assert.match(mixed.invalidReasons.join(),/zero frames/);
+ assert.equal(t34ModesEvidence(handoff('baseline'),[stage('identity',snap(),snap(),{accepted:0})],{requestInputsEvidence:idle}).valid,true,'a group with nothing accepted proves nothing either way');
+});
+test('guard snapshot lookups are required per group: account-polls never consult the snapshot',()=>{
+ const g0=guard({mode:'bounded',polls:5,hits:10,misses:2}),g1=guard({mode:'bounded',polls:40,hits:900,misses:30}),flat={...g1,polls:60};
+ assert.equal(GUARD_SNAPSHOT_LOOKUPS['account-polls'],false);
+ for(const endpoint of ['identity','jmap-session','list-batch','changes','headers'])assert.equal(GUARD_SNAPSHOT_LOOKUPS[endpoint],true,endpoint);
+ const polls=t34ModesEvidence(handoff('snapshot'),[stage('identity',snap({g:g0}),snap({g:g1})),stage('account-polls',snap({g:g1}),snap({g:flat}))]);
+ assert.equal(polls.modes.guardSnapshot.status,'active',polls.invalidReasons.join());
+ const only=t34ModesEvidence(handoff('snapshot'),[stage('account-polls',snap({g:g0}),snap({g:{...g0,polls:9}}))]);
+ assert.equal(only.modes.guardSnapshot.status,'active',only.invalidReasons.join());
+ const missing=t34ModesEvidence(handoff('snapshot'),[stage('identity',snap({g:g0}),snap({g:g1})),stage('list-batch',snap({g:g1}),snap({g:flat}))]);
+ assert.match(missing.invalidReasons.join(),/no snapshot lookups in list-batch/);
+ const unknown=t34ModesEvidence(handoff('snapshot'),[stage('identity',snap({g:g0}),snap({g:g1})),stage('brand-new-group',snap({g:g1}),snap({g:flat}))]);
+ assert.match(unknown.invalidReasons.join(),/no snapshot lookups in brand-new-group/);
 });

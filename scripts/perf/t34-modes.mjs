@@ -23,7 +23,7 @@
 // journalRows, journalAcknowledgedRows, journalAckFailures, journalReplayedKeys, readFenceWaits/Timeouts/Refusals.
 import {readFile} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
-import {requestInputsExpected} from './request-inputs-experiment.mjs';
+import {requestInputsExpected,requestInputsGroupConsumes,requestInputsBackendSkipsPublished} from './request-inputs-experiment.mjs';
 import {indexPublicationReport} from './index-publication-health.mjs';
 
 const word=(name,values)=>({name,kind:'word',values});
@@ -86,6 +86,13 @@ export function armEnvLines(name){const {env}=armSelection(name);return Object.e
 
 // ---- evidence ---------------------------------------------------------------------------------
 const MUTATING=new Set(['representative','flag-write','move-write']);
+// Per endpoint group: does the group's routes consult the bounded guard snapshot (hit or miss)?
+// Observed live: the /api/account/* polls never consult it. Everything else is expected to,
+// and so is any group not listed (strict by default). Published request inputs are decided by
+// requestInputsGroupConsumes (request-inputs-experiment.mjs), the same known subset the receipt uses.
+export const GUARD_SNAPSHOT_LOOKUPS=Object.freeze({mixed:true,identity:true,mailboxes:true,query:true,headers:true,refresh:true,representative:true,'paged-headers':true,reader:true,attachment:true,'flag-write':true,'move-write':true,
+ 'jmap-session':true,'list-batch':true,changes:true,'account-polls':false});
+const expectsLookups=endpoint=>GUARD_SNAPSHOT_LOOKUPS[endpoint]!==false;
 const GUARD_COUNTERS=['polls','failures','rowsApplied','hits','misses','expedites'];
 const WB_COUNTERS=['flushed','batches','writeThroughs','writeThroughFailures','flushFailures','rejected','dropped','loads'];
 const nonneg=v=>Number.isSafeInteger(v)&&v>=0;
@@ -124,8 +131,8 @@ function guardVerdict(expected,rows){
   else{
    if(observed.some(o=>o.before.mode!=='bounded'||o.after.mode!=='bounded'))reasons.push('server reports the guard snapshot is not bounded');
    if(deltas.polls<=0)reasons.push('zero mirror polls');
-   if(deltas.hits<=0)reasons.push('zero snapshot reuses (hits)');
-   for(const r of rows)if(r.accepted>0&&delta(r.guard.after.hits,r.guard.before.hits)+delta(r.guard.after.misses,r.guard.before.misses)<=0)reasons.push(`no snapshot lookups in ${r.endpoint} c=${r.concurrency}`);
+   if(deltas.hits<=0&&rows.some(r=>r.accepted>0&&expectsLookups(r.endpoint)))reasons.push('zero snapshot reuses (hits)');
+   for(const r of rows)if(r.accepted>0&&expectsLookups(r.endpoint)&&delta(r.guard.after.hits,r.guard.before.hits)+delta(r.guard.after.misses,r.guard.before.misses)<=0)reasons.push(`no snapshot lookups in ${r.endpoint} c=${r.concurrency}`);
    if(deltas.failures>0&&deltas.hits===0)reasons.push('mirror polls failed and nothing was reused');
   }
   return {expected,status:reasons.length?'invalid':'active',reasons,deltas,fallbacksToFreshPath:deltas.misses,reuses:deltas.hits};
@@ -186,16 +193,20 @@ function protectionVerdict(expected,rows){
  return {expected,status:'off-unwitnessed',reasons,deltas};
 }
 
-function inputsVerdict(expected,evidence){
+function inputsVerdict(expected,evidence,rows=[]){
  if(expected===undefined)return {expected:null,status:'unclaimed',reasons:[]};
  const reasons=[];
  if(!evidence)reasons.push('request-input evidence missing');
  else{
   if(evidence.expectedMode!==expected||evidence.startup?.mode!==expected)reasons.push(`request inputs mode is not ${expected}`);
-  if(expected==='published'&&!(evidence.consumedFramesDelta>0))reasons.push('published request inputs consumed zero frames');
+  // Published inputs exist only on SQLite; a handoff naming another backend must consume none.
+  const noPublish=requestInputsBackendSkipsPublished(evidence.backend==='sqlite-or-unnamed'?undefined:evidence.backend);
+  const needed=rows.length===0||rows.some(r=>r.accepted>0&&requestInputsGroupConsumes(r.endpoint));
+  if(expected==='published'&&noPublish){if(evidence.consumedFramesDelta!==0)reasons.push('published request inputs consumed frames on a backend that does not publish them');}
+  else if(expected==='published'&&needed&&!(evidence.consumedFramesDelta>0))reasons.push('published request inputs consumed zero frames');
   if(expected==='original'&&evidence.consumedFramesDelta!==0)reasons.push('original request inputs recorded candidate work');
  }
- return {expected,status:reasons.length?'invalid':'active',reasons,consumedFramesDelta:evidence?.consumedFramesDelta??null};
+ return {expected,status:reasons.length?'invalid':evidence&&expected==='published'&&requestInputsBackendSkipsPublished(evidence.backend==='sqlite-or-unnamed'?undefined:evidence.backend)?'not-applicable-backend':'active',reasons,consumedFramesDelta:evidence?.consumedFramesDelta??null};
 }
 
 /** Statements per HTTP request from request-profile query counters; null (labelled) when uninstrumented. */
@@ -223,7 +234,7 @@ export function t34ModesEvidence(handoff,stages,{requestInputsEvidence}={}){
  if(!Array.isArray(stages)||!stages.length)return invalid('no measured stages: no t34 mode evidence');
  const rows=stages.map(observe);
  const modes={guardSnapshot:guardVerdict(claimed.guardSnapshot,rows),indexPublication:journalVerdict(claimed.indexAck,rows),requestProtection:protectionVerdict(claimed.requestProtection,rows),
-  requestInputs:inputsVerdict(requestInputsEvidence?.expectedMode??handoff.requestInputsExpected,requestInputsEvidence)};
+  requestInputs:inputsVerdict(requestInputsEvidence?.expectedMode??handoff.requestInputsExpected,requestInputsEvidence,rows)};
  const reasons=Object.entries(modes).flatMap(([name,v])=>v.reasons.map(r=>`${name}: ${r}`));
  const sql=sqlStatementsPerHttp(stages);
  return {schema:1,requested:req,startup:handoff.startup??null,valid:reasons.length===0,invalidReasons:reasons,modes,sqlPerHttp:sql,
