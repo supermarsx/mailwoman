@@ -17,7 +17,7 @@ function context(linkId=activeLinkedMailbox()?.linkId??null):NetworkContext{
  const account=preferenceAccount(),active=activeLinkedMailbox()?.linkId??null;
  return {preferWebSocket:actionSettings()['realtime.actions.preferWebSocket']?.value===true&&actionSettings()['realtime.actions.enabled']?.value!==false,base:`${location.origin}${basePath()}`,linkId,...(account?.storageAuthority&&linkId===active?{owner:{accountId:account.id,storageAuthority:account.storageAuthority}}:{})};
 }
-function connection():Connection|undefined{
+function openConnection():Connection|undefined{
  if(shared)return shared;
  if(typeof SharedWorker==='undefined'){shared=createChannelNetworkConnection(context());return shared;}
  let worker:SharedWorker;
@@ -51,6 +51,21 @@ function connection():Connection|undefined{
  return shared;
 }
 
+/**
+ * Development and test builds only (`import.meta.env` is replaced at build time, so this is dead code in production):
+ * every call crosses postMessage (shared worker) or a BroadcastChannel, and a Solid store proxy, a function or a DOM node
+ * in the payload fails there with a message that names no caller. Clone the payload first and name the method instead.
+ * The clone is discarded; no call here passes a transfer list, so nothing is transferred or detached.
+ */
+export function assertCloneable(method:string,payload:unknown):void{
+ try{structuredClone(payload);}catch(error){throw new Error(`Network call "${method}" has a payload that cannot be structured-cloned (a Solid store proxy, function or DOM node?): ${error instanceof Error?error.message:String(error)}`);}
+}
+let guarded:Connection|undefined;
+function connection():Connection|undefined{
+ const inner=openConnection();if(!inner||!(import.meta.env.DEV||import.meta.env.MODE==='test'))return inner;
+ if(guarded?.subscribe===inner.subscribe)return guarded;
+ return guarded={...inner,call:(method,scope,extra,signal)=>{try{assertCloneable(method,{method,context:scope,...extra});}catch(error){return Promise.reject(error);}return inner.call(method,scope,extra,signal);}};
+}
 export function withSharedNetwork(client:Client):Client{
  const channel=connection();if(!channel)return client;
  const network=new Set<(up:boolean)=>void>(),unauthorized=new Set<()=>void>();
