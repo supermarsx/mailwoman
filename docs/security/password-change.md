@@ -1,86 +1,65 @@
-# In-app password change (V7)
+# Password change
 
-V7 (release 26.8.0) adds in-app password change (`mw-passwd`): a user can change their
-account password from Mailwoman, against a pluggable backend. It also handles the
-consequences of a password change for sealed upstream credentials and for zero-access
-accounts.
+Users can change their mail password from Mailwoman under **Settings** > **Security centre** > **Sign-in & passkeys** > **Change password**. Mailwoman does not change the password itself; it passes the change to a backend that the operator chooses. This page describes the backends, what the server sees and stores, and how a forced change works.
 
-Password change is **opt-in and backend-selected** per deployment. If no backend is
-configured, the password-change UI is not shown.
+<!-- screenshot: id=security/password-change-form; screen=Settings > Security centre > Sign-in & passkeys; state=form empty, policy shown; element=Change password form with Current password, New password and Confirm new password -->
 
-## Backends
+## Choosing a backend
 
-`mw-passwd` implements a `PasswordChangeBackend` trait with these backends:
+`MW_PASSWD_BACKEND` selects the backend. A missing required variable or an unknown value stops the server at start with an error naming the variable; nothing falls back silently.
 
-| Backend | How it changes the password |
-|---|---|
-| `Local` | updates the local Mailwoman credential store |
-| `Ldap3062` | LDAP Password Modify Extended Operation (RFC 3062) |
-| `DovecotHttp` | Dovecot HTTP admin API |
-| `Poppassd` | the poppassd protocol |
-| `WebhookHmac` | POST to a custom webhook, payload signed with HMAC-SHA256 |
+| Value | What it does | Variables |
+|---|---|---|
+| unset or `local` | Replaces an Argon2id hash kept in Mailwoman's own settings table (`passwd_local:<account>`) | none |
+| `ldap3062` | Sends an LDAP Password Modify extended operation (RFC 3062) | `MW_PASSWD_LDAP_URL` (required), `MW_PASSWD_LDAP_STARTTLS=1`, `MW_PASSWD_LDAP_BIND_DN`, `MW_PASSWD_LDAP_BIND_PW` |
+| `dovecot` | Calls the Dovecot doveadm HTTP API | `MW_PASSWD_DOVECOT_URL`, `MW_PASSWD_DOVECOT_API_KEY` (both required), `MW_PASSWD_DOVECOT_COMMAND` (default `pw`) |
+| `poppassd` | Speaks the poppassd line protocol over TCP | `MW_PASSWD_POPPASSD_HOST` (required), `MW_PASSWD_POPPASSD_PORT` (default 106) |
+| `webhook` | POSTs a signed JSON request to your endpoint | `MW_PASSWD_WEBHOOK_URL`, `MW_PASSWD_WEBHOOK_SECRET` (both required; the secret must be at least 16 bytes) |
 
-Each backend reports a `PasswordPolicy` (min length, character classes, etc.) that the
-UI displays before the user types a new password. A backend returns a
-`PasswordChangeOutcome` with two flags that drive follow-up work:
+::: warning The default backend does not change a sign-in password
+The `local` backend changes a hash that neither Mailwoman's sign-in nor your mail server reads, and nothing creates that hash in the first place, so a change through it fails with a wrong-current-password error. To let users change their mailbox password, configure one of the other backends.
+:::
 
-- `reencrypt_credentials` — the server re-seals stored upstream credentials under the
-  new secret (see below).
-- `zeroaccess_rewrap_required` — the client runs a zero-access key-hierarchy re-wrap
-  (see below).
+### Transport security of each backend
 
-Every change writes a `password_change_audit` row (timestamp, account, backend,
-outcome). The audit is **content-free** — it never records the old or new password.
+The new password is sent to the backend, so the connection matters:
 
-### LDAP-bind login and RFC 3062
+- **ldap3062**: use an `ldaps://` URL or set `MW_PASSWD_LDAP_STARTTLS=1`. A plain `ldap://` URL without StartTLS sends the password unencrypted.
+- **dovecot** and **webhook**: `http://` URLs are accepted, with a warning in the log that new passwords travel unencrypted. Use `https://`.
+- **poppassd**: the protocol has no encryption; the password crosses the network in clear text. Use it only on a trusted local link.
 
-The `Ldap3062` backend encodes the RFC 3062 Password Modify Extended Operation. The
-LDAP connection/transport itself is injected at mount time (it reuses the
-`mw-directory` connection layer) so `mw-passwd` owns the exop encoding without
-depending on the directory crate's internals.
+### The webhook request
 
-### Webhook (HMAC-signed)
+The webhook backend sends a JSON body with the fields `event`, `account_id`, `username` and `new_password`, and an `X-Signature: sha256=<hex>` header: HMAC-SHA256 of the exact body bytes under `MW_PASSWD_WEBHOOK_SECRET`. Verify the signature with a constant-time comparison before acting. The signature proves the request came from Mailwoman; it does not encrypt the password, so the endpoint must use HTTPS.
 
-The `WebhookHmac` backend POSTs a JSON payload to your endpoint, signed with
-**HMAC-SHA256** using a shared secret. Verify the signature server-side before acting.
-This lets you drive any password store Mailwoman does not natively support.
+## What happens on a change
 
-## Sealed upstream credentials
+1. The browser sends the current and the new password to `POST /api/password` over the session's connection.
+2. The server checks the new password against the policy (by default at least 12 characters) and refuses a new password equal to the current one.
+3. The current password is checked: by the backend itself (`local`, `ldap3062`, `poppassd`), or, for `dovecot` and `webhook`, which do not check it, against the password stored with the user's signed-in sessions.
+4. The backend makes the change.
+5. A row is written to `password_change_audit` with the account, the backend and the outcome (success, or failure with its reason). No password is written to the audit row or to the logs.
+6. If the user's sessions hold the upstream mail password (so the server can sign in to IMAP and SMTP for them), the server replaces it with the new password, sealed with the server key. If that step fails, the request returns an error even though the password was already changed.
 
-Mailwoman stores upstream account credentials (IMAP/SMTP passwords, OAuth refresh
-tokens) **sealed**. When those are sealed under a key derived from the account
-password and the password changes, the server **re-encrypts (re-seals)** them under
-the new secret on a successful change (`reencrypt_credentials`). This is a
-server-relayed operation on already-sealed material; the server does not learn the
-plaintext credentials in the process.
+The server handles both passwords in clear text in memory during the request, and it keeps the new mail password sealed with the server key, as it did the old one. An operator who holds the server key can therefore read stored mail passwords; see [Encryption at rest](./encryption-at-rest.md).
 
-## Zero-access accounts: key-hierarchy re-wrap
+## Forced change
 
-For zero-access accounts (V6, `mw-crypto`), the account password wraps a client-side
-key hierarchy. Changing the password requires **re-wrapping** that hierarchy under the
-new password. This ceremony runs **client-side** in the crypto worker; the server only
-relays ciphertext and never sees the keys or the password.
+<!-- screenshot: id=security/password-forced; screen=forced password change after sign-in; state=account held by administrator; element=Change password screen with the administrator notice -->
 
-Because a lost password would otherwise make a zero-access account unrecoverable, the
-UI **offers the recovery-key path before the change proceeds** — the user is prompted
-to have their recovery key available first. This ordering is enforced.
+An administrator can require a user to change their password. Until the user does, the server refuses that account's requests except the password policy and the change itself, and the user sees "Your administrator requires you to change your password before continuing." A successful change clears the requirement.
 
-## Forced change on next login
+## Command line
 
-An admin can set a forced-change flag (persisted in migration 0008). On next login the
-user must change their password before continuing. The policy display and the same
-backend path apply.
+`mailwoman password --account-id <id> --old-password <current> --new-password <new>` (or the `MW_ACCOUNT_ID`, `MW_OLD_PASSWORD`, `MW_NEW_PASSWORD` variables) runs the same change through the configured backend on the host. Passing passwords as command-line arguments exposes them to other local users through the process list; prefer the environment variables.
 
-## Configuration
+## Zero-access accounts
 
-The password-change backend and its parameters are stored per deployment (migration
-0008 `passwd_config`). The server exposes `POST /api/password`; on success it performs
-the re-seal, and the web zero-access module runs the re-wrap when required.
+Zero-access keys are derived from their own passphrase or passkey, not from the account password, so a password change does not affect them. For a zero-access account the form first shows a recovery phrase, and the confirmation says "Your zero-access keys were re-wrapped under the new password"; the server does not store anything new for the zero-access keys during a password change. See [Zero-access storage](./zero-access.md).
 
-There is also a `mailwoman password` CLI subcommand for administrative/local password
-changes.
+## Related
 
-## Scope boundary (honest)
-
-- Password **change** and **LDAP-bind login** are in scope. Enterprise **OIDC/SAML
-  SSO is not implemented** and is a tracked 1.0 gap (`docs/ROADMAP-1.0.md`).
+- [Encryption at rest](./encryption-at-rest.md)
+- [Zero-access storage](./zero-access.md)
+- [LDAP directory](/deploy/ldap)
+- [Security centre (user settings)](/user/settings/account)
