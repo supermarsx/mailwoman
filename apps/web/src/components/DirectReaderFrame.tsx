@@ -1,3 +1,5 @@
+import './mobileMailChrome.css';
+import {Icon} from './Icon.tsx';
 import { batch, createEffect, createSignal, onCleanup, onMount, Show, untrack, type JSX } from 'solid-js';
 import { remoteServerBase } from '../api/remote-content.ts';
 import { diffReaderDocument, patchPrefixes } from '../viewers/readerPatch.ts';
@@ -16,10 +18,12 @@ function imageProgress(value:Record<string,unknown>):ReaderImageProgress|null {
 }
 /** Only fixed hash-authorized handlers run; both frames retain opaque origins.
  * The Reader remounts this wrapper when message-link consent changes. */
-export function DirectReaderFrame(props: { html: string; suspended?:boolean; linksEnabled?:boolean; title: string; documentKey?:string|undefined; loadingFallback?:JSX.Element; onDisplayed?: (html:string,key:string|undefined)=>void; onAddressContext?:(value:ReaderAddressContext)=>void; onImageProgress?:(value:ReaderImageProgress)=>void }): JSX.Element {
+export function DirectReaderFrame(props: { html: string; suspended?:boolean; linksEnabled?:boolean; title: string; documentKey?:string|undefined; loadingFallback?:JSX.Element; onDisplayed?: (html:string,key:string|undefined)=>void; onAddressContext?:(value:ReaderAddressContext)=>void; onScroll?:(y:number)=>void; onImageProgress?:(value:ReaderImageProgress)=>void }): JSX.Element {
   let frame: HTMLIFrameElement | undefined;
   const newToken = ():string => Array.from(crypto.getRandomValues(new Uint8Array(24)), byte => byte.toString(16).padStart(2, '0')).join('');
   const [token,setToken] = createSignal(newToken());
+  const [noticeDismissed,setNoticeDismissed]=createSignal(false);
+  createEffect(()=>{if(!compatible()||!ready()||noticeDismissed())return;const timer=setTimeout(()=>setNoticeDismissed(true),30_000);onCleanup(()=>clearTimeout(timer));});
   const [compatible,setCompatible] = createSignal(false);
   const [ready, setReady] = createSignal(false);
   // Each bridge document announces itself once; a new one needs the body again.
@@ -83,6 +87,10 @@ export function DirectReaderFrame(props: { html: string; suspended?:boolean; lin
   onMount(() => {
     receive = (event: MessageEvent): void => {
       if (failed() || event.source !== frame?.contentWindow || event.origin !== 'null' || event.data?.token !== token()) return;
+      if(event.data?.type==='mw-reader-scroll'){
+        if(ready()&&event.data.revision===revision&&revision>0&&sentHtml===props.html&&sentKey===props.documentKey&&Number.isFinite(event.data.y)&&event.data.y>=0&&event.data.y<1e7)props.onScroll?.(event.data.y);
+        return;
+      }
       if(event.data?.type==='mw-reader-address-context'){
         if(ready()&&frame&&event.data.revision===revision&&revision>0&&sentHtml===props.html&&sentKey===props.documentKey){const context=readerAddressContext(event.data,frame);if(context)props.onAddressContext?.(context);}
         return;
@@ -139,5 +147,5 @@ export function DirectReaderFrame(props: { html: string; suspended?:boolean; lin
       sendFrame(true);
     });
   });
-  return <><Show when={failed()}><p role="alert">{t('privacy-frame-failed')}</p></Show><Show when={compatible()&&ready()}><p class="meta" role="status">{t('privacy-frame-compatible')}</p></Show><ReaderZoomBox><iframe ref={frame} class="reader__frame" classList={{'reader__frame--pending':!presented()}} title={props.title} aria-hidden={!presented()} inert={!presented()} tabIndex={presented()?undefined:-1} sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerPolicy="no-referrer" onLoad={loaded} src={source()} /><Show when={!presented()&&!failed()}><div class="reader__frame-loading" data-testid="reader-frame-loading" aria-busy="true">{props.loadingFallback??<MessageLoading variant="skeleton" delayMs={150}/>}</div></Show></ReaderZoomBox></>;
+  return <><Show when={failed()}><p role="alert">{t('privacy-frame-failed')}</p></Show><Show when={compatible()&&ready()&&!noticeDismissed()}><div class="reader__compatible-notice" role="status"><span>{t('privacy-frame-compatible')}</span><button type="button" class="btn btn--ghost" aria-label={t('common-close')} onClick={()=>setNoticeDismissed(true)}><Icon name="close"/></button></div></Show><ReaderZoomBox><iframe ref={frame} class="reader__frame" classList={{'reader__frame--pending':!presented()}} title={props.title} aria-hidden={!presented()} inert={!presented()} tabIndex={presented()?undefined:-1} sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerPolicy="no-referrer" onLoad={loaded} src={source()} /><Show when={!presented()&&!failed()}><div class="reader__frame-loading" data-testid="reader-frame-loading" aria-busy="true">{props.loadingFallback??<MessageLoading variant="skeleton" delayMs={150}/>}</div></Show></ReaderZoomBox></>;
 }

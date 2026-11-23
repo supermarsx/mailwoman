@@ -176,3 +176,12 @@ it('swaps a same-message refresh in beside the shown document and only commits w
  expect(shown).not.toBe(next);expect(frame.removed).toHaveLength(0);
  expect(frame.posted.some(p=>p.data.type==='mw-reader-displayed'&&p.data.revision===2)).toBe(false);
 });
+
+it('forwards bounded scroll positions only from the current authenticated document port',()=>{
+ const h=bridge();h.send(h.parent,body());const child=h.frames.at(-1)!.contentWindow as {postMessage:ReturnType<typeof vi.fn>};h.send(child,{type:'mw-reader-address-ready'},'null');
+ const init=child.postMessage.mock.calls[0]![0] as {nonce:string;revision:number};const port=h.channels[0]!.port1;
+ const value={type:'scroll',nonce:init.nonce,x:0,y:120};const before=h.posted.length;
+ for(const data of [{...value,nonce:'wrong'},{...value,y:-1},{...value,y:NaN},{...value,y:1e7}])port.onmessage!({data});
+ expect(h.posted).toHaveLength(before);port.onmessage!({data:value});expect(h.posted.at(-1)).toEqual({data:{type:'mw-reader-scroll',token:TOKEN,revision:1,y:120},origin:ORIGIN});
+ h.send(h.parent,{...body(),revision:2});const count=h.posted.length;port.onmessage!({data:value});expect(h.posted).toHaveLength(count);
+});

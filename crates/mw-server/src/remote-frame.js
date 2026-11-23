@@ -82,7 +82,7 @@
       addressPort = channel.port1; portNonce = nonce;
       channel.port1.onmessage = received => {
         const value = received.data;
-        if (value?.type === 'scroll' && content === current && value.nonce === nonce && Number.isFinite(value.x) && Number.isFinite(value.y) && value.x >= 0 && value.y >= 0 && value.x < 1e7 && value.y < 1e7) { lastScroll = { x: value.x, y: value.y }; return; }
+        if (value?.type === 'scroll' && content === current && documentRevision === revision && value.nonce === nonce && Number.isFinite(value.x) && Number.isFinite(value.y) && value.x >= 0 && value.y >= 0 && value.x < 1e7 && value.y < 1e7) { lastScroll = { x: value.x, y: value.y }; parent.postMessage({ type: 'mw-reader-scroll', token, revision, y: value.y }, origin); return; }
         if (value?.type === 'patch-result' && value.nonce === nonce && value.revision === revision && documentRevision === revision && typeof value.ok === 'boolean' && Number.isSafeInteger(value.id)) {
           parent.postMessage({ type: 'mw-reader-patched', token, revision, id: value.id, ok: value.ok }, origin);
           return;

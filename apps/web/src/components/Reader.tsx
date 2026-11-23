@@ -1,3 +1,5 @@
+import './mobileMailChrome.css';
+import {createMobileScrollChrome} from './mobileScrollChrome.ts';
 import {useCommandRibbon} from './CommandRibbonContext.tsx';
 import {AttachmentWarningBar} from './AttachmentWarningBar.tsx';
 import {AsyncError} from './AsyncState.tsx';
@@ -1535,13 +1537,14 @@ function ReaderBody(props: ReaderProps): JSX.Element {
 
   let readerRoot: HTMLElement | undefined;
   useReaderZoom({ root: () => readerRoot, active: () => props.active !== false });
+  const mobileChrome=createMobileScrollChrome({root:()=>readerRoot,selector:'.reader',active:()=>narrow()&&props.active!==false,scope:receiptDocumentKey});
 
   return (
     <section
       ref={readerRoot}
       class={`reader ${motion.surface}`}
       data-mw-entering={entering()}
-      classList={{ 'reader--open': chromeEmail() !== null }}
+      classList={{ 'reader--open': chromeEmail() !== null, 'reader--mobile-compact':mobileChrome.hidden() }}
       data-switching={switching() ? '' : undefined}
       aria-busy={switching() ? 'true' : undefined}
       aria-label={t('mail-reader-label')}
@@ -1620,7 +1623,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
               {/* One action row (t57): reply group, View conversation (threads of more
                   than one message), Review links (with its count), the message
                   actions and the max-security switch; what does not fit folds into More. */}
-              <ReaderToolbar {...(readerRibbonMode()&&effectiveSettings()['mail.quickReply']?.value === true && props.onCompose && mailFeature('allowReply') && !activeQuickReply() && !isDraftMessage(email(),app.mailboxes())?{onQuickReply:()=>void startReply('reply',true)}:{})} email={email()} colors={{get value(){return colorChoice();},get setting(){return colorSetting();},get locked(){return colorLocked();},onChange:(choice)=>setMessageColorOverride(colorKey(),choice),onMakeDefault:(choice)=>void makeColorDefault(choice)}} {...(props.onOpenReplyDraft?{onOpenReplyDraft:props.onOpenReplyDraft}:{})} {...(props.onEditDraft?{onEditDraft:props.onEditDraft}:{})} headersUrl={messageHeaderUrl()} headersScope={receiptDocumentKey()} onReply={(mode) => void startReply(mode)} preparing={preparing()||!linkAccountCurrent()} onPrint={() => printMessage(email(), displayedContent(email()).source)} active={props.active!==false} links={reviewedBody()?.links??[]} linksTruncated={reviewedBody()?.truncated??false} linkScope={receiptDocumentKey()} {...(props.onCompose?{onCompose:props.onCompose}:{})} security={{get value(){return maxsec.effectiveMode(sender());},get floor(){return maxsec.adminFloor();},onChange:(m)=>maxsec.setSenderMode(sender(),m)}} />{colorConfirm.Dialog()}
+              <div data-reader-actions><ReaderToolbar {...(readerRibbonMode()&&effectiveSettings()['mail.quickReply']?.value === true && props.onCompose && mailFeature('allowReply') && !activeQuickReply() && !isDraftMessage(email(),app.mailboxes())?{onQuickReply:()=>void startReply('reply',true)}:{})} email={email()} colors={{get value(){return colorChoice();},get setting(){return colorSetting();},get locked(){return colorLocked();},onChange:(choice)=>setMessageColorOverride(colorKey(),choice),onMakeDefault:(choice)=>void makeColorDefault(choice)}} {...(props.onOpenReplyDraft?{onOpenReplyDraft:props.onOpenReplyDraft}:{})} {...(props.onEditDraft?{onEditDraft:props.onEditDraft}:{})} headersUrl={messageHeaderUrl()} headersScope={receiptDocumentKey()} onReply={(mode) => void startReply(mode)} preparing={preparing()||!linkAccountCurrent()} onPrint={() => printMessage(email(), displayedContent(email()).source)} active={props.active!==false} links={reviewedBody()?.links??[]} linksTruncated={reviewedBody()?.truncated??false} linkScope={receiptDocumentKey()} {...(props.onCompose?{onCompose:props.onCompose}:{})} security={{get value(){return maxsec.effectiveMode(sender());},get floor(){return maxsec.adminFloor();},onChange:(m)=>maxsec.setSenderMode(sender(),m)}} /></div>{colorConfirm.Dialog()}
               <Show when={cleanupOpen()}><SweepDialog fromEmail={sender()} onClose={()=>setCleanupOpen(false)}/></Show>
               <Show when={!readerRibbonMode()&&effectiveSettings()['mail.quickReply']?.value === true && props.onCompose && mailFeature('allowReply') && !activeQuickReply() && !isDraftMessage(email(),app.mailboxes())}><button type="button" class="btn btn--ghost" disabled={preparing()} title={t('mail-quick-reply-help')} onClick={() => void startReply('reply', true)}><Icon name="reply"/>{t('mail-quick-reply')}</button></Show>
               <Show when={activeQuickReply()} keyed>{reply=>
@@ -1681,7 +1684,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                     handler runs; the opaque frame cannot access its parent.
                   */}
                   <Show when={app.online()&&browserOnline()} fallback={<ReaderZoomBox><iframe class="reader__frame" data-testid="reader-offline-frame" title={t('mail-message-body')} sandbox="" referrerPolicy="no-referrer" srcdoc={bodyFrameDoc('sanitized-no-media',{html:frameHtml()??''},frameOptions())}/></ReaderZoomBox>}>
-                    <DirectReaderFrame linksEnabled={linksEnabled()} suspended={!bodyReady()} html={frameHtml() ?? ''} title={t('mail-message-body')} documentKey={frameKey()} loadingFallback={anyLoading() || switching() ? messageLoading() : <p class="reader__empty">{t('mail-no-content')}</p>} onDisplayed={receiptDidDisplay} onAddressContext={addressContext} onImageProgress={progress=>setImageProgress({scope:htmlRenderScope(),key:receiptDocumentKey(),html:bodySrcdoc(),progress})}/>
+                    <DirectReaderFrame onScroll={mobileChrome.observe} linksEnabled={linksEnabled()} suspended={!bodyReady()} html={frameHtml() ?? ''} title={t('mail-message-body')} documentKey={frameKey()} loadingFallback={anyLoading() || switching() ? messageLoading() : <p class="reader__empty">{t('mail-no-content')}</p>} onDisplayed={receiptDidDisplay} onAddressContext={addressContext} onImageProgress={progress=>setImageProgress({scope:htmlRenderScope(),key:receiptDocumentKey(),html:bodySrcdoc(),progress})}/>
                   </Show>
                 </Show>
               }

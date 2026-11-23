@@ -224,3 +224,20 @@ it('a patched toggle (same structure) also survives show -> undo -> show',()=>{
  h.post.mockClear();h.setHtml(b);
  expect(h.post.mock.calls.at(-1)![0]).toMatchObject({type:'mw-reader-patch',ops:[{a:'src',v:signed}]});
 });
+
+it.each(['dismiss','timeout'] as const)('compatible notice closes by %s and stays closed',mode=>{
+ vi.useFakeTimers();render(()=><DirectReaderFrame html="<p>Mail</p>" title="Compatible"/>);
+ vi.advanceTimersByTime(1600);const frame=screen.getByTitle('Compatible') as HTMLIFrameElement;
+ const token=new URLSearchParams(new URL(frame.src).hash.slice(1)).get('token');
+ fireEvent(window,new MessageEvent('message',{source:frame.contentWindow,origin:'null',data:{type:'mw-reader-ready',token}}));
+ expect(screen.getByRole('button',{name:'Close'})).toBeInTheDocument();
+ if(mode==='dismiss')fireEvent.click(screen.getByRole('button',{name:'Close'}));else{vi.advanceTimersByTime(29999);expect(screen.getByRole('button',{name:'Close'})).toBeInTheDocument();vi.advanceTimersByTime(1);}
+ expect(screen.queryByRole('button',{name:'Close'})).toBeNull();vi.advanceTimersByTime(60000);expect(screen.queryByRole('button',{name:'Close'})).toBeNull();
+});
+it('accepts scroll only from the current authenticated frame revision',()=>{
+ const scroll=vi.fn();render(()=><DirectReaderFrame html="<p>Mail</p>" documentKey="one" title="Scroll" onScroll={scroll}/>);
+ const frame=screen.getByTitle('Scroll') as HTMLIFrameElement;const token=new URLSearchParams(new URL(frame.src).hash.slice(1)).get('token');
+ const send=(data:unknown)=>fireEvent(window,new MessageEvent('message',{source:frame.contentWindow,origin:'null',data}));
+ send({type:'mw-reader-ready',token});send({type:'mw-reader-scroll',token,revision:1,y:100});expect(scroll).toHaveBeenCalledWith(100);
+ scroll.mockClear();for(const data of [{token:'wrong',revision:1,y:100},{token,revision:0,y:100},{token,revision:1,y:-1},{token,revision:1,y:Infinity}])send({type:'mw-reader-scroll',...data});expect(scroll).not.toHaveBeenCalled();
+});

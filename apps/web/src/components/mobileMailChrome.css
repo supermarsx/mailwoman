@@ -1,0 +1,9 @@
+.reader__compatible-notice {display:flex;align-items:center;justify-content:space-between;gap:.75rem;margin:.5rem .8rem;padding:.5rem .75rem;border:var(--border-hair,1px) solid var(--border);background:var(--surface);color:var(--text-dim);font-size:.8rem;}
+@media(max-width:760px){
+ .reader--mobile-compact .reader__header {max-height:none;padding-block:.25rem;flex:none;overflow:visible;position:sticky;inset-block-start:0;z-index:3;background:var(--bg);}
+ .reader--mobile-compact .reader__header > :not([data-reader-actions]) {display:none;}
+ .reader--mobile-compact [data-testid="reader-notice-stack"]:not(:focus-within) {display:none;}
+ .workspace-shell[data-mobile-list-compact="true"] > .shell__bar:not(:has(:focus-visible)),
+ .workspace-shell[data-mobile-list-compact="true"] .mail-topbar:not(:has(:focus-visible)),
+ .workspace-shell[data-mobile-list-compact="true"] .mail-list-search-chrome:not(:has(:focus-visible)) {display:none;}
+}

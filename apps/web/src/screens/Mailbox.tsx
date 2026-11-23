@@ -1,3 +1,5 @@
+import '../components/mobileMailChrome.css';
+import {createMobileScrollChrome} from '../components/mobileScrollChrome.ts';
 import {unifiedAccountEnabled as workspaceUnifiedAccountEnabled} from '../state/unifiedAccountPreferences.ts';
 import {WORKSPACE_VIEWS,viewMode,viewShown,viewName,viewCountsShown,type WorkspaceViewId} from '../state/workspaceViews.ts';
 import {WorkspaceViewProperties} from './Settings/WorkspaceViewPreferences.tsx';
@@ -1228,8 +1230,9 @@ export function MailboxScreen(): JSX.Element {
     setFolderRows(visible.length-custom+(custom>0?1:0)+(accountUiPreferences().userFoldersCollapsed?0:custom));
   });
 
+  const mobileListChrome=createMobileScrollChrome({root:()=>shellElement,selector:'.list__scroll',active:()=>narrow()&&listVisible(),scope:()=>`${app.accountId()}:${app.selectedMailboxId()}`});
   return (
-    <CommandRibbonContext.Provider value={commandRibbon}><div class="shell workspace-shell mw-custom-mail" onPointerDown={noteWorkspaceIntent} onClick={noteWorkspaceIntent} onKeyDown={noteWorkspaceIntent} ref={shellElement} data-folder-mode={folderMode()}>
+    <CommandRibbonContext.Provider value={commandRibbon}><div class="shell workspace-shell mw-custom-mail" onPointerDown={noteWorkspaceIntent} onClick={noteWorkspaceIntent} onKeyDown={noteWorkspaceIntent} ref={shellElement} data-folder-mode={folderMode()} data-mobile-list-compact={mobileListChrome.hidden()?'true':undefined}>
       <AppearanceCustomizationRuntime owner={() => {const accountId = app.accountId(); return accountId ? {kind: 'mailbox', accountId} : null;}} />
 
       <Show when={narrow()}>
@@ -1435,7 +1438,7 @@ export function MailboxScreen(): JSX.Element {
         <div class={a11y.srOnly} role="status" aria-live="polite" aria-atomic="true" data-testid="message-opened-status">{openedNotice()}</div>
         <div class="workspace-body" ref={bodyElement} data-reading-pane={readingPane()} classList={{'workspace-body--split':splitVisible()}}>
           <div class={`mail-pane ${motion.surface}`} hidden={!listVisible()} data-mw-entering={mailEntering()}>
-            <Show when={app.layout()!=='ribbon'}><SearchBox /><InboxTabs /><EventsViewBar /></Show><MessageList onOpenReplyDraft={id=>void openReplyDraft(id)} hideReadingPane hideSelectionToggle hideOrderControl selectionMode={listSelecting} onSelectionModeChange={setListSelecting} selectionReset={selectionReset} onOpenMessage={id=>void openFromList(id,'activate')} onOpenMessageTab={id=>void openFromList(id,'tab')} onCompose={openReply} restoreAnchor={restoreAnchor} onAnchorChange={setListAnchor}/>
+            <Show when={app.layout()!=='ribbon'}><div class="mail-list-search-chrome"><SearchBox /><InboxTabs /><EventsViewBar /></div></Show><MessageList onOpenReplyDraft={id=>void openReplyDraft(id)} hideReadingPane hideSelectionToggle hideOrderControl selectionMode={listSelecting} onSelectionModeChange={setListSelecting} selectionReset={selectionReset} onOpenMessage={id=>void openFromList(id,'activate')} onOpenMessageTab={id=>void openFromList(id,'tab')} onCompose={openReply} restoreAnchor={restoreAnchor} onAnchorChange={setListAnchor}/>
           </div>
           <Show when={splitVisible()}><ResizeHandle label={t('mail-resize-list')} orientation={readingPane()==='bottom'?'horizontal':'vertical'} value={listSize()} min={listBounds().min} max={listBounds().max} onChange={setListDrag} onCommit={value=>{setAccountUiPreferences(readingPane()==='bottom'?{messageListHeight:value}:{messageListWidth:value});setListDrag(null);}}/></Show>
           <div class="workspace-panes" ref={tilesElement} data-layout={effectiveLayout()} data-pair={isSplitLayout(effectiveLayout())} data-companion={companion()!==null} hidden={!readersVisible()}>
