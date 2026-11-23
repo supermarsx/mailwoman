@@ -27,7 +27,7 @@ Both images listen on `0.0.0.0:8080`, keep the database at `/data/mailwoman.db` 
 
 `packaging/helm/mailwoman` deploys one server replica to Kubernetes 1.25 or newer.
 
-1. Push an image your cluster can pull. The chart's default repository, `ghcr.io/mailwoman/mailwoman`, and its default tag, the chart's `appVersion`, do not match what CI publishes, so set both.
+1. Choose an image your cluster can pull. The chart's default repository is `ghcr.io/supermarsx/mailwoman`, where CI publishes the `master` and `sha-<short commit>` tags. The default tag is the chart's `appVersion`, a release number that CI does not publish as a tag, so set `image.tag` (for example `master`).
 2. Create the server key as a Secret:
 
    ```sh
@@ -39,14 +39,14 @@ Both images listen on `0.0.0.0:8080`, keep the database at `/data/mailwoman.db` 
 
    ```sh
    helm install mailwoman packaging/helm/mailwoman \
-     --set image.repository=<registry>/mailwoman \
+     --set image.repository=ghcr.io/supermarsx/mailwoman \
      --set image.tag=<tag> \
      --set serverKeySecret.name=mailwoman-key
    ```
 
 | Value | What it does | Default |
 |---|---|---|
-| `image.repository`, `image.tag` | Image to run. | `ghcr.io/mailwoman/mailwoman`, chart `appVersion` |
+| `image.repository`, `image.tag` | Image to run. | `ghcr.io/supermarsx/mailwoman`, chart `appVersion` |
 | `serverKeySecret.name`, `.key` | Secret holding `MW_SERVER_KEY`. Without it the key is not supplied by the chart. | empty, `MW_SERVER_KEY` |
 | `env` | Plain environment variables for the container. | `MW_BIND`, `MW_DB_PATH`, `MW_RENDER_BIN`, `MW_PLUGIN_DIR`, `RUST_LOG` |
 | `resources` | Requests and limits per replica. | 4 CPU and 4 GiB, requests equal to limits |
