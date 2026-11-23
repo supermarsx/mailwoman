@@ -28,7 +28,7 @@ Select **Back** to change an earlier step. Leaving the wizard with unsaved entri
 
 ## Configure a mail server
 
-![The Connection step of the wizard with Configure a mail server chosen: IMAP on imap.example.com port 993 with TLS from connection start, and an outgoing SMTP server smtp.example.com on port 465.](/screenshots/admin-access/guided-connection.webp){.mw-shot}
+![The Connection step of the wizard with Configure a mail server chosen: IMAP on imap.example.com port 993 with TLS from connection start, and an outgoing SMTP server smtp.example.com on port 465.](/screenshots/admin-access/guided-connection.webp){.mw-crop}
 
 In engine mode:
 
@@ -54,7 +54,7 @@ This option builds the domain's backend list in the wizard (up to 32 backends) b
 
 The wizard refuses to continue when a backend ID repeats or has characters other than letters, digits, hyphens and underscores, when two enabled backends of one role are preferred, when a protocol does not fit the server mode, or when the security or authentication order lists a method twice.
 
-![The Review step of the wizard listing the domain corp.example.com, the IMAP and SMTP servers and the connection policy, with the Create domain button.](/screenshots/admin-access/guided-review.webp){.mw-shot}
+![The Review step of the wizard listing the domain corp.example.com, the IMAP and SMTP servers and the connection policy, with the Create domain button.](/screenshots/admin-access/guided-review.webp){.mw-crop}
 
 ## What the wizard does not set up
 

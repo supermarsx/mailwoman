@@ -10,7 +10,7 @@ An SSH tunnel lets the server reach a hosting panel through an SSH server (a jum
 ## Before you start
 
 - The tab is **Integrations** > **SSH tunnels**, at `<console path>#/integrations/ssh`. It appears only to roles with `tunnels.read`.
-- Creating, changing and deleting a tunnel needs `tunnels.write` for all domains (unscoped); inspecting a host key and testing need `tunnels.test`; choosing a tunnel for a hosting connection needs `tunnels.bind`. Changes, tests and inspections also ask you to confirm your password.
+- Creating, changing and deleting a tunnel needs `tunnels.write` for all domains (unscoped); inspecting a host key and testing need `tunnels.test`; choosing a tunnel for a hosting connection needs `tunnels.bind`. Changes, tests and inspections also ask you to confirm it is you (**Confirm it is you**).
 - Have the SSH server's host-key fingerprint from a source you trust (for example the server's console output), so you can check the key the console shows.
 - A tunnel cannot be used while an outbound proxy is active for the whole server: the connection fails with "SSH through an active global proxy is not configured" and never falls back to a direct connection.
 
@@ -18,12 +18,19 @@ An SSH tunnel lets the server reach a hosting panel through an SSH server (a jum
 
 1. Choose **New SSH tunnel**.
 
-   ![A new SSH tunnel form with the SSH server identity section: tunnel name, SSH server hostname, port and login username.](/screenshots/admin-access/ssh-tunnels-editor.webp){.mw-shot}
-
 2. Under **SSH server identity**, enter **Tunnel name**, **SSH server hostname** (a name or IP address, without `ssh://`, user name, path or port), **SSH server port** (22 by default) and **SSH login username**. Tick **Allow the SSH server on a private or loopback address** only if the jump host is on your internal network.
+
+   ![The SSH server identity section of a new SSH tunnel: Tunnel name, SSH server hostname, SSH server port 22, SSH login username, Enable this tunnel and the private-address checkbox.](/screenshots/admin-access/ssh-tunnels-editor.webp){.mw-crop}
+
 3. Under **Authentication credential**, choose what **Saved credential** does: generate an Ed25519 key, import a private key (PEM or OpenSSH, with an optional **Private-key passphrase (optional)**), or use an **SSH password**. For a generated key, install the shown **Public key to install in authorized_keys** on the SSH server. Imported keys must be Ed25519, ECDSA P-256 or P-384, or RSA of at least 3072 bits.
 4. Under **Trusted server host keys**, add at least one key with **Add trusted host key**: its **Host-key algorithm** (`ssh-ed25519`, `ecdsa-sha2-nistp256`, `ecdsa-sha2-nistp384` or `ssh-rsa`) and **SHA256 host-key fingerprint**. **Fetch current host key** contacts the server without sending credentials and shows the key it presents as **Observed, untrusted host key**. To use it you must either tick **I verified this fingerprint through a trusted, separate channel**, or accept it unverified with **Trust this first observed key (TOFU); I accept the first-connection identity risk**. Once saved, a different key is refused.
+
+   ![The Trusted server host keys section of a new SSH tunnel: its explanation, Fetch current host key and Add trusted host key.](/screenshots/admin-access/ssh-tunnels-pins.webp){.mw-crop}
+
 5. Under **Allowed destinations**, add each host and port the tunnel may open (**Destination hostname**, **Destination port**). Tick **Allow this destination on a private or loopback address** for an internal destination. At most 128 destinations and 16 host keys.
+
+   ![The Allowed destinations section of a new SSH tunnel with one destination row: Destination hostname, Destination port 443, the private-address checkbox, Remove destination and Add destination.](/screenshots/admin-access/ssh-tunnels-targets.webp){.mw-crop}
+
 6. Under **Connection limits**, adjust **Keepalive interval (seconds)**, **Connection timeout (milliseconds)** and **Maximum channels** if needed.
 7. Tick **Enable this tunnel** and choose **Save tunnel**. An enabled tunnel needs a credential, at least one host key and at least one destination.
 

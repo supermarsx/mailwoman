@@ -26,7 +26,7 @@ The box under the description shows whether the provider is **Enabled** or **Dis
 2. Enter the **Public HTTPS issuer URL**: your server's public HTTPS address followed by `/oidc`, including the path prefix if Mailwoman runs under one (for example `https://mail.example.com/oidc`). The server refuses any other path, and addresses with a user name, password, query or fragment.
 3. Tick **Enabled** and click **Save**. The first time, Mailwoman creates a signing key.
 
-![The issuer form of the identity provider with the public HTTPS issuer URL and the signing key rotation.](/screenshots/admin-access/identity-provider-issuer.webp){.mw-shot}
+![The issuer form of the identity provider with the public HTTPS issuer URL and the signing key rotation.](/screenshots/admin-access/identity-provider-issuer.webp){.mw-crop}
 
 Applications find the endpoints in the discovery document at `<issuer>/.well-known/openid-configuration`: authorization, token, user information, signing keys (JWKS), revocation and sign-out, all under `/oidc`.
 
@@ -47,7 +47,7 @@ Saving the issuer settings (changing the issuer, or turning the provider off and
 5. Choose the **Allowed identity scopes**: `openid` (required), `profile`, `email` and `offline_access`.
 6. Save. For a client with a secret, the page shows the **Generated client secret** once. Copy it into the application at once; it cannot be shown again. If it is lost, edit the client and choose **Replace the existing client secret**.
 
-![The editor of the identity client Room booking desktop app: public client authentication, a loopback callback URI and the allowed identity scopes.](/screenshots/admin-access/identity-provider-client.webp){.mw-shot}
+![The editor of the identity client Room booking desktop app: public client authentication, a loopback callback URI and the allowed identity scopes.](/screenshots/admin-access/identity-provider-client.webp){.mw-crop}
 
 **Delete client** ends the grants people gave the application and removes its registration.
 

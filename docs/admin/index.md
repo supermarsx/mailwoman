@@ -49,7 +49,7 @@ The bar above each screen shows where you are (for example **Dashboard** > **My 
 
 Press **Ctrl+K** (**Cmd+K** on macOS), or select **Search** at the top right, to open **Search the admin console**. Type part of a name and press Enter, or select a result.
 
-![The console search window with domain typed, listing matching sections, domains and settings.](/screenshots/admin-access/admin-index-search.webp){.mw-crop}
+![The console search window with domain typed: the Domains section and a list of settings fields whose names contain domain.](/screenshots/admin-access/admin-index-search.webp){.mw-crop}
 
 The search finds sections (**Section**) and the individual fields of the screens you may open (**Field**); opening a field result goes to its screen and highlights the field. It does not find users or domains by name: the server has no search for them, and the window says "This server cannot search users, domains and settings yet, so only sections are listed." Use the filter on **Users** or **Domains** instead.
 
@@ -59,7 +59,7 @@ The **Dashboard** is the first screen after sign-in. Its sections can be reorder
 
 - **Setup checklist** lists three items, each marked **Done** or **Open**: a mail domain exists, a domain has a mail server (or a default upstream is set), and, optionally, a preferred domain is chosen so users can sign in without typing it. The count in the heading leaves out the optional item. The checklist is not shown to an admin whose roles do not cover domains.
 
-  ![The dashboard setup checklist with one item done and two open, each with an Open link and a Hide button; markers on a Done status, an Open link and a Hide button.](/screenshots/admin-access/admin-index-checklist.webp){.mw-crop}
+  ![The dashboard setup checklist with one item done and two open; the open items have an Open link, and every item has a Hide button. Markers on a Done status, an Open link and a Hide button.](/screenshots/admin-access/admin-index-checklist.webp){.mw-crop}
 
   1. The item's state, **Done** or **Open**.
   2. **Open** goes to the screen where you complete the item.

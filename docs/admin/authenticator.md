@@ -13,7 +13,7 @@ console account, never a mailbox user's sign-in. Open **My preferences** >
 
 The tab has three parts:
 
-![The Personal security tab of My preferences.](/screenshots/admin-access/authenticator-personal-security.webp){.mw-crop}
+![The Personal security tab of My preferences: Administrator passkeys with Add administrator passkey, Authenticator app with Manage authenticator and recovery codes, and Change your password, with markers 1 to 3 on those three buttons.](/screenshots/admin-access/authenticator-personal-security.webp){.mw-crop}
 
 1. **Add administrator passkey** registers a passkey on this device.
 2. **Manage authenticator and recovery codes** opens the authenticator app page.

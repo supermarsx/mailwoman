@@ -8,7 +8,7 @@ few deployment-wide rules: the lowest TLS version, whether every account needs a
 second factor, the password hashing cost, the reading floor, screen capture
 protection and the stored data loss prevention (DLP) rules.
 
-![The Security policy tab of the Security centre with the Connections group and the Save bar.](/screenshots/admin-access/security-policy-tab.webp){.mw-shot}
+![The Security policy tab of the Security centre: the Connections group with the lowest TLS version, the Sign-in group with the second-factor requirement and the Argon2 cost, the Reading group, and the Save bar.](/screenshots/admin-access/security-policy-tab.webp){.mw-shot}
 
 ## Before you start
 

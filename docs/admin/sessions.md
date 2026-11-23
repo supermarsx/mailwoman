@@ -23,7 +23,7 @@ The filters, the revocation controls and the session list:
 **Security centre** > **Sessions** (`#/security/sessions`) lists mailbox sessions
 (web and app), most recently seen first, with the **Account**, **Device and client**,
 **IP address**, **Last activity** and **Created**. At most 1,000 sessions are listed;
-narrow the filters to see others. Console sessions are not listed here.
+narrow the filters to see others. Console sessions are not listed here. (In the image above the two times are hidden, because the server stamps them with the real date.)
 
 You need **sessions.read** to see the tab and **sessions.revoke** to end sessions.
 A role limited to some domains sees and ends only sessions of accounts in those

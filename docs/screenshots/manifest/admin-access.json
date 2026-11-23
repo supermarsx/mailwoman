@@ -427,7 +427,13 @@
           "blur": true
         }
       ],
-      "shot": "full",
+      "shot": {
+        "element": {
+          "role": "region",
+          "name": "@admin-domain-guided-title"
+        },
+        "padding": 8
+      },
       "mask": [
         {
           "testid": "admin-session-bar-text"
@@ -497,7 +503,13 @@
           "blur": true
         }
       ],
-      "shot": "full",
+      "shot": {
+        "element": {
+          "role": "region",
+          "name": "@admin-domain-guided-title"
+        },
+        "padding": 8
+      },
       "mask": [
         {
           "testid": "admin-session-bar-text"
@@ -1225,23 +1237,19 @@
         }
       ],
       "shot": {
-        "element": [
-          {
+        "clip": {
+          "x": -12,
+          "y": -10,
+          "width": 736,
+          "height": 122,
+          "relativeTo": {
             "role": "heading",
             "name": "@admin-protocol-overall"
-          },
-          {
-            "testid": "protocol-would-refuse"
           }
-        ],
-        "padding": 12
-      },
-      "alt": "The Overall mode card of the Protocol guard sub-tab: the Off, Detect and Enforce buttons, the current state Mixed, and the count of requests that enforcing would refuse (masked).",
-      "mask": [
-        {
-          "testid": "protocol-would-refuse"
         }
-      ]
+      },
+      "alt": "The Overall mode card of the Protocol guard sub-tab: its explanation, the Off, Detect and Enforce buttons, and the current state Mixed.",
+      "mask": []
     },
     {
       "id": "protocol-guard-framing",
@@ -1422,8 +1430,89 @@
           }
         }
       ],
-      "shot": "full",
-      "alt": "A new SSH tunnel form with the SSH server identity section: tunnel name, SSH server hostname, port and login username."
+      "shot": {
+        "element": {
+          "role": "group",
+          "name": "@admin-ssh-identity"
+        },
+        "padding": 8
+      },
+      "alt": "The SSH server identity section of a new SSH tunnel: Tunnel name, SSH server hostname, SSH server port 22, SSH login username, Enable this tunnel and the private-address checkbox."
+    },
+    {
+      "id": "ssh-tunnels-pins",
+      "page": "admin/ssh-tunnels.md",
+      "steps": [
+        {
+          "goto": "{admin}#/integrations/ssh"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@admin-ssh-new"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "group",
+            "name": "@admin-ssh-identity"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "group",
+          "name": "@admin-ssh-pins"
+        },
+        "padding": 8
+      },
+      "alt": "The Trusted server host keys section of a new SSH tunnel: its explanation, Fetch current host key and Add trusted host key.",
+      "viewport": {
+        "width": 1440,
+        "height": 1900
+      }
+    },
+    {
+      "id": "ssh-tunnels-targets",
+      "page": "admin/ssh-tunnels.md",
+      "steps": [
+        {
+          "goto": "{admin}#/integrations/ssh"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@admin-ssh-new"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "group",
+            "name": "@admin-ssh-identity"
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@admin-ssh-add-target"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "group",
+          "name": "@admin-ssh-targets"
+        },
+        "padding": 8
+      },
+      "alt": "The Allowed destinations section of a new SSH tunnel with one destination row: Destination hostname, Destination port 443, the private-address checkbox, Remove destination and Add destination.",
+      "viewport": {
+        "width": 1440,
+        "height": 1900
+      }
     },
     {
       "id": "smtp-transport-policy-fields",
@@ -1611,16 +1700,17 @@
         }
       ],
       "shot": {
-        "element": {
-          "css": "form fieldset"
-        },
-        "padding": 10
-      },
-      "mask": [
-        {
-          "css": "form fieldset legend"
+        "clip": {
+          "x": -10,
+          "y": 28,
+          "width": 780,
+          "height": 712,
+          "relativeTo": {
+            "css": "form fieldset"
+          }
         }
-      ],
+      },
+      "mask": [],
       "callouts": [
         {
           "n": 1,
@@ -1686,7 +1776,8 @@
       "viewport": {
         "width": 1440,
         "height": 1800
-      }
+      },
+      "note": "Clipped below the legend, which shows the generated endpoint id."
     },
     {
       "id": "sso-list",
@@ -1762,7 +1853,7 @@
           "exact": false
         }
       ],
-      "alt": "The editor of the Staff sign-in provider: backend ID, display name, protocol OIDC, scope, first-login policy and the OpenID Connect fields."
+      "alt": "The editor of the Staff sign-in provider: the Provider group (backend ID, display name, protocol OIDC, scope, first-login policy, Enabled) and the OpenID Connect group with the Issuer URL, Client ID, Client secret and Redirect URL fields."
     },
     {
       "id": "sso-claims",
@@ -2060,7 +2151,14 @@
           "wait": 1500
         }
       ],
-      "shot": "full",
+      "shot": {
+        "element": {
+          "role": "group",
+          "name": "@admin-identity-client",
+          "closest": "form"
+        },
+        "padding": 8
+      },
       "mask": [
         {
           "text": "@admin-session-bar-idle",
@@ -2071,7 +2169,11 @@
           "exact": false
         }
       ],
-      "alt": "The editor of the identity client Room booking desktop app: public client authentication, a loopback callback URI and the allowed identity scopes."
+      "alt": "The editor of the identity client Room booking desktop app: public client authentication, a loopback callback URI and the allowed identity scopes.",
+      "viewport": {
+        "width": 1440,
+        "height": 1900
+      }
     },
     {
       "id": "identity-provider-issuer",
@@ -2100,7 +2202,14 @@
           "wait": 1500
         }
       ],
-      "shot": "full",
+      "shot": {
+        "element": {
+          "role": "group",
+          "name": "@admin-identity-configure",
+          "closest": "form"
+        },
+        "padding": 8
+      },
       "mask": [
         {
           "text": "@admin-session-bar-idle",
@@ -2257,7 +2366,11 @@
           "exact": false
         }
       ],
-      "alt": "The Security policy tab of the Security centre: the Connections group with the lowest TLS version, the start of the Sign-in group, and the Save bar."
+      "alt": "The Security policy tab of the Security centre: the Connections group with the lowest TLS version, the Sign-in group with the second-factor requirement and the Argon2 cost, the Reading group, and the Save bar.",
+      "viewport": {
+        "width": 1440,
+        "height": 1500
+      }
     },
     {
       "id": "security-policy-signin",
@@ -2363,7 +2476,7 @@
           "place": "right"
         }
       ],
-      "alt": "The Personal security tab of My preferences: Administrator passkeys with a name field and Add administrator passkey, the Authenticator app section with Manage authenticator and recovery codes, and the Change your password form.",
+      "alt": "The Personal security tab of My preferences: Administrator passkeys with Add administrator passkey, Authenticator app with Manage authenticator and recovery codes, and Change your password, with markers 1 to 3 on those three buttons.",
       "viewport": {
         "width": 1440,
         "height": 1300
@@ -3258,7 +3371,7 @@
           "place": "top"
         }
       ],
-      "alt": "The dashboard setup checklist with one item done and two open, each with an Open link and a Hide button; markers on a Done status, an Open link and a Hide button."
+      "alt": "The dashboard setup checklist with one item done and two open; the open items have an Open link, and every item has a Hide button. Markers on a Done status, an Open link and a Hide button."
     },
     {
       "id": "admin-index-search",
@@ -3298,7 +3411,7 @@
         },
         "padding": 8
       },
-      "alt": "The console search window with domain typed, listing matching sections, domains and settings."
+      "alt": "The console search window with domain typed: the Domains section and a list of settings fields whose names contain domain."
     },
     {
       "id": "admin-index-session-bar",

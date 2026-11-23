@@ -16,7 +16,7 @@ The protocol guard checks the method, version, request target and headers of eve
 
 1. Open **Protocol guard**. **Overall mode** shows **Off**, **Detect** and **Enforce**, and after **Now:** the mode all classes share, or **Mixed**.
 
-   ![The Overall mode card of the Protocol guard sub-tab: the Off, Detect and Enforce buttons, the current state Mixed, and the count of requests that enforcing would refuse (masked).](/screenshots/admin-access/protocol-guard-overall.webp){.mw-crop}
+   ![The Overall mode card of the Protocol guard sub-tab: its explanation, the Off, Detect and Enforce buttons, and the current state Mixed.](/screenshots/admin-access/protocol-guard-overall.webp){.mw-crop}
 
 2. To set every class at once, choose one of the three buttons. **Enforce** first asks for confirmation and says how many requests the classes that only detect have seen since the server started. Classes pinned by an environment variable keep their value.
 3. To set one class, change its mode in its group below and choose **Save**. **Discard changes** drops an unsaved change.

@@ -35,7 +35,7 @@ Open it in the editor. If its protocol settings are empty, enter them again and 
 4. Check **Claim mapping**.
 5. Click **Add backend** (or **Save changes** when editing). The page returns to the list.
 
-![The editor of the Staff sign-in provider: backend ID, display name, protocol OIDC, scope, first-login policy and the OpenID Connect fields.](/screenshots/admin-access/sso-editor-oidc.webp){.mw-shot}
+![The editor of the Staff sign-in provider: the Provider group (backend ID, display name, protocol OIDC, scope, first-login policy, Enabled) and the OpenID Connect group with the Issuer URL, Client ID, Client secret and Redirect URL fields.](/screenshots/admin-access/sso-editor-oidc.webp){.mw-shot}
 
 
 **Back to sign-in providers** and **Cancel** ask before they discard unsaved changes.
