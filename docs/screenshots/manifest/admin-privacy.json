@@ -1,0 +1,1209 @@
+{
+  "defaults": {
+    "stack": "E",
+    "seed": [
+      "mail-basic",
+      "admin-basic",
+      "privacy-requests",
+      "privacy-registers"
+    ],
+    "session": "admin",
+    "theme": "dark",
+    "viewport": "desktop"
+  },
+  "entries": [
+    {
+      "id": "compliance-overview",
+      "page": "admin/compliance.md",
+      "steps": [
+        {
+          "goto": "{admin}#/compliance"
+        },
+        {
+          "waitFor": {
+            "text": "@compliance-card-data-requests"
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Compliance section of the console on its Overview tab: the row of tabs and one card per tab, with status lines on the Policy, Records of processing and Impact assessments cards."
+    },
+    {
+      "id": "policy-status",
+      "page": "admin/compliance.md",
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/policy"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@compliance-policy-status"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "region",
+          "name": "@compliance-policy-status"
+        },
+        "padding": 8
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "role": "button",
+            "name": "@compliance-policy-publish"
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "link",
+            "name": "@compliance-policy-open"
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 3,
+          "target": {
+            "role": "link",
+            "name": "@compliance-policy-md"
+          },
+          "place": "bottom"
+        }
+      ],
+      "alt": "The Status section of the Policy tab: the current version and the buttons to publish a new version, open the public page and download the policy as Markdown."
+    },
+    {
+      "id": "policy-operator-fields",
+      "page": "admin/compliance.md",
+      "viewport": {
+        "width": 1440,
+        "height": 1600
+      },
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/policy"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@compliance-policy-required"
+          }
+        }
+      ],
+      "shot": {
+        "clip": {
+          "x": 0,
+          "y": 0,
+          "width": 776,
+          "height": 215,
+          "relativeTo": {
+            "role": "region",
+            "name": "@compliance-policy-required"
+          }
+        }
+      },
+      "alt": "The top of the Operator fields section of the Policy tab, listing the five required fields that are still blank: controller name and address, legal bases, hosting provider and supervisory authority."
+    },
+    {
+      "id": "records-activities",
+      "page": "admin/compliance.md",
+      "viewport": {
+        "width": 1440,
+        "height": 1600
+      },
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/processing-records"
+        },
+        {
+          "waitFor": {
+            "text": "Staff directory"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "region",
+          "name": "@compliance-records-activities"
+        },
+        "padding": 8
+      },
+      "alt": "The Processing activities table of the Records of processing tab: the generated activities, two marked off, and one activity added by an administrator, Staff directory."
+    },
+    {
+      "id": "dpia-register",
+      "page": "admin/compliance.md",
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/dpia"
+        },
+        {
+          "waitFor": {
+            "text": "AI assistant for the support team"
+          }
+        }
+      ],
+      "shot": {
+        "element": [
+          {
+            "role": "region",
+            "name": "@compliance-dpia-register"
+          },
+          {
+            "role": "region",
+            "name": "@compliance-dpia-new"
+          }
+        ],
+        "padding": 8
+      },
+      "alt": "The Impact assessments tab: the register with one draft assessment for the AI assistant, and the New assessment form with its title, template and language."
+    },
+    {
+      "id": "governance-contracts",
+      "page": "admin/compliance.md",
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/contracts"
+        },
+        {
+          "waitFor": {
+            "text": "Hosting data processing agreement"
+          }
+        }
+      ],
+      "shot": {
+        "clip": {
+          "x": -8,
+          "y": -74,
+          "width": 1182,
+          "height": 184,
+          "relativeTo": {
+            "role": "table",
+            "hasText": "Hosting data processing agreement"
+          }
+        }
+      },
+      "alt": "The Contracts register with its search, status filter, export buttons and one active data processing agreement."
+    },
+    {
+      "id": "compliance-notifications",
+      "page": "admin/compliance.md",
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/notifications"
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@governance-mail-test"
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Email notifications tab of Compliance: the switch that turns compliance email on and the SMTP relay settings."
+    },
+    {
+      "id": "dsr-queue",
+      "page": "admin/data-requests.md",
+      "clock": false,
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/data-requests"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-dr-stats"
+          }
+        },
+        {
+          "scroll": {
+            "role": "search",
+            "name": "@admin-dr-filters",
+            "block": "start"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "alex@example.com",
+            "first": true
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Data requests tab scrolled to the filters and the queue, with three open requests from alex@example.com: an access request, a correction and an erasure."
+    },
+    {
+      "id": "dsr-filters",
+      "page": "admin/data-requests.md",
+      "clock": false,
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/data-requests"
+        },
+        {
+          "waitFor": {
+            "text": "alex@example.com",
+            "first": true
+          }
+        }
+      ],
+      "shot": {
+        "element": [
+          {
+            "role": "search",
+            "name": "@admin-dr-filters"
+          },
+          {
+            "role": "table",
+            "hasText": "alex@example.com"
+          }
+        ],
+        "padding": 8
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "role": "combobox",
+            "name": "@admin-dr-col-status",
+            "within": {
+              "role": "search",
+              "name": "@admin-dr-filters"
+            }
+          },
+          "place": "top-right"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "button",
+            "name": "@admin-dr-export"
+          },
+          "place": "right"
+        },
+        {
+          "n": 3,
+          "target": {
+            "role": "columnheader",
+            "name": "@admin-dr-col-due"
+          },
+          "place": "top"
+        }
+      ],
+      "alt": "The filter bar of the Data requests tab and the queue below it, with markers 1 to 3.",
+      "viewport": {
+        "width": 1440,
+        "height": 1800
+      }
+    },
+    {
+      "id": "dsr-detail",
+      "page": "admin/data-requests.md",
+      "clock": false,
+      "viewport": {
+        "width": 1440,
+        "height": 1600
+      },
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/data-requests"
+        },
+        {
+          "waitFor": {
+            "text": "alex@example.com",
+            "first": true
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@admin-dr-open-request",
+            "within": {
+              "role": "row",
+              "hasText": "Erasure"
+            }
+          }
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-dr-detail"
+          }
+        },
+        {
+          "scroll": {
+            "role": "region",
+            "name": "@admin-dr-detail",
+            "block": "start"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "region",
+          "name": "@admin-dr-detail"
+        },
+        "padding": 8
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "label": "@admin-dr-note"
+          },
+          "place": "right"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "button",
+            "name": "@admin-dr-approve"
+          },
+          "place": "left"
+        },
+        {
+          "n": 3,
+          "target": {
+            "text": "@admin-dr-trail"
+          },
+          "place": "left"
+        }
+      ],
+      "alt": "The Request details panel of an erasure request waiting for approval, with markers 1 to 3."
+    },
+    {
+      "id": "dsr-behalf",
+      "page": "admin/data-requests.md",
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/data-requests"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-dr-behalf"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "region",
+          "name": "@admin-dr-behalf"
+        },
+        "padding": 8
+      },
+      "alt": "The File a request for a user form with the Person, Type and Details fields.",
+      "viewport": {
+        "width": 1440,
+        "height": 1800
+      }
+    },
+    {
+      "id": "erasure-scrub",
+      "page": "admin/data-requests.md",
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/erasure-coverage"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-erasure-chain"
+          }
+        },
+        {
+          "fill": {
+            "label": "@admin-erasure-address",
+            "value": "nadia.haddad@example.com"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "region",
+          "name": "@admin-erasure-scrub"
+        },
+        "padding": 8
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "label": "@admin-erasure-address"
+          },
+          "place": "right"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "button",
+            "name": "@admin-erasure-preview"
+          },
+          "place": "bottom"
+        }
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 1600
+      },
+      "alt": "The Scrub person section of the Erasure and scrubbing tab with an address entered, and markers on the address and Preview."
+    },
+    {
+      "id": "consents-overview",
+      "page": "admin/consent.md",
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/consents"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-consents-overview"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "table",
+            "within": {
+              "role": "region",
+              "name": "@admin-consents-overview"
+            },
+            "first": true
+          }
+        }
+      ],
+      "shot": {
+        "clip": {
+          "x": 0,
+          "y": 0,
+          "width": 1182,
+          "height": 360,
+          "relativeTo": {
+            "role": "region",
+            "name": "@admin-consents-overview"
+          }
+        }
+      },
+      "alt": "The Overview of the Consents tab: for each purpose with decisions, how many accounts currently say yes or have withdrawn, and the withdrawal rate.",
+      "clock": false
+    },
+    {
+      "id": "cookies-tab",
+      "page": "admin/cookies.md",
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/cookies"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-cookies-inventory",
+            "first": true
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Cookies tab of Compliance with the setting groups for the consent control, starting with Control and regions."
+    },
+    {
+      "id": "cookies-inventory",
+      "page": "admin/cookies.md",
+      "viewport": {
+        "width": 1440,
+        "height": 1800
+      },
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/cookies"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-cookies-inventory",
+            "first": true
+          }
+        },
+        {
+          "scroll": {
+            "role": "region",
+            "name": "@admin-cookies-inventory",
+            "block": "start",
+            "first": true
+          }
+        }
+      ],
+      "shot": {
+        "clip": {
+          "x": 0,
+          "y": 0,
+          "width": 1134,
+          "height": 700,
+          "relativeTo": {
+            "role": "table",
+            "within": {
+              "role": "region",
+              "name": "@admin-cookies-inventory",
+              "first": true
+            },
+            "first": true
+          }
+        }
+      },
+      "alt": "The top of the cookie and storage inventory: the built-in entries with their kind, category, purpose, duration, provider and source."
+    },
+    {
+      "id": "breaches-list",
+      "page": "admin/breach-register.md",
+      "clock": false,
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/breaches"
+        },
+        {
+          "waitFor": {
+            "text": "Invoice batch sent to the wrong customer"
+          }
+        },
+        {
+          "scroll": {
+            "role": "search",
+            "name": "@admin-breach-filters",
+            "block": "start"
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The breach register scrolled to its filters and list, with one incident whose notice clock is running and one draft."
+    },
+    {
+      "id": "breach-detail",
+      "page": "admin/breach-register.md",
+      "clock": false,
+      "viewport": {
+        "width": 1440,
+        "height": 1800
+      },
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/breaches"
+        },
+        {
+          "waitFor": {
+            "text": "Invoice batch sent to the wrong customer"
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@admin-breach-open-incident",
+            "within": {
+              "role": "row",
+              "hasText": "Invoice batch sent to the wrong customer"
+            }
+          }
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-breach-detail"
+          }
+        },
+        {
+          "scroll": {
+            "role": "region",
+            "name": "@admin-breach-detail",
+            "block": "start"
+          }
+        }
+      ],
+      "shot": {
+        "clip": {
+          "x": 0,
+          "y": 0,
+          "width": 1180,
+          "height": 820,
+          "relativeTo": {
+            "role": "region",
+            "name": "@admin-breach-detail"
+          }
+        }
+      },
+      "alt": "The top of an opened breach incident: its reference and title, the notice clock, and the status and assignment controls."
+    },
+    {
+      "id": "retention-overview",
+      "page": "admin/retention.md",
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/retention"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-retention-stores"
+          }
+        }
+      ],
+      "shot": "full",
+      "mask": [
+        {
+          "role": "region",
+          "name": "@admin-retention-stats"
+        }
+      ],
+      "alt": "The Retention tab of Compliance: the sweeper tiles, masked because they show the server's own clock, and Run the sweep."
+    },
+    {
+      "id": "retention-stores",
+      "page": "admin/retention.md",
+      "viewport": {
+        "width": 1440,
+        "height": 2400
+      },
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/retention"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-retention-stores"
+          }
+        }
+      ],
+      "shot": {
+        "clip": {
+          "x": 0,
+          "y": 0,
+          "width": 1180,
+          "height": 620,
+          "relativeTo": {
+            "role": "region",
+            "name": "@admin-retention-stores"
+          }
+        }
+      },
+      "alt": "The top of the Stores table on the Retention tab: each store, what it holds, its limit, its row count and what removes its rows."
+    },
+    {
+      "id": "retention-dry-run",
+      "page": "admin/retention.md",
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/retention"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-retention-run-heading"
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@admin-retention-dry-run"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@admin-retention-run-confirm"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "region",
+          "name": "@admin-retention-run-heading"
+        },
+        "padding": 8
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "role": "button",
+            "name": "@admin-retention-dry-run"
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "button",
+            "name": "@admin-retention-run-confirm"
+          },
+          "place": "right"
+        }
+      ],
+      "alt": "The Run the sweep section after a preview, with markers on Preview (dry run) and Run now.",
+      "viewport": {
+        "width": 1440,
+        "height": 1800
+      }
+    },
+    {
+      "id": "encryption-overview",
+      "page": "admin/encryption.md",
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/encryption"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-encryption-findings"
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Encryption tab of Compliance on a default SQLite install: database Sealed columns only, mode Optional, no database key, and the first finding."
+    },
+    {
+      "id": "encryption-stores",
+      "page": "admin/encryption.md",
+      "viewport": {
+        "width": 1440,
+        "height": 1800
+      },
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/encryption"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-encryption-stores"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "region",
+          "name": "@admin-encryption-stores"
+        },
+        "padding": 8
+      },
+      "alt": "The Stores table of the Encryption tab: each place the server keeps data, whether it is encrypted, and how that was determined."
+    },
+    {
+      "id": "encryption-checks",
+      "page": "admin/encryption.md",
+      "viewport": {
+        "width": 1440,
+        "height": 1800
+      },
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/encryption"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-encryption-actions"
+          }
+        },
+        {
+          "scroll": {
+            "role": "region",
+            "name": "@admin-encryption-actions",
+            "block": "start"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "region",
+          "name": "@admin-encryption-actions"
+        },
+        "padding": 8
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "role": "button",
+            "name": "@admin-encryption-files-encrypt"
+          },
+          "place": "top"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "button",
+            "name": "@admin-encryption-verify"
+          },
+          "place": "top"
+        },
+        {
+          "n": 3,
+          "target": {
+            "role": "button",
+            "name": "@admin-encryption-rehearse"
+          },
+          "place": "top"
+        }
+      ],
+      "alt": "The Checks and commands section of the Encryption tab, with markers on its three buttons, and the list of commands."
+    },
+    {
+      "id": "privacy-overview",
+      "page": "admin/privacy.md",
+      "steps": [
+        {
+          "goto": "{admin}#/privacy/overview"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@privacy-overview-figures"
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Overview tab of Privacy and remote content: the image proxy status, the key figures and the time range buttons."
+    },
+    {
+      "id": "privacy-remote",
+      "page": "admin/privacy.md",
+      "viewport": {
+        "width": 1440,
+        "height": 1600
+      },
+      "steps": [
+        {
+          "goto": "{admin}#/privacy/remote"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@privacy-policy-values"
+          }
+        }
+      ],
+      "shot": {
+        "clip": {
+          "x": 0,
+          "y": 0,
+          "width": 776,
+          "height": 400,
+          "relativeTo": {
+            "role": "region",
+            "name": "@privacy-policy-values"
+          }
+        }
+      },
+      "alt": "The top of the Remote-content policy settings: Remote content set to ask, with the switch that lets people change it and the lock.",
+      "hide": [
+        {
+          "testid": "admin-session-bar"
+        }
+      ]
+    },
+    {
+      "id": "attachments-lists",
+      "page": "admin/privacy.md",
+      "steps": [
+        {
+          "goto": "{admin}#/attachments"
+        },
+        {
+          "waitFor": {
+            "text": "@admin-attachments-description"
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Attachment policy screen on its Allow and block lists tab, with empty lists of allowed and blocked file name extensions and MIME types."
+    },
+    {
+      "id": "geoip-overview",
+      "page": "admin/country-database.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/geoip"
+        },
+        {
+          "waitFor": {
+            "role": "table",
+            "name": "@admin-geoip-status"
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Country database tab of the Security centre with no database installed, the warning that country features are on, and the status table."
+    },
+    {
+      "id": "analytics-overview",
+      "page": "admin/analytics.md",
+      "steps": [
+        {
+          "goto": "{admin}#/analytics"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-analytics-collector"
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Usage analytics screen with collection off: the collector configuration form and the exporter status.",
+      "hide": [
+        {
+          "css": "svg[data-brand]"
+        }
+      ]
+    },
+    {
+      "id": "analytics-tag",
+      "page": "admin/analytics.md",
+      "viewport": {
+        "width": 1440,
+        "height": 1800
+      },
+      "steps": [
+        {
+          "goto": "{admin}#/analytics"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-analytics-tag-title"
+          }
+        }
+      ],
+      "shot": {
+        "clip": {
+          "x": 0,
+          "y": 0,
+          "width": 1182,
+          "height": 640,
+          "relativeTo": {
+            "role": "region",
+            "name": "@admin-analytics-tag-title"
+          }
+        }
+      },
+      "alt": "The top of the Browser analytics tag form: where the tag runs, the switch that loads it, the provider and the provider address.",
+      "hide": [
+        {
+          "css": "svg[data-brand]"
+        },
+        {
+          "testid": "admin-session-bar"
+        }
+      ]
+    },
+    {
+      "id": "product-security",
+      "page": "admin/product-security.md",
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/product-security"
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@res-sbom-backend"
+          }
+        }
+      ],
+      "shot": "full",
+      "mask": [
+        {
+          "role": "definition",
+          "nth": 0
+        },
+        {
+          "role": "definition",
+          "nth": 1
+        },
+        {
+          "role": "definition",
+          "nth": 3
+        },
+        {
+          "text": "Components:",
+          "exact": false
+        },
+        {
+          "text": "Cargo.lock SHA-256",
+          "exact": false
+        },
+        {
+          "text": "pnpm-lock.yaml SHA-256",
+          "exact": false
+        }
+      ],
+      "alt": "The About Mailwoman tab of Compliance with the build facts (version, revision and target masked), the software inventory downloads and the links for reporting a vulnerability."
+    },
+    {
+      "id": "incidents-list",
+      "page": "admin/operational-incidents.md",
+      "clock": false,
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/incidents"
+        },
+        {
+          "waitFor": {
+            "text": "Mail delivery delayed for 40 minutes"
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Operational incidents tab of Compliance with one active incident, and the buttons to add an incident and check signals now."
+    },
+    {
+      "id": "restrictions-apply",
+      "page": "admin/consent.md",
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/restrictions/apply"
+        },
+        {
+          "waitFor": {
+            "label": "@admin-restrictions-address"
+          }
+        },
+        {
+          "fill": {
+            "label": "@admin-restrictions-address",
+            "value": "alex@example.com"
+          }
+        },
+        {
+          "fill": {
+            "label": "@admin-restrictions-reason",
+            "value": "Accuracy of the directory entry contested; correction request open."
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "button",
+          "name": "@admin-restrictions-apply-button",
+          "closest": "form"
+        },
+        "padding": 8
+      },
+      "alt": "The Restrict a person form: the address, the six kinds of processing that can be paused, the reason and the length.",
+      "viewport": {
+        "width": 1440,
+        "height": 1400
+      }
+    },
+    {
+      "id": "restrictions-list",
+      "page": "admin/consent.md",
+      "clock": false,
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/restrictions/apply"
+        },
+        {
+          "waitFor": {
+            "label": "@admin-restrictions-address"
+          }
+        },
+        {
+          "fill": {
+            "label": "@admin-restrictions-address",
+            "value": "alex@example.com"
+          }
+        },
+        {
+          "fill": {
+            "label": "@admin-restrictions-reason",
+            "value": "Accuracy of the directory entry contested; correction request open."
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@admin-restrictions-apply-button"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@admin-restrictions-applied"
+          }
+        },
+        {
+          "goto": "{admin}#/compliance/restrictions/list"
+        },
+        {
+          "waitFor": {
+            "text": "Accuracy of the directory entry contested; correction request open."
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Restrictions tab of Compliance with one restricted person, the kinds of processing paused for them and the reason."
+    },
+    {
+      "id": "features-overview",
+      "page": "admin/feature-governance.md",
+      "steps": [
+        {
+          "goto": "{admin}#/features"
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@admin-features-new"
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@admin-features-new"
+          }
+        },
+        {
+          "waitFor": {
+            "label": "@admin-features-name"
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Feature profiles screen with the editor of a new profile open: the profile name and the switches with their values and locks."
+    },
+    {
+      "id": "cookie-banner",
+      "page": "admin/cookies.md",
+      "session": "none",
+      "seed": [
+        "mail-basic",
+        "admin-basic",
+        "privacy-cookie-control"
+      ],
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@cookies-accept-all"
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The cookie consent banner at the bottom of the sign-in page, with Accept all, Reject all and Choose categories."
+    }
+  ]
+}

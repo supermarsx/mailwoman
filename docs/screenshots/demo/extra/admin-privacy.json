@@ -1,0 +1,83 @@
+{
+  "seeds": {
+    "privacy-requests": {
+      "include": ["mail-basic", "admin-basic"],
+      "adminSettings": { "dsr.confirmation.required": false },
+      "userStepUp": true,
+      "user": [
+        { "method": "POST", "path": "/api/privacy/requests", "body": { "kind": "access", "details": "A copy of my contacts and calendars, please." } },
+        { "method": "POST", "path": "/api/privacy/requests", "body": { "kind": "rectification", "details": "My display name is spelled wrong in the directory: it should be Alex Rivera." } },
+        { "method": "POST", "path": "/api/privacy/requests", "body": { "kind": "erasure", "details": "I am leaving the organisation at the end of the month." } },
+        { "method": "POST", "path": "/api/privacy/consents/assistant", "body": { "decision": "granted" } },
+        { "method": "POST", "path": "/api/privacy/consents/push", "body": { "decision": "withdrawn" } },
+        { "method": "POST", "path": "/api/privacy/consents/openTracking", "body": { "decision": "granted" } }
+      ]
+    },
+    "privacy-registers": {
+      "include": ["mail-basic", "admin-basic"],
+      "admin": [
+        {
+          "method": "POST",
+          "path": "/breaches",
+          "body": {
+            "title": "Invoice batch sent to the wrong customer",
+            "description": "A batch of twelve invoices for Lindqvist Studio was mailed to another customer's billing address.",
+            "incidentType": "misdirected-message",
+            "domain": "example.com",
+            "affected": ["mei.lindqvist@example.org"],
+            "approxSubjects": 1,
+            "approxRecords": 12,
+            "dataCategories": ["Billing details"],
+            "subjectCategories": ["Customers"],
+            "consequences": "The recipient can read the customer's billing address and amounts.",
+            "measuresTaken": "Asked the recipient to delete the message.",
+            "reporter": "Priya Raman"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/breaches",
+          "body": {
+            "title": "Lost laptop with a synced mailbox",
+            "description": "A staff laptop with the offline mailbox was left on a train.",
+            "incidentType": "lost-device",
+            "domain": "example.com",
+            "draft": true,
+            "reporter": "Sam Okoye"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/incidents",
+          "body": {
+            "title": "Mail delivery delayed for 40 minutes",
+            "category": "service-disruption",
+            "impact": "Outgoing mail queued while the upstream relay refused connections.",
+            "owner": "Jordan Ellis",
+            "status": "active",
+            "significance": "unassessed"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/compliance/dpia",
+          "body": { "title": "AI assistant for the support team", "template": "assistant" }
+        },
+        {
+          "method": "POST",
+          "path": "/compliance/records",
+          "body": { "kind": "activity", "name": "Staff directory", "fields": { "purpose": "Show colleagues' names and roles to signed-in staff", "retention": "Until the account is closed" } }
+        },
+        {
+          "method": "POST",
+          "path": "/compliance/records",
+          "body": { "kind": "contract", "name": "Hosting data processing agreement", "fields": { "status": "active", "contractType": "dpa", "owner": "Priya Raman", "counterparty": "Example Hosting", "signedAt": "2026-01-15", "documentUrl": "https://example.net/contracts/dpa" } }
+        }
+      ]
+    },
+    "privacy-cookie-control": {
+      "include": ["mail-basic", "admin-basic"],
+      "adminSettings": { "cookies.enabled": true, "cookies.functional.enabled": true, "cookies.analytics.enabled": true }
+    }
+  }
+}

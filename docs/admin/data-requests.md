@@ -1,93 +1,224 @@
+---
+screen: true
+---
 # Data requests
 
-People can ask what this server holds about them, ask for a copy, and ask for their data to be corrected, erased, restricted or no longer used. This page describes the controls the server provides for handling those requests. It does not say that using them meets any law; what a request must cover, who may make one and how quickly it must be answered is for your own legal advice.
+People can ask what this server holds about them, ask for a copy, and ask for their data to be corrected, erased or restricted, or object to a use of it. The **Data requests** tab of **Compliance** is the queue where you handle those requests. This page describes what the server does with each request. It does not say that handling requests this way meets any law: what a request must cover, who may make one and how quickly it must be answered is for your own legal advice.
 
-A person files a request under **Settings > Privacy & data > Your data**. You work the queue under **Admin > Data requests** (needs the `data_export.run` capability, limited to the domains the grant covers). Every option below is a setting, set globally, per domain, or, where noted, per user. See [settings](settings.md) for the `dsr.*` keys; each has an admin default and lock.
+![The Data requests tab scrolled to the filters and the queue, with three open requests from alex@example.com: an access request, a correction and an erasure.](/screenshots/admin-privacy/dsr-queue.webp){.mw-shot}
+
+## Before you start
+
+- You need the `data_export.run` capability. An administrator limited to some domains sees and handles only the requests of those domains.
+- People file requests themselves under **Settings > Privacy > Data requests** in the mail app (see [Account settings](/user/settings/account#data-requests)). You can also file one for them (see [File a request for someone](#file-a-request-for-someone)).
+- Which request types are offered, who approves them and what an export contains are settings (see [Options](#options)). Most of them can be set per domain.
 
 ## Request types
 
-| Type | What it does here |
+| Type (as the person sees it) | What the server does |
 | --- | --- |
-| Access | Builds a ZIP of the data the server holds about the person. |
-| Download (portability) | The same ZIP; the two are separate types so they can be switched on and approved separately. |
-| Correction | Recorded in the queue for an administrator to handle by hand. The page points the person to the places where they can edit their own details. |
-| Erasure | Deletes the person's data after an approval step and a waiting period the person can cancel during. |
-| Restriction | When approved, the person's accounts are restricted straight away (`restriction.autoApplyOnApproval`), or an administrator applies it by hand. The request stays in progress until an administrator closes it with a note. See [restrictions and consent](consent.md). |
-| Objection, Other | Recorded in the queue for an administrator to handle by hand and close with a note. Nothing changes automatically. |
-
-Each type has its own switch (`dsr.type.*`), and `dsr.enabled` turns the whole feature off.
+| **Access to my data** | Builds a ZIP file of the data the server holds about the person (see [What an export contains](#what-an-export-contains)). |
+| **Download my data** | Builds the same ZIP file. The two types exist so they can be offered and approved separately. |
+| **Correction** | Nothing automatic. The request waits for you to make the correction by hand and close it with **Mark complete**. |
+| **Erasure** | After approval and a waiting period, deletes the person's data and closes their account (see [What erasure removes](#what-erasure-removes-and-what-it-leaves)). |
+| **Restriction** | On approval, applies a restriction of processing to the person's accounts when **Restrict when a request is approved** is on (the default), using the default paused kinds. See [Restrictions and consent](consent.md). |
+| **Objection** | On approval, records a withdrawal of consent for each purpose the person named. See [Restrictions and consent](consent.md#consents-by-purpose). |
+| **Other request** | Nothing automatic. You handle it by hand and close it with a note. |
 
 ## What happens to a request
 
-1. **Filing.** The person picks a type. For access, download and erasure the server asks for a fresh password or second factor first (`dsr.reauth.required`). A person is limited to `dsr.rateLimit.perDay` requests a day and one open request per type.
-2. **Confirmation.** With `dsr.confirmation.required` on, the server puts a message with a code in the person's own inbox, and the request waits until the code is entered (five wrong tries cancel it; an unconfirmed request is cancelled after seven days). A request filed by an administrator on the person's behalf skips this step.
-3. **Identity check** (`dsr.identityVerification.required`). An administrator records how the identity was verified. Without a note the step cannot be recorded.
-4. **Approval** (`dsr.approval.export`, `dsr.approval.erasure`, `dsr.approval.other`: `auto` or `admin`). With `auto` the request proceeds on its own.
-5. **Carrying out.**
-   * Access and download requests are queued, and a background worker builds the export.
-   * An erasure is scheduled for `dsr.erasure.graceDays` after approval. The person can cancel until then. Setting 0 runs it at the worker's next pass.
-   * Other types move to "in progress" until an administrator completes them with a note.
-6. **Due date.** Each request is due `dsr.sla.days` after it was filed. An administrator can extend it with a recorded reason, up to `dsr.sla.maxExtensionDays` in total. The queue shows a countdown, flags requests due within the widest value of `dsr.sla.reminderDays`, and records "due soon" and "overdue" in the request's trail and as security events.
-7. **Rejection and cancellation.** An administrator can reject with a reason; the person can cancel until the work has started. Both are kept in the trail.
+1. **Filing.** For access, download and erasure, the person confirms their password or second factor first (**Re-authentication for requests**). Each person can file at most **Requests per person per day** requests in 24 hours and one open request per type.
+2. **Confirmation.** With **Confirmation message** on, the server puts a message with a code in the person's own mailbox and the request shows **Waiting for your confirmation** until the code is entered. Five wrong codes cancel the request, and an unconfirmed request is cancelled after seven days.
+3. **Identity check.** With **Identity verification step** on, the request shows **Waiting for identity check** until an administrator records how the identity was checked, with a note. **Record identity check** is also offered while a request waits for the person's confirmation code; using it skips the code.
+4. **Approval.** Each approval setting is **auto** or **admin**. With **admin**, the request shows **Waiting for approval** until someone uses **Approve**. With **Confirm again before approving** on (the default), approving an erasure, and **Run now** on an erasure, ask for your password again.
+5. **Carrying out.** Access and download requests are queued and a background worker builds the export. An erasure is scheduled for **Erasure grace period** days after approval (14 by default); 0 runs it at the worker's next pass. The person can cancel an erasure while it waits. Correction, objection and other requests move to **In progress** until you use **Mark complete**.
+6. **Due date.** A request is due **Days to answer a request** days after it was filed (30 by default). The server counts whole days; it does not use calendar months. **Extend due date** adds days, up to **Longest extension** in total, and needs a reason.
 
-Every change is a line in the request's trail (who, when, what). The person sees their own trail with administrator names replaced by "administrator". If `dsr.notify.admins` is on, new requests and state changes that need attention are also written to the audit log as security events (domain and request type only, not the address). With `dsr.notify.requester` on (a per-user setting with an admin default and lock), the person gets a message in their inbox when a request changes state. Local-inbox delivery remains available. With the separately configured compliance SMTP service, `dsr.notify.emailAdmins` emails `dsr.notify.operatorAddresses` about incoming requests and deadlines, while `dsr.notify.emailRequester` emails requester notices independently. These channels are off by default; see [Governance and email](compliance-governance.md).
+The background worker runs every 30 seconds. Every change is added to the request's trail with who made it and when. The person sees the same trail, with administrator names replaced by "administrator".
 
-## The export
+## Work through the queue
 
-The ZIP is built section by section and stored as it goes, so a restart continues where it stopped. The contents are switched per section (`dsr.export.include.*`):
+1. Open **Compliance** and select the **Data requests** tab. The **Queue** tiles count open and overdue requests and those due within 7 days. The 7 days are fixed; they do not follow **Due date flags**.
+2. Narrow the list with the **Filters**: **Status**, **Type**, **Due**, **Assigned to** and **Search by address or id**. **Export log (CSV)** downloads the requests that match.
 
-* `profile.json` (always): the directory entry.
-* Settings the person has set, identities and signatures, contacts (`contacts.vcf` and a JSON index), calendars (`.ics` per calendar), notes, filter scripts, sessions, remembered devices and sign-in history, cookie consent records, audit entries where the person is the actor or the target, and their data requests.
-* Mail, only when `dsr.export.mailAllowed` is on and the person ticked it, as mbox or one `.eml` per message (`dsr.export.mailFormat`). Only messages in this server's own cache are included. When the server proxies to a mail provider, mail stays at the provider and is not part of the export; the manifest says so.
-* `manifest.json` lists each section, its files, record counts and anything left out and why.
+   ![The filter bar of the Data requests tab and the queue below it, with markers 1 to 3.](/screenshots/admin-privacy/dsr-filters.webp){.mw-crop}
 
-With `dsr.export.format` set to `jsonCsv`, list data is also written as CSV (cells that start with `=`, `+`, `-` or `@` are prefixed with `'`). `dsr.export.maxMegabytes` caps the total; a section that would exceed it is left out and listed in the manifest. `dsr.export.encrypt` seals the stored parts with the server key until the export is downloaded or expires.
+   1. **Status**, set to **Open (not finished)** when the tab opens.
+   2. **Export log (CSV)**.
+   3. The queue: person, type, status, the days left to the due date, and who the request is assigned to.
+   {.mw-callouts}
 
-Beyond those, sections built from the data map add mail state (pins, snoozes, tags, saved searches, trusted senders, read-receipt rules and status, remote-image grants, queued submissions), tasks, security metadata (key fingerprints and associations, API key prefixes, passkey labels, OAuth token metadata, password change history), integrations (external and linked mailboxes, bridges, webhooks), delegations granted and received, usage and quota figures, and records (consent ledger, restrictions, retention rules, tracking pixels and opens, uploads, plug-in data keys, DLP decisions). [Erasure and export coverage](erasure-coverage.md) lists every table and the section it goes to.
+3. Select **Open** on a row. The **Request details** panel shows who filed it, the trail, and the actions the request's status allows.
 
-Secrets are not exported: no password, session token, second-factor secret, passkey key material or API key hash. Sealed items (authenticator secrets, recovery codes, stored passwords, sealed tokens, key material) appear in the export only as a marker saying the item is present and not exported.
+   ![The Request details panel of an erasure request waiting for approval, with markers 1 to 3.](/screenshots/admin-privacy/dsr-detail.webp){.mw-crop}
 
-### Download
+   1. **Note or reason**. **Reject**, **Extend due date**, **Mark complete**, **Record identity check** and **Put under legal hold** need one.
+   2. The actions for this request.
+   3. **Trail**: every step of the request so far.
+   {.mw-callouts}
 
-When an export is ready the person asks for a download link (a fresh password is asked again when `dsr.reauth.required` is on). The link carries a random token that is stored only as a hash. It is valid for `dsr.download.linkMinutes`, only for the signed-in person, and, with `dsr.download.singleUse` on, only once. The export itself is deleted after `dataExport.linkHours`, along with its stored parts.
+4. Choose the action. Select several rows to use **Bulk actions** on up to 200 requests at once; a request the action does not apply to is refused and stays selected.
 
-## Erasure
-
-The erasure deletes the person's rows from the personal tables (second-factor and passkey records, push subscriptions, signatures, notification rules, sign-in events, remembered devices, masked addresses, API keys, filter scripts, identities, drafts, calendars, address books, notes, personal settings and saved searches, cookie consent records), the search index documents and message embeddings of the person's accounts, their sessions, and any native account rows (which removes the locally cached mail). It then closes the directory entry so the address cannot sign in again. The rows are found through the data map (`crates/mw-store/src/data_map.rs`), which also covers tables that are removed with a parent row (events, contacts, tasks, mail cache), delegations where the person is the delegate, linked mailboxes and the other tables listed in [erasure coverage](erasure-coverage.md). A second pass counts the rows every entry of the data map still finds, not only those the delete statements touch, so a table that is only mapped is verified too; if anything remains or any step failed, the request is retried and then marked failed for an administrator to rerun.
-
-What is kept, and listed in the completion record:
-
-* Audit log entries, for the audit retention period you set. With `scrub.autoRunOnErasure` on, the person's address and account ids in audit entries, alert and assistant history and the rotated log files are first replaced with a keyed pseudonym; the audit hash chain is re-sealed and an anchor record is written (see [erasure coverage](erasure-coverage.md#scrubbing-one-person-from-history)).
-* The directory entry (address, domain, status, timestamps), so that the address is not enrolled again without an administrator.
-* The request and its trail, for `dsr.retention.completedDays`.
-* Mail held by an upstream mail provider. This server removes its link to it; it does not delete mail it does not hold.
-
-Every completed erasure also writes a tombstone (a keyed hash of the address, no raw identifier). Backups record the tombstone watermark when they are made, and a restore replays the newer tombstones when `backup.propagateErasure` is on, so people erased after a backup are erased again after restoring it. The admin Erasure and scrubbing page marks backups that still contain people erased since.
-
-The completion record also holds counts of rows removed per table and a digest of those counts, the request id and the time. The digest lets you check later that the record was not edited; it is not a signature.
+| Action | Shown when | What it does |
+| --- | --- | --- |
+| **Record identity check** | waiting for identity check or for the confirmation code | Records the note and moves the request on. |
+| **Approve** | waiting for approval | Starts the work (see step 5 above). |
+| **Reject** | open, not being prepared | Closes the request with your reason. |
+| **Extend due date** | open | Moves the due date by **Extend by (days)**. |
+| **Mark complete** | in progress | Closes a request you carried out by hand. |
+| **Put under legal hold** / **Release hold** | an open erasure | Stops the erasure from running while the hold is in place. |
+| **Run now** | failed, queued or scheduled | Runs the work at once. For a scheduled erasure this skips the rest of the waiting period. |
+| **Assign** | any | Records who is working on it. |
 
 ### Legal holds
 
-An address, or an `@domain` entry, listed in `dsr.legalHold.subjects` is under hold, and an administrator can also put a single request under hold. An erasure for a held person is not carried out: the request is shown as **blocked** with the source and reason of the hold, in the queue, the request details and the person's own list. When the hold is removed (the setting entry removed, or the request's own hold released) the request continues and the waiting period starts again.
+A legal hold stops an erasure. **Legal holds** ([`dsr.legalHold.subjects`](/admin/settings#dsr.legalHold.subjects)) lists addresses that are always held; **Put under legal hold** holds one request. A held erasure shows **The erasure is blocked by a legal hold and will not run. It continues when the hold is removed.** The hold is checked again just before the erasure runs.
 
-## Requests on behalf of a person
+## What an export contains
 
-With `dsr.onBehalf.allowed` on, an administrator can file a request for a person who has signed in to this server, for example one received by post. It is recorded as filed by that administrator, skips the confirmation message and follows the same approval steps.
+The export is a ZIP file with a `manifest.json` that lists the sections, the files, the record counts and the reason for each part that was left out. It is built section by section, so a server restart continues where it stopped.
 
-## The queue
+| File | Contents | Switch |
+| --- | --- | --- |
+| `profile.json` | The directory entry: address, domain, status, display name, dates | always |
+| `settings.json` | Settings the person has set | **Export: settings** |
+| `identities.json` | Sending identities, with their signature text | **Export: identities** |
+| `contacts.vcf`, `contacts.json` | Contacts | **Export: contacts** |
+| `calendars/*.ics`, `calendars.json` | One file per calendar | **Export: calendars** |
+| `notes.json` | Notes, with their text | **Export: notes** |
+| `rules/*.sieve`, `rules.json` | Filter scripts | **Export: filters and rules** |
+| `sessions.json` | Sessions (at most 200) and sign-in history (at most 500 entries per account) | **Export: sessions, devices and sign-in history** |
+| `consent.json` | Cookie consent records | **Export: consent records** |
+| `audit.json` | Audit entries where the person is the actor or the target (at most 5000 per account) | **Export: audit entries about the person** |
+| `data-requests.json` | The person's data requests | always |
+| `mail/mail.mbox` or `mail/*.eml` | Mail (see below) | **Mail in exports** and the person's choice |
 
-Filter by status, type, due state, assignee or search text; open a request to see its details and trail; export the filtered list as CSV. The cards show open requests, overdue and due-soon counts, the share answered by the due date and the average time to answer, and a chart of requests filed per day. Statistics cover all requests in the administrator's domains, not only the filtered ones.
+The caps on sessions, sign-in history and audit entries are applied without a note in the manifest.
 
-An administrator's actions on a request: assign, record an identity check, approve, reject (reason needed), extend (reason needed), complete by hand (note needed), put under or release a hold, and run now (which also retries a failed request and skips an erasure's waiting period).
+**Mail** is included only when **Mail in exports** is on (off by default) and the person ticked the box when filing. It covers the messages this server has in its message list for the person's accounts, up to 100,000 per account. A body that is not cached is fetched again from the upstream mail server, so the export includes mail that lives upstream. Attachments are inside the messages. The manifest always carries the sentence "Mail that stays on the upstream mail server is not part of this export", whatever the export contains. A request filed by an administrator never includes mail.
 
-## Texts and contact details
+**Not exported**: drafts saved on the server, signatures saved apart from an identity, tasks, mail state such as flags and folders, security records, connected services, delegations, usage records and uploaded files. These parts of the server's data map have no export switch and are always left out.
 
-`dsr.text.intro`, `dsr.text.confirmation` and `dsr.text.completion` take one text per language. The first is shown above the request form; the other two are added to the confirmation and completion messages. `dsr.contact.name`, `dsr.contact.email` and `dsr.contact.url` are shown to people on the same page. Fixed server messages and status names are available in English and Portuguese (Portugal); other languages fall back to English.
+**Size**: an export stops at **Export size cap** (500 MB by default). A section that would go over it is left out and the manifest says so; this can leave out all mail.
 
-## Limits to know about
+**Format**: **Export formats** set to JSON with CSV adds CSV copies of some sections. Cells that start with `=`, `+`, `-`, `@`, a tab or a carriage return get a leading `'`.
 
-* Restriction, objection and correction are not applied automatically.
-* Mail that stays at the upstream provider is neither exported nor deleted.
-* Notices to people go into their inbox; there is no e-mail to an administrator or data protection contact.
-* The worker runs every 30 seconds in each server process; several processes share the queue safely but a request is worked by whichever picks it up first.
-* The queue lists at most the 5000 newest requests.
+**Storage and download**: the parts are stored on the server while they wait to be downloaded. **Seal exports at rest** (off by default) encrypts the stored parts with the server key; the ZIP file the person downloads is not encrypted. The person downloads the file from **Settings > Privacy > Data requests**, after confirming their password if **Re-authentication for requests** is on. The download link works for **Download link lifetime** (24 hours by default), only for the signed-in owner, and once when **Single-use download link** is on. The stored parts are deleted **Data export download window** hours after the export was ready (24 by default). Administrators cannot download an export.
+
+## What erasure removes and what it leaves
+
+When an erasure runs, the server:
+
+1. Checks for a legal hold.
+2. Sends the person a notice that the erasure is about to run.
+3. Removes the person's documents from the search index, ends their sessions, and deletes message embeddings and compliance email records.
+4. Runs every delete rule of the erasure registry, ending with the account rows, whose deletion also removes cached mail, calendars, contacts and notes.
+5. Deletes uploaded files.
+6. Marks the directory entry as deleted, so the address can no longer sign in and the entry cannot be reactivated.
+7. Deletes stored exports for the same address.
+8. Counts the remaining rows of every deleted table, then writes an erasure tombstone (a keyed hash of the address, used to repeat the erasure after a restore).
+9. With **Scrub after erasure** on (off by default), replaces the person's identifiers in the audit history and log files (see [Erasure and scrubbing](#erasure-and-scrubbing)).
+
+If rows remain or a step fails, it tries again up to three times, 60 seconds apart, and then marks the request **Failed, will be retried**. The tables the registry covers, and what each rule does, are listed in the generated [Erasure coverage](erasure-coverage.md) page.
+
+The completion record lists the per-table counts, the number of export parts deleted, and a digest of the record. The digest is an unkeyed hash, not a signature.
+
+Erasure does **not** remove:
+
+- **Mail on the upstream mail server.** Only this server's copies are deleted.
+- **Backups.** They are not changed. Restoring a backup with the `mailwoman erasure restore` command repeats the erasures recorded since the backup, when **Replay erasures on restore** is on.
+- **The request itself.** The request, its free-text details and its trail, including identity-check notes, are kept for **Finished request retention** (1825 days by default).
+- **The audit log and log files.** Entries that name the person stay unless the person is scrubbed.
+- **Records the registry keeps on purpose**: bans, the identity record, client error reports, and the retention archive, which keeps archived rows until each archive file expires.
+
+### Erasure and scrubbing
+
+The **Erasure and scrubbing** tab of **Compliance** replaces one person's address and account ids in history with a pseudonym, and shows the records that make an erasure repeatable after a restore.
+
+![The Scrub person section of the Erasure and scrubbing tab with an address entered, and markers on the address and Preview.](/screenshots/admin-privacy/erasure-scrub.webp){.mw-crop}
+
+1. **Address** of the person to scrub.
+2. **Preview** counts the rows and log lines that would change and changes nothing. **Scrub person** is available after a preview.
+{.mw-callouts}
+
+**Scrub person** rewrites the person's address, account ids and user names in the audit log, the assistant, alert, breach, sign-in and single sign-on records, and, with **Scrub log files** on, the address and account ids in the rotated log files. Each is replaced with `scrubbed-<generation>-<hex>`, an HMAC of the address under a key stored sealed with the server key. It cannot be undone. A preview does not count audit entries written since the chain was last sealed; the run seals them first and then rewrites them.
+
+The audit chain is an unkeyed SHA-256 chain kept in the same database. Anyone who can write to the database can rewrite entries and recompute it, a missing entry is not reported as a failure, and entries are not part of the chain until they are sealed (by **Seal new entries** or a scrub). Audit retention deletes entries, and a scrub rewrites them. The chain detects accidental damage; it does not make the audit log tamper-proof.
+
+**Register backup** records a backup's label and location with the current tombstone watermark; nothing is done to the backup itself. **Erased since** counts the people erased or scrubbed after that watermark, whose data the backup still holds.
+
+## File a request for someone
+
+Use this for a request received by post or in person.
+
+1. On the **Data requests** tab, go to **File a request for a user**.
+
+   ![The File a request for a user form with the Person, Type and Details fields.](/screenshots/admin-privacy/dsr-behalf.webp){.mw-crop}
+
+2. Enter the **Person**'s address, choose the **Type**, and add **Details (optional)**.
+3. Select **File request**.
+
+The person must have signed in to this server at least once; otherwise the server answers "No account of this address has signed in to this server." The request skips the confirmation code and is recorded as filed by you. **Requests on behalf of a user** turns this off.
+
+## Options
+
+All keys are in the [settings reference](/admin/settings). Scope "domain" means the value can also be set per domain.
+
+| Setting | What it does | Default | Scope |
+| --- | --- | --- | --- |
+| **Data requests** ([`dsr.enabled`](/admin/settings#dsr.enabled)) and **Accept … requests** (`dsr.type.*`) | Offer the feature and each type | on | domain |
+| **Approval of access and download requests** ([`dsr.approval.export`](/admin/settings#dsr.approval.export)) | `auto` or `admin` | auto | domain |
+| **Approval of erasure requests** ([`dsr.approval.erasure`](/admin/settings#dsr.approval.erasure)) | `auto` or `admin` | admin | domain |
+| **Handling of other requests** ([`dsr.approval.other`](/admin/settings#dsr.approval.other)) | `auto` or `admin` | admin | domain |
+| **Re-authentication for requests** ([`dsr.reauth.required`](/admin/settings#dsr.reauth.required)) | Password or second factor to file access, download and erasure requests and to download | on | domain |
+| **Confirmation message** ([`dsr.confirmation.required`](/admin/settings#dsr.confirmation.required)) | Code sent to the person's mailbox | on | domain |
+| **Confirm again before approving** ([`dsr.admin.stepUp`](/admin/settings#dsr.admin.stepUp)) | Password again to approve or run an erasure | on | domain |
+| **Identity verification step** ([`dsr.identityVerification.required`](/admin/settings#dsr.identityVerification.required)) | Adds the identity check | off | domain |
+| **Erasure grace period** ([`dsr.erasure.graceDays`](/admin/settings#dsr.erasure.graceDays)) | Days between approval and erasure | 14 | domain |
+| **Days to answer a request** ([`dsr.sla.days`](/admin/settings#dsr.sla.days)) | Due date | 30 | domain |
+| **Longest extension** ([`dsr.sla.maxExtensionDays`](/admin/settings#dsr.sla.maxExtensionDays)) | Total extension allowed | 60 | server |
+| **Due date flags** ([`dsr.sla.reminderDays`](/admin/settings#dsr.sla.reminderDays)) | Only the largest value is used: one "due soon" entry is recorded that many days before the due date | 1, 3, 7 | server |
+| **Mail in exports** ([`dsr.export.mailAllowed`](/admin/settings#dsr.export.mailAllowed)) / **Mail format in exports** ([`dsr.export.mailFormat`](/admin/settings#dsr.export.mailFormat)) | Offer mail in exports; mbox or eml | off / mbox | domain |
+| **Export: …** (`dsr.export.include.*`) | Include each section | on | domain |
+| **Export size cap** ([`dsr.export.maxMegabytes`](/admin/settings#dsr.export.maxMegabytes)) | Largest export | 500 MB | server |
+| **Export formats** ([`dsr.export.format`](/admin/settings#dsr.export.format)) | JSON, or JSON with CSV copies | JSON | domain |
+| **Seal exports at rest** ([`dsr.export.encrypt`](/admin/settings#dsr.export.encrypt)) | Encrypt stored parts with the server key; the download is not encrypted | off | domain |
+| **Download link lifetime** ([`dsr.download.linkMinutes`](/admin/settings#dsr.download.linkMinutes)) | Minutes a download link works | 1440 | domain |
+| **Single-use download link** ([`dsr.download.singleUse`](/admin/settings#dsr.download.singleUse)) | One download per link | on | domain |
+| **Data export download window** ([`dataExport.linkHours`](/admin/settings#dataExport.linkHours)) | Hours the stored export is kept | 24 | server |
+| **Finished request retention** ([`dsr.retention.completedDays`](/admin/settings#dsr.retention.completedDays)) | Days a finished request, its details and trail are kept | 1825 | server |
+| **Record new requests for admins** ([`dsr.notify.admins`](/admin/settings#dsr.notify.admins)) | Security events in the audit log for new and overdue requests | on | server |
+| **Progress messages to the requester** ([`dsr.notify.requester`](/admin/settings#dsr.notify.requester)) | Message in the person's mailbox at each change | on | user |
+| **Requests on behalf of a user** ([`dsr.onBehalf.allowed`](/admin/settings#dsr.onBehalf.allowed)) | Allow filing for someone | on | domain |
+| **Requests per person per day** ([`dsr.rateLimit.perDay`](/admin/settings#dsr.rateLimit.perDay)) | Rolling 24 hours | 5 | domain |
+| **Legal holds** ([`dsr.legalHold.subjects`](/admin/settings#dsr.legalHold.subjects)) | Addresses whose erasure never runs | empty | server |
+| **Data protection contact name**, **address**, **page** (`dsr.contact.*`) | Shown to people on their data requests page and in the privacy policy | empty | domain |
+| **Data requests introduction**, **Confirmation message text**, **Completion message text** (`dsr.text.*`) | Your own wording per language | empty | domain |
+
+The server's own notices about requests (confirmation, erasure, completion) are written in English whatever the person's language; only the texts you set in `dsr.text.*` are shown in other languages. Email delivery of request notices to operators and requesters is set on the **Email notifications** tab (see [Compliance](compliance.md#email-notifications)). The settings of the **Erasure and scrubbing** tab are:
+
+| Setting | What it does | Default |
+| --- | --- | --- |
+| **Person scrub** ([`scrub.enabled`](/admin/settings#scrub.enabled)) | Allow **Scrub person** | on |
+| **Scrub after erasure** ([`scrub.autoRunOnErasure`](/admin/settings#scrub.autoRunOnErasure)) | Scrub automatically after every erasure | off |
+| **Scrub log files** ([`scrub.includeLogs`](/admin/settings#scrub.includeLogs)) | Also rewrite rotated log files | on |
+| **Pseudonym length** ([`scrub.pseudonymAlgorithm`](/admin/settings#scrub.pseudonymAlgorithm)) | 16 or 32 hexadecimal characters | 16 |
+| **Pseudonym key retention** ([`scrub.keyRetentionDays`](/admin/settings#scrub.keyRetentionDays)) | Days a retired key is kept after **Rotate key**; 0 keeps it. Changing it does not affect keys retired earlier | 0 |
+| **Replay erasures on restore** ([`backup.propagateErasure`](/admin/settings#backup.propagateErasure)) | Read only by the `mailwoman erasure restore` command | on |
+| **Erasure tombstone retention** ([`backup.tombstoneRetentionDays`](/admin/settings#backup.tombstoneRetentionDays)) | Days tombstones are kept; an erasure older than this is not repeated when a backup is restored | 3650 |
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| **File request** answers "No account of this address has signed in to this server." | The person has never signed in, so there is no account to attach the request to. | Ask the person to sign in once, or handle the request outside the queue. |
+| An erasure stays **On hold** | A legal hold applies, from **Legal holds** or from the request. | Release the hold when it no longer applies; the erasure then continues. |
+| The person cannot file a second request of the same type | One open request per type is allowed. | Finish or reject the open one. |
+
+## Related
+
+- [Restrictions and consent](consent.md)
+- [Erasure coverage](erasure-coverage.md)
+- [Retention](retention.md)
+- [Compliance](compliance.md)
+- [Data requests in the mail app](/user/settings/account#data-requests)
