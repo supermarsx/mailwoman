@@ -17,7 +17,7 @@ Users can change their mail password from Mailwoman under **Settings** > **Secur
 | `webhook` | POSTs a signed JSON request to your endpoint | `MW_PASSWD_WEBHOOK_URL`, `MW_PASSWD_WEBHOOK_SECRET` (both required; the secret must be at least 16 bytes) |
 
 ::: warning The default backend does not change a sign-in password
-The `local` backend changes a hash that neither Mailwoman's sign-in nor your mail server reads, and nothing creates that hash in the first place, so a change through it fails with a wrong-current-password error. To let users change their mailbox password, configure one of the other backends.
+The `local` backend changes a hash that neither Mailwoman's sign-in nor your mail server reads, and nothing creates that hash in the first place. A change through it is answered `501` and the form shows "This server is not set up to change passwords. Contact your administrator." To let users change their mailbox password, configure one of the other backends.
 :::
 
 ### Transport security of each backend
