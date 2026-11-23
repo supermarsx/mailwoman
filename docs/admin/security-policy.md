@@ -48,8 +48,9 @@ reverse proxy in front of Mailwoman.
 | **Argon2 passes** | 2 | 1 to 10. |
 | **Argon2 parallelism** | 1 | Threads per hash, 1 to 16. |
 
-The Argon2 cost applies to new hashes of console passwords, locally stored passwords
-and recovery codes. A higher cost makes each sign-in use more memory and time on the
+The Argon2 cost applies to new hashes: console passwords, passwords set through the
+local password backend, and recovery codes. Existing hashes keep their cost until
+they are replaced; signing in does not re-hash them, as the console says. A higher cost makes each sign-in use more memory and time on the
 server.
 
 With **Require a second factor for every account** on, a mailbox account that has
