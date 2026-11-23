@@ -321,7 +321,10 @@ async fn scoped(state: AppState, request: Request, next: Next) -> Response {
     #[cfg(test)]
     if !test_control::enabled() { return next.run(request).await; }
     let eligible_route = (request.method() == Method::GET && request.uri().path() == "/api/me")
-        || (request.method() == Method::POST && request.uri().path() == "/jmap/api");
+        || (request.method() == Method::POST && request.uri().path() == "/jmap/api")
+        // t34-e11: the session document, in bounded mode only (off: unchanged).
+        || (request.method() == Method::GET && request.uri().path() == "/jmap/session"
+            && snapshot::mode() != snapshot::Mode::Off);
     let headers = request.headers();
     // Selector expansion and other credential kinds retain their complete
     // original path. No body is consumed or source work queued here.
