@@ -141,7 +141,7 @@ Queued messages (recipient, subject and text) are stored encrypted with the serv
 | **Require proxy route** ([`compliance.mail.requireProxy`](/admin/settings#compliance.mail.requireProxy)) | Sends only through a `system_mail` proxy route | on |
 | **Completed email history retention (days)** ([`retention.complianceMail.days`](/admin/settings#retention.complianceMail.days)) | Keeps finished entries | 730 |
 
-All of these are server-wide.
+The `policy.*` settings can also be set per domain; the `dpia.*`, `compliance.mail.*` and retention settings are server-wide.
 
 ## Related
 
