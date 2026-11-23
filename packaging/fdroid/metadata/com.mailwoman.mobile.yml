@@ -52,8 +52,8 @@ Builds:
       - pnpm -C ../../web install --frozen-lockfile
       - pnpm -C ../../web build
       - node ../../../scripts/emit-bundle-hash.mjs
-      - pnpm -C ../.. install
-      - pnpm -C ../.. exec tauri android init --ci
+      - pnpm -C .. install
+      - pnpm -C .. exec tauri android init --ci
       - python3 android-src/merge.py
     ndk: r27
 
