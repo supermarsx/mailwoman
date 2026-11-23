@@ -118,6 +118,9 @@ pnpm -C apps/web install
 pnpm -C apps/web dev
 ```
 
+On Windows, a debug build of the server can overflow the default 2 MiB worker
+thread stack; set `RUST_MIN_STACK=67108864` when running it.
+
 Read [engineering practices](docs/engineering-practices.md) before your first change.
 
 ## Configuration
