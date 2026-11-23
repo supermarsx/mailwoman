@@ -17,38 +17,37 @@ scrub replaces. The same registry drives:
 - the verify pass after an erasure, which counts the rows each entry still finds
   (a table that is only counted, because its rows go with a parent row, is
   checked too),
-- the table-driven export sections.
+- the table-driven export sections, which are not included in an export (see below).
 
 A test (`crates/mw-store/tests/data_map_coverage.rs`) migrates an empty database,
 lists every table and column and fails when a table with a per-person column
 (an account, owner, user, subject, address, sender, recipient or principal
-column, or a foreign key to `accounts`) has no entry. A new migration therefore
-cannot add personal data that erasure and export skip. The table below is
+column, or a foreign key to `accounts`) has no entry. The check is per table: it
+does not check that every personal column of a listed table is covered. The table below is
 generated from the registry and a second test fails when it is out of date
 (`BLESS=1 cargo test -p mw-store --test data_map_coverage` regenerates it).
 
 ## Export sections
 
-An export holds these sections. Rows come from the registry; sealed secrets
-(authenticator secrets, recovery codes, stored passwords, sealed tokens, key
-material) appear as a marker saying the item is present and is not exported.
+The registry names an export section for each table. Only some sections are
+included in a data export; see [What an export contains](data-requests.md#what-an-export-contains).
 
-| Section | Holds |
-|---|---|
-| `profile`, `settings`, `identities`, `contacts`, `calendars`, `notes`, `rules` | the directory row, user settings, identities, address books, calendars, notes, mail rules |
-| `mailstate` | pins and snoozes, tags, saved searches, trusted senders, read-receipt rules and status, remote-image grants, masked addresses, queued submissions |
-| `tasks` | tasks |
-| `security` | key metadata and associations, API key prefixes, passkey labels, OAuth token metadata, authorization consents, password change history, markers for sealed secrets |
-| `integrations` | external mail and DAV connections, linked mailboxes, bridges, webhooks, markers for sealed credentials |
-| `delegation` | delegations granted and received, shared mailboxes, group membership |
-| `usage` | usage counters, storage measurements, quotas, last activity |
-| `records` | consent ledger, restrictions, retention rules, tracking pixels and opens, uploads, plug-in data keys, DLP decisions |
-| `sessions`, `consent`, `audit`, `requests`, `mail` | sessions and sign-in history, cookie consent, audit entries about the person, data requests, mail |
+| Section | Holds | In an export |
+|---|---|---|
+| `profile`, `settings`, `identities`, `contacts`, `calendars`, `notes`, `rules` | the directory row, user settings, identities, address books, calendars, notes, mail rules | yes; each section except `profile` can be switched off |
+| `mailstate` | pins and snoozes, tags, saved searches, trusted senders, read-receipt rules and status, remote-image grants, masked addresses, queued submissions | no: the section has no export switch, so it is never included |
+| `tasks` | tasks | no: the section has no export switch, so it is never included |
+| `security` | key metadata and associations, API key prefixes, passkey labels, OAuth token metadata, authorization consents, password change history, markers for sealed secrets | no: the section has no export switch, so it is never included |
+| `integrations` | external mail and DAV connections, linked mailboxes, bridges, webhooks, markers for sealed credentials | no: the section has no export switch, so it is never included |
+| `delegation` | delegations granted and received, shared mailboxes, group membership | no: the section has no export switch, so it is never included |
+| `usage` | usage counters, storage measurements, quotas, last activity | no: the section has no export switch, so it is never included |
+| `records` | consent ledger, restrictions, retention rules, tracking pixels and opens, uploads, plug-in data keys, DLP decisions | no: the section has no export switch, so it is never included |
+| `sessions`, `consent`, `audit`, `requests`, `mail` | sessions and sign-in history, cookie consent, audit entries about the person, data requests, mail | yes; `requests` always, mail only when allowed and chosen |
 
 ## What stays after an erasure
 
-The completion record lists these. Each is an entry marked "kept" in the table
-below with its reason:
+Each of these is an entry marked "kept" in the table below with its reason. The
+completion record of an erasure request names the first three and upstream mail:
 
 - the directory row, closed (status deleted) so the address cannot be enrolled
   again without an administrator;
@@ -57,7 +56,10 @@ below with its reason:
 - an opaque identity principal id with no identifier once its bindings are gone;
 - mail held by the upstream mail server, which this server does not delete;
 - sealed archive segments written by retention archiving; the person's index
-  entries are removed and the segments go when they expire.
+  entries are removed and the segments go when they expire, which happens only
+  when the archive check runs (see [Retention](retention.md#long-term-archive));
+- other records kept on purpose, for example breach incidents, which keep any
+  affected addresses entered in them (see [Breach register](breach-register.md)).
 
 ## Scrubbing one person from history
 
@@ -75,7 +77,9 @@ a stable keyed pseudonym. A dry run reports counts without changing anything.
 - Scrubbed: `audit_log`, `sso_login_audit` (the stored hash of the IdP subject),
   `alert_event`, `assist_audit`, `signin_event` (attempted user name of failed
   attempts), `breach_event`, `breach_delivery`, and the rotated log files
-  `mailwoman*.log` and `mailwoman*.log.gz` when `scrub.includeLogs` is on.
+  `mailwoman*.log` and `mailwoman*.log.gz` when `scrub.includeLogs` is on. In
+  log files only the address and account ids are replaced, not user names or IP
+  addresses.
 - `dlp_audit` rows belong to the account and are deleted with it; they cannot be
   re-keyed because of the foreign key.
 - `request_protection_*` rows are keyed by a one-way hash of a network source,
@@ -88,8 +92,10 @@ a stable keyed pseudonym. A dry run reports counts without changing anything.
   (for example by an external audit sink) does not match the new head; the
   anchor maps one to the other. Rows written by the server that have no chain
   position yet are sealed first.
-- With `scrub.autoRunOnErasure` a completed erasure runs the scrub for the same
-  person.
+- With `scrub.autoRunOnErasure` (off by default) a completed erasure runs the
+  scrub for the same person.
+- The chain uses an unkeyed SHA-256 hash and is kept in the same database, so it
+  detects accidental changes, not deliberate ones.
 
 The same operation is available offline for log files:
 
@@ -104,14 +110,16 @@ A backup is a copy of the database as it was. Erasing a person afterwards does
 not change the copy, so a restore would bring the person back. Three things deal
 with that:
 
-1. **Tombstones.** Every erasure and every scrub writes a tombstone to
+1. **Tombstones.** An erasure that completes with no rows left, and a scrub run
+   on its own that completes without errors, write a tombstone to
    `erasure_tombstone`: a keyed hash of the address, the key generation, the
    scope (`erasure` or `scrub`), the request id and the time. No raw identifier
    is stored. Tombstones are kept `backup.tombstoneRetentionDays` days (3650 by
    default, 0 keeps them forever).
 2. **Watermark.** A backup records the highest tombstone sequence at the time it
    was made, in its manifest (`tombstoneWatermark`).
-3. **Replay.** With `backup.propagateErasure` on (the default), a restore replays
+3. **Replay.** With `backup.propagateErasure` on (the default), a restore with
+   `mailwoman erasure restore` (not the running server) replays
    the tombstones newer than the backup's watermark: it finds every person in the
    restored data whose address hashes to a tombstone and erases them again with
    the same registry.
@@ -142,16 +150,17 @@ the hand-over file and with `--live-db`. A key deleted by
 them as errors.
 
 Postgres stores and volume snapshots made with `deploy.sh backup` are not written
-by this command. Register them in the admin view with a label, a location and the
-tombstone watermark at the time of the backup (the current one is the default) so
-the marker works. Replay after a restore of such a backup is a manual step: run
+by this command. Register them in the admin view with a label and a location;
+the console records the current tombstone watermark at that moment, so register
+a backup right after making it for the marker to be right. Registering does
+nothing to the backup itself. Replay after a restore of such a backup is a manual step: run
 `erasure export-tombstones` on the live database and replay on the restored
 copy.
 
 Limits: a backup older than the tombstone retention can contain people whose
 tombstone no longer exists; backups held outside this server (off-site copies)
 are not touched; the replay erases by registry and does not reach the search
-index of a restored install, which is rebuilt from the restored cache.
+index of a restored install.
 
 ## Registry
 

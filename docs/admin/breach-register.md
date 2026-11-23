@@ -100,6 +100,10 @@ Export the register for one year (by detection date) as CSV, JSON or HTML, or on
 
 Closed and not-notifiable incidents are deleted, with their trail and delivery log, when they were last changed more than **Register retention in years** ago (10 by default; counted as 365-day years). The check runs every hour and does not consider legal holds. Open incidents are not deleted.
 
+::: warning Erasure does not remove breach records
+When a person is erased, breach incidents keep any affected addresses entered in them, and the trail and delivery log are kept as well; a scrub of the person replaces their identifiers in the trail and the delivery log, but not in the incident itself. The records stay until the register retention above removes the incident. See [Data requests](data-requests.md#what-erasure-removes-and-what-it-leaves).
+:::
+
 ## Options
 
 | Setting | Default | Scope |
