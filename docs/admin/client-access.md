@@ -1,24 +1,81 @@
-# Client interface access
+---
+screen: true
+---
+# Client access
 
-Client access is an optional extra entry step for the mail interface. Both **Access key** and **Entry slug** are disabled by default. Enabling either does not replace mailbox authentication or change existing accounts. With both enabled, a visitor must know the entry address and supply the access key.
+The **Client access** tab of the **Security centre** adds an optional step in front of the mail client: a private entry address, a pre-shared key, or both. People must pass this step before they see the mailbox sign-in page. It does not replace their password and does not change their accounts. Both controls are off by default.
 
-An unscoped administrator with `settings.read` can inspect the policy at `GET {console}/client-access`. Saving requires `settings.write`, a fresh administrative step-up and the current strong `If-Match` ETag at `PUT {console}/client-access`. The console and operator recovery remain outside this gate. Keep the console address available before enabling an entry restriction.
+![The Security centre on its Client access tab, below the notice that country features are on without a country database, with both entry controls off.](/screenshots/admin-access/client-access-tab.webp){.mw-shot}
 
-The response contains `pskEnabled`, `slugEnabled`, nullable bare `slug`, `pskConfigured`, `grantHours` and the server-derived `clientEntryPath`. It never returns the key or its Argon2id hash. PUT sends those two enable flags, `slug`, `grantHours` and optionally `psk` or `clearPsk`. An absent or empty key preserves the configured key. Spaces in a nonempty key are significant. A key must be 16–256 UTF-8 bytes and cannot be whitespace-only. Explicit clearing requires key protection to be disabled. Choose a long, unique secret and share it through a trusted channel.
+Open it from **Security centre** > **Client access** (`{console}#/security/client-access`). The tab's form:
 
-An entry slug is one lowercase URL segment, 4–64 letters, digits or hyphens, beginning and ending with a letter or digit. Application/protocol names and the current or pending console/deployment prefixes are reserved. Prefer a long random value: a slug is an entry capability, not an authentication identity. Root navigation without valid entry proof returns 404 when a slug is enabled and never redirects to disclose the slug. The configured private entry URL establishes a signed proof; successful entry redirects only to the fixed deployment root. There is no caller-selected return URL. Console-path and client-entry writes compare both previous values under the same durable transaction lock, so concurrent writes cannot introduce a collision.
+![The Client access tab with both controls off: Require a private client address with its address segment, Require a pre-shared key with a new key field, and the grant lifetime of 24 hours.](/screenshots/admin-access/client-access-form.webp){.mw-crop}
 
-The native access-key page loads before the mail SPA and submits the key only in a bounded POST body. It requires the ordinary Origin/Fetch Metadata check plus a signed, ten-minute form nonce. It works when old mailbox/admin cookies remain after the entry grant expires. Verification uses the existing sign-in pacing and durable mailbox-source failure locks, plus at most two concurrent Argon2 jobs; a successful entry refunds its pacing charge but grants no account session. Neither a claimed native origin, a User-Agent nor an arbitrary Bearer header bypasses the gate.
+1. **Require a private client address**
+2. **Client address segment**
+3. **Require a pre-shared key**
+4. **New pre-shared key**
+5. **Client access grant lifetime (hours)**
+{.mw-callouts}
 
-Successful entry sets an HttpOnly, SameSite=Strict cookie scoped under `MW_BASE_PATH`, with Secure under the deployment's effective HTTPS/cookie policy. Its lifetime is configurable from 1–168 hours, default 24. The cookie is bound to the current policy revision and persistent server signing key. Saving/rotating the policy revokes earlier grants. Ordinary server restarts with the same database and server key retain unexpired grants. Existing mailbox sessions are neither removed nor rewritten. Revisiting a bookmarked entry address with a valid grant returns to the mail interface without asking for the key again or extending the grant lifetime.
+**Current client entry:** shows the address people use to open the mail client.
 
-The gate covers the mail shell, unknown SPA navigation paths, shared `/api/login` and `/jmap/*` routes, and other browser control APIs. A denied API returns `403` with code `clientAccessRequired`, distinct from incorrect mailbox credentials, without revealing the entry slug. A native shell using these shared login/JMAP routes also needs an entry grant; a claimed native Origin alone is not an exemption.
+## Before you start
 
-Explicit exemptions retain their own authorization:
+- Viewing the tab needs a role with `settings.read`, saving needs `settings.write`; both for the whole deployment. Saving asks you to confirm it is you if you have not done so recently.
+- The admin console is not affected by this step. Make sure you know the console address before you turn it on.
+- Native apps and other programs that use the mail sign-in or JMAP routes are affected like browsers: they need the entry step too.
 
-- The exact configured console path and its children, health/readiness/metrics, known static asset paths, the public bootstrap configuration and logout/error reporting.
-- Distinct DAV, MCP, OAuth/OIDC and discovery routes; the existing exact SSO callbacks and signed inbound-webhook endpoint.
-- Signed remote-content resources `/api/rc/i/{token}`, `/api/rc/p/{token}`, `/api/rc/f/{token}`, `/api/rc/d/{token}`, and the static `/api/rc/frame` bridge. Opaque sandbox frames need these capability resources without a gate cookie. Signing, stats and policy APIs remain gated.
-- Recipient-facing tracking images `/t/{token}.gif`; their existing token validation remains authoritative. Nextcloud shared links point to the separately authorized upstream service.
+## Require a private address
 
-This is a client-interface gate, not a universal network firewall. It does not revoke independently signed recipient capabilities. Gated documents carry `X-Mailwoman-Client-Gate: enabled` and `Cache-Control: private, no-store`. The service worker discards previously cached shell documents when it observes that header and does not cache a gated shell. Data or files already downloaded to a disconnected browser cannot be retroactively erased.
+1. Tick **Require a private client address**.
+2. Enter a **Client address segment**: 4 to 64 lower-case letters, digits or hyphens, starting and ending with a letter or digit, for example `team-7f3k9q`. Names used by the application (such as `admin`, `api`, `jmap`, `login`, `mail`, `settings`) are refused, as is a segment that collides with the console address or the deployment's path prefix.
+3. Click **Save client access**.
+
+From then on, the mail client opens only through `https://<your server>/<segment>`. Anyone who opens the root address without having passed the entry step gets "Not found", and API requests are answered `403` with the code `clientAccessRequired`. The answer never reveals the segment.
+
+Treat the segment as a shared secret that keeps casual visitors and scanners away, not as a sign-in: anyone who learns the address can use it.
+
+## Require a pre-shared key
+
+1. Tick **Require a pre-shared key**.
+2. Enter the key in **New pre-shared key**: 16 to 256 bytes; spaces count. Leave the field empty to keep a key that is already stored.
+3. Click **Save client access**.
+
+People then see a page that asks for the key before the mail client loads. The key is stored only as a password hash and is never shown again; the tab says "A pre-shared key is stored. Its value is never returned." To delete a stored key, first untick **Require a pre-shared key**, then tick **Forget the stored pre-shared key** and save.
+
+A wrong key counts as a failed sign-in from that address for the [temporary sign-in locks](./signin-locks.md), and the key page is subject to the same sign-in pacing as the mailbox sign-in.
+
+With both controls on, people open the private address and then enter the key.
+
+## The grant
+
+After someone passes the step, the browser receives a cookie (HttpOnly, SameSite=Strict, Secure over HTTPS) that admits it for the **Client access grant lifetime (hours)**: 1 to 168, default 24. Returning to the private address with a valid grant goes straight to the mail client and does not extend the grant.
+
+Saving any change on this tab ends all existing grants: everyone passes the step again. Existing mailbox sessions are not signed out.
+
+## What is not covered
+
+The step guards the mail client, the mailbox sign-in, JMAP and the other browser APIs. These keep their own authorization and do not need the step:
+
+- the admin console;
+- health, readiness and metrics addresses, static assets and the service worker;
+- CalDAV/CardDAV (`/dav`), MCP (`/mcp`), the OAuth and identity provider routes (`/oauth`, `/oidc`) and `/.well-known`;
+- the single sign-on callbacks and the inbound webhook address;
+- links that carry their own signed token: remote images and files shown in messages, and read-tracking images.
+
+It is not a firewall: it does not stop anyone from reaching these addresses, and it cannot take back data a browser has already downloaded.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| People get "Not found" on the usual address | **Require a private client address** is on. | Give them the private address. |
+| Everyone has to enter the key again | A change was saved on this tab, or the grant lifetime passed. | Expected; ask them to enter it again. |
+| The key page says "Please wait before trying again." | Too many attempts from the address, or the address is locked. | Wait, or see [Temporary sign-in locks](./signin-locks.md). |
+
+## Related
+
+- [Security centre](./security-center.md)
+- [Temporary sign-in locks](./signin-locks.md)
+- [Console path](../security/admin-panel.md#console-path)

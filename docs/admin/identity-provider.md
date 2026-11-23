@@ -1,19 +1,72 @@
-# Mailwoman identity provider
+---
+screen: true
+---
+# Identity provider
 
-Mailwoman can act as an OpenID Connect identity provider independently of its mail API OAuth service. It is disabled by default. An unscoped administrator with integration read and OAuth client write permissions configures it under **Identity provider**; changes require fresh administrator authentication.
+The **Identity provider** page lets other applications (a wiki, a booking tool, a desktop app) sign people in with their Mailwoman account, using OpenID Connect. Mailwoman is then the identity provider and the application is the client. It is off until you configure it.
 
-Use the deployment's HTTPS URL with `/oidc` appended as the issuer. Enable the provider, create a client on its dedicated page, and register exact redirect and post-logout URLs. HTTPS redirects are required except numeric loopback HTTP callbacks for local applications. Wildcards and fragments are rejected. Public clients use `none`; confidential clients use `client_secret_basic` or `client_secret_post`. Generated secrets appear only once. Rotate a lost secret rather than attempting to retrieve it.
+This is separate from [single sign-on](./sso.md), where another provider signs people in to Mailwoman, and from the mail API's [OAuth clients](./oauth-clients.md): a client registered here cannot get access to mail, calendars or contacts.
 
-Supported endpoints are discovery, JWKS, authorization, token, UserInfo, revocation, and explicit browser logout under `/oidc`. Authorization uses code flow with mandatory S256 PKCE. Supported scopes are `openid`, `profile`, `email`, and `offline_access`. Clients registered here cannot request mail API permissions through the separate `/oauth` service, even when disabled. Deleting an identity client removes its underlying registration as well as its identity grants.
+![The Identity provider page with the issuer enabled at https://mail.example.com/oidc and two identity clients, Team wiki and Room booking desktop app.](/screenshots/admin-access/identity-provider-page.webp){.mw-shot}
 
-Every authorization requires explicit consent. `prompt=none` returns an appropriate interaction-required error instead of silently granting access. The consent page shows the client, requested scopes, and current identity. Settings → Security lists identity grants and supports revocation. Logout requires browser confirmation and signs out the current Mailwoman session; it does not claim federated logout from other applications or external identity providers.
+1. **Configure issuer** sets the public address of the provider, turns it on or off, and rotates its signing key.
+2. **Add identity client** registers an application.
+{.mw-callouts}
 
-Identity is bound to verified backend identity, never joined by email address. Native accounts use their stored account identity. Proxy accounts bind the upstream account ID to the canonical configured JMAP service URL, including path and query, stored as a digest. Different services on one HTTPS origin remain distinct. External SSO binds the verified subject to its configured provider realm. Existing sessions without a verified principal must sign in again.
+The box under the description shows whether the provider is **Enabled** or **Disabled**, its issuer address and **Open discovery document**. The client list can be searched and filtered by **Status**; each client has **Edit client** and **Delete client**.
 
-Access tokens expire after five minutes. Refresh grants require `offline_access`, remain bounded by the original verified authentication time and session policy, and cannot exceed fifteen days. Disabling a client/provider, changing its configuration revision, retiring an identity, ending the session, or revoking consent invalidates associated authority. Refresh tokens rotate on every use; replay revokes the entire family. A refresh request may retain or narrow its original scopes, never expand them. Removing `offline_access` stops further refresh-token issuance.
+## Before you start
 
-Expired access-token rows are pruned in bounded batches. Refresh replay evidence is retained until grant expiry; a family reaching 8,192 refresh records is revoked and requires a new authorization. Token endpoints also have bounded process-local request and concurrency admission. Signing keys are sealed at rest. Rotation retains old public verification keys briefly for outstanding short-lived tokens without exposing private keys.
+- Viewing the page needs a role with `integrations.read`. Changing anything needs `oauth_clients.write` for the whole deployment, and the console asks you to confirm it is you if you have not done so recently.
+- Mailwoman must be reachable over HTTPS: the issuer must be an `https://` address.
 
-The issuer intentionally does not implement implicit, resource-owner-password, client-credentials, device authorization, dynamic identity-client registration, or back-channel logout. Profile/email claims are limited to available verified session metadata; Mailwoman does not invent `email_verified` or infer a person's name.
+## Turn the provider on
 
-Deployment migration excludes issuer configuration, clients, signing keys, consent, pending browser flows, and tokens together with the existing deployment OAuth registry. Reconfigure clients and obtain consent after moving deployments. Durable verified principal identity is copied; deployment-bound credentials are not silently carried to a new authority.
+1. Click **Configure issuer**.
+2. Enter the **Public HTTPS issuer URL**: your server's public HTTPS address followed by `/oidc`, including the path prefix if Mailwoman runs under one (for example `https://mail.example.com/oidc`). The server refuses any other path, and addresses with a user name, password, query or fragment.
+3. Tick **Enabled** and click **Save**. The first time, Mailwoman creates a signing key.
+
+![The issuer form of the identity provider with the public HTTPS issuer URL and the signing key rotation.](/screenshots/admin-access/identity-provider-issuer.webp){.mw-shot}
+
+Applications find the endpoints in the discovery document at `<issuer>/.well-known/openid-configuration`: authorization, token, user information, signing keys (JWKS), revocation and sign-out, all under `/oidc`.
+
+::: warning
+Saving the issuer settings (changing the issuer, or turning the provider off and on again) ends every grant people have given to applications: they must approve each application again. Saving a client likewise ends the grants given to that client.
+:::
+
+**Rotate signing key** creates a new key. The previous public key stays published for 15 minutes so tokens issued just before the rotation can still be checked.
+
+## Add an application
+
+1. Click **Add identity client**.
+2. Enter a **Name** (shown to people when they approve the application).
+3. Choose **Client authentication**:
+   - **Public client (PKCE, no secret)** for applications that cannot keep a secret, such as desktop, mobile and browser apps;
+   - client secret sent with HTTP Basic (`client_secret_basic`) or in the request body (`client_secret_post`) for applications that run on a server.
+4. Under **Registered destinations**, enter the **Authorization callback URIs** and, if the application signs people out through Mailwoman, the **Post-logout redirect URIs**: one exact address per line, 1 to 20 of each. Each must be `https://`, or `http://` on the numeric loopback address `127.0.0.1` or `[::1]` for applications on the person's own computer. Addresses with a fragment, a user name or password, or a `code`, `state` or `error` query parameter are refused; wildcards are not possible.
+5. Choose the **Allowed identity scopes**: `openid` (required), `profile`, `email` and `offline_access`.
+6. Save. For a client with a secret, the page shows the **Generated client secret** once. Copy it into the application at once; it cannot be shown again. If it is lost, edit the client and choose **Replace the existing client secret**.
+
+![The editor of the identity client Room booking desktop app: public client authentication, a loopback callback URI and the allowed identity scopes.](/screenshots/admin-access/identity-provider-client.webp){.mw-shot}
+
+**Delete client** ends the grants people gave the application and removes its registration.
+
+## What applications receive
+
+- The authorization code flow only, with PKCE (`S256`) required for every client. There is no implicit flow, no password grant, no client credentials grant and no device flow.
+- People are always asked to approve an application, also when they approved it before. A request with `prompt=none` is answered `consent_required` (or `login_required` without a session).
+- ID tokens are signed with RS256. Access tokens and ID tokens are valid for at most 5 minutes.
+- The `email` claim is the person's sign-in address when it is an email address and the `email` scope was granted. Mailwoman does not invent a name or a verified-email flag it does not have.
+- A refresh token is issued only with `offline_access`. Each use returns a new refresh token; using an old one again ends the whole grant. A grant also ends when the Mailwoman session it was given in ends, and at the latest 15 days after the person signed in to Mailwoman.
+- People see the applications they approved in their settings, under **Applications using your identity**, and can end each with **Revoke identity access**.
+- Signing out through `<issuer>/logout` asks the person to confirm, then ends their Mailwoman session. It does not sign them out of other applications.
+
+## Not carried over
+
+Moving a deployment with `migrate-store` does not copy the issuer configuration, signing keys, clients, approvals or tokens. Configure the provider and the clients again on the new server; people approve the applications again.
+
+## Related
+
+- [Single sign-on](./sso.md)
+- [OAuth clients](./oauth-clients.md)
+- [API keys and OAuth](../security/api-keys-oauth.md)

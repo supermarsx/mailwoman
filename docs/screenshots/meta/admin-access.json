@@ -490,6 +490,20 @@
       "webBuiltAt": "2026-11-23T05:03:32.791Z",
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
+    "preprovisioned-tab": {
+      "hash": "5b7758023f480ea7",
+      "bytes": 74086,
+      "width": 1440,
+      "height": 900,
+      "quality": 0.9,
+      "kind": "full",
+      "commit": "061760ba",
+      "stack": "E",
+      "web": "5425a79880cac465",
+      "webRevision": "87033f7a+local changes",
+      "webBuiltAt": "2026-11-23T05:04:22.425Z",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
     "protocol-guard-framing": {
       "hash": "8c654f6c7ca0eacc",
       "bytes": 44480,
