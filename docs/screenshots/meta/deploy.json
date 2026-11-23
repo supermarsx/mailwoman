@@ -156,6 +156,20 @@
       "web": "45b1d33bc5057d34",
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
+    "signin-2fa": {
+      "hash": "2303fbde5c22e8de",
+      "bytes": 9820,
+      "width": 340,
+      "height": 313,
+      "quality": 0.9,
+      "kind": "crop",
+      "commit": "faff25c9",
+      "stack": "E",
+      "web": "6ef9d88b76348e24",
+      "webRevision": "unknown",
+      "webBuiltAt": "2026-11-23T03:29:15.202Z",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
     "signin-filled": {
       "hash": "978a149555a6972f",
       "bytes": 9280,

@@ -761,6 +761,88 @@
         "padding": 12
       },
       "alt": "The sign-in form with a Sign in with Harbour Lane Studio button below or continue with."
+    },
+    {
+      "id": "signin-2fa",
+      "page": "getting-started/first-sign-in.md",
+      "session": "none",
+      "seed": [
+        "mail-basic",
+        "user-totp"
+      ],
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "fill": {
+            "label": "@auth-email",
+            "value": "alex@example.com"
+          }
+        },
+        {
+          "fill": {
+            "label": "@auth-password",
+            "value": "demo-pass-alex",
+            "first": true
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@auth-sign-in"
+          }
+        },
+        {
+          "totp": {
+            "label": "@settings-2fa-totp-code-label"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "element": [
+          {
+            "role": "heading",
+            "name": "@settings-2fa-challenge-title"
+          },
+          {
+            "role": "button",
+            "name": "@settings-2fa-challenge-verify"
+          },
+          {
+            "role": "button",
+            "name": "@login-2fa-back"
+          }
+        ],
+        "padding": 16
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "label": "@settings-2fa-totp-code-label"
+          },
+          "place": "right"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "button",
+            "name": "@settings-2fa-challenge-verify"
+          },
+          "place": "right"
+        }
+      ],
+      "alt": "The Two-factor authentication step of signing in, with the Authenticator code tab selected, marker 1 on the code field and marker 2 on the Verify button.",
+      "mask": [
+        {
+          "label": "@settings-2fa-totp-code-label"
+        }
+      ],
+      "note": "The code changes every 30 seconds, so the field is masked."
     }
   ]
 }

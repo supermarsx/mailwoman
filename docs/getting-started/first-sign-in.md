@@ -57,6 +57,12 @@ If your account uses two-step verification, the password alone does not sign you
    - **Use a passkey**: confirm with your passkey or security key.
 2. Select **Verify**.
 
+![The Two-factor authentication step of signing in, with the Authenticator code tab selected, marker 1 on the code field and marker 2 on the Verify button.](/screenshots/deploy/signin-2fa.webp){.mw-crop}
+
+1. The code field, here for an **Authenticator code**.
+2. **Verify**
+{.mw-callouts}
+
 If the code is wrong, the screen says "That did not verify. Try again." To start over, for example to use another account, select **Back to sign in**.
 
 If your administrator requires two-step verification but your account has no method yet, the screen says so and you cannot finish signing in there. Sign in on a device where you can complete the setup, or contact your administrator.
