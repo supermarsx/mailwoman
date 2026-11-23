@@ -1,149 +1,151 @@
-# Plugins: authoring, signing, capabilities, and resource limits (V7)
+# Engine plugins: trust, capabilities and limits
 
-V7 (release 26.8.0) adds an engine-plugin runtime (`mw-plugin`): a **wasmtime +
-WASI-p2 (component model)** host that loads admin-approved, capability-gated
-plugins. The bridges (Graph/EWS/Gmail), the LanguageTool grammar plugin, and the
-Nextcloud plugin all run through this host. This document covers writing a plugin,
-signing it, the capability model, and the resource limits the host enforces.
+Engine plugins are WebAssembly components that the server runs inside a
+[wasmtime](https://wasmtime.dev/) sandbox. The provider bridges (Microsoft Graph, EWS,
+Gmail) and the spam classifiers (Rspamd, SpamAssassin) are engine plugins. This page
+describes which components the server agrees to run, what a running plugin can reach,
+and the resource limits it runs under.
 
-The host is the trust boundary. `mw-plugin` is `#![forbid(unsafe_code)]` at its own
-boundary — the `wasmtime` dependency carries its own `unsafe` internally, which is
-the point: the host mediates every capability a guest can exercise.
+UI plugins, which run in the browser, are a separate mechanism; see
+[UI plugins](/admin/ui-plugins).
 
-## The plugin ABI (WIT)
+## Which plugins the server loads
 
-Plugins are `wasm32-wasip2` **components** built against the frozen WIT world
-`mailwoman:plugin` (`crates/mw-plugin/wit/plugin.wit`). A guest exports the hooks it
-implements; the host provides a fixed set of imports.
+The server loads an engine plugin only in one of two roles:
 
-**Guest exports** (each optional, capability-gated):
+| Role | Declared capability | When it is loaded |
+|---|---|---|
+| Bridge (an account backend) | `account-backend` | At start-up, once per account bound to that bridge |
+| Spam classifier | `spam-action` | At start-up and after every registry change |
 
-- `account-backend` — the engine account-backend seam (the bridge role, §6.5):
-  `list-mailboxes`, `sync(cursor)`, `fetch(refs)`, `store-flags`, `move`, `submit`,
-  `poll-changes`. Loaded plugins that export this are indistinguishable from a native
-  backend such as `mw-imap`.
-- `message-in` / `message-out` — the message pipeline hooks.
-- `addrbook-source` — an address-book/GAL source.
-- `autoconfig-source` — an autoconfig source.
-- `dlp-detect` — a DLP detector.
-- `spam-action` — a spam-action hook.
+The plugin interface also defines DLP-detector, message-pipeline, address-book and
+autoconfig hooks. The server has no caller for those hooks, so a plugin that declares
+only them is registered but never loaded.
 
-**Host imports** (the only authority a guest has):
+## Which components are trusted
 
-- `http-fetch(req) -> resp` — host-mediated HTTP. The host enforces the manifest
-  `net_allowlist`; a guest **cannot open a socket** and cannot reach any host outside
-  the allowlist.
-- `oauth-token(account) -> token` — the host acquires and injects the OAuth token; the
-  guest never sees client secrets or refresh tokens.
-- `kv-get` / `kv-put` — a scoped KV scratch namespace.
-- `log(level, msg)` — logging with a no-content floor.
-- `now`, `random` — the host clock and RNG (a guest has no ambient WASI clock/RNG).
+Trust is decided by the SHA-256 digest of the component file:
 
-Two ABI notes frozen during V7 (relevant if you regenerate bindings):
+- **First-party plugins** (`bridge-graph`, `bridge-ews`, `bridge-gmail`,
+  `languagetool`, `nextcloud`, `spam-rspamd`, `spam-spamassassin`) are trusted by a
+  digest compiled into the server. The server looks for `<id>.wasm` in
+  `MW_PLUGIN_DIR`, then in `plugins/` beside the server binary, then in
+  `/usr/lib/mailwoman/plugins`; if its bytes do not hash to the built-in digest, it is not loaded.
+  No administrator setting overrides this.
+- **Third-party plugins** load only from `MW_THIRDPARTY_PLUGIN_DIR` (unset by default,
+  which turns third-party loading off). The file must be named after the plugin id,
+  and its SHA-256 must match a digest an administrator approved in the plugin
+  allowlist. The server reads the file once, hashes those bytes and loads the same
+  bytes, so a file swapped after the check is not loaded. Revoking a digest disables
+  the plugin and stops it if it is running.
 
-- `flags` is spelled `msg-flags` (WIT reserves `flags`).
-- change delivery is the synchronous `poll-changes: func() -> result<list<change-event>>`
-  (bridges delta-poll), not a WASI stream.
+<!-- screenshot: id=security/plugins-registry; screen=Admin > Plugins; state=one first-party plugin and one third-party plugin with an approved digest; element=plugin list with trust column (First-party, digest built in / Third-party, digest approved) -->
 
-Reference guest + reproducible build: `crates/mw-plugin/tests/guest-fixture/`
-(`build.sh` builds the component). `plugins/languagetool/` is the smallest real
-plugin and the canonical jail example.
+A component's manifest may carry an Ed25519 signature field. The server holds no
+trusted signing key for engine plugins, so a manifest that carries a signature fails
+to load. In practice a third-party component has no signature and runs only after an
+administrator also turns on **Running without a signature** for it; the console then
+shows a permanent warning that the server checks the file against its approved digest
+only. The digest pin is what identifies the code; it says nothing about whether the
+code is safe.
 
-## The manifest (`plugin.toml`)
+Registering, approving, enabling, disabling, granting and allowing unsigned all
+require an admin session with the plugin capability (`plugins.write`), and each change
+writes an admin audit record. A refused load is also audited.
 
-Every plugin ships a manifest. **The host denies everything not declared here.**
+## Capabilities
 
-```toml
-id = "com.example.myplugin"
-name = "My Plugin"
-version = "1.0.0"
-# Hex-encoded detached Ed25519 signature over the component bytes (see Signing).
-signature = "…"
-# Capabilities the plugin requires — granted only after admin approval.
-capabilities = ["net", "dlp-detector"]
-# Hosts http-fetch may reach. EMPTY ⇒ no outbound network at all.
-net_allowlist = ["api.example.com"]
+A plugin's manifest (`plugin.toml`) lists the capabilities it asks for. The
+capabilities a running plugin actually has are the intersection of the manifest and
+the administrator's grants. A third-party plugin never receives `account-backend`,
+whatever is granted, because that capability lets a plugin act as the user's mailbox
+and send as the user.
 
-[limits]
-memory_mb = 64      # linear-memory ceiling (MiB)
-deadline_ms = 5000  # CPU wall-clock deadline (epoch-interruption)
-# fuel = 20000000   # optional deterministic fuel budget, in addition to the deadline
-```
-
-## Capability model (deny by default)
-
-A capability is a named permission the manifest requests and an admin grants. Nothing
-is implicit. The capabilities:
-
-| Capability | Grants |
+| Capability | What it allows |
 |---|---|
-| `account-backend` | implement the engine account-backend seam (a bridge) |
-| `net` | outbound `http-fetch`, restricted to `net_allowlist` |
-| `dlp-detector` | a DLP detector hook |
-| `spam-action` | a spam-action hook |
-| `addrbook-source` | an address-book source |
-| `autoconfig-source` | an autoconfig source |
-| `message-pipeline` | a message in/out pipeline hook |
-| `store-kv-scoped` | a scoped KV scratch namespace |
+| `account-backend` | Act as the mail backend for a bound account; ask the host for that account's OAuth access token or stored password (first-party only) |
+| `net` | Outbound HTTP through the host, to hosts in the manifest's `net_allowlist` |
+| `spam-action` | Classify messages as a spam classifier |
+| `store-kv-scoped` | A small key-value store private to the plugin (and account) |
+| `dlp-detector`, `message-pipeline`, `addrbook-source`, `autoconfig-source` | Hooks the server does not call |
 
-Enforcement is structural, not advisory:
+A call to a host function whose capability was not granted returns an error to the
+plugin and does nothing.
 
-- A hook whose capability was not granted returns a typed **`CapabilityDenied`** — the
-  guest export is never invoked.
-- `http-fetch` to a host outside `net_allowlist` is **denied** even when `net` is
-  granted. An empty allowlist means no outbound network.
-- There is no ambient WASI authority: no default filesystem, clock, RNG, or network
-  beyond the declared imports.
+### What a plugin can reach
+
+- **No ambient system access.** The WebAssembly System Interface context has no
+  preopened directories, environment variables, arguments, standard input/output or
+  sockets. Standard WASI clocks and random numbers are available, as are the host's
+  own `now` and `random` functions.
+- **HTTP only through the host.** `http-fetch` requires `net` and a URL whose host
+  matches the manifest's `net_allowlist` (an empty list means no network). The server
+  then checks again, on every request, that the plugin is still enabled and approved,
+  that `net` is still granted and that the host is listed, and sends the request
+  through the [egress policy](./egress.md) under the `plugins` traffic class, so
+  private, loopback and metadata addresses are refused and an egress route applies.
+  An `Authorization` header is passed on only by the first-party bridges, only for a
+  bound account, and only to their provider's fixed host (`graph.microsoft.com`,
+  `gmail.googleapis.com`) or the EWS endpoint configured for that account.
+- **Credentials.** `oauth-token` gives a bridge a short-lived access token for its
+  bound account; the refresh token and client secret stay on the host.
+  `basic-credentials` gives the EWS bridge the stored user name and password for its
+  bound account, because NTLM needs the password. Both require `account-backend`, so
+  only first-party bridges can call them.
+- **Logging.** Messages a plugin passes to `log` are discarded.
+
+::: warning
+A first-party bridge sees the full content of the mailbox it serves, and the EWS
+bridge sees that account's password. Their trust rests on the digest built into the
+server, which identifies the exact code shipped with your release.
+:::
 
 ## Resource limits
 
-The host bounds every plugin instance (`PluginLimits`):
+Each plugin instance runs with limits from its manifest (`[limits]`), defaulting to:
 
-- **Memory** — a linear-memory ceiling (`memory_mb`) via a `wasmtime::ResourceLimiter`.
-  Exceeding it traps cleanly.
-- **CPU** — a wall-clock **deadline** (`deadline_ms`) via epoch-interruption. A busy
-  loop is interrupted; the host survives.
-- **Fuel** — an optional deterministic instruction budget (`fuel`) in addition to the
-  deadline.
+| Limit | Default | Mechanism |
+|---|---|---|
+| `memory_mb` | 64 MiB | wasmtime resource limiter on linear memory |
+| `deadline_ms` | 5000 ms | Epoch interruption (a wall-clock deadline) |
+| `fuel` | none | Optional instruction budget, in addition to the deadline |
 
-Any trip returns a typed **`PluginError::LimitExceeded`** — never a panic, never a
-host crash. Instances are recycled per session. Defaults lean conservative
-(64 MiB / 5000 ms); tune per hook at grant time.
+Exceeding a limit stops the call with a `LimitExceeded` error; the server process
+keeps running.
 
-The `jail` CI job proves this against the real LanguageTool component: it loads only
-when its capability is granted, `http-fetch` is denied outside the allowlist, the DLP
-hook is denied without its capability, and the memory/deadline ceilings trip cleanly.
+## Writing a plugin
 
-## Signing (Ed25519)
+Plugins are `wasm32-wasip2` components built against the WIT world `mailwoman:plugin`
+in `crates/mw-plugin/wit/plugin.wit`. A guest exports the interfaces it implements and
+imports the `host` interface (`http-fetch`, `oauth-token`, `basic-credentials`,
+`kv-get`, `kv-put`, `kv-delete`, `kv-list`, `log`, `now`, `random`).
 
-Plugins are verified against a **detached Ed25519 signature over the component
-bytes**, recorded hex-encoded in the manifest `signature` field. On load the host
-verifies the signature against the configured trust root:
+A minimal manifest:
 
-- **Valid signature** → loads normally.
-- **Missing/invalid signature** → loads **only** if the admin has set
-  `allow_unsigned`. An unsigned load is flagged on the handle so the UI shows a
-  **permanent unsigned banner** and writes an audit record. Absent `allow_unsigned`,
-  the load fails with `SignatureInvalid`.
+```toml
+id = "com.example.classifier"
+name = "Example classifier"
+version = "1.0.0"
+capabilities = ["spam-action", "net"]
+# Exact host names or *.suffix wildcards; empty means no network.
+net_allowlist = ["classifier.example.com"]
 
-To sign: produce a detached Ed25519 signature over the exact `.wasm` component bytes
-with the registry signing key, hex-encode it, and place it in `signature`. The trust
-root (the public key) is a server config path.
+[limits]
+memory_mb = 64
+deadline_ms = 5000
+```
 
-## Build & verify
+The server's own HTTP check compares the request host with the allowlist entries
+exactly, so list each host by name.
 
-Build a component to `wasm32-wasip2`; the `wasm-component-ld` linker componentizes the
-cdylib automatically from wit-bindgen's embedded `component-type` sections — no
-`wasm-tools component new` step is needed. Each first-party plugin ships a `build.sh`
-that adds the target, builds `--release`, and refreshes the committed fixture. The
-`wasm-plugin-build` CI job runs every `build.sh` and asserts each output carries the
-component-model preamble (`00 61 73 6d 0d 00 01 00`), not a bare core module.
+Build with the `wasm32-wasip2` target; the reference guest in
+`crates/mw-plugin/tests/guest-fixture/` and each first-party plugin under `plugins/`
+has a `build.sh`. To deploy a third-party plugin, copy `<id>.wasm` into
+`MW_THIRDPARTY_PLUGIN_DIR`, approve its digest in the plugin allowlist, register the
+id, grant capabilities, allow it to run unsigned, and enable it.
 
-## Scope boundary (honest)
+## Related
 
-- **Engine (WASM) plugin tier only.** The declarative **TypeScript UI-plugin tier
-  (§22.2) is not implemented in V7** — it is document-only and tracked for 1.0.
-- **The WIT exports the account-backend (MAIL) interface.** Bridges also implement and
-  fixture-test calendar/tasks/reactions/voting (advertised via `capabilities()`), but
-  those are **not yet drivable through the plugin seam** — the WIT export for them is a
-  post-1.0 extension. See `docs/bridges/` and `docs/RELEASE-NOTES-26.8.md`.
+- [Plugins (admin)](/admin/plugins)
+- [Spam trainers](/plugins/spam-trainers)
+- [Outbound connections](./egress.md)
