@@ -14,7 +14,7 @@ The bridge plugin (`bridge-ews`) can reach only the EWS host of the account it i
 
 - The server runs in engine mode.
 - The Exchange server is reachable over HTTPS from the Mailwoman server and its certificate is trusted, or you have the CA certificates to add (see below).
-- Exchange accepts HTTPS Basic or NTLMv2 on the EWS endpoint. Kerberos is not spoken by the bridge; see [Kerberos](#kerberos).
+- Exchange accepts HTTPS Basic or NTLMv2 on the EWS endpoint. Kerberos is not supported; see [Kerberos](#kerberos).
 - An administrator has approved and enabled `bridge-ews` and granted it `account-backend` and `net`. See [Plugins](../plugins/index.md#approve-and-enable). Private Exchange servers also need an internal-destination entry for the **Approved plugin and provider requests** traffic class in **Egress**.
 - **Plugins** and the individual integration permission for `bridge-ews` are on for the users (`cap.plugins`, default on).
 
@@ -61,7 +61,7 @@ The plugin also contains code for the global address list, rooms, Out-of-Office,
 
 ## Kerberos
 
-The bridge does not speak Kerberos or SPNEGO and never holds a Kerberos ticket. The only supported way to use Kerberos-protected Exchange is a Kerberos-capable reverse proxy that you run in front of EWS: the bridge signs in to the proxy with Basic or NTLMv2 and the proxy authenticates to Exchange. See [Kerberos](../deploy/kerberos.md) for proxy configuration. The domain form states the same: Kerberos requires a separately configured gateway.
+Kerberos is not supported. The bridge authenticates to Exchange only with HTTPS Basic or NTLMv2, never presents a Kerberos ticket and does not speak SPNEGO. If your Exchange server accepts only Kerberos for EWS, the endpoint you enter must be a gateway you run that accepts Basic or NTLMv2 from Mailwoman. Mailwoman treats it as an ordinary EWS server and does not check how it authenticates to Exchange. Setting up such a gateway is outside this manual; the domain form says the same: "Kerberos requires a separately configured gateway."
 
 ## Limits
 
@@ -83,5 +83,5 @@ The bridge does not speak Kerberos or SPNEGO and never holds a Kerberos ticket. 
 
 - [Mail provider bridges](./index.md)
 - [Plugins](../plugins/index.md)
-- [Kerberos](../deploy/kerberos.md)
+- [What Mailwoman supports instead of Kerberos](../deploy/kerberos.md)
 - [Domains](../admin/domains.md)
