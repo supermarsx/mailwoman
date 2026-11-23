@@ -174,7 +174,7 @@ Your organization may require a second factor, and may refuse removing your last
 
 ### Encryption
 
-![The Zero-access storage card: its state, what the server still sees, and the key setup choice between passphrase and passkey.](/screenshots/user-settings/account-security-encryption.webp){.mw-crop}
+![The Encryption tab: the Zero-access storage card with its state, the list of what the server still sees, the caveat, and the key setup choice between passphrase and passkey.](/screenshots/user-settings/account-security-encryption.webp){.mw-crop}
 
 **Zero-access storage** is **Off** or **On**. When it is on, the server keeps this account's mail out of its search index and keeps text taken from it out of shared caches. Turning it on also deletes the stored passwords of linked mailboxes. It does not change how mail is stored: message bodies and envelopes are sealed with the server's key whether the mode is on or off, and the server can open them. The card lists what the server still sees (bodies and envelopes it can open, mail in transit, sizes, timestamps, routing metadata) and states that zero-access does not defend your mail against the server or whoever runs it.
 

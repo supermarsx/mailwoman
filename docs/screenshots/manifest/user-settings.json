@@ -163,6 +163,106 @@
    "alt": "The Settings screen in a narrow window: the section list is replaced by a button that shows the current section, Identities."
   },
   {
+   "id": "settings-open-button",
+   "page": "user/settings/index.md",
+   "seed": [
+    "settings-account"
+   ],
+   "viewport": {
+    "width": 1440,
+    "height": 1000
+   },
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "waitFor": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    }
+   ],
+   "shot": {
+    "element": [
+     {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     },
+     {
+      "role": "button",
+      "name": "@mail-logout"
+     }
+    ],
+    "padding": 14
+   },
+   "alt": "The two buttons at the bottom of the sidebar: Settings, with the sliders icon, and Log out."
+  },
+  {
+   "id": "settings-nav",
+   "page": "user/settings/index.md",
+   "seed": [
+    "settings-account"
+   ],
+   "viewport": {
+    "width": 1440,
+    "height": 1000
+   },
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-ident-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@settings-ident-title",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "navigation",
+     "name": "@settings-sections"
+    },
+    "padding": 8
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "placeholder": "@settings-search-sections"
+     },
+     "place": "right"
+    },
+    {
+     "n": 2,
+     "target": {
+      "text": "@settings-category-account",
+      "first": true
+     },
+     "place": "right"
+    }
+   ],
+   "alt": "The section list: Search settings on top, then the Account, Mail, Interface, Integrations and About groups with their sections."
+  },
+  {
    "id": "account-overview",
    "page": "user/settings/account.md",
    "seed": [
@@ -1076,14 +1176,18 @@
     }
    ],
    "shot": {
-    "element": {
-     "role": "heading",
-     "name": "@security-za-title",
-     "closest": "section"
-    },
-    "padding": 12
+    "clip": {
+     "x": -20,
+     "y": -20,
+     "width": 1000,
+     "height": 790,
+     "relativeTo": {
+      "role": "heading",
+      "name": "@security-za-title"
+     }
+    }
    },
-   "alt": "The Zero-access storage card: its state, what the server still sees, and the key setup choice between passphrase and passkey."
+   "alt": "The Encryption tab: the Zero-access storage card with its state, the list of what the server still sees, the caveat, and the key setup choice between passphrase and passkey."
   },
   {
    "id": "account-privacy-content",
@@ -1876,7 +1980,7 @@
     },
     "padding": 12
    },
-   "alt": "The Flag for follow-up card: a list of reminder presets, each with a checkbox, a name and buttons to edit, reorder and remove it."
+   "alt": "The Flag for follow-up card: a list of reminder presets, each with a checkbox, a name, the next reminder time and buttons to reorder and remove it."
   },
   {
    "id": "mail-reader-attachments",

@@ -15,11 +15,21 @@ Settings is where you change how Mailwoman looks and behaves for your own accoun
 
 ## Open Settings
 
-Select the **Settings** button at the bottom of the sidebar, next to **Log out**. Settings opens as its own tab in the workspace tabs, so your mailbox stays open in the **Mail** tab.
+Select the **Settings** button at the bottom of the sidebar, next to **Log out**.
+
+![The two buttons at the bottom of the sidebar: Settings, with the sliders icon, and Log out.](/screenshots/user-settings/settings-open-button.webp){.mw-crop}
+
+Settings opens as its own tab in the workspace tabs, so your mailbox stays open in the **Mail** tab.
 
 Above the section the path is shown, for example Account then Identities. Some sections are split into tabs, such as the six tabs of the Security centre; the tabs keep what you have typed, so you can move between them before saving.
 
 ## Categories and sections
+
+![The section list: Search settings on top, then the Account, Mail, Interface, Integrations and About groups with their sections.](/screenshots/user-settings/settings-nav.webp){.mw-crop}
+
+1. **Search settings** filters the list.
+2. Each category heading, here **Account**, groups its sections; select a section to open it.
+{.mw-callouts}
 
 There are 23 sections in five categories. Each category has its own page, with one heading per section.
 

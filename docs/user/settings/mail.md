@@ -20,7 +20,7 @@ The **Mail** category holds the settings that decide how messages are shown, wri
 9. **Import and export mail**: bringing mail in, and where export lives.
 {.mw-callouts}
 
-Every setting in the tables on this page can be locked by an administrator. A locked control is dimmed and shows **Set by your administrator**. The reset button beside a setting (**Use administrator default**) removes your own choice. See [Personal settings](./index.md) for how this works.
+Every setting in the tables on this page can be locked by an administrator, except the rows that name no setting key. A locked control is dimmed and shows **Set by your administrator**. The reset button beside a setting (**Use administrator default**) removes your own choice. See [Personal settings](./index.md) for how this works.
 
 ## Message display
 
@@ -63,9 +63,9 @@ The **Message reader actions** card chooses where each action appears: **Toolbar
 
 ### Flag for follow-up and Snooze
 
-![The Flag for follow-up card: a list of reminder presets, each with a checkbox, a name and buttons to edit, reorder and remove it.](/screenshots/user-settings/mail-reader-followup.webp){.mw-crop}
+![The Flag for follow-up card: a list of reminder presets, each with a checkbox, a name, the next reminder time and buttons to reorder and remove it.](/screenshots/user-settings/mail-reader-followup.webp){.mw-crop}
 
-**Flag for follow-up** and **Snooze** each have a list of presets for the times they offer. Follow-up flags keep a message visible; snoozing hides it until the chosen time. A custom date and time is always available in the snooze menu. Tick a preset to offer it, move it with the arrows, remove it with the bin button, or select **Add preset** for your own. **Restore built-in presets** puts the built-in list back, and **Save** stores your changes. The list shows the time zone used to work out each time.
+**Flag for follow-up** and **Snooze** each have a list of presets for the times they offer. Follow-up flags keep a message visible; snoozing hides it until the chosen time. A custom date and time is always available in the snooze menu. Tick a preset to offer it, move it with the arrows, remove it with the bin button, or select **Add preset** for your own. **Restore built-in presets** puts the built-in list back, and **Save** stores your changes. The list shows the time zone used to work out each time and, in the **Next reminder time** column, when each preset would fire now.
 
 Only **Later today** (3 hours), **Tomorrow** (9:00) and **Next week** (9:00) are on by default; the other built-in presets are available to switch on. The settings are [`mail.followUp.presets`](/admin/settings#mail.followUp.presets) and [`mail.snooze.presets`](/admin/settings#mail.snooze.presets).
 
@@ -107,12 +107,12 @@ Badges appear in the header of an open message. Priority marks are set under [Fo
 |---|---|---|---|
 | **Sender and contact pictures** | **Hide pictures**, **Generate initials locally**, or **Use local contact pictures, with initials as fallback**. Contact pictures use only PNG or JPEG photos already saved in your address books, up to 512 by 512 pixels and 128 KiB. Remote picture URLs and external avatar services are never requested. | Generate initials locally | [`contacts.avatarMode`](/admin/settings#contacts.avatarMode) |
 | **Show bundled sender-domain icons** | Recognised domains use icons bundled with the app. Your own contact pictures take priority. Icons are hints, not proof that a message is authentic. | On | [`contacts.senderIcons`](/admin/settings#contacts.senderIcons) |
-| **Show brand logos beside verified senders** | A recognised company's logo replaces the initials in the reader only when the message passed DKIM and an aligned DMARC check for that company's own domain. Logos are bundled; nothing is requested from the sender. | On | [`mail.brandAvatars`](/admin/settings#mail.brandAvatars) |
-| **Authentication needed for brand logos** | **Never (match on domain only)**, **Only if a check failed** or **Always (require a passed check)**. | Only if a check failed | [`mail.brandAvatars.requireAuth`](/admin/settings#mail.brandAvatars.requireAuth) |
+| **Show brand logos beside verified senders** | A recognised company's logo replaces the initials beside the sender in the reader. Logos are bundled; nothing is requested from the sender. How strict the check is comes from the next row. The help text printed under this row describes the strictest choice, **Always**. | On | [`mail.brandAvatars`](/admin/settings#mail.brandAvatars) |
+| **Authentication needed for brand logos** | **Never (match on domain only)** shows the logo whenever the sender's domain matches. **Only if a check failed** shows it unless the message failed DKIM or DMARC. **Always (require a passed check)** shows it only when the message passed DKIM and an aligned DMARC check for that company's own domain. | Only if a check failed | [`mail.brandAvatars.requireAuth`](/admin/settings#mail.brandAvatars.requireAuth) |
 | **Show favorite contacts first in recipient suggestions** | Starred contacts are listed first when you type a recipient. Only the order changes. | On | [`contacts.favoritesFirst`](/admin/settings#contacts.favoritesFirst) |
 | **Offer Save contacts from this message** | Adds the item to message menus and the reader More menu. | On | [`contacts.saveFromMessage.enabled`](/admin/settings#contacts.saveFromMessage.enabled) |
 | **Offer Save sender as contact** | A one-click item in message menus. | On | [`contacts.saveSender.enabled`](/admin/settings#contacts.saveSender.enabled) |
-| **Ticked first in the dialog** | Which people are ticked first: the sender only, or everyone on the message. | Sender only | [`contacts.saveFromMessage.defaultScope`](/admin/settings#contacts.saveFromMessage.defaultScope) |
+| **Ticked first in the dialog** | Which people are ticked first: **Sender only**, **Sender and Reply-To**, or **Everyone on the message**. | Sender only | [`contacts.saveFromMessage.defaultScope`](/admin/settings#contacts.saveFromMessage.defaultScope) |
 | **Skip automated senders** | Leaves out no-reply, notification and bounce addresses unless you tick them. | On | [`contacts.saveFromMessage.skipAutomated`](/admin/settings#contacts.saveFromMessage.skipAutomated) |
 | **Add a note with the date** | The note reads "Saved from a message on" followed by the date. | On | [`contacts.saveFromMessage.addNote`](/admin/settings#contacts.saveFromMessage.addNote) |
 | **Use Reply-To for list and notification senders** | Saves the Reply-To address instead of From for those senders. | Off | [`contacts.saveSender.useReplyTo`](/admin/settings#contacts.saveSender.useReplyTo) |
@@ -265,7 +265,7 @@ The list shows every folder with whether it is **Shown** in the sidebar, its unr
 
 | Label | What it does | Default | Setting |
 |---|---|---|---|
-| **Collapse user folders in the sidebar** | Collapses the User folders group in the sidebar. The explanation printed under this control describes hidden folders instead (see Troubleshooting). | Off | synchronized with your account; no settings key |
+| **Collapse user folders in the sidebar** | Folders you created stay folded under the User folders heading until you open it. | Off | synchronized with your account; no settings key |
 | **Default folder colour** | Colours folder icons and names. Edit a folder to give it its own colour. | Default | [`folders.colour`](/admin/settings#folders.colour) |
 | **Unified virtual account** | Adds a separate virtual account to the account selector, with combined folders and counters. Independent of the unified message view. | Off | [`mail.unifiedAccount`](/admin/settings#mail.unifiedAccount) |
 | **Unified message view** | Browse and search the primary and linked mailboxes together. | Off | [`mail.unifiedInbox`](/admin/settings#mail.unifiedInbox) |
@@ -381,7 +381,7 @@ A saved search can be shown as a folder in your mailbox list. A search folder sh
 |---|---|---|---|
 | **Default search scope** | Search the **Current folder** by default, or start across **All folders**. You can still choose a different folder or All folders for an individual search. Saved searches keep their own scope. | Current folder | [`mail.search.defaultScope`](/admin/settings#mail.search.defaultScope) |
 
-To add one, select **New search folder**, enter a **Folder name**, and fill in any of the conditions: **Search all message text**, **Sender contains**, **Recipient contains**, **Subject contains**, **Message body contains**, **Attachment filename contains**, a mailbox identifier, **Received after** and **Received before** (UTC), the **Attachments** choice (**Any message**, **With attachments**, **Without attachments**), **Unread messages only** and **Flagged messages only**. Messages must match all conditions; an empty condition is ignored. **Show as folder** puts the search in the folder list. See [Searching](/user/mailbox/search).
+To add one, select **New search folder**, enter a **Folder name**, and fill in any of the conditions: **Search all message text**, **Sender contains**, **Recipient contains**, **Subject contains**, **Message body contains**, **Attachment filename contains**, a mailbox identifier, **Received after (UTC date and time)** and **Received before (UTC date and time)**, the **Attachments** choice (**Any message**, **With attachments**, **Without attachments**), **Unread messages only** and **Flagged messages only**. Messages must match all conditions; an empty condition is ignored. **Show as folder** puts the search in the folder list. See [Searching](/user/mailbox/search).
 
 ## Read receipts
 
@@ -399,14 +399,12 @@ A read receipt reveals that your mail program displayed a message. This section 
 
 **Import mail** brings a mail file into a folder of this account. Choose a **Mail file** and a **Destination folder**, then select **Import into selected folder**. Existing messages are preserved, and importing the same archive again can create duplicates. The dialog shows the maximum file size and number of messages. When your administrator has disabled mail import, the section says so.
 
-Export starts from a message: open a message and use its **Export** action, where you choose **EML**, which preserves the original message, or a converted format (Text, Markdown, Outlook, Word). Your administrator's export and attachment restrictions apply.
+Export starts from a message: open a message and use its **Export** action, where you choose a format: **EML (original message)**, **MBOX (mailbox file)**, **Plain text**, **Markdown**, **MSG (Outlook)**, **DOCX (Word)**, **CSV summary**, **JSON (message properties)** or **PDF**. EML preserves the original message; the others are converted. Your administrator's export and attachment restrictions apply.
 
 ## Troubleshooting
 
 | What you see | Why | What to do |
 |---|---|---|
-| The **Checks before sending** lists show **Send without asking** and **Off**, whatever you chose. | These four lists always display their first choice, including after a reload. The stored value is the one the composer uses; the default is **Ask each time** and **Show a warning**, and a value you pick is stored. | Pick the value you want; do not rely on what the list shows afterwards. |
-| The note under **Collapse user folders in the sidebar** talks about hidden folders. | The control collapses the User folders group; the note is the one for hiding folders. | Use the control for what its label says. |
 | **Protected by the administrator** beside a folder in Retention. | The administrator keeps rules away from that folder. | Nothing to change; the folder is not touched by rules. |
 | You cannot choose a longer hold time. | The longest hold time is an administrator limit, 30 minutes unless the administrator changed it. | Ask your administrator if you need a longer one. |
 

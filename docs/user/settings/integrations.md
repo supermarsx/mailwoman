@@ -46,7 +46,7 @@ Package tracking has to be configured and allowed by your administrator. Until t
 1. Select **Add package**.
 2. Enter an optional **Label** (a private name such as a shop or order, which stays in Mailwoman), the **Tracking number** (letters, digits or hyphens) and the **Carrier code**, which is the exact provider carrier code such as `ups`, `fedex` or `usps`.
 3. Select **Save package**. Saving only stores the package in your account; no tracking request is sent.
-4. In the list, use **Track or refresh** on a package to ask the provider for its status. The list shows **Status**, **Estimated delivery** and the latest tracking events with carrier time, location and event.
+4. In the list, use **Track or refresh** on a package to ask the provider for its status. The list shows **Status** and **Estimated delivery**. Opening a package shows **Latest tracking events** with carrier time, location and event.
 
 Updates are requested explicitly, at most once per package within the interval the administrator set. Provider estimates are not delivery guarantees, and carrier event times are shown as supplied. Removing a package takes it out of Mailwoman only; records the provider already holds are unchanged. See [Package tracking](/user/packages).
 
