@@ -1,0 +1,19 @@
+{
+  "_comment": "Fictional people only. Addresses use the RFC 2606 domains example.com, example.org and example.net. The demo user signs in as people[me].email with password; the console administrator is admin.",
+  "me": "alex",
+  "password": "demo-pass-alex",
+  "admin": { "username": "admin", "password": "demo-pass-admin" },
+  "people": {
+    "alex": { "name": "Alex Rivera", "email": "alex@example.com", "org": "Harbour Lane Studio" },
+    "jordan": { "name": "Jordan Ellis", "email": "jordan.ellis@example.com", "org": "Harbour Lane Studio" },
+    "priya": { "name": "Priya Raman", "email": "priya.raman@example.com", "org": "Harbour Lane Studio" },
+    "sam": { "name": "Sam Okoye", "email": "sam@example.org", "org": "Fernhill Print Co." },
+    "mei": { "name": "Mei Lindqvist", "email": "mei.lindqvist@example.net", "org": "Juniper Events" },
+    "tomas": { "name": "Tomás Varga", "email": "tomas@example.org", "org": "Fernhill Print Co." },
+    "nadia": { "name": "Nadia Haddad", "email": "nadia.haddad@example.net", "org": "Juniper Events" },
+    "lena": { "name": "Lena Brooks", "email": "lena.brooks@example.com", "org": "Harbour Lane Studio" },
+    "billing": { "name": "Fernhill Print Co. Billing", "email": "billing@example.org", "org": "Fernhill Print Co." },
+    "newsletter": { "name": "City Library News", "email": "news@library.example.net", "org": "City Library" },
+    "prize": { "name": "Prize Desk", "email": "winner@prizes.example.net", "org": "" }
+  }
+}
