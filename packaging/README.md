@@ -13,9 +13,9 @@ is marked with a `HUMAN` placeholder and explained in
 | F-Droid | [`fdroid/`](fdroid/) | fdroiddata merge request, reproducible-build review |
 | winget (Windows) | [`winget/`](winget/) | signed installer URL + SHA-256, winget-pkgs PR |
 | macOS (notarized) | [`macos/`](macos/) | Apple Developer ID cert, notarization Apple ID |
-| Linux deb/rpm/AppImage | [`linux/`](linux/) | (built by CI; signing/repo hosting is ops) |
+| Linux deb/rpm/AppImage | [`linux/`](linux/) | Not built by CI (it runs `tauri build --no-bundle`); build locally with `tauri build`; signing/repo hosting is ops |
 
-The Tauri bundle config that drives deb/rpm/AppImage/msi/dmg lives in
+The Tauri bundle config that drives deb/rpm/AppImage/msi/dmg when built locally with `tauri build` (CI builds with `--no-bundle` and produces no installers) lives in
 `apps/desktop/src-tauri/tauri.conf.json` (`bundle`; `plugins.updater` only through the
 per-build overlay, see `updater/`); the mobile
 shell config is `apps/mobile/src-tauri/tauri.conf.json`.
