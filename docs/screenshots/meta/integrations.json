@@ -1,0 +1,138 @@
+{
+  "entries": {
+    "admin-domain-ews-backend": {
+      "hash": "4fcf1d223d0cedaa",
+      "bytes": 110736,
+      "width": 1440,
+      "height": 1500,
+      "quality": 0.9,
+      "kind": "full",
+      "commit": "4d3d5b3a",
+      "stack": "E",
+      "web": "given",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
+    "admin-nextcloud-instance": {
+      "hash": "300d0fdc5015ce58",
+      "bytes": 49374,
+      "width": 1440,
+      "height": 900,
+      "quality": 0.9,
+      "kind": "full",
+      "commit": "b0121b54",
+      "stack": "E",
+      "web": "5e780284b9c81ee7",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
+    "admin-plugin-approved": {
+      "hash": "c87a9c92675ff19c",
+      "bytes": 78098,
+      "width": 1440,
+      "height": 900,
+      "quality": 0.9,
+      "kind": "full",
+      "commit": "4b1165cb",
+      "stack": "E",
+      "web": "6ef9d88b76348e24",
+      "webRevision": "unknown",
+      "webBuiltAt": "2026-11-23T03:29:15.202Z",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
+    "admin-plugin-classifier": {
+      "hash": "5c8b0cbb51b92fe5",
+      "bytes": 105562,
+      "width": 1440,
+      "height": 1300,
+      "quality": 0.9,
+      "kind": "full",
+      "commit": "4d3d5b3a",
+      "stack": "E",
+      "web": "given",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
+    "admin-plugin-detail": {
+      "hash": "e7c1f6a9302c0c94",
+      "bytes": 66978,
+      "width": 1440,
+      "height": 900,
+      "quality": 0.9,
+      "kind": "full",
+      "commit": "b0121b54",
+      "stack": "E",
+      "web": "5e780284b9c81ee7",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
+    "admin-plugins-bridges": {
+      "hash": "c85b30d25f752314",
+      "bytes": 98472,
+      "width": 1440,
+      "height": 900,
+      "quality": 0.9,
+      "kind": "full",
+      "commit": "b0121b54",
+      "stack": "E",
+      "web": "5e780284b9c81ee7",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
+    "admin-ui-plugins-register": {
+      "hash": "ca423b5459b92821",
+      "bytes": 63058,
+      "width": 1440,
+      "height": 900,
+      "quality": 0.9,
+      "kind": "full",
+      "commit": "b0121b54",
+      "stack": "E",
+      "web": "5e780284b9c81ee7",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
+    "export-dialog": {
+      "hash": "0103b631afbac553",
+      "bytes": 72924,
+      "width": 1440,
+      "height": 900,
+      "quality": 0.9,
+      "kind": "full",
+      "commit": "4d3d5b3a",
+      "stack": "E",
+      "web": "given",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
+    "nextcloud-user-link": {
+      "hash": "e7cf90c21b9e2f89",
+      "bytes": 55808,
+      "width": 1440,
+      "height": 900,
+      "quality": 0.9,
+      "kind": "full",
+      "commit": "b0121b54",
+      "stack": "E",
+      "web": "5e780284b9c81ee7",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
+    "settings-provider-connection": {
+      "hash": "58c01f56bdd28ccb",
+      "bytes": 17638,
+      "width": 1005,
+      "height": 410,
+      "quality": 0.9,
+      "kind": "crop",
+      "commit": "b0121b54",
+      "stack": "E",
+      "web": "given",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
+    "settings-provider-connection-gmail": {
+      "hash": "6c9daf350dce1ba1",
+      "bytes": 11368,
+      "width": 1005,
+      "height": 324,
+      "quality": 0.9,
+      "kind": "crop",
+      "commit": "b0121b54",
+      "stack": "E",
+      "web": "given",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    }
+  }
+}

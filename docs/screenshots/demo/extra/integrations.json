@@ -7,6 +7,13 @@
       "admin": [
         {
           "method": "POST",
+          "path": "/step-up",
+          "body": {
+            "password": "demo-pass-admin"
+          }
+        },
+        {
+          "method": "POST",
           "path": "/plugins",
           "body": {
             "id": "bridge-graph"
@@ -31,6 +38,72 @@
           "path": "/plugins",
           "body": {
             "id": "spam-rspamd"
+          }
+        }
+      ]
+    },
+    "integrations-plugins-approved": {
+      "include": [
+        "admin-basic"
+      ],
+      "admin": [
+        {
+          "method": "POST",
+          "path": "/step-up",
+          "body": {
+            "password": "demo-pass-admin"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/plugins",
+          "body": {
+            "id": "bridge-graph"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/plugins/bridge-graph/approve",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/plugins/bridge-graph/grant",
+          "body": {
+            "capabilities": [
+              "account-backend",
+              "net"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/plugins/bridge-graph/enable",
+          "body": {}
+        }
+      ]
+    },
+    "integrations-nextcloud": {
+      "include": [
+        "mail-basic",
+        "admin-basic"
+      ],
+      "admin": [
+        {
+          "method": "POST",
+          "path": "/step-up",
+          "body": {
+            "password": "demo-pass-admin"
+          }
+        },
+        {
+          "method": "PUT",
+          "path": "/nextcloud/instances/team-cloud",
+          "body": {
+            "name": "Team cloud",
+            "baseUrl": "https://cloud.example.org/",
+            "caPem": "",
+            "enabled": true
           }
         }
       ]

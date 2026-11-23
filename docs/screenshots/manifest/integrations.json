@@ -179,7 +179,7 @@
         }
       ],
       "shot": "full",
-      "alt": "The Nextcloud page of the administration console with no approved instances yet and the Add Nextcloud instance button."
+      "alt": "The Nextcloud instances page of the administration console with no approved instances and the Add Nextcloud instance button."
     },
     {
       "id": "nextcloud-user-link",
@@ -419,6 +419,35 @@
       ],
       "shot": "full",
       "alt": "The Export dialog for one message with the scope, format, packaging, file name pattern and privacy options."
+    },
+    {
+      "id": "admin-plugin-approved",
+      "page": "plugins/index.md",
+      "session": "admin",
+      "seed": [
+        "integrations-plugins-approved"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}"
+        },
+        {
+          "click": {
+            "role": "link",
+            "name": "@admin-nav-plugins",
+            "exact": false,
+            "first": true
+          }
+        },
+        {
+          "waitFor": {
+            "text": "Microsoft Graph bridge",
+            "first": true
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Plugins list with the Microsoft Graph bridge approved and enabled but not running."
     }
   ]
 }

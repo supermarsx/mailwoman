@@ -47,6 +47,10 @@ The components are the `.wasm` files in the plugin directory. A masked-email plu
 - **Not loaded: no account is bound to this bridge.**
 - **Not loaded: another spam classifier is loaded. Only one runs at a time.**
 
+A plugin can be approved and enabled and still show **Not loaded**, for example a bridge that no mailbox is bound to yet:
+
+![The Plugins list with the Microsoft Graph bridge showing Approved and Enabled in the Approval column and Not loaded in the Running column.](/screenshots/integrations/admin-plugin-approved.webp){.mw-shot}
+
 Starting a plugin that was not running needs a server restart (**Restart required to load this plugin.**). A change that removes permission stops a running bridge without a restart.
 
 ## Capabilities
