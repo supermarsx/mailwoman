@@ -401,6 +401,16 @@ admin-sso-claim-email-help = O endereço de e-mail da pessoa.
 admin-sso-claim-username-help = O nome com que a conta é associada ou criada.
 admin-sso-claim-display-help = Ainda não aplicado: o início de sessão não lê o nome a apresentar do fornecedor.
 admin-sso-claim-groups-help = Ainda não aplicado: o início de sessão não lê a pertença a grupos do fornecedor.
+admin-sso-require-verified-email = Exigir um endereço de e-mail verificado
+admin-sso-require-verified-email-help = Recusa o início de sessão quando o fornecedor não marca o endereço de e-mail como verificado. Desative apenas para um fornecedor que verifica ele próprio cada endereço e não envia email_verified (por exemplo, Microsoft Entra ID).
+admin-sso-require-verified-email-off = Com isto desativado, qualquer pessoa que consiga definir um endereço de e-mail arbitrário no fornecedor pode iniciar sessão como a conta Mailwoman com esse endereço.
+admin-sso-badge-problems = Requer atenção
+admin-sso-badge-not-offered = Não oferecido no início de sessão
+admin-sso-problems-title = O servidor indica estes problemas com este fornecedor:
+admin-sso-not-offered-note = Não oferecido no início de sessão: o servidor não usa este fornecedor enquanto a configuração não estiver completa e segura. Corrija os campos abaixo e guarde.
+admin-sso-err-issuer-query = Um endereço de emissor não tem consulta (?) nem fragmento (#).
+admin-sso-err-unsigned = Tem de estar ativado: este servidor não aceita asserções SAML sem assinatura.
+admin-sso-problem = { $field }: { $message }
 
 # -- Server metadata editor (t14, RFC 5464 annotations under /admin) ----------
 admin-servermeta-title = Metadados do servidor

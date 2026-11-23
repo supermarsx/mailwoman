@@ -407,6 +407,16 @@ admin-sso-claim-email-help = The email address of the person.
 admin-sso-claim-username-help = The name the account is matched or made with.
 admin-sso-claim-display-help = Not applied yet: sign-in does not read the display name from the provider.
 admin-sso-claim-groups-help = Not applied yet: sign-in does not read group membership from the provider.
+admin-sso-require-verified-email = Require a verified email address
+admin-sso-require-verified-email-help = Refuse sign-in when the provider does not mark the email address as verified. Turn off only for a provider that verifies every address itself and does not send email_verified (for example Microsoft Entra ID).
+admin-sso-require-verified-email-off = With this off, anyone who can set an arbitrary email address at the provider can sign in as the Mailwoman account with that address.
+admin-sso-badge-problems = Needs attention
+admin-sso-badge-not-offered = Not offered at sign-in
+admin-sso-problems-title = The server reports these problems with this provider:
+admin-sso-not-offered-note = Not offered at sign-in: the server does not use this provider until its configuration is complete and safe. Fix the fields below and save.
+admin-sso-err-issuer-query = An issuer address has no query (?) or fragment (#).
+admin-sso-err-unsigned = Must be on: this server does not accept unsigned SAML assertions.
+admin-sso-problem = { $field }: { $message }
 
 # -- Server metadata editor (t14, RFC 5464 annotations under /admin) ----------
 # The editor body (entry list, add form) reuses the servermeta.ftl catalog; these

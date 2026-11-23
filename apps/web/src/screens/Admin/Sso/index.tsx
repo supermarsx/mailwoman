@@ -161,6 +161,14 @@ export function AdminSso(props: AdminSsoProps): JSX.Element {
             {r.enabled ? t('admin-sso-badge-enabled') : t('admin-sso-badge-disabled')}
           </StatusBadge>
           <Show when={worstCert(r, props.now)}>{(c) => <CertBadge cert={c()} now={props.now} />}</Show>
+          {/* What the server reports: a config sign-in will not use, and its problems
+              (listed in full when the provider is opened). */}
+          <Show when={r.signInReady === false}>
+            <StatusBadge tone="danger" status="not-offered" testId={`sso-not-offered-${r.id}`}>{t('admin-sso-badge-not-offered')}</StatusBadge>
+          </Show>
+          <Show when={(r.problems?.length ?? 0) > 0}>
+            <StatusBadge tone="warn" status="problems" testId={`sso-problems-${r.id}`}>{t('admin-sso-badge-problems')}</StatusBadge>
+          </Show>
         </span>
       ),
     },

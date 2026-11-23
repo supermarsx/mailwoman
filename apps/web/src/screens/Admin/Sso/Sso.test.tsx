@@ -1,10 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { fireEvent, screen, waitFor, within } from '@solidjs/testing-library';
+import { cleanup, fireEvent, screen, waitFor, within } from '@solidjs/testing-library';
 import { createSignal } from 'solid-js';
 import { AdminSso, worstCert } from './index.tsx';
 import { ssoInput, ssoValues, ownAddress } from './SsoEditor.tsx';
 import { certInfo, certState, parseIdpMetadata, splitPem } from './saml.ts';
-import type { SsoAdminApi, SsoBackendRow } from '../../../modules/sso';
+import { SsoAdminError, createHttpSsoAdminApi, type SsoAdminApi, type SsoBackendInput, type SsoBackendRow } from '../../../modules/sso';
 import { sectionPath, type AdminRoute } from '../shell/router.ts';
 import { renderInShell } from '../shell/testkit.tsx';
 import { expectNoAxeViolations, expectNoInlineStyle } from '../shell/uxTestkit.ts';
@@ -400,5 +400,107 @@ describe('Admin › SSO wire contract (shared server fixtures)', () => {
     const row = wire(list) as unknown as SsoBackendRow;
     const { secret: _secret, ...expected } = wire(console);
     expect(ssoInput(ssoValues(row), ORIGIN, '')).toEqual(expected);
+  });
+});
+
+describe('Admin › SSO verified email, server problems, refused saves', () => {
+  const ORIGIN = 'https://mail.example.org';
+
+  it('the verified-email switch round-trips in both states (shared fixtures)', () => {
+    const on = { ...ssoValues(null), id: 'corp-oidc', displayName: 'Acme SSO', issuerUrl: 'https://idp.example.org/realms/staff', clientId: 'mailwoman', oidcSecret: 'fixture-client-secret', firstLoginPolicy: 'autocreate', claimGroups: '' };
+    expect((on as Record<string, unknown>).requireVerifiedEmail).toBe(true);
+    expect(ssoInput(on, ORIGIN, '')).toEqual(wire('console-oidc.json'));
+    const off = { ...on, id: 'entra-oidc', displayName: 'Entra ID', requireVerifiedEmail: false };
+    expect(ssoInput(off, ORIGIN, '')).toEqual(wire('console-oidc-unverified-email.json'));
+    // A stored opt-out reopens off and saves back off.
+    const row = { ...(wire('list-oidc.json') as unknown as SsoBackendRow) };
+    row.config = { ...(row.config as Extract<SsoBackendRow['config'], { kind: 'oidc' }>), requireVerifiedEmail: false };
+    expect(ssoValues(row).requireVerifiedEmail).toBe(false);
+    expect((ssoInput(ssoValues(row), ORIGIN, '').config as { requireVerifiedEmail?: boolean }).requireVerifiedEmail).toBe(false);
+  });
+
+  it('turning the switch off warns, and the body carries it off', async () => {
+    const { api } = setup([OIDC_ROW], { rest: ['corp-oidc'] });
+    const detail = await screen.findByTestId('sso-editor-page');
+    const box = await within(detail).findByRole('checkbox', { name: 'Require a verified email address' });
+    expect(box).toBeChecked();
+    expect(within(detail).queryByTestId('sso-verified-email-off')).toBeNull();
+    fireEvent.click(box);
+    expect(within(detail).getByTestId('sso-verified-email-off')).toHaveTextContent(/anyone who can set an arbitrary email address at the provider can sign in/);
+    fireEvent.click(within(detail).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(api.save).toHaveBeenCalledTimes(1));
+    expect((api.save as ReturnType<typeof vi.fn>).mock.calls[0]![0].config).toMatchObject({ kind: 'oidc', requireVerifiedEmail: false });
+  });
+
+  it('the list marks rows with problems and rows sign-in does not offer; the opened row lists the problems', async () => {
+    const broken: SsoBackendRow = {
+      ...OIDC_ROW,
+      id: 'old-oidc',
+      displayName: 'Old OIDC',
+      config: { ...(OIDC_ROW.config as Extract<SsoBackendRow['config'], { kind: 'oidc' }>), issuerUrl: '', clientId: '' },
+      problems: [
+        { field: 'config.issuerUrl', code: 'required', message: 'is required' },
+        { field: 'config.clientId', code: 'required', message: 'is required' },
+      ],
+      signInReady: false,
+    };
+    setup([{ ...OIDC_ROW, problems: [], signInReady: true }, broken]);
+    await screen.findByRole('table', { name: 'Single sign-on' });
+    expect(screen.getByTestId('sso-not-offered-old-oidc')).toHaveTextContent('Not offered at sign-in');
+    expect(screen.getByTestId('sso-problems-old-oidc')).toHaveTextContent('Needs attention');
+    expect(screen.queryByTestId('sso-not-offered-corp-oidc')).toBeNull();
+    expect(screen.queryByTestId('sso-problems-corp-oidc')).toBeNull();
+
+    cleanup();
+    setup([broken], { rest: ['old-oidc'] });
+    const detail = await screen.findByTestId('sso-editor-page');
+    const list = await within(detail).findByTestId('sso-problems');
+    const text = stripIsolates(list.textContent ?? '');
+    expect(text).toMatch(/Not offered at sign-in/);
+    expect(text).toMatch(/Issuer URL: Enter a value\./);
+    expect(text).toMatch(/Client ID: Enter a value\./);
+  });
+
+  it('a save the server refuses shows its problems, the first at its field', async () => {
+    const { api } = setup([OIDC_ROW], { rest: ['corp-oidc'] });
+    (api.save as ReturnType<typeof vi.fn>).mockImplementationOnce(async () => {
+      throw new SsoAdminError(400, 'POST /admin/sso failed (400)', [
+        { field: 'config.issuerUrl', code: 'issuer_query', message: 'an issuer address has no query or fragment' },
+        { field: 'config.redirectUrl', code: 'invalid_url', message: 'is not a valid address' },
+      ]);
+    });
+    const detail = await screen.findByTestId('sso-editor-page');
+    fireEvent.input(await within(detail).findByRole('textbox', { name: 'Issuer URL' }), { target: { value: 'https://idp.example.org/?tenant=1' } });
+    fireEvent.click(within(detail).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(within(detail).getByTestId('sso-problems')).toBeInTheDocument());
+    const text = stripIsolates(within(detail).getByTestId('sso-problems').textContent ?? '');
+    expect(text).toMatch(/Issuer URL: An issuer address has no query \(\?\) or fragment \(#\)\./);
+    expect(text).toMatch(/Redirect URL: Enter a full address/);
+    // The first problem sits at its field.
+    const issuer = within(detail).getByRole('textbox', { name: 'Issuer URL' });
+    await waitFor(() => expect(issuer).toHaveAttribute('aria-invalid', 'true'));
+    expect(within(detail).getByTestId('setting-issuerUrl')).toHaveTextContent('An issuer address has no query (?) or fragment (#).');
+  });
+
+  it('the client carries the refused fields of a 400 invalid_sso_config', async () => {
+    const body = { error: 'invalid_sso_config', fields: [{ field: 'config.issuerUrl', code: 'required', message: 'is required' }] };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(body), { status: 400, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const err = await createHttpSsoAdminApi('').save(wire('console-oidc.json') as unknown as SsoBackendInput).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(SsoAdminError);
+      expect((err as SsoAdminError).fields).toEqual(body.fields);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('SAML: signed assertions cannot be switched off', async () => {
+    const { api } = setup([SAML_ROW], { rest: ['corp-saml'], now: NOW });
+    const detail = await screen.findByTestId('sso-editor-page');
+    fireEvent.click(await within(detail).findByRole('checkbox', { name: 'Require signed assertions' }));
+    fireEvent.click(within(detail).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(within(detail).getByText('Must be on: this server does not accept unsigned SAML assertions.')).toBeInTheDocument());
+    expect(api.save).not.toHaveBeenCalled();
   });
 });

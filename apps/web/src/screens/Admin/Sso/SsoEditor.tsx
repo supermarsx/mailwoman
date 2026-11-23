@@ -10,10 +10,14 @@
 // Secrets are write-only: the client secret (OIDC) and the service provider key
 // (SAML) show whether one is stored and are sent only when something is typed.
 
-import { createMemo, createSignal, Show, type JSX } from 'solid-js';
+import { createMemo, createSignal, For, Show, type JSX } from 'solid-js';
 import { t, isolate } from '../../../i18n';
 import { basePath } from '../../../api/basePath.ts';
-import type { ClaimMap, FirstLoginPolicy, SsoBackendInput, SsoBackendRow, SsoConfig, SsoKind } from '../../../modules/sso';
+import { SsoAdminError, type ClaimMap, type FirstLoginPolicy, type SsoBackendInput, type SsoBackendRow, type SsoConfig, type SsoFieldProblem, type SsoKind } from '../../../modules/sso';
+import { AdminProblemError } from '../shell/adminApi.ts';
+import { Feedback } from '../shell/Feedback.tsx';
+import { Icon } from '../shell/icons.tsx';
+import * as shellCss from '../shell/shell.css.ts';
 import { SettingsFormPage, type FieldRenderContext, type SettingField, type SettingsGroup, type SettingsLoad } from '../shell/templates/SettingsFormPage.tsx';
 import * as ux from '../shell/ux.css.ts';
 import { ListEditor } from '../shell/ListEditor.tsx';
@@ -35,6 +39,95 @@ const DOMAIN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2
 /** This server's address for a backend path (`/api/sso/<id>/<leaf>`). */
 export function ownAddress(id: string, leaf: 'callback' | 'acs' | 'metadata', origin: string = location.origin, base: string = basePath()): string {
   return `${origin}${base}/api/sso/${encodeURIComponent(id)}/${leaf}`;
+}
+
+/** The form field a server problem (`config.issuerUrl`, ...) belongs to. */
+const PROBLEM_FIELD: Record<string, string> = {
+  id: 'id',
+  displayName: 'displayName',
+  scope: 'domain',
+  kind: 'kind',
+  'config.issuerUrl': 'issuerUrl',
+  'config.clientId': 'clientId',
+  'config.redirectUrl': 'redirectUrl',
+  'config.scopes': 'oidcScopes',
+  'config.requireVerifiedEmail': 'requireVerifiedEmail',
+  'config.idpSsoUrl': 'idpSsoUrl',
+  'config.idpSloUrl': 'idpSloUrl',
+  'config.idpMetadataUrl': 'idpMetadataUrl',
+  'config.idpSigningCertsPem': 'idpCerts',
+  'config.spEntityId': 'spEntityId',
+  'config.acsUrl': 'acsUrl',
+  'config.nameidFormat': 'nameidFormat',
+  'config.wantAssertionsSigned': 'wantAssertionsSigned',
+};
+
+/** The label of a form field, for a problem named by it. */
+const FIELD_LABEL: Record<string, () => string> = {
+  id: () => t('admin-sso-id'),
+  displayName: () => t('admin-sso-display-name'),
+  domain: () => t('admin-sso-domain'),
+  kind: () => t('admin-sso-kind'),
+  issuerUrl: () => t('admin-sso-issuer'),
+  clientId: () => t('admin-sso-client-id'),
+  redirectUrl: () => t('admin-sso-redirect'),
+  oidcScopes: () => t('admin-sso-scopes'),
+  requireVerifiedEmail: () => t('admin-sso-require-verified-email'),
+  idpSsoUrl: () => t('admin-sso-idp-sso-url'),
+  idpSloUrl: () => t('admin-sso-idp-slo-url'),
+  idpMetadataUrl: () => t('admin-sso-idp-metadata-url'),
+  idpCerts: () => t('admin-sso-idp-certs'),
+  spEntityId: () => t('admin-sso-sp-entity-id'),
+  acsUrl: () => t('admin-sso-acs-url'),
+  nameidFormat: () => t('admin-sso-nameid-format'),
+  wantAssertionsSigned: () => t('admin-sso-want-signed'),
+};
+
+/** The sentence for a server problem: by its code, else the server's own detail. */
+const PROBLEM_TEXT: Record<string, () => string> = {
+  required: () => t('admin-ux-err-required'),
+  invalid_url: () => t('admin-ux-err-url'),
+  issuer_query: () => t('admin-sso-err-issuer-query'),
+  openid_scope: () => t('admin-sso-scopes-openid'),
+  cert_required: () => t('admin-sso-cert-required'),
+  unsigned_assertions: () => t('admin-sso-err-unsigned'),
+  id_pattern: () => t('admin-sso-id-pattern'),
+  scope_invalid: () => t('admin-sso-domain-invalid'),
+};
+
+/** A server problem as the form shows it: the form field id (if any), its label and the sentence. */
+export function ssoProblem(p: SsoFieldProblem): { fieldId: string | undefined; label: string; text: string } {
+  const fieldId = PROBLEM_FIELD[p.field];
+  const label = fieldId !== undefined ? (FIELD_LABEL[fieldId]?.() ?? p.field) : p.field;
+  const text = (p.code !== undefined ? PROBLEM_TEXT[p.code]?.() : undefined) ?? p.message;
+  return { fieldId, label, text };
+}
+
+/** The server's problems with a provider, as a list (`row.problems` or a refused save). */
+export function SsoProblems(props: { problems: readonly SsoFieldProblem[]; notOffered?: boolean }): JSX.Element {
+  return (
+    <Show when={props.problems.length > 0 || props.notOffered}>
+      <div class={[shellCss.feedback, shellCss.feedbackErr].join(' ')} role="status" data-testid="sso-problems">
+        <Icon name="alert" />
+        <div>
+          <Show when={props.notOffered}>
+            <p>{t('admin-sso-not-offered-note')}</p>
+          </Show>
+          <Show when={props.problems.length > 0}>
+            <p>{t('admin-sso-problems-title')}</p>
+            <ul>
+              <For each={props.problems}>
+                {(p) => {
+                  const shown = ssoProblem(p);
+                  return <li>{t('admin-sso-problem', { field: isolate(shown.label), message: shown.text })}</li>;
+                }}
+              </For>
+            </ul>
+          </Show>
+        </div>
+      </div>
+    </Show>
+  );
 }
 
 /** The form values of a backend (or of a new one). */
@@ -150,6 +243,9 @@ export function SsoEditor(props: SsoEditorProps): JSX.Element {
   const oidc = (v: Readonly<Record<string, unknown>>): boolean => v.kind === 'oidc';
   const saml = (v: Readonly<Record<string, unknown>>): boolean => v.kind === 'saml';
   const required = (label: string): NonNullable<SettingField['validate']> => (v) => (str(v) === '' ? t('admin-sso-err-required', { field: label }) : null);
+  // Problems the server listed: the stored row's, replaced by those of a refused save.
+  const [refused, setRefused] = createSignal<readonly SsoFieldProblem[] | null>(null);
+  const problems = (): readonly SsoFieldProblem[] => refused() ?? props.row?.problems ?? [];
 
   const groups = createMemo((): SettingsGroup[] => [
     {
@@ -292,6 +388,33 @@ export function SsoEditor(props: SsoEditorProps): JSX.Element {
             />
           ),
         },
+        {
+          // Not tucked away: an operator whose provider never sends email_verified
+          // (Entra ID, ADFS) is locked out until this is turned off.
+          id: 'requireVerifiedEmail',
+          label: t('admin-sso-require-verified-email'),
+          help: t('admin-sso-require-verified-email-help'),
+          docsHref: docs('claims'),
+          kind: 'boolean',
+          revert: { defaultDisplay: t('admin-sso-on'), value: true },
+          render: (ctx) => (
+            <>
+              <div class={ux.checkboxRow}>
+                <input
+                  id={ctx.id}
+                  type="checkbox"
+                  checked={ctx.value !== false}
+                  disabled={ctx.disabled}
+                  aria-describedby={ctx.describedBy}
+                  onChange={(e) => ctx.setValue(e.currentTarget.checked)}
+                />
+              </div>
+              <Show when={ctx.value === false}>
+                <Feedback kind="error" message={t('admin-sso-require-verified-email-off')} testId="sso-verified-email-off" />
+              </Show>
+            </>
+          ),
+        },
       ],
     },
     {
@@ -378,6 +501,7 @@ export function SsoEditor(props: SsoEditorProps): JSX.Element {
           docsHref: docs('wantAssertionsSigned'),
           kind: 'boolean',
           revert: { defaultDisplay: t('admin-sso-on'), value: true },
+          validate: (v) => (v === false ? t('admin-sso-err-unsigned') : null),
         },
         { id: 'wantEncrypted', label: t('admin-sso-want-encrypted'), help: t('admin-sso-want-encrypted-help'), docsHref: docs('wantEncrypted'), kind: 'boolean' },
         { id: 'samlKey', label: t('admin-sso-sp-key'), help: t('admin-sso-sp-key-help'), docsHref: docs('wantEncrypted'), kind: 'secret', maxLength: 16384 },
@@ -404,12 +528,23 @@ export function SsoEditor(props: SsoEditorProps): JSX.Element {
     setSaving(true); props.onSaving?.(true);
     try {
       const stored = await props.save(ssoInput(ctx.values));
+      setRefused(null);
       if (stored) return { values: ssoValues(stored) };
+    } catch (err) {
+      // A refused save lists its problems above the form and puts the first one the
+      // form can place at its field (the form shows one field error per request).
+      if (err instanceof SsoAdminError && err.fields.length > 0) {
+        setRefused(err.fields);
+        const first = err.fields.map(ssoProblem).find((p) => p.fieldId !== undefined);
+        if (first?.fieldId !== undefined) throw new AdminProblemError(400, { field: `/${first.fieldId}`, detail: first.text }, null);
+      }
+      throw err;
     } finally { setSaving(false); props.onSaving?.(false); }
   }
 
   return (
     <>
+    <SsoProblems problems={problems()} notOffered={props.row?.signInReady === false} />
     <SettingsFormPage
       title={isNew() ? t('admin-sso-add') : t('admin-sso-edit-title')}
       frame="none"

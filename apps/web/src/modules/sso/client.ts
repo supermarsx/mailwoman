@@ -15,7 +15,7 @@
 import { basePath } from '../../api/basePath.ts';
 import { adminUrl } from '../../api/adminPath.ts';
 import { apiFetch } from '../../api/http.ts';
-import type { SsoBackendInput, SsoBackendRow, SsoProviderSummary } from './types.ts';
+import type { SsoBackendInput, SsoBackendRow, SsoFieldProblem, SsoProviderSummary } from './types.ts';
 
 // ── Public login surface ───────────────────────────────────────────────────────
 
@@ -56,13 +56,30 @@ export async function listSsoProviders(base = basePath()): Promise<SsoProviderSu
 
 // ── Admin surface ──────────────────────────────────────────────────────────────
 
-/** Raised when an `/admin/sso` request fails. */
+/** Raised when an `/admin/sso` request fails. A save the server refused as
+ *  `invalid_sso_config` carries the per-field problems it listed. */
 export class SsoAdminError extends Error {
   readonly status: number;
-  constructor(status: number, message: string) {
+  readonly fields: readonly SsoFieldProblem[];
+  constructor(status: number, message: string, fields: readonly SsoFieldProblem[] = []) {
     super(message);
     this.name = 'SsoAdminError';
     this.status = status;
+    this.fields = fields;
+  }
+}
+
+/** The per-field problems of a `400 {error: "invalid_sso_config", fields}` body. */
+async function refusedFields(res: Response): Promise<SsoFieldProblem[]> {
+  if (res.status !== 400) return [];
+  try {
+    const body = (await res.json()) as { error?: unknown; fields?: unknown };
+    if (body?.error !== 'invalid_sso_config' || !Array.isArray(body.fields)) return [];
+    return body.fields.filter(
+      (f): f is SsoFieldProblem => typeof f === 'object' && f !== null && typeof (f as SsoFieldProblem).field === 'string' && typeof (f as SsoFieldProblem).message === 'string',
+    );
+  } catch {
+    return [];
   }
 }
 
@@ -100,7 +117,7 @@ export function createHttpSsoAdminApi(base = basePath()): SsoAdminApi {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(input),
       });
-      if (!res.ok) throw new SsoAdminError(res.status, `POST /admin/sso failed (${res.status})`);
+      if (!res.ok) throw new SsoAdminError(res.status, `POST /admin/sso failed (${res.status})`, await refusedFields(res));
     },
     async remove(id) {
       const res = await apiFetch(adminUrl(`/sso/${encodeURIComponent(id)}`, base), {

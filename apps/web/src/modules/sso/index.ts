@@ -19,4 +19,5 @@ export type {
   SsoBackendRow,
   SsoBackendInput,
   SsoProviderSummary,
+  SsoFieldProblem,
 } from './types.ts';

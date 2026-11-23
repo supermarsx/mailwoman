@@ -69,9 +69,23 @@ export interface SsoBackendRow {
   /** `GET` only (RFC 3339). */
   createdAt?: string;
   updatedAt?: string;
-  /** `GET` only: what stops the stored config from signing anyone in, by wire
-   *  field name (`config.issuerUrl`, ...); empty when nothing does. */
-  problems?: { field: string; message: string }[];
+  /** `GET` only: what is wrong with the stored config, by wire field name
+   *  (`config.issuerUrl`, ...); empty when nothing is. */
+  problems?: SsoFieldProblem[];
+  /** `GET` only: whether sign-in builds this provider at all. False for an unsafe
+   *  or incomplete config, which is never offered. Absent from older servers. */
+  signInReady?: boolean;
+}
+
+/** One problem the server found with a config (admin_wire `FieldError`). */
+export interface SsoFieldProblem {
+  /** Wire path, e.g. `config.issuerUrl`. */
+  field: string;
+  /** Stable code: `required`, `invalid_url`, `issuer_query`, `openid_scope`,
+   *  `cert_required`, `unsigned_assertions`, `id_pattern`, `scope_invalid`, ... */
+  code?: string;
+  /** English detail from the server. */
+  message: string;
 }
 
 /**
