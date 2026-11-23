@@ -6,7 +6,7 @@ This page takes you from an empty Linux host to a running Mailwoman with HTTPS, 
 
 You need:
 
-- A Linux host with Git, Bash 4 or newer, `curl` and `tar`, and Docker running Linux containers with the Compose plugin 2.30 or newer. The user that runs the script must be able to use Docker.
+- A Linux host with Git, Bash 4 or newer, `curl`, `tar` and the coreutils `sha256sum`, `od` and `cmp`, and Docker running Linux containers with the Compose plugin 2.30 or newer. The user that runs the script must be able to use Docker.
 - A hostname for the webmail, for example `mail.example.org`, whose A/AAAA records point at this host.
 - TCP ports 80 and 443 free on the host and reachable from the Internet (UDP 443 too, if you want HTTP/3).
 - An existing mail server and its address:

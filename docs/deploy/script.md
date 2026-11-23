@@ -189,7 +189,7 @@ bash deploy.sh deploy --full-stack --domain mail.example.org --mode engine   # f
 
 The same command starts a first full-stack installation or migrates an existing SQLite installation managed by this script. It runs Mailwoman with PostgreSQL 16 and Valkey 8, plus Caddy when `--domain` is used. Mail servers stay external.
 
-- PostgreSQL holds the data. Valkey is a cache with no persistence and a 256 MB memory limit; each cache class's own policy decides what may be stored in it.
+- PostgreSQL holds the data. Valkey runs with no persistence and a 256 MB memory limit, and the app connects to it as `MW_REDIS_URL`. With the built-in cache defaults no cache class stores anything in it; see [Cache](cache.md).
 - PostgreSQL and Valkey publish no host ports and share an internal network with the app; the app also keeps its normal network for upstream mail and the proxy. The app starts after both pass their health checks.
 - `STACK=full`, `POSTGRES_IMAGE` and `VALKEY_IMAGE` (both pinned by digest) are saved in `deploy.env`.
 - The database and cache passwords are generated once into `app.env` as `MW_STACK_DB_PASSWORD` and `MW_STACK_CACHE_PASSWORD`. Do not change them on an existing PostgreSQL volume.
