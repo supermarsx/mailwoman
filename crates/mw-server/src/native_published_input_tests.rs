@@ -549,7 +549,9 @@ mod guard_snapshot_cases {
         for _ in 0..40 {
             let reply = send(f, request(), mode).await;
             assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
-            if reply.snap.reused > 0 && reply.snap.fresh == 0 { return reply; }
+            // Also wait for the ban list to be stamped: a request that ran before the
+            // mirror's first complete poll loaded it without caching it.
+            if reply.snap.reused > 0 && reply.snap.fresh == 0 && reply.snap.globals_reused > 0 { return reply; }
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
         panic!("bounded mode never reused a certified fence");
@@ -786,7 +788,7 @@ fn bounded_snapshot_declared_read_reuses_authority_fences_but_keeps_final_mail_d
         for _ in 0..40 {
             let (reply, counts) = snap::measure(snap::with_mode(snapcase::SHORT, f.send_declared())).await;
             assert_eq!(reply.0, StatusCode::OK, "{}", reply.1);
-            if counts.reused == 2 && counts.fresh == 0 { hit = Some((reply, counts.globals_reused)); break; }
+            if counts.reused == 2 && counts.fresh == 0 && counts.globals_reused == 1 { hit = Some((reply, counts.globals_reused)); break; }
         }
         let (hit, hit_globals) = hit.expect("declared read reuses both authority-only fences");
         assert_eq!(hit_globals, 1, "source bans reused");
