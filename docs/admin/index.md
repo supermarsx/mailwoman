@@ -96,7 +96,7 @@ Some changes (for example single sign-on, outbound proxies, or setting up an aut
 | Every page of the server answers `429` for about five minutes | A path you opened matched the scanner-path list, for example a console screen typed without `#` that ends in `/console` | Wait until the block ends, then use the `#` form. See [Request protection](/admin/request-protection#console-addresses-and-scanner-paths). |
 | The console address shows "page does not exist" | The path is wrong, or it was changed | Run `mailwoman admin console-path show` on the server. |
 | A section you expect is missing from the navigation | Your roles do not include it, or your role is limited to some domains | Ask a Super admin to change your roles. |
-| The environment password no longer works after changing `MW_ADMIN_PASSWORD` | The account stored its own password hash at the first sign-in | Sign in with the old password and change it in **My preferences** > **Personal security**, or reset it from another admin account. |
+| A changed `MW_ADMIN_PASSWORD` is refused at sign-in | The account stored its own password hash at the first sign-in | Sign in with the old password and change it in **My preferences** > **Personal security**, or reset it from another admin account. |
 
 ## Related
 
