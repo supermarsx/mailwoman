@@ -12,8 +12,14 @@ From this release:
 
 - a valid signature by one of the provider's certificates, on the assertion or on the whole response, is always required, whatever the setting says;
 - a response that carries more than one assertion is refused;
-- a provider without a signing certificate, an entity ID or an ACS URL signs nobody in;
-- a provider cannot be saved with **Require signed assertions** off, and a stored provider without the setting reads it as on.
+- a provider cannot be saved with **Require signed assertions** off, and a stored provider without the setting reads it as on;
+- a SAML provider stored with the setting off, without a signing certificate, or without an entity ID or ACS URL is not offered at all: no sign-in button, and its sign-in address answers as for an unknown provider;
+- the assertion must carry a bearer subject confirmation with `Recipient`, `InResponseTo` and `NotOnOrAfter`, and conditions with at least one audience restriction naming this server's entity ID; a response `Destination`, when present, must be this server's ACS URL. Before, the recipient, `InResponseTo`, expiry and audience were checked only when the assertion contained them, and `Destination` was not checked.
+
+## What may stop working
+
+- A SAML provider that omits any of the parts listed above from its answers: sign-in fails. Configure the provider to send them.
+- A SAML provider stored with the setting off, without a certificate, or without an entity ID or ACS URL disappears from the sign-in page until it is fixed.
 
 ## What to do
 

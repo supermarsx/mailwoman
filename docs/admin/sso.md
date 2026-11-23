@@ -101,6 +101,10 @@ Sign-in uses the authorization code flow with PKCE (S256) and a nonce. Mailwoman
 
 ![The SAML part of a new provider: provider metadata upload, IdP SSO and logout URLs, signing certificates, and this server's entity ID, ACS URL, NameID format and the signed and encrypted assertion switches.](/screenshots/admin-access/sso-saml.webp){.mw-crop}
 
+What Mailwoman requires of the provider's answer: sign-in starts at Mailwoman (the provider answers a request Mailwoman sent), and the response carries exactly one assertion, signed (see [Require signed assertions](#wantAssertionsSigned)). The assertion must have a bearer subject confirmation whose data names this server's ACS URL as recipient, the request it answers (`InResponseTo`) and an expiry (`NotOnOrAfter`), and conditions with at least one audience restriction, each of which must name this server's entity ID. A response `Destination`, when present, must be this server's ACS URL. Configure the provider to send these.
+
+A SAML provider is not offered at all while it has **Require signed assertions** off, no signing certificate, or no entity ID or ACS URL: its sign-in button is not shown, and its sign-in address answers as for an unknown provider.
+
 <a id="idpMetadata"></a>
 ### Provider metadata
 
@@ -143,7 +147,7 @@ On by default, and it cannot be saved off: the server refuses a save with the sw
 
 Sign-in does not depend on the switch: Mailwoman always requires a valid signature by one of the provider's certificates covering the assertion, either on the assertion itself or on the whole response. An unsigned response is refused, and so is a response that carries more than one assertion. A provider stored without a signing certificate, entity ID or ACS URL cannot sign anyone in.
 
-A provider stored with the switch explicitly off (for example by an API call made before the server refused it) still signs in only with signed answers, but it is listed with a problem. To find such providers:
+A provider stored with the switch explicitly off (for example by an API call made before the server refused it) is not offered for sign-in (see [SAML 2.0](#saml-2-0)) and is listed with a problem. To find such providers:
 
 - in the server's provider list, `GET <console path>/sso`, a row whose `problems` contains an entry with `field` `config.wantAssertionsSigned` (the console page does not display `problems`);
 - in the database, rows of the `sso_config` table with `kind` = `saml` whose `config` column has `"want_assertions_signed":false`.
