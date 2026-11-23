@@ -14,6 +14,7 @@ screen: true
 - The account must be provisioned, and its mail server must support METADATA. The editor talks to the mail server for the account you choose, through the console's own route for this page, which works only when the server runs in engine mode. In proxy mode the server refuses that request.
 - With no account provisioned the page says **No accounts are provisioned.** and offers **Add a user**, which opens **Users**.
 
+<a id="account"></a>
 ## View and change annotations
 
 1. Open **Server metadata**.

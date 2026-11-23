@@ -68,6 +68,12 @@ with it on every change under `docs/`.
   ```
 
   `redirect` is a site-absolute path without `.md`.
+- **Console-linked anchors**: the admin console's "Learn more" links point at
+  `admin/<area>.md#<id>`, and the page must contain a literal `<a id="<id>"></a>`
+  (the site renders it as an anchor). Keep the id when you rewrite a section.
+  `apps/web/src/screens/Admin/shell/docsAnchors.test.ts` checks every such link; run
+  it after editing an admin page:
+  `pnpm -C apps/web exec vitest run src/screens/Admin/shell/docsAnchors.test.ts`.
 - **Jargon check** (run from `docs/`; the `**/` globs also work from the repo root with `docs` as the path). Reader-facing pages must be clean; engineering notes, generated references and redirect stubs are excluded explicitly:
 
   ```sh

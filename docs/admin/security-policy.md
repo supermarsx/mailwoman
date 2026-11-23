@@ -77,6 +77,7 @@ clients that connect to the same mailboxes do not see them, and a browser cannot
 block screenshots. See [Message view modes](/security/max-security) and
 [Screen capture](/security/screen-capture) for what each app does.
 
+<a id="dlpRules"></a>
 ## Data loss prevention
 
 **Stored rules** are checked on outgoing mail sent through this server in engine
