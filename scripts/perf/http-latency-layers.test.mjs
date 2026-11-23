@@ -84,3 +84,22 @@ test('isolated area groups reuse the exact representative templates, mutations a
  assert.deepEqual(r.stages.map(stage=>stage.endpoint),endpoints);assert.deepEqual(seen,endpoints.map(endpoint=>groups[endpoint]));
  assert.throws(()=>campaignOptions({MW_LOAD_FIXTURE_ENDPOINTS:'reader,unknown'}));
 });
+
+test('every client-hot group label passes the worker aggregator and failures inside runCampaign keep message and stages',async()=>{
+ const labels={'jmap-session':['jmap-session'],'list-batch':['list-batch'],changes:['changes'],'account-polls':['account-preferences','appearance-customization','session-activity']};
+ for(const [group,names] of Object.entries(labels)){
+  const one=()=>{const x=new Measurements();x.add(20,'200',2,true,false,true);return x;},m=new Measurements(),n=names.length;for(let k=0;k<n;k++)m.add(20,'200',2,true,false,true);
+  const sample={schema:1,workerIndex:0,partitionCount:1,measurement:{window:{requestedStartAtMs:1000,scheduledStartAtMs:1000,scheduledEndAtMs:2000,actualStartAtMs:1000,completedAtMs:2001,startLagMs:0},rawMeasurements:{schema:1,aggregate:m.snapshot(),byRequest:Object.fromEntries(names.map(name=>[name,one().snapshot()])),scheduling:phase(0,n),arrivalLatency:m.snapshot(),latencyBreakdown:{schema:1,aggregate:{principalQueue:phase(1,n),httpAndValidation:phase(10,n),validation:phase(2,n)},byRequest:Object.fromEntries(names.map(name=>[name,breakdown(1)]))}},concurrency:1,scheduledSeconds:1,acceptedDuringScheduledWindow:n,uniquePrincipalsAttempted:1,uniquePrincipalsAccepted:1,uniquePrincipalsAcceptedDuringScheduledWindow:1,uniqueClientsAttempted:1,uniqueClientsAccepted:1,uniqueClientsAcceptedDuringScheduledWindow:1,peakOutstanding:1,mutationStateTainted:false,unknownMutationOutcomes:0,taintedPrincipals:0,httpDispatchAttempts:n,blockedAfterMutationTaint:0,abortedUnscheduled:0,generator:{cpuUserMs:0,cpuSystemMs:0,rssBeforeBytes:0,rssAfterBytes:0,heapAfterBytes:0}}};
+  const result=aggregateWorkers({results:[sample],partitions:[{index:0,count:1}],stage:{concurrency:1,seconds:1,timeoutMs:1000},startAtMs:1000});
+  assert.deepEqual(Object.keys(result.byRequest).sort(),[...names].sort(),group);
+ }
+ // The labels are exactly the fixture's request names.
+ const {CLIENT_HOT_GROUPS}=await import('./fixture-requests.mjs');
+ assert.deepEqual(Object.values(CLIENT_HOT_GROUPS).flat().sort(),Object.values(labels).flat().sort());
+ // A throw inside runCampaign carries the stages completed so far.
+ const group=[{name:'x'}],options=campaignOptions({MW_LOAD_FIXTURE_ENDPOINTS:'identity,query',MW_LOAD_FIXTURE_SECONDS:'.1',MW_LOAD_FIXTURE_WARMUP_SECONDS:'0',MW_LOAD_FIXTURE_CONCURRENCY:'1',MW_LOAD_FIXTURE_RATES:'1'});
+ let calls=0;
+ await assert.rejects(runCampaign({groups:{identity:group,query:group},options,run:async()=>{if(++calls===2)throw new Error('Invalid worker endpoint labels');return {requests:1,errors:0,throttled:0,timeouts:0,statuses:{200:1},latencyMs:{p99:1}};}}),error=>{
+  assert.match(error.message,/Invalid worker endpoint labels/);assert.equal(error.partialCampaign.stages.length,1);assert.equal(Object.keys(error).includes('partialCampaign'),false);return true;
+ });
+});

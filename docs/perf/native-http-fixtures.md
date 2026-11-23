@@ -451,8 +451,17 @@ check that an eligible accepted phase consumed published inputs.
 If the coordinated generator fails after the load completed (scanner probe,
 receipt checks), the failure report keeps `failedAfterLoad: true`, the error
 message when it is a plain sentence (otherwise `unclassified post-run failure`)
-and the raw campaign (`rawCampaign`, with every stage). It is still not a
+and the raw campaign (`rawCampaign`, with every stage that completed). This also covers errors thrown inside the campaign loop, such as a rejected worker sample. It is still not a
 qualified result: `coordinationValid` stays false.
+
+### Minimum concurrency per worker count
+
+The coordinated generator splits each stage across its workers, so every worker
+needs at least one outstanding request. An offered-rate stage runs at the last
+`MW_LOAD_FIXTURE_CONCURRENCY` value and is rejected when that value is below
+the worker count (for example C1 with `--workers=2`). Concurrency-ramp and
+warm-up stages below the worker count are raised to it. A one-request smoke
+run needs `--workers=1`.
 
 ### Bulk publication amortization
 

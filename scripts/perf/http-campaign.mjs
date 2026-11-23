@@ -45,6 +45,7 @@ export function stopReason(stage,options){
 export async function runCampaign({base,headers,groups,options,run=measure,diagnostics=async()=>null}){
  const stages=[],warmups=[],decisions=[],started=performance.now();let deadlineReached=false,mutationStateTainted=false;
  const room=()=>options.deadlineSeconds-(performance.now()-started)/1000;
+ try{
  campaign:for(const endpoint of options.endpoints){
   const requests=groups[endpoint];if(!requests?.length)throw new Error('Unknown endpoint group');
   if(options.warmupSeconds){
@@ -83,4 +84,9 @@ export async function runCampaign({base,headers,groups,options,run=measure,diagn
   if(deadlineReached)break;
  }
  return {options,stages,warmups,decisions,deadlineReached,mutationStateTainted,elapsedSeconds:(performance.now()-started)/1000};
+ }catch(error){
+  // Whatever completed before the failure travels with the error (non-enumerable, never serialized by accident).
+  if(error&&typeof error==='object'&&!Object.hasOwn(error,'partialCampaign'))Object.defineProperty(error,'partialCampaign',{value:{options,stages,warmups,decisions,deadlineReached,mutationStateTainted,elapsedSeconds:(performance.now()-started)/1000},enumerable:false});
+  throw error;
+ }
 }

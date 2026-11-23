@@ -1,7 +1,7 @@
 // Aggregate only: credentials and principal identifiers never enter this format.
 import {mergeMeasurements,mergeLatencyBreakdowns,mergeHttp503Reasons} from './http-load.mjs';
 export const MULTI_SCHEMA=1;
-export const ENDPOINT_LABELS=['authenticated-identity','Mailbox/get','Email/query','Email/get','concurrent-refresh-handler','paged-query-and-headers','body-and-attachment-metadata','attachment-download','mark-read-and-restore','move-and-restore'];
+export const ENDPOINT_LABELS=['authenticated-identity','Mailbox/get','Email/query','Email/get','concurrent-refresh-handler','paged-query-and-headers','body-and-attachment-metadata','attachment-download','mark-read-and-restore','move-and-restore','jmap-session','list-batch','changes','account-preferences','appearance-customization','session-activity'];
 const number=(value)=>typeof value==='number'&&Number.isFinite(value)&&value>=0;
 const integer=value=>Number.isSafeInteger(value)&&value>=0;
 export function splitBudget(total,count){
