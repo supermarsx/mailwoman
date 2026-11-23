@@ -7,7 +7,7 @@
 **Self-hosted webmail and personal workspace for the mail accounts you already use.**
 
 [![CI status](https://img.shields.io/github/actions/workflow/status/supermarsx/mailwoman/ci.yml?branch=master&style=flat-square&label=ci&labelColor=111111)](https://github.com/supermarsx/mailwoman/actions/workflows/ci.yml)
-[![Latest release tag](https://img.shields.io/github/v/tag/supermarsx/mailwoman?sort=date&style=flat-square&label=release&labelColor=111111&color=f5c400)](VERSIONING.md)
+[![Latest release tag](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fsupermarsx%2Fmailwoman%2Ftags&query=%24%5B0%5D.name&label=release&style=flat-square&labelColor=111111&color=f5c400)](VERSIONING.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-4d7cff?style=flat-square&labelColor=111111)](license.md)
 
 [Features](#features) · [Quick start](#quick-start) · [Architecture](#architecture) · [Documentation](#documentation) · [Status](#project-status)
