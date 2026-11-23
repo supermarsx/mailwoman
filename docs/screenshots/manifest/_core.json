@@ -1,0 +1,16 @@
+{
+  "defaults": { "stack": "E", "seed": ["mail-basic"], "theme": "dark", "viewport": "desktop" },
+  "entries": [
+    {
+      "id": "mailbox",
+      "page": "screenshots/README.md",
+      "steps": [
+        { "goto": "/" },
+        { "click": { "text": "Re: Venue options for the launch evening", "first": true } },
+        { "waitFor": { "role": "heading", "name": "Re: Venue options for the launch evening" } }
+      ],
+      "shot": "full",
+      "alt": "The mailbox: folders on the left, the Inbox message list in the middle, and an opened message with an image attachment on the right."
+    }
+  ]
+}
