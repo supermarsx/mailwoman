@@ -112,7 +112,7 @@
       "subject": "Holiday in March", "text": "A reminder that I am away from 20 to 24 March. Lena" },
 
     { "id": "proj-1", "folder": "Projects", "from": "jordan", "to": ["alex"], "date": "2026-02-16T10:00:00Z",
-      "subject": "Project plan: spring catalogue", "text": "Milestones: copy by 20 February, design by 1 March, print by 12 March. Jordan" },
+      "subject": "Project plan: spring catalogue", "text": "Dates: copy by 20 February, design by 1 March, print by 12 March. Jordan" },
     { "id": "proj-2", "folder": "Projects", "from": "priya", "to": ["alex"], "date": "2026-02-21T14:30:00Z",
       "subject": "Project plan: booking site", "text": "The booking site goes live with the launch evening on 2 April. Priya" },
     { "id": "proj-3", "folder": "Projects", "from": "tomas", "to": ["alex"], "date": "2026-02-28T09:40:00Z",

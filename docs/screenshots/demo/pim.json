@@ -1,0 +1,34 @@
+{
+  "_comment": "Calendar, tasks, notes and contacts of the demo user (stack E only). Times are local to timeZone in the week of the capture clock (Tuesday 2026-03-10). Contacts reference people.json keys.",
+  "timeZone": "UTC",
+  "events": [
+    { "title": "Weekly planning", "start": "2026-03-09T09:30:00", "duration": "PT30M", "location": "Meeting room 2" },
+    { "title": "Print proof review", "start": "2026-03-10T11:00:00", "duration": "PT1H", "location": "Studio", "participants": ["priya"] },
+    { "title": "Website copy workshop", "start": "2026-03-10T14:00:00", "duration": "PT1H30M", "participants": ["priya", "lena"] },
+    { "title": "Lunch with Sam", "start": "2026-03-11T12:30:00", "duration": "PT1H", "location": "Canal Café" },
+    { "title": "Team meeting", "start": "2026-03-12T10:00:00", "duration": "PT1H", "location": "Meeting room 4", "participants": ["jordan", "priya"] },
+    { "title": "Catalogue goes to print", "start": "2026-03-13T00:00:00", "duration": "P1D", "allDay": true }
+  ],
+  "tasks": [
+    { "title": "Approve the print run", "due": "2026-03-10T17:00:00", "priority": 1 },
+    { "title": "Review the booking page text", "due": "2026-03-11T12:00:00", "status": "in-process", "percentComplete": 50 },
+    { "title": "Send the floor plan to the caterer", "due": "2026-03-11T17:00:00" },
+    { "title": "Book a meeting room for the offsite", "due": "2026-03-13T12:00:00" },
+    { "title": "Order name badges", "due": "2026-03-06T12:00:00", "status": "completed", "percentComplete": 100 }
+  ],
+  "notes": [
+    { "title": "Launch evening checklist", "pinned": true, "body": "<ul><li>Confirm the guest list with Mei</li><li>Print 120 programmes</li><li>Test the projector in the Long Gallery</li></ul>" },
+    { "title": "Offsite agenda ideas", "body": "<p>Booking site review, the summer issue, and a walk along the canal.</p>" },
+    { "title": "Print shop contacts", "body": "<p>Sam Okoye for proofs, Tomás Varga for paper and schedules.</p>" }
+  ],
+  "contacts": [
+    { "person": "jordan", "title": "Studio manager", "phone": "+1 555 0100", "favorite": true },
+    { "person": "priya", "title": "Copy editor", "phone": "+1 555 0101", "favorite": true },
+    { "person": "lena", "title": "Photographer" },
+    { "person": "sam", "title": "Print coordinator", "phone": "+1 555 0142" },
+    { "person": "tomas", "title": "Production manager" },
+    { "person": "mei", "title": "Event manager", "phone": "+1 555 0177" },
+    { "person": "nadia", "title": "Event assistant" },
+    { "org": "Fernhill Print Co.", "email": "billing@example.org", "phone": "+1 555 0140" }
+  ]
+}
