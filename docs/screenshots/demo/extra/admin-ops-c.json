@@ -1,0 +1,82 @@
+{
+  "seeds": {
+    "opsc-plugins": {
+      "include": ["admin-basic"],
+      "adminStepUp": true,
+      "admin": [
+        { "method": "POST", "path": "/plugins", "body": { "id": "bridge-graph" } },
+        { "method": "POST", "path": "/plugins", "body": { "id": "bridge-gmail" } },
+        { "method": "POST", "path": "/plugins", "body": { "id": "spam-rspamd" } },
+        { "method": "POST", "path": "/plugins/spam-rspamd/approve", "body": {} }
+      ]
+    },
+    "opsc-webhooks": {
+      "include": ["admin-basic"],
+      "admin": [
+        {
+          "method": "POST",
+          "path": "/webhooks",
+          "body": {
+            "direction": "outbound",
+            "accountId": "alex@example.com",
+            "label": "Ticket desk",
+            "url": "https://example.org/hooks/mailwoman",
+            "events": ["message.received", "submission.failed"]
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/webhooks",
+          "body": {
+            "direction": "inbound",
+            "accountId": "alex@example.com",
+            "label": "Filing robot",
+            "actions": ["run_rules"]
+          }
+        }
+      ]
+    },
+    "opsc-assist": {
+      "include": ["admin-basic"],
+      "admin": [
+        {
+          "method": "PUT",
+          "path": "/assist",
+          "body": {
+            "enabled": true,
+            "adapter": {
+              "kind": "open-ai-compatible",
+              "baseUrl": "https://llm.example.org/v1",
+              "apiKey": "sk-demo-not-a-real-key",
+              "chatModel": "demo-chat",
+              "embedModel": "demo-embed",
+              "sttModel": ""
+            },
+            "capabilityGrants": ["draft", "grammar", "assistant"],
+            "dataCeilings": { "accounts": ["alex@example.com"], "folders": [], "includeE2ee": false, "includeAttachments": false }
+          }
+        }
+      ]
+    },
+    "opsc-ui-plugin": {
+      "include": ["admin-basic"],
+      "admin": [
+        {
+          "method": "POST",
+          "path": "/ui-plugins",
+          "body": {
+            "manifest": {
+              "id": "demo-panel",
+              "name": "Demo panel",
+              "version": "1.0.0",
+              "signature": null,
+              "capabilities": ["ui:settings-panel", "net:host-allowlist"],
+              "extensionPoints": ["settings-panel"]
+            },
+            "allowUnsigned": true
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,59 +1,70 @@
-# Notification delivery and browser permissions
+---
+title: Notification settings
+---
 
-## Notification centre and security evidence
+# Notification settings
 
-The Notifications workspace appears above Calendar in the sidebar. It keeps real sign-ins, new-device/new-country alerts, session-security warnings, two-factor changes, delegation/forwarding/API-key alerts and detected web-app updates. Background linked-credential renewals do not create sign-in notifications. New events are recorded from this version onward; old raw-account activity is not automatically attributed to a verified personal owner.
+Administrators control notifications through values in the console's **Settings**: what users may turn on, whether background push is allowed at all, and a quiet window for the whole server. What users see and set for themselves is described in [Notifications](/user/notifications) (the list of account activity) and [Settings: interface](/user/settings/interface) (alerts for new mail). The server side of background push, including the endpoints it uses, is described in [Push notifications](/deploy/push).
 
-Active, Archived and Dismissed views share search, type filtering, Open related action, Dismiss, Archive and Restore. Opening an item marks it read and routes to its related security panel, rules or access settings. Updates offer the existing draft-aware Reload action. These presentation actions do not acknowledge a session warning or repair a security problem. The sidebar count reflects unread active items. The centre refreshes on focus, reconnect, push wake and a one-minute visible-window poll.
+Open **Settings** in the administration console and search for the label, or open `#/settings/<key>` directly. Each value can be set for the whole server, per domain and per user, and **Lock for users** makes a value final. Which of those apply to a setting is the last column below.
 
-`GET/POST /api/account/notification-center` stores the latest 500 records under the verified personal subject, in the existing personal-record table. Dismiss/archive state survives reloads and devices. Reads and writes carry the account and storage-authority fence; account transitions clear the visible list and discard stale replies. The existing personal-record export/erasure mapping covers these rows. The centre is separate from the incoming-mail delivery preference and browser permission.
+## Before you start
 
-New session warnings and new-device/new-country security emails carry an event-time snapshot: trusted-proxy-derived IP, network classification, device class, browser family/major version/engine, OS, client type/version, available authentication method, browser recognition and a short device reference. Raw browser cookies, binding hashes and session credentials are never shown. The reference is keyed and scoped to the verified personal owner; it is not a hardware fingerprint. Browser/device attributes are client-reported, and recognition is informational, not a trust grant. Missing fields and older records are explicitly unavailable. Notices use the same personal ownership boundary as the centre.
+- You need the console permission to read and change settings. Changes apply within 30 seconds on every server process.
+- Alerts for new mail are off until a user turns them on. Background push, which delivers while the app is closed, also needs the user to register a browser, and the browser's own notification permission.
 
-Private IPv4, loopback, link-local, CGNAT, IPv6 unique-local and mapped local IPv4 addresses display **Internal network** in security notices, sign-in geography and session listings. Public addresses without a country match remain unknown. Country codes and IP-based travel findings retain their accuracy caveat.
+## Allow or limit notifications
 
-## Incoming mail
+![The setting Background push notifications allowed in the console's Settings, with its value for the whole server, per domain and per user.](/screenshots/admin-ops/opsc-settings-push.webp){.mw-crop}
 
-`notifications.enabled` follows the existing global/domain/user setting policy. The account notification editor saves ordered sender, mailbox and subject substring rules and an explicit IANA quiet-hours time zone. The first matching rule wins. Old quiet-hours records without a zone use UTC. Failed or malformed policy reads do not grant delivery.
+1. Open **Settings** and find **Background push notifications allowed**.
+2. Under **For the whole server**, tick or untick the value and choose **Save**. Turn on **Lock for users** if domains and users must not differ.
+3. To let some domains differ, set the value in the per-domain section below.
 
-Incoming-mail alerts default to off. Enable them in Settings → Notifications; administrator policy can override availability. While the app is open, unread newly created messages in the active account produce a foreground toast with an Open action. Hidden or unfocused windows can show a system notification when browser permission is granted. Toasts do not require browser notification permission. Both paths obey the same enabled setting, rules and quiet hours, and discard results after account changes. Inactive linked accounts do not currently produce these detailed alerts.
+With **Background push notifications allowed** off, a browser cannot register for background push and the server sends no background wake for that account. The setting does not stop alerts shown while the app is open.
 
-Detection follows JMAP `Email/changes`, independently of the displayed folder, pagination or search. Initial state is seeded silently; drafts, read messages, spam/trash/sent-only messages and historical backfill older than five minutes before monitoring began do not trigger alerts. A batch is grouped into one alert. Clicking a live alert opens its message in the mail workspace. System notifications opened after the app has closed or reloaded return to the mailbox. Mobile browsers that reject the page Notification constructor use the existing service worker instead.
+### Quiet hours for push
 
-Delivery while the app is closed additionally requires explicit browser push registration and configured server push delivery. A generic background push and its resulting live refresh are deduplicated for ten seconds in an open app; a failed push permission check still wakes open tabs for refresh.
+**Push quiet hours** (`push.quietHours`) is a window in UTC in which the server sends no background wake at all. The value is JSON with an hour from 0 to 23 for each end, for example `{"start": 22, "end": 6}`. The window includes `start`, excludes `end`, and wraps past midnight when `start` is later than `end`. Leave it empty for no quiet window.
 
-`notifications.pushAllowed` is an administrator-only global/domain ceiling (default true). It gates subscription registration and every background dispatch. `push.quietHours` adds a deployment-wide UTC quiet window; the old `push.quiet_hours` value is used only when the canonical setting is unconfigured. A configured null disables that legacy fallback.
+![The setting Push quiet hours in the console's Settings.](/screenshots/admin-ops/opsc-settings-quiet.webp){.mw-crop}
 
-Browser notification permission is requested only by the explicit device button. The application no longer prompts from passive delivery. Foreground-generated system notifications re-read account policy before each batch and discard delayed results after an account transition.
+If the quiet-hours setting cannot be read when a wake is about to be sent, the server sends nothing. If `push.quietHours` has never been set, the server reads the older value `push.quiet_hours` (a `"start-end"` string such as `"22-7"`); setting `push.quietHours`, even to empty, ends that fallback.
 
-Background push payloads contain only the encrypted opaque wake marker, never message content. Content-rule accounts currently suppress background system notifications: the opaque event has insufficient metadata to safely evaluate sender/subject rules. Full authoritative rule-aware background events remain a separate follow-up. The service worker rechecks authenticated ownership of its endpoint hash and current policy before displaying a delayed wake, including after logout/account switches; it fails closed when this check is unavailable.
+### Push contact
 
-Push subscription changes are account-bound. Another account cannot delete or take over an existing endpoint. Web Push and UnifiedPush delivery use the `push` egress traffic class: HTTPS, verified public destination addresses, pinned resolution, no redirects, no direct fallback from a failed selected route, bounded response and time. Remote-DNS routes are refused for this class because the destination address cannot be verified locally. The APNs implementation remains a mock; this slice does not establish production Apple push delivery.
+**Push contact** (`push.vapidContact`) is the contact address that Web Push services receive in the signed token with each background wake, so they can reach you about delivery problems. It must be `mailto:` followed by an address, or an `https://` URL. When it is set, the server uses it. When it is empty, the server uses the environment variable `MW_VAPID_CONTACT`, and when that is empty too it uses `mailto:push@mailwoman.invalid`, an address that cannot receive mail. Setting `MW_VAPID_CONTACT` pins the setting: the console then shows it as fixed.
 
-`offline.persistentStorageAllowed` is an administrator-only global/domain ceiling (default false) for an explicit browser persistence request. The browser makes the actual grant decision. The page reports real origin storage usage and persistence status; this control does not implement cache-budget eviction or server retention. Browser grants are device-local. Account notification preferences remain server-backed.
+## Options
 
-The offline mutation queue separately binds every captured JMAP call to one account. Unknown or mixed-account legacy rows are preserved but quarantined from replay. Logout/account changes clear visible queue/header state and fence later dispatches. A mutation already acknowledged by the original server response is removed from that original account's queue to avoid duplicate replay.
+| Label | What it does | Default | Who can change it |
+|---|---|---|---|
+| **New-mail notifications** ([`notifications.enabled`](/admin/settings#notifications.enabled)) | Whether the account's new-mail alerts are on | Off | Server, domain, user |
+| **Background push notifications allowed** ([`notifications.pushAllowed`](/admin/settings#notifications.pushallowed)) | Ceiling for push registration and delivery | On | Server, domain |
+| **Push quiet hours** ([`push.quietHours`](/admin/settings#push.quiethours)) | UTC window with no background wake | Not set | Server |
+| **Push contact** ([`push.vapidContact`](/admin/settings#push.vapidcontact)) | Contact sent to Web Push services | Not set; `MW_VAPID_CONTACT`, then `mailto:push@mailwoman.invalid` | Server |
+| **Persistent browser storage requests allowed** ([`offline.persistentStorageAllowed`](/admin/settings#offline.persistentstorageallowed)) | Ceiling for the browser's persistent-storage request. The browser decides whether to grant it. | On | Server, domain |
+| **Offer notification permission** ([`notifications.askPermission`](/admin/settings#notifications.askpermission)) | Whether the app offers the browser's notification permission request | On | Server, domain, user |
+| **Enable the Notifications view** ([`notifications.view.enabled`](/admin/settings#notifications.view.enabled)) | Makes the **Notifications** list available | On | Server, domain, user |
+| **Show Notifications in the sidebar** ([`notifications.view.showInSidebar`](/admin/settings#notifications.view.showinsidebar)) | Shows that list in the sidebar | On | Server, domain, user |
 
-## Verified ownership and legacy records
+The settings whose labels begin **New-mail**, **Native new-mail notification**, **Flash the browser tab**, **Highlight arriving messages**, **Show toasts** and similar (keys starting `notifications.incoming.`, `notifications.events.` and `notifications.toasts.`) are the choices users see under Notifications in their own settings. Set them here to change the default for a domain or to lock a choice; each is described in the [settings reference](/admin/settings).
 
-Migration 0066 stores notification rules and push subscriptions under the durable verified personal subject, rather than a raw upstream account ID. Two services that both call an account `1` have separate records. Mutations require the current browser storage authority; delayed responses cannot restore a previous account's editor state. The browser registration display checks the current account's server subscription, not just the browser's local subscription object.
+## Limits to know
 
-Legacy raw-account notification and push rows remain intact but are not attributed automatically. Users must review and save notification preferences and register this browser again. A local subscription belonging to another account can be explicitly removed before registration; removal does not delete the other account's server record. Expired-delivery cleanup and wake timestamps are conditional on the original subscription owner and ID.
+- Background push carries only an opaque wake marker, never message text. An account with content rules (notify only for certain senders or subjects) gets no background system notification, because the wake does not carry enough to evaluate the rules.
+- Web Push and UnifiedPush deliveries use the **push** traffic class of the outbound connections: HTTPS only, public destination addresses, no redirects. The APNs transport is a stub that only logs; no push reaches Apple devices.
 
-Background native-engine events use an actual native account and its verified personal subject. A raw proxy account ID alone is insufficient to select an owner's subscriptions; such background delivery is suppressed until a verified source can be established. Existing administrator setting ceilings still apply. This change does not establish realm isolation for every generic setting-policy subject or background integration.
+## Troubleshooting
 
-Editable sender profiles use the separate `personal_identity` table with the same verified ownership boundary. Old raw-account identity rows are retained without automatic attribution. A sender profile never grants permission to send: native submissions, saved drafts and receipts still validate the actual sender against the current upstream/operator authority. Supported database copy retains these typed rows; copying sealed credentials requires the matching server key.
+- The **Register background notifications** button is disabled for a user: either new-mail notifications are off for them or **Background push notifications allowed** is off for their domain. The page also says the administrator does not allow push.
+- No background notification arrives at certain hours: check **Push quiet hours**. It is read in UTC.
+- A push service reports delivery problems and cannot reach you: set **Push contact**.
+- The app never offers the browser notification permission: it offers it only when new-mail notifications are on for the account, **Offer notification permission** is on, and the browser has not yet allowed or blocked notifications. The browser's own prompt appears only after the user chooses to allow it in the app's offer.
 
+## Related
 
-### JMAP for system and compliance email
-
-The administrator's outbound-mail settings support either SMTP (default) or JMAP.
-For JMAP configure **Protocol**, the HTTPS **JMAP session URL**, sender address and
-username. Supply the password through `MW_COMPLIANCE_JMAP_PASSWORD` or
-`MW_COMPLIANCE_JMAP_PASSWORD_FILE`; secrets are never stored in the settings form.
-The sender must match an upstream JMAP identity. Discovery/API/upload remain on
-the same origin. The `system_mail` egress route and the existing **Require proxy**
-policy apply to every HTTP operation; there is no direct-network fallback.
-SMTP host/port/security controls apply only when SMTP is selected. Lost JMAP
-submission acknowledgements stop automatic delivery retries for review, just as
-uncertain SMTP delivery does.
+- [Push notifications](/deploy/push)
+- [Notifications](/user/notifications)
+- [Settings reference](/admin/settings)
+- [Outbound connections](/security/egress)

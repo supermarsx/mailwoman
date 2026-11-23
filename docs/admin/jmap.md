@@ -1,90 +1,90 @@
+---
+title: Connecting clients through Mailwoman
+---
+
 # Connecting clients through Mailwoman
 
-Mailwoman's native mobile and desktop shells use the shared web client's JMAP transport. The deployment provides the Mailwoman server address; the user signs in to their mailbox, and Mailwoman connects to the configured upstream. The client never receives upstream credentials or connects directly to that upstream.
+Mailwoman's mobile and desktop apps talk to the server over JMAP, the same way the web app does. The deployment provides the server address; the user signs in to their mailbox, and the server connects to the configured upstream. The client never receives upstream credentials and never connects to the upstream itself. This page is a reference for people who run the server or write a client: it lists the discovery addresses, the native sign-in steps, and what the JMAP endpoint supports. It has no console screen.
 
 ## Discovery
 
-| Endpoint | Response |
+| Address | Answer |
 |---|---|
-| `/.well-known/mailwoman` | Public connection metadata: the JMAP Session URL and the native sign-in/sign-out endpoints. No accounts or account capabilities. |
-| `/.well-known/jmap` | Authenticated JMAP Session, with absolute API, upload, download and event-stream URLs pointing back through Mailwoman. |
-| `/jmap/session` | Existing Session route, retained for the browser and older clients. |
+| `/.well-known/mailwoman` | Public connection metadata: the JMAP Session address and the native sign-in and sign-out addresses. It contains no account or capability information. |
+| `/.well-known/jmap` | The authenticated JMAP Session. Its API, upload, download and event-stream addresses are absolute and point back through Mailwoman. |
+| `/jmap/session` | The Session route used by the web app and older clients. |
 
-These endpoints are also mounted under `MW_BASE_PATH`. The origin-root discovery endpoint advertises the deployment prefix. Set `MW_PUBLIC_URL` to the canonical public HTTPS address when reverse proxying; otherwise the usual trusted-proxy and Host handling supplies the origin. Session responses are `Cache-Control: no-store` and vary by credentials and linked-mailbox selector. An unauthenticated Session request returns 401 with a Bearer challenge.
+When the server is hosted under a sub-path (`MW_BASE_PATH`), the discovery answers carry that prefix. Set `MW_PUBLIC_URL` to the public HTTPS address when a reverse proxy is in front of the server; otherwise the server derives its origin from the request and the trusted-proxy settings. If it cannot form a plain origin, discovery answers `400`. Session answers are marked `Cache-Control: no-store` and vary by credentials and by linked-mailbox selector. A Session request without credentials gets `401` with a `Bearer` challenge.
 
-An operator who wants domain-based discovery may publish an RFC 8620 `_jmap._tcp` SRV record pointing at the HTTPS host. This change does not create or modify DNS records. Mailwoman's own shells already receive their server address from deployment configuration.
+To let people find the server from their address, you can publish an RFC 8620 `_jmap._tcp` SRV record that points at the HTTPS host. Mailwoman does not create or change DNS records.
 
-## Native authentication and calls
+## Native sign-in and calls
 
-1. Read the public connection metadata or request the JMAP Session URL directly.
-2. Submit the existing `/api/login` JSON body with `username`, `password`, and `clientType: "native"`. Use the normal supported native origin. The built-in Tauri origins are accepted; `MW_NATIVE_ORIGINS` can add exact origins. Existing sign-in policy, anti-bot checks, two-factor challenges, and forced-password-change gates still apply.
-3. Complete any challenge through the existing native sign-in flow. A completed sign-in returns the native bearer token, which the shell stores in its OS credential store.
-4. Fetch the Session with `Authorization: Bearer <token>`. Choose the account and capabilities from that authenticated Session, then POST JMAP requests to its `apiUrl`. Use its upload and download templates for blobs.
-5. Sign out through `/api/logout` and remove the local token.
+1. Read the connection metadata, or request the Session address directly.
+2. Send the same JSON body as the web sign-in to the sign-in address from the metadata, with `username`, `password` and `"clientType": "native"`. The request must come from a native origin: the built-in app origins `http://tauri.localhost`, `https://tauri.localhost` and `tauri://localhost` are accepted, and `MW_NATIVE_ORIGINS` adds more, comma-separated and exact. Sign-in policy, bot checks, second-factor challenges and forced password changes apply as for the web app. The metadata says `twoFactorChallenges: true`.
+3. Complete any challenge. A finished sign-in returns a bearer token, which the app keeps in the operating system's credential store.
+4. Fetch the Session with `Authorization: Bearer <token>`, pick the account and capabilities from it, and `POST` JMAP requests to its `apiUrl`. Use its upload and download templates for blobs.
+5. Sign out through the sign-out address and delete the token.
 
-The native shared client tries `/.well-known/jmap`, falls back to `/jmap/session` for older deployments lacking discovery, and consumes the advertised API address. Authentication refusals do not trigger that fallback. An advertised API outside the configured Mailwoman origin, deployment prefix, or JMAP namespace is refused before any bearer-bearing request is sent. Linked-mailbox Session discovery follows the same explicit account selection and authorization rules as the existing Session route.
+The shared client tries `/.well-known/jmap` first and falls back to `/jmap/session` for servers without it; an authentication refusal does not trigger the fallback. It refuses an advertised API address outside the configured origin, prefix and JMAP namespace before sending any request with the token.
 
-## Compatibility boundaries
+A third-party JMAP client has to support this bearer flow or accept the token it produces. HTTP Basic sign-in and a general OAuth grant for mail are not offered. Scoped Sieve API keys give access to Sieve only, not to mail.
 
-Discovery exposes the capabilities already supported by the selected Mailwoman account; it does not add unsupported JMAP methods or extensions. Mail, submission, storage quotas and the existing optional extensions remain capability-driven. The event-stream URL retains the existing server behavior; this does not add new event-stream query features or advertise a new WebSocket protocol extension.
+## What the endpoint supports
 
-Our shells use Mailwoman's native bearer flow. A third-party JMAP client must support that authentication flow or accept its resulting bearer token. Publishing discovery does not add HTTP Basic sign-in or a general-purpose OAuth mail grant. Existing scoped Sieve API keys remain Sieve-only and do not gain access to mail.
+The native engine advertises these in its Session:
 
-The loopback HTTP fixture verifies native login, authenticated discovery, and Mailbox/get plus Email/query through the advertised API. Shared-client tests verify discovery, fallback, bearer headers, proxy URL restrictions, linked routing and browser compatibility. These checks do not constitute an Android APK or physical-device test.
+| Capability | Meaning |
+|---|---|
+| `urn:ietf:params:jmap:core` | RFC 8620 core, with the limits below |
+| `urn:ietf:params:jmap:mail` | Mailboxes, emails, threads, search snippets, and `Email/copy`, `Email/import`, `Email/parse` |
+| `urn:ietf:params:jmap:submission` | Sending |
+| `urn:ietf:params:jmap:mdn` | Read receipts |
+| `urn:ietf:params:jmap:vacationresponse` | Vacation response |
+| `urn:ietf:params:jmap:quota` | Quota, reported from the server's configured local limits rather than from an IMAP quota on the mail server |
+| `urn:mailwoman:calendars`, `tasks`, `notes`, `contacts` | Mailwoman's own calendar, task, note and contact methods; they are not the standard JMAP calendar or contact capabilities |
+| `urn:mailwoman:crypto`, `security`, `search` | Mailwoman's own key, security and search methods |
 
-## Native JMAP Core behavior
+Sieve (`urn:ietf:params:jmap:sieve`) is advertised when the account's mail server supports it. The standard blob, S/MIME verification, principals, contacts and calendar capabilities are not advertised. In proxy mode the Session carries the upstream server's capabilities instead of this list.
 
-The native engine answers `Core/echo` and returns method failures under the standard `error` response name. A failed method does not stop later calls. Result references validate the response name and support RFC 8620 wildcard array projection, flattening and JSON Pointer escapes. Conflicting normal and referenced arguments are refused. Echo preserves arbitrary client properties, including `type`.
+The WebSocket stream the server offers sends state changes and negotiates the `jmap` subprotocol; it ignores request text sent by the client, so it is not a complete RFC 8887 transport.
 
-Native HTTP admission rejects malformed JSON, malformed invocation envelopes, unknown capabilities and oversized requests before connecting an account or executing a method. Errors use `application/problem+json` and the standard JMAP problem URNs. Unknown request extension properties are ignored. In-process engine callers may omit `using` for compatibility; HTTP callers must provide it.
+### Limits
 
-The native Session advertises these enforced limits:
+The Session advertises these limits, and the server enforces them before it connects an account:
 
 | Limit | Value |
 |---|---:|
-| Upload bytes | 50,000,000 |
-| Request bytes | 2,097,152 |
+| Upload size | 50,000,000 bytes |
+| Request size | 2,097,152 bytes |
 | Calls per request | 64 |
-| Objects per get/set | 5,000 |
-| Concurrent requests | 4 |
-| Concurrent uploads | 4 |
+| Objects per get or set | 5,000 |
+| Concurrent requests (advertised) | 4 |
+| Concurrent uploads (advertised) | 4 |
 
-Concurrency uses conservative process-wide budgets, so all accounts share four request slots and four upload slots. Exhausted slots return a retryable HTTP 429 problem; permits release when processing completes or is cancelled. GET/SET object excess is a method-level `requestTooLarge` error. A GET without explicit IDs that would return too many objects is also refused.
+A request that is not valid JSON, has a malformed method-call list, names an unknown capability, or is too large is refused with `application/problem+json` and the standard JMAP problem types. A get or set over the object limit gets the method-level error `requestTooLarge`. Unknown properties on the request object are ignored. HTTP callers must send `using`.
 
-`createdIds` is returned when the request supplies a map, including the supplied IDs and newly created objects. `Email/set` checks a string `ifInState` before mutation and returns `stateMismatch` when stale; absent or null means no precondition. This is a local JMAP state check, not an atomic compare-and-mutate guarantee from an IMAP server.
+Concurrency is counted per signed-in account, across its tabs and devices, and the server as a whole has a higher ceiling. A request over the limit waits for a free slot and is refused with `429`, `Retry-After` and the `RateLimit-*` fields only if none frees up in time. These are set in [Settings](/admin/settings) by `ratelimit.jmap.perAccountConcurrent` (default 8, never below 4), `ratelimit.jmap.globalConcurrent` (default 256) and `ratelimit.queueMs` (default 3000 milliseconds; 0 refuses at once).
 
-Upstream-proxy mode retains the upstream capability and method contract. These Core improvements are not a claim that every published JMAP RFC or every mail-property edge case is implemented. Native contact/calendar/task extensions remain distinct from standard RFC capabilities.
+### Behaviour of the core methods
+
+- `Core/echo` is answered and returns the client's properties unchanged. A failed method returns an `error` response and later calls still run.
+- Result references check the response name and support wildcard array projection, flattening and JSON Pointer escapes. An argument given both directly and by reference is refused.
+- `createdIds` is returned when the request supplies a map.
+- `Email/set` checks a string `ifInState` before changing anything and returns `stateMismatch` when it is stale. This is a check against the server's own state; it is not an atomic compare-and-change on the upstream IMAP server.
 
 References: [RFC 8620](https://www.rfc-editor.org/rfc/rfc8620.html), [RFC 8621](https://www.rfc-editor.org/rfc/rfc8621.html).
 
-### Standards inventory (source audit, 2026-10-26)
+## Troubleshooting
 
-This inventory separates native protocol support from Mailwoman-specific features.
-It is not a full conformance certificate. Proxy mode exposes the verified upstream
-server's capabilities; a local UI feature does not add a standard capability to it.
-The published capability inventory was checked against the
-[IANA JMAP registry](https://www.iana.org/assignments/jmap/).
+- `400` from `/.well-known/mailwoman` or `/.well-known/jmap`: the server could not form its public origin. Set `MW_PUBLIC_URL` to the public HTTPS address, with no path, user, query or fragment.
+- `401` with a `Bearer` challenge from the Session: the token is missing or expired; sign in again.
+- A native sign-in is refused from an app that uses its own origin: add the origin to `MW_NATIVE_ORIGINS`.
+- `429` on JMAP calls: the account is over its concurrent-request limit and no slot freed up within `ratelimit.queueMs`. Wait for `Retry-After`.
 
-| Standard | Native source evidence | Remaining acceptance or implementation |
-| --- | --- | --- |
-| RFC8620 Core | `mw-engine/src/jmap_core.rs`, `mw-server/src/jmap_limits.rs`; request admission, references and limits | Full method/property/error and push-subscription conformance audit remains |
-| RFC8621 Mail, Submission, VacationResponse | `mw-engine/src/jmap.rs`, `folders.rs`, `mail_ext/` | Native mail surfaces exist; backend capability and full mail-property compliance still need individual verification |
-| RFC8887 WebSocket binding | `mw-server/src/push.rs` streams changes and negotiates the `jmap` subprotocol | Incoming request text is ignored; a complete bidirectional JMAP transport is not implemented |
-| RFC9007 MDN | Standard MDN capability, native send/parse and account checks | Existing bounded acceptance is recorded in the session ledger; not a blanket mail-standard claim |
-| RFC9219 S/MIME verification | Mailwoman crypto extensions exist separately | Standard `smimeverify` capability is not advertised; standard property semantics remain to implement |
-| RFC9404 Blob management | Core HTTP upload/download and owned attachment paths exist | Standard `blob` capability and Blob method family are not advertised/implemented |
-| RFC9425 Quota | `mw-engine/src/mail_ext/quota.rs` reports configured local cache limits | This is not upstream IMAP quota discovery; complete quota methods/properties remain to audit |
-| RFC9610 Contacts | Mailwoman contact types use `urn:mailwoman:contacts` | Standard `contacts` capability and ContactCard/AddressBook contracts remain to implement |
-| RFC9661 Sieve | `mw-engine/src/sieve_jmap.rs`, actual ManageSieve-backed tests in `t32_sieve_jmap.rs` | Capability-dependent; broader conformance and each live provider remain separate acceptance |
-| RFC9670 Principals | Internal verified principals support authentication and ownership | Standard JMAP principals/owner capability and methods remain to implement |
-| RFC9749 Web Push VAPID | Browser push and protected delivery code exist | Standard capability advertisement and JMAP PushSubscription lifecycle are not implemented |
-| JMAP calendars / principal availability | Mailwoman calendar types use private capabilities | Standard calendar and availability contracts are not supplied by the private PIM API; check publication status before implementation |
+## Related
 
-The distinction for WebSocket transport follows
-[RFC8887](https://www.rfc-editor.org/rfc/rfc8887.html); VAPID capability discovery
-and subscription-key continuity follow
-[RFC9749](https://www.rfc-editor.org/rfc/rfc9749.html).
-Missing capabilities must not be advertised merely because similarly named
-Mailwoman functionality exists. Each additional capability needs bounded input,
-verified account ownership, policy enforcement, persistence, standard errors and
-interoperability tests before publication.
+- [Settings reference](/admin/settings)
+- [Android app](/deploy/mobile-android)
+- [Desktop app](/deploy/desktop)
+- [Mail server connection](/deploy/imap-pop3)
