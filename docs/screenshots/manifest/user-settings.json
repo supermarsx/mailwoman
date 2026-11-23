@@ -1,0 +1,4452 @@
+{
+ "defaults": {
+  "stack": "E",
+  "theme": "dark",
+  "viewport": {
+   "width": 1440,
+   "height": 1700
+  }
+ },
+ "entries": [
+  {
+   "id": "settings-overview",
+   "page": "user/settings/index.md",
+   "seed": [
+    "settings-account"
+   ],
+   "viewport": {
+    "width": 1440,
+    "height": 1000
+   },
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-ident-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@settings-ident-title",
+      "first": true
+     }
+    }
+   ],
+   "shot": "full",
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "placeholder": "@settings-search-sections"
+     },
+     "place": "right"
+    },
+    {
+     "n": 2,
+     "target": {
+      "role": "button",
+      "name": "@linked-accounts-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     },
+     "place": "right"
+    }
+   ],
+   "alt": "The Settings screen: the section list grouped by category on the left, with a search box above it, and the Identities section on the right."
+  },
+  {
+   "id": "settings-search",
+   "page": "user/settings/index.md",
+   "seed": [
+    "settings-account"
+   ],
+   "viewport": {
+    "width": 1440,
+    "height": 1000
+   },
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-ident-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "fill": {
+      "placeholder": "@settings-search-sections",
+      "value": "image"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "navigation",
+      "name": "@settings-sections"
+     }
+    },
+    {
+     "wait": 600
+    }
+   ],
+   "shot": "full",
+   "alt": "The Settings screen after typing \"image\" in Search settings: the list keeps only the matching sections, followed by the matching setting rows."
+  },
+  {
+   "id": "settings-narrow",
+   "page": "user/settings/index.md",
+   "seed": [
+    "settings-account"
+   ],
+   "viewport": {
+    "width": 860,
+    "height": 640
+   },
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-sections"
+     }
+    },
+    {
+     "click": {
+      "role": "menuitemradio",
+      "name": "@settings-ident-title"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@settings-ident-title",
+      "first": true
+     }
+    }
+   ],
+   "shot": "full",
+   "alt": "The Settings screen in a narrow window: the section list is replaced by a button that shows the current section, Identities."
+  },
+  {
+   "id": "account-overview",
+   "page": "user/settings/account.md",
+   "seed": [
+    "settings-account"
+   ],
+   "viewport": {
+    "width": 1440,
+    "height": 1000
+   },
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@linked-accounts-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@linked-accounts-preferences-title"
+     }
+    }
+   ],
+   "shot": "full",
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "role": "button",
+      "name": "@linked-accounts-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     },
+     "place": "right"
+    },
+    {
+     "n": 2,
+     "target": {
+      "role": "button",
+      "name": "@settings-ident-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     },
+     "place": "right"
+    },
+    {
+     "n": 3,
+     "target": {
+      "role": "button",
+      "name": "@settings-sig-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     },
+     "place": "right"
+    },
+    {
+     "n": 4,
+     "target": {
+      "role": "button",
+      "name": "@security-center-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     },
+     "place": "right"
+    },
+    {
+     "n": 5,
+     "target": {
+      "role": "button",
+      "name": "@settings-folder-icon-privacy",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     },
+     "place": "right"
+    }
+   ],
+   "alt": "The Settings screen on Linked mailboxes, with markers 1 to 5 on the five sections of the Account category in the section list."
+  },
+  {
+   "id": "account-linked-preferences",
+   "page": "user/settings/account.md",
+   "seed": [
+    "settings-account"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@linked-accounts-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@linked-accounts-preferences-title"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@linked-accounts-preferences-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Mailbox preferences card of Linked mailboxes: Use linked mailboxes, Preload linked mailboxes and Show mailbox connection icons."
+  },
+  {
+   "id": "account-linked-form",
+   "page": "user/settings/account.md",
+   "seed": [
+    "settings-account"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@linked-accounts-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@linked-accounts-preferences-title"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@linked-accounts-add"
+     }
+    },
+    {
+     "waitFor": {
+      "label": "@linked-accounts-address"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "label": "@linked-accounts-address",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The form that links a mailbox: username or email address, password, optional display name, and the Verify and link button."
+  },
+  {
+   "id": "account-provider-connection",
+   "page": "user/settings/account.md",
+   "seed": [
+    "settings-account"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@linked-accounts-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@linked-accounts-preferences-title"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@provider-oauth-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Provider connection card: a provider choice between Microsoft Graph and Gmail API, an application client ID, and Connect securely."
+  },
+  {
+   "id": "account-identities",
+   "page": "user/settings/account.md",
+   "seed": [
+    "settings-account"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-ident-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@settings-ident-title",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@settings-ident-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "role": "button",
+      "name": "@settings-ident-make-default",
+      "within": {
+       "role": "listitem",
+       "hasText": "events@example.com"
+      }
+     },
+     "place": "bottom"
+    },
+    {
+     "n": 2,
+     "target": {
+      "role": "button",
+      "name": "@settings-ident-create-variant",
+      "within": {
+       "role": "listitem",
+       "hasText": "events@example.com"
+      }
+     },
+     "place": "bottom"
+    },
+    {
+     "n": 3,
+     "target": {
+      "role": "button",
+      "name": "Edit",
+      "within": {
+       "role": "listitem",
+       "hasText": "events@example.com"
+      }
+     },
+     "place": "bottom"
+    },
+    {
+     "n": 4,
+     "target": {
+      "role": "button",
+      "name": "Delete",
+      "within": {
+       "role": "listitem",
+       "hasText": "events@example.com"
+      }
+     },
+     "place": "bottom"
+    }
+   ],
+   "alt": "The Identities list with two identities, the first marked Default, and markers 1 to 4 on the buttons of the second."
+  },
+  {
+   "id": "account-identity-editor",
+   "page": "user/settings/account.md",
+   "seed": [
+    "settings-account"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-ident-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@settings-ident-title",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-ident-new"
+     }
+    },
+    {
+     "waitFor": {
+      "label": "@settings-ident-name-label"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "label": "@settings-ident-name-label",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The New identity form with Basics, Reply handling, Signature and Sending options groups."
+  },
+  {
+   "id": "account-signatures",
+   "page": "user/settings/account.md",
+   "seed": [
+    "settings-account"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-sig-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@settings-sig-title",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@settings-sig-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Signatures list with two signatures, one marked as the default."
+  },
+  {
+   "id": "account-signature-editor",
+   "page": "user/settings/account.md",
+   "seed": [
+    "settings-account"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-sig-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@settings-sig-title",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-sig-new"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@settings-sig-new"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@settings-sig-new",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The New signature form with a name field, a format choice and the signature text."
+  },
+  {
+   "id": "account-security-signin",
+   "page": "user/settings/account.md",
+   "seed": [
+    "settings-account"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@security-center-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@security-center-signin"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@security-center-signin"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@passwd-heading",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Change password card: current password, new password and confirmation fields, and the password rule."
+  },
+  {
+   "id": "account-security-2fa",
+   "page": "user/settings/account.md",
+   "seed": [
+    "settings-account"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@security-center-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@security-center-signin"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@security-center-signin"
+     }
+    }
+   ],
+   "shot": {
+    "element": [
+     {
+      "role": "heading",
+      "name": "@settings-2fa-title",
+      "closest": "section"
+     },
+     {
+      "role": "heading",
+      "name": "@settings-2fa-totp-title",
+      "closest": "section"
+     },
+     {
+      "role": "heading",
+      "name": "@settings-2fa-passkey-title",
+      "closest": "section"
+     }
+    ],
+    "padding": 12
+   },
+   "alt": "The Two-factor authentication, Authenticator app and Passkeys cards, before anything is set up."
+  },
+  {
+   "id": "account-security-country",
+   "page": "user/settings/account.md",
+   "seed": [
+    "settings-account"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@security-center-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@security-center-signin"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@security-center-signin"
+     }
+    }
+   ],
+   "shot": {
+    "element": [
+     {
+      "role": "heading",
+      "name": "@signin-geo-title",
+      "closest": "section"
+     },
+     {
+      "role": "heading",
+      "name": "@signin-geo-history-title",
+      "closest": "section"
+     }
+    ],
+    "padding": 12
+   },
+   "mask": [
+    {
+     "text": "Your current address is",
+     "exact": false
+    }
+   ],
+   "alt": "The Sign-in country policy card with its policy choice, allowed countries and allowed addresses, and the Countries seen card."
+  },
+  {
+   "id": "account-security-sessions",
+   "page": "user/settings/account.md",
+   "seed": [
+    "settings-account"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@security-center-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@security-center-sessions"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@security-center-sessions"
+     }
+    }
+   ],
+   "shot": {
+    "element": [
+     {
+      "role": "heading",
+      "name": "@session-alerts-title",
+      "closest": "section"
+     },
+     {
+      "role": "heading",
+      "name": "@session-alerts-prefs",
+      "closest": "section"
+     }
+    ],
+    "padding": 12
+   },
+   "alt": "The Session security notices card, empty, above the Alert preferences card."
+  },
+  {
+   "id": "account-security-active",
+   "page": "user/settings/account.md",
+   "seed": [
+    "settings-account"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@security-center-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@security-center-sessions"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@security-center-sessions"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@settings-sessions-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "mask": [
+    {
+     "role": "table"
+    }
+   ],
+   "alt": "The Active sessions card: the linked-mailbox origin choice, a search box, the session table and the button that signs out the other sessions."
+  },
+  {
+   "id": "account-security-history",
+   "page": "user/settings/account.md",
+   "seed": [
+    "settings-account"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@security-center-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@security-center-history"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@security-center-history"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@security-center-history",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "mask": [
+    {
+     "role": "listitem"
+    }
+   ],
+   "alt": "The Sign-in history card with a result filter, Refresh and Export history."
+  },
+  {
+   "id": "account-security-devices",
+   "page": "user/settings/account.md",
+   "seed": [
+    "settings-account"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@security-center-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@security-center-devices"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@security-center-devices"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@security-center-devices",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Remembered devices card with a device name field and the Remember this device button."
+  },
+  {
+   "id": "account-security-encryption",
+   "page": "user/settings/account.md",
+   "seed": [
+    "settings-account"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@security-center-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@security-center-encryption"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@security-center-encryption"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@security-za-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Zero-access storage card: its state, what the server still sees, and the key setup choice between passphrase and passkey."
+  },
+  {
+   "id": "account-privacy-content",
+   "page": "user/settings/account.md",
+   "seed": [
+    "settings-account"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-folder-icon-privacy",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@privacy-tab-content"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@privacy-tab-content"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@privacy-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Privacy card of Message content: remote content choice, tracking switches, image retry and unsafe HTML handling."
+  },
+  {
+   "id": "account-privacy-links",
+   "page": "user/settings/account.md",
+   "seed": [
+    "settings-account"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-folder-icon-privacy",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@privacy-tab-content"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@privacy-tab-content"
+     }
+    }
+   ],
+   "shot": {
+    "element": [
+     {
+      "role": "heading",
+      "name": "@original-html-settings-title",
+      "closest": "section"
+     },
+     {
+      "role": "heading",
+      "name": "@privacy-trusted-links-title",
+      "closest": "section"
+     }
+    ],
+    "padding": 12
+   },
+   "alt": "The Original message HTML card and the Trusted link domains card, with its domain list and subdomain option."
+  },
+  {
+   "id": "account-privacy-link-senders",
+   "page": "user/settings/account.md",
+   "seed": [
+    "settings-account"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-folder-icon-privacy",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@privacy-tab-content"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@privacy-tab-content"
+     }
+    },
+    {
+     "scroll": {
+      "role": "heading",
+      "name": "@privacy-trusted-link-senders-title",
+      "block": "center"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@privacy-trusted-link-senders-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Trusted link senders card: a list of sender addresses and a list of sender domains, each with a save button."
+  },
+  {
+   "id": "account-privacy-consent",
+   "page": "user/settings/account.md",
+   "seed": [
+    "settings-account"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-folder-icon-privacy",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@privacy-tab-consent"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@privacy-tab-consent"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@privacy-analytics-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Optional usage counts card with one checkbox, off."
+  },
+  {
+   "id": "account-privacy-diagnostics",
+   "page": "user/settings/account.md",
+   "seed": [
+    "settings-account"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-folder-icon-privacy",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@privacy-tab-diagnostics"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@privacy-tab-diagnostics"
+     }
+    }
+   ],
+   "shot": {
+    "element": [
+     {
+      "role": "heading",
+      "name": "@privacy-load-time-title",
+      "closest": "section"
+     },
+     {
+      "role": "heading",
+      "name": "@privacy-error-reports-title",
+      "closest": "section"
+     }
+    ],
+    "padding": 12
+   },
+   "alt": "The Load times card with two measuring switches and the Error reports card with one switch."
+  },
+  {
+   "id": "account-privacy-data",
+   "page": "user/settings/account.md",
+   "seed": [
+    "settings-account"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-folder-icon-privacy",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@privacy-tab-data"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@privacy-tab-data"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@yd-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "mask": [
+    {
+     "role": "row",
+     "hasText": "Sign-in sessions"
+    },
+    {
+     "role": "row",
+     "hasText": "Sign-in history"
+    },
+    {
+     "role": "row",
+     "hasText": "Audit entries"
+    }
+   ],
+   "alt": "The What we hold about you table: each kind of data this server keeps, how many items, how long it is kept and who handles it."
+  },
+  {
+   "id": "account-privacy-data-actions",
+   "page": "user/settings/account.md",
+   "seed": [
+    "settings-account"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-folder-icon-privacy",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@privacy-tab-data"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@privacy-tab-data"
+     }
+    },
+    {
+     "scroll": {
+      "role": "heading",
+      "name": "@yd-shortcuts-title",
+      "block": "center"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@yd-shortcuts-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Take your data or leave card with Download my data, Restrict use of my data and Delete my account."
+  },
+  {
+   "id": "account-privacy-requests",
+   "page": "user/settings/account.md",
+   "seed": [
+    "settings-account"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-folder-icon-privacy",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@privacy-tab-requests"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@privacy-tab-requests"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@dr-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The data request form: a request type, optional details and Submit request, above the list of your requests."
+  },
+  {
+   "id": "mail-overview",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "viewport": {
+    "width": 1440,
+    "height": 1000
+   },
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@reader-settings-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@reader-settings-title",
+      "first": true
+     }
+    }
+   ],
+   "shot": "full",
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "role": "button",
+      "name": "@reader-settings-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     },
+     "place": "right"
+    },
+    {
+     "n": 2,
+     "target": {
+      "role": "button",
+      "name": "@settings-compose-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     },
+     "place": "right"
+    },
+    {
+     "n": 3,
+     "target": {
+      "role": "button",
+      "name": "@settings-folders-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     },
+     "place": "right"
+    },
+    {
+     "n": 4,
+     "target": {
+      "role": "button",
+      "name": "@settings-retention-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     },
+     "place": "right"
+    },
+    {
+     "n": 5,
+     "target": {
+      "role": "button",
+      "name": "@labels-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     },
+     "place": "right"
+    },
+    {
+     "n": 6,
+     "target": {
+      "role": "button",
+      "name": "@settings-nav-rules",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     },
+     "place": "right"
+    },
+    {
+     "n": 7,
+     "target": {
+      "role": "button",
+      "name": "@settings-search-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     },
+     "place": "right"
+    },
+    {
+     "n": 8,
+     "target": {
+      "role": "button",
+      "name": "@settings-badge-receipts",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     },
+     "place": "right"
+    },
+    {
+     "n": 9,
+     "target": {
+      "role": "button",
+      "name": "@mail-transfer-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     },
+     "place": "right"
+    }
+   ],
+   "alt": "The Settings screen on Message display, with markers 1 to 9 on the nine sections of the Mail category in the section list."
+  },
+  {
+   "id": "mail-reader-text",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@reader-settings-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@reader-card-text"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@reader-card-text"
+     }
+    }
+   ],
+   "shot": {
+    "element": [
+     {
+      "role": "heading",
+      "name": "@reader-card-text",
+      "closest": "section"
+     },
+     {
+      "role": "heading",
+      "name": "@reader-card-header",
+      "closest": "section"
+     }
+    ],
+    "padding": 12
+   },
+   "alt": "The Text and colors card with message colors, font size, line height, reading width and zoom, and below it the Loading and Message header cards."
+  },
+  {
+   "id": "mail-reader-actions",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@reader-settings-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@reader-actions-title"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@reader-actions-title"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@reader-card-actions",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Actions and attachments card: collapse attachments by default, the message action ribbon style and the attachment density."
+  },
+  {
+   "id": "mail-reader-placement",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@reader-settings-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@reader-actions-title"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@reader-actions-title"
+     }
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": -12,
+     "y": -12,
+     "width": 1005,
+     "height": 560,
+     "relativeTo": {
+      "role": "heading",
+      "name": "@reader-actions-title",
+      "closest": "section"
+     }
+    }
+   },
+   "alt": "The top of the Message reader actions card: a search box, a preview of the actions ribbon and the first rows that place each action on the toolbar, in the More menu or hide it."
+  },
+  {
+   "id": "mail-reader-followup",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@reader-settings-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@follow-up-title"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@follow-up-title"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@follow-up-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Flag for follow-up card: a list of reminder presets, each with a checkbox, a name and buttons to edit, reorder and remove it."
+  },
+  {
+   "id": "mail-reader-attachments",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@reader-settings-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@reader-card-attachments-bar"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@reader-card-attachments-bar"
+     }
+    }
+   ],
+   "shot": {
+    "element": [
+     {
+      "role": "heading",
+      "name": "@reader-card-attachments-bar",
+      "closest": "section"
+     },
+     {
+      "role": "heading",
+      "name": "@attachment-preview-title",
+      "closest": "section"
+     }
+    ],
+    "padding": 12
+   },
+   "alt": "The Attachments bar card and the Attachment previews card with their switches and choices."
+  },
+  {
+   "id": "mail-reader-badges",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@reader-settings-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@settings-message-badges"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@settings-message-badges"
+     }
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": -12,
+     "y": -12,
+     "width": 1005,
+     "height": 620,
+     "relativeTo": {
+      "role": "heading",
+      "name": "@settings-message-badges",
+      "closest": "section"
+     }
+    }
+   },
+   "alt": "The top of the Message badges card: each badge can be set to Always, Only when notable or Never."
+  },
+  {
+   "id": "mail-reader-people",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@reader-settings-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@avatars-title"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@avatars-title"
+     }
+    }
+   ],
+   "shot": {
+    "element": [
+     {
+      "role": "heading",
+      "name": "@avatars-title",
+      "closest": "section"
+     },
+     {
+      "role": "heading",
+      "name": "@contacts-save-settings-title",
+      "closest": "section"
+     }
+    ],
+    "padding": 12
+   },
+   "alt": "The People and contact pictures card and the Save contacts from messages card."
+  },
+  {
+   "id": "mail-reader-cache",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@reader-settings-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@cache-card-store"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@cache-card-store"
+     }
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": -12,
+     "y": -12,
+     "width": 1005,
+     "height": 640,
+     "relativeTo": {
+      "role": "heading",
+      "name": "@cache-card-store",
+      "closest": "section"
+     }
+    }
+   },
+   "alt": "The top of the Cached mail card: the session cache switches, age and size limits, and the Clear cached mail now button."
+  },
+  {
+   "id": "mail-compose-addressing",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-compose-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@settings-compose-card-addressing"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@settings-compose-card-addressing"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@settings-compose-card-addressing",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Addressing and replies card: whether From is shown, which identity replies use, quick reply, recipient entry and the reply header style."
+  },
+  {
+   "id": "mail-compose-checks",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-compose-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@settings-compose-card-checks"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@settings-compose-card-checks"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@settings-compose-card-checks",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Checks before sending card: how to react to invalid recipients, a missing attachment and an empty subject, and the external recipient warning."
+  },
+  {
+   "id": "mail-compose-images",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-compose-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@settings-compose-card-images"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@settings-compose-card-images"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@settings-compose-card-images",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Images in replies card: whether replies and forwards carry the original images, and the trusted sender domains."
+  },
+  {
+   "id": "mail-compose-defaults",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-compose-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@cf-card-title"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@cf-card-title"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@settings-compose-card-defaults",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Defaults for new messages card: where the composer opens, receipts, record message opens, signature position and forwarding format."
+  },
+  {
+   "id": "mail-compose-features",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-compose-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@cf-card-title"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@cf-card-title"
+     }
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": -12,
+     "y": -12,
+     "width": 1005,
+     "height": 520,
+     "relativeTo": {
+      "role": "heading",
+      "name": "@cf-card-title",
+      "closest": "section"
+     }
+    }
+   },
+   "alt": "The top of the Composer features card: a profile choice with Apply profile, and the first group of features with a switch each."
+  },
+  {
+   "id": "mail-compose-sending",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-compose-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@settings-ident-group-sending"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@settings-ident-group-sending"
+     }
+    }
+   ],
+   "shot": {
+    "element": [
+     {
+      "role": "heading",
+      "name": "@settings-ident-group-sending",
+      "closest": "section"
+     },
+     {
+      "role": "heading",
+      "name": "@send-delay-title",
+      "closest": "section"
+     },
+     {
+      "role": "heading",
+      "name": "@settings-draft-save",
+      "closest": "section"
+     }
+    ],
+    "padding": 12
+   },
+   "alt": "The Sending options, Undo send and Account drafts cards."
+  },
+  {
+   "id": "mail-compose-notices",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-compose-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@notices-title"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@notices-title"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@notices-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Message notices card with the Enable notices switch and the New notice button."
+  },
+  {
+   "id": "mail-compose-templates",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-compose-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@response-templates-title"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@response-templates-title"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@response-templates-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Response templates card: use and sidebar switches, a search box, the template count and the Add template button."
+  },
+  {
+   "id": "mail-folders-list",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-folders-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@settings-folders-list-card"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@settings-folders-list-card"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@settings-folders-list-card",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Folder list and order card: every folder with its visibility, unread and total counts, location and actions."
+  },
+  {
+   "id": "mail-folders-sidebar",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-folders-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@settings-folders-title"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@settings-folders-title"
+     }
+    }
+   ],
+   "shot": {
+    "element": [
+     {
+      "role": "heading",
+      "name": "@settings-folders-title",
+      "closest": "section"
+     },
+     {
+      "role": "heading",
+      "name": "@settings-folder-counts-card",
+      "closest": "section"
+     }
+    ],
+    "padding": 12
+   },
+   "alt": "The Folders and sidebar card and the Counter bubbles card."
+  },
+  {
+   "id": "mail-folders-views",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-folders-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@workspace-view-properties"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@workspace-view-properties"
+     }
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": -12,
+     "y": -12,
+     "width": 1005,
+     "height": 520,
+     "relativeTo": {
+      "role": "heading",
+      "name": "@workspace-view-properties",
+      "closest": "section"
+     }
+    }
+   },
+   "alt": "The top of the Workspace view properties card: visibility, display name and item count for each workspace view."
+  },
+  {
+   "id": "mail-folders-arrange",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-folders-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@folder-dnd-arrange-title"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@folder-dnd-arrange-title"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@folder-dnd-arrange-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Arrange folders card: dragging, nesting behaviour, where new folders appear and drag handles."
+  },
+  {
+   "id": "mail-folders-special",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-folders-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@settings-folder-role-title"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@settings-folder-role-title"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@settings-folder-role-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Special folders card: one choice per mail role, each set to Automatic discovery."
+  },
+  {
+   "id": "mail-folders-focused",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-folders-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@settings-focused-inbox"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@settings-focused-inbox"
+     }
+    }
+   ],
+   "shot": {
+    "element": [
+     {
+      "role": "heading",
+      "name": "@settings-focused-inbox",
+      "closest": "section"
+     },
+     {
+      "role": "heading",
+      "name": "@settings-focused-senders-title",
+      "closest": "section"
+     }
+    ],
+    "padding": 12
+   },
+   "alt": "The Focused inbox card with its switch, and the Manage Focused senders list."
+  },
+  {
+   "id": "mail-folders-properties",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-folders-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@properties-card"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@properties-card"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@properties-card",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Properties, priority and export card: priority marks, the Properties dialogs and their keyboard shortcut."
+  },
+  {
+   "id": "mail-folders-storage",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-folders-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@quota-details-title"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@quota-details-title"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@quota-details-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Storage card, which says the mailbox does not provide storage usage."
+  },
+  {
+   "id": "mail-retention",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-retention-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@settings-retention-title",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": -12,
+     "y": -12,
+     "width": 1005,
+     "height": 700,
+     "relativeTo": {
+      "role": "heading",
+      "name": "@settings-retention-title",
+      "closest": "section"
+     }
+    }
+   },
+   "alt": "The top of Retention: the last run, the undo window, what this server allows and the list of your rules."
+  },
+  {
+   "id": "mail-retention-folders",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-retention-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@settings-retention-title",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@retention-fd-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Folder defaults card: one choice per folder, each set to Inherit, with the Drafts folder marked as protected by the administrator."
+  },
+  {
+   "id": "mail-labels",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@labels-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@labels-title",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@labels-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Labels list: a search box and the labels Work, Personal, Important, Later and Receipts with their keyword and colour."
+  },
+  {
+   "id": "mail-rules-builder",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-nav-rules",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@rules-tab-builder"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@rules-tab-builder"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@rules-new"
+     }
+    },
+    {
+     "wait": 800
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@rules-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Builder tab of Mail rules with a new rule open for editing, above the notice that vacation replies are unavailable."
+  },
+  {
+   "id": "mail-rules-sieve",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-nav-rules",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@rules-tab-raw"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@rules-tab-raw"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@rules-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Raw Sieve tab: the script list, the source editor and the Validate script, Save, Activate and Delete buttons."
+  },
+  {
+   "id": "mail-searches",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-search-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@settings-search-title",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@settings-search-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Saved searches section: the default search scope and the New search folder button."
+  },
+  {
+   "id": "mail-receipts",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-badge-receipts",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@settings-badge-receipts",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@settings-badge-receipts",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Read receipts section: delivery notification defaults, how read receipt requests are answered and sender exceptions."
+  },
+  {
+   "id": "mail-transfer",
+   "page": "user/settings/mail.md",
+   "seed": [
+    "settings-mail"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-transfer-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@mail-transfer-title",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@mail-transfer-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Import and export mail section with the Import mail button."
+  },
+  {
+   "id": "interface-overview",
+   "page": "user/settings/interface.md",
+   "seed": [
+    "settings-interface"
+   ],
+   "viewport": {
+    "width": 1440,
+    "height": 1000
+   },
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-appearance",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@settings-appearance-theme-card",
+      "first": true
+     }
+    }
+   ],
+   "shot": "full",
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "role": "button",
+      "name": "@settings-appearance",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     },
+     "place": "right"
+    },
+    {
+     "n": 2,
+     "target": {
+      "role": "button",
+      "name": "@settings-nav-keyboard-display",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     },
+     "place": "right"
+    },
+    {
+     "n": 3,
+     "target": {
+      "role": "button",
+      "name": "@settings-notif-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     },
+     "place": "right"
+    },
+    {
+     "n": 4,
+     "target": {
+      "role": "button",
+      "name": "@settings-nav-regional",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     },
+     "place": "right"
+    }
+   ],
+   "alt": "The Settings screen on Appearance, with markers 1 to 4 on the four sections of the Interface category in the section list."
+  },
+  {
+   "id": "interface-appearance-theme",
+   "page": "user/settings/interface.md",
+   "seed": [
+    "settings-interface"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-appearance",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@settings-appearance-theme-card",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "element": [
+     {
+      "role": "heading",
+      "name": "@settings-appearance-theme-card",
+      "closest": "section"
+     },
+     {
+      "role": "heading",
+      "name": "@settings-appearance-colours-card",
+      "closest": "section"
+     }
+    ],
+    "padding": 12
+   },
+   "alt": "The Theme and switching card with the theme choices, and the Colours card with accent and unread badge colour."
+  },
+  {
+   "id": "interface-appearance-text",
+   "page": "user/settings/interface.md",
+   "seed": [
+    "settings-interface"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-appearance",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@settings-appearance-theme-card",
+      "first": true
+     }
+    },
+    {
+     "scroll": {
+      "role": "heading",
+      "name": "@settings-appearance-text-card",
+      "block": "start"
+     }
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": -12,
+     "y": -12,
+     "width": 1005,
+     "height": 760,
+     "relativeTo": {
+      "role": "heading",
+      "name": "@settings-appearance-text-card",
+      "closest": "section"
+     }
+    }
+   },
+   "alt": "The top of the Text and layout card: density, interface font, font size and weight, colours, and message list choices."
+  },
+  {
+   "id": "interface-appearance-toolbars",
+   "page": "user/settings/interface.md",
+   "seed": [
+    "settings-interface"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-appearance",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@settings-appearance-theme-card",
+      "first": true
+     }
+    },
+    {
+     "scroll": {
+      "role": "heading",
+      "name": "@settings-bars-heading",
+      "block": "start"
+     }
+    }
+   ],
+   "shot": {
+    "element": [
+     {
+      "role": "heading",
+      "name": "@settings-bars-heading",
+      "closest": "section"
+     },
+     {
+      "role": "heading",
+      "name": "@st-title",
+      "closest": "section"
+     }
+    ],
+    "padding": 12
+   },
+   "alt": "The Toolbars card with a pinned or auto-hide choice for four bars, and the Import and export preferences card."
+  },
+  {
+   "id": "interface-shortcuts-preset",
+   "page": "user/settings/interface.md",
+   "seed": [
+    "settings-interface"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-nav-keyboard-display",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@settings-kbd-preset-title",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@settings-kbd-preset-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Shortcut preset card: the Mailwoman, Gmail, Outlook, Vim and Off presets, and the View preset bindings list."
+  },
+  {
+   "id": "interface-shortcuts-offline",
+   "page": "user/settings/interface.md",
+   "seed": [
+    "settings-interface"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-nav-keyboard-display",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@settings-kbd-preset-title",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": -12,
+     "y": -12,
+     "width": 1005,
+     "height": 640,
+     "relativeTo": {
+      "role": "heading",
+      "name": "@settings-offline-title",
+      "closest": "section"
+     }
+    }
+   },
+   "alt": "The top of the Offline cache card: offline access, persistent storage, header window, bodies, attachments and cache budget."
+  },
+  {
+   "id": "interface-shortcuts-keys",
+   "page": "user/settings/interface.md",
+   "seed": [
+    "settings-interface"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-nav-keyboard-display",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@settings-kbd-preset-title",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": -12,
+     "y": -12,
+     "width": 1005,
+     "height": 620,
+     "relativeTo": {
+      "role": "heading",
+      "name": "@settings-kbd-title",
+      "closest": "section"
+     }
+    }
+   },
+   "alt": "The top of the Keyboard shortcuts card: two switches, a search box and a list of actions with their bindings."
+  },
+  {
+   "id": "interface-shortcuts-mail",
+   "page": "user/settings/interface.md",
+   "seed": [
+    "settings-interface"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-nav-keyboard-display",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@settings-kbd-preset-title",
+      "first": true
+     }
+    },
+    {
+     "scroll": {
+      "role": "heading",
+      "name": "@settings-mail-features",
+      "block": "center"
+     }
+    }
+   ],
+   "shot": {
+    "element": [
+     {
+      "role": "heading",
+      "name": "@settings-mail-interactions",
+      "closest": "section"
+     },
+     {
+      "role": "heading",
+      "name": "@settings-mail-features",
+      "closest": "section"
+     }
+    ],
+    "padding": 12
+   },
+   "alt": "The Message selection and moving card and the Mail features card."
+  },
+  {
+   "id": "interface-notifications-mail",
+   "page": "user/settings/interface.md",
+   "seed": [
+    "settings-interface"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-notif-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@settings-alert-tab-mail"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@settings-alert-tab-mail"
+     }
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": -12,
+     "y": -12,
+     "width": 1005,
+     "height": 700,
+     "relativeTo": {
+      "role": "heading",
+      "name": "@settings-notif-title",
+      "closest": "section"
+     }
+    }
+   },
+   "alt": "The top of the New mail tab: the Notifications and Permission on this device cards and the first New-mail channels."
+  },
+  {
+   "id": "interface-notifications-events",
+   "page": "user/settings/interface.md",
+   "seed": [
+    "settings-interface"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-notif-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@settings-alert-tab-events"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@settings-alert-tab-events"
+     }
+    }
+   ],
+   "shot": {
+    "element": [
+     {
+      "role": "heading",
+      "name": "@settings-alert-events-title",
+      "closest": "section"
+     },
+     {
+      "role": "heading",
+      "name": "@settings-alert-toasts-title",
+      "closest": "section"
+     }
+    ],
+    "padding": 12
+   },
+   "alt": "The Other notification events card and the Toast appearance and behaviour card."
+  },
+  {
+   "id": "interface-notifications-browser",
+   "page": "user/settings/interface.md",
+   "seed": [
+    "settings-interface"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-notif-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@settings-alert-tab-browser"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@settings-alert-tab-browser"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@settings-permissions-background-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Background notifications on this browser card: the mailbox chooser and the Register background notifications and Remove for this account buttons."
+  },
+  {
+   "id": "interface-notifications-quiet",
+   "page": "user/settings/interface.md",
+   "seed": [
+    "settings-interface"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-notif-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@settings-alert-tab-quiet"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "tab",
+      "name": "@settings-alert-tab-quiet"
+     }
+    }
+   ],
+   "shot": {
+    "element": [
+     {
+      "role": "heading",
+      "name": "@settings-notif-quiet-title",
+      "closest": "section"
+     },
+     {
+      "role": "heading",
+      "name": "@settings-notif-rules-title",
+      "closest": "section"
+     }
+    ],
+    "padding": 12
+   },
+   "alt": "The Quiet hours card with its switch and the Rules card with Manage notification rules."
+  },
+  {
+   "id": "interface-regional",
+   "page": "user/settings/interface.md",
+   "seed": [
+    "settings-interface"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-nav-regional",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@settings-language-card",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "element": [
+     {
+      "role": "heading",
+      "name": "@settings-language-card",
+      "closest": "section"
+     },
+     {
+      "role": "heading",
+      "name": "@regional-title",
+      "closest": "section"
+     },
+     {
+      "role": "heading",
+      "name": "@settings-time-title",
+      "closest": "section"
+     }
+    ],
+    "padding": 12
+   },
+   "alt": "The Language and region, Region date and time formats and Time zones cards."
+  },
+  {
+   "id": "integrations-overview",
+   "page": "user/settings/integrations.md",
+   "seed": [
+    "settings-integrations"
+   ],
+   "viewport": {
+    "width": 1440,
+    "height": 1000
+   },
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@nextcloud-account-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@nextcloud-account-title",
+      "first": true
+     }
+    }
+   ],
+   "shot": "full",
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "role": "button",
+      "name": "@nextcloud-account-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     },
+     "place": "right"
+    },
+    {
+     "n": 2,
+     "target": {
+      "role": "button",
+      "name": "@packages-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     },
+     "place": "right"
+    },
+    {
+     "n": 3,
+     "target": {
+      "role": "button",
+      "name": "@settings-nav-access",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     },
+     "place": "right"
+    }
+   ],
+   "alt": "The Settings screen on Nextcloud accounts, with markers 1 to 3 on the three sections of the Integrations category in the section list."
+  },
+  {
+   "id": "integrations-nextcloud",
+   "page": "user/settings/integrations.md",
+   "seed": [
+    "settings-integrations"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@nextcloud-account-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@nextcloud-account-title",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@nextcloud-account-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Nextcloud accounts section with an instance approved by the administrator and the form to link your account."
+  },
+  {
+   "id": "integrations-packages",
+   "page": "user/settings/integrations.md",
+   "seed": [
+    "settings-integrations"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@packages-title",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@packages-title",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@packages-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Package tracking section when the administrator has not configured a provider: the privacy note and the unavailable notice."
+  },
+  {
+   "id": "integrations-api-keys",
+   "page": "user/settings/integrations.md",
+   "seed": [
+    "settings-integrations"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-nav-access",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@apikeys-heading",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@apikeys-create"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@apikeys-create"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@apikeys-create",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The API keys card with the Create key form open: a label, capabilities, surface, accounts, folders and constraints."
+  },
+  {
+   "id": "integrations-mcp-keys",
+   "page": "user/settings/integrations.md",
+   "seed": [
+    "settings-integrations"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-nav-access",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@apikeys-heading",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@apikeys-mcp-heading",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The MCP keys card: a label, a checkbox for each tool, and the Create MCP key button."
+  },
+  {
+   "id": "about-overview",
+   "page": "user/settings/about.md",
+   "seed": [
+    "settings-about"
+   ],
+   "viewport": {
+    "width": 1440,
+    "height": 1000
+   },
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@res-about",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@res-about",
+      "first": true
+     }
+    }
+   ],
+   "shot": "full",
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "role": "button",
+      "name": "@res-about",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     },
+     "place": "right"
+    },
+    {
+     "n": 2,
+     "target": {
+      "role": "button",
+      "name": "@settings-nav-metadata",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     },
+     "place": "right"
+    }
+   ],
+   "alt": "The Settings screen on About Mailwoman, with markers 1 and 2 on the two sections of the About category in the section list."
+  },
+  {
+   "id": "about-product",
+   "page": "user/settings/about.md",
+   "seed": [
+    "settings-about"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@res-about",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@res-about",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@res-about",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The About Mailwoman section: version, source revision, release tag, build target, support end date and the software inventory downloads.",
+   "mask": [
+    {
+     "css": "dd"
+    }
+   ]
+  },
+  {
+   "id": "about-metadata",
+   "page": "user/settings/about.md",
+   "seed": [
+    "settings-about"
+   ],
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@settings-nav-metadata",
+      "within": {
+       "role": "navigation",
+       "name": "@settings-sections"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "@servermeta-title",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@servermeta-title",
+     "closest": "section"
+    },
+    "padding": 12
+   },
+   "alt": "The Server information section, which says that annotations are read-only for this account."
+  }
+ ]
+}

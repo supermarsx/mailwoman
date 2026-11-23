@@ -1,0 +1,91 @@
+{
+  "seeds": {
+    "settings-account": {
+      "include": [
+        "mail-basic"
+      ],
+      "adminSettings": {
+        "accounts.linkingEnabled": true
+      },
+      "user": [
+        {
+          "method": "POST",
+          "path": "/api/account/signatures",
+          "body": {
+            "name": "Studio",
+            "body": "Alex Rivera\nHarbour Lane Studio",
+            "isDefault": true,
+            "format": "plain"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/account/signatures",
+          "body": {
+            "name": "Short",
+            "body": "Alex",
+            "isDefault": false,
+            "format": "plain"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/account/identities",
+          "body": {
+            "name": "Alex Rivera",
+            "email": "alex@example.com",
+            "organization": "Harbour Lane Studio",
+            "isDefault": true
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/account/identities",
+          "body": {
+            "name": "Alex Rivera (events)",
+            "email": "events@example.com",
+            "replyTo": "alex@example.com",
+            "signatureName": "Short"
+          }
+        }
+      ]
+    },
+    "settings-mail": {
+      "include": [
+        "mail-basic"
+      ]
+    },
+    "settings-interface": {
+      "include": [
+        "mail-basic"
+      ]
+    },
+    "settings-about": {
+      "include": [
+        "mail-basic"
+      ]
+    },
+    "settings-integrations": {
+      "include": [
+        "mail-basic",
+        "admin-basic"
+      ],
+      "admin": [
+        {
+          "method": "PUT",
+          "path": "/nextcloud/instances/team-cloud",
+          "body": {
+            "name": "Team cloud",
+            "baseUrl": "https://cloud.example.org/",
+            "caPem": "",
+            "enabled": true
+          },
+          "headers": {
+            "If-None-Match": "*"
+          }
+        }
+      ],
+      "adminStepUp": true
+    }
+  }
+}
