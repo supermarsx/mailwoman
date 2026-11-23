@@ -1,3 +1,4 @@
+import {interfacePixels} from '../../theme/interfaceScale.ts';
 // `<RibbonPanel>`: one ribbon tab's row of groups, kept to its width (t38 §2.2,
 // user decision D1).
 //
@@ -124,8 +125,9 @@ export function RibbonPanel(props: RibbonPanelProps): JSX.Element {
    * the panel will ever be, and the group then never opened again.
    */
   function reopenNeeds(record: FoldRecord): number {
-    const track = trackEl?.getBoundingClientRect().width ?? 0;
-    const folded = record.entry.element()?.getBoundingClientRect().width ?? 0;
+    const track = trackEl?interfacePixels(trackEl.getBoundingClientRect().width,trackEl.ownerDocument):0;
+    const element=record.entry.element();
+    const folded = element?interfacePixels(element.getBoundingClientRect().width,element.ownerDocument):0;
     if (track <= 0 || record.width <= 0) return record.needed;
     return Math.min(record.needed, Math.ceil(track + record.width - folded));
   }
@@ -149,7 +151,8 @@ export function RibbonPanel(props: RibbonPanelProps): JSX.Element {
         // Lowest priority first; on a tie the one nearest the inline end.
         open.sort((a, b) => a.priority() - b.priority() || -documentOrder(a, b));
         const victim = open[0]!;
-        stack.push({ entry: victim, needed, width: victim.element()?.getBoundingClientRect().width ?? 0 });
+        const element=victim.element();
+        stack.push({ entry: victim, needed, width: element?interfacePixels(element.getBoundingClientRect().width,element.ownerDocument):0 });
         victim.setFolded(true);
         changed = true;
       } else if (!scrolling()) {

@@ -1,3 +1,4 @@
+import {interfacePixels,interfaceScale} from '../../theme/interfaceScale.ts';
 // `<RibbonGroup>` and `<RibbonItem>`: a labelled block of ribbon controls at
 // exactly three rows (t38 §2.2).
 //
@@ -74,14 +75,14 @@ export function RibbonGroup(props: RibbonGroupProps): JSX.Element {
     const upper = (viewport?.offsetTop ?? 0) + 8;
     const lower = (viewport?.offsetTop ?? 0) + (viewport?.height ?? view.innerHeight) - 8;
     const maxHeight = Math.max(0, lower - upper);
-    const naturalHeight = popoverEl ? popoverEl.scrollHeight + popoverEl.offsetHeight - popoverEl.clientHeight : 0;
+    const naturalHeight = popoverEl ? (popoverEl.scrollHeight + popoverEl.offsetHeight - popoverEl.clientHeight)*interfaceScale(popoverEl.ownerDocument) : 0;
     const height = Math.min(naturalHeight, maxHeight);
     const top = Math.max(upper, Math.min(rect.bottom + 2 + height <= lower ? rect.bottom + 2 : rect.top - 2 - height, lower - height));
-    const width = popoverEl?.offsetWidth ?? 0;
+    const width = popoverEl?.getBoundingClientRect().width ?? 0;
     const rtl = view.getComputedStyle(buttonEl!).direction === 'rtl';
     const left = Math.max(start, Math.min(rtl ? rect.right - width : rect.left, end - width));
-    if (rtl) setPosition({ top, right: view.innerWidth - left - width, maxHeight });
-    else setPosition({ top, left, maxHeight });
+    if (rtl) setPosition({ top:interfacePixels(top,buttonEl!.ownerDocument), right:interfacePixels(view.innerWidth-left-width,buttonEl!.ownerDocument),maxHeight:interfacePixels(maxHeight,buttonEl!.ownerDocument) });
+    else setPosition({ top:interfacePixels(top,buttonEl!.ownerDocument),left:interfacePixels(left,buttonEl!.ownerDocument),maxHeight:interfacePixels(maxHeight,buttonEl!.ownerDocument) });
   }
 
   function openPopover(): void {

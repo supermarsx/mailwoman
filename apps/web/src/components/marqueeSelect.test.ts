@@ -51,6 +51,22 @@ beforeEach(() => {
 afterEach(() => { document.body.innerHTML = ''; frames = []; vi.unstubAllGlobals(); });
 
 describe('attachMarquee', () => {
+  it('uses the correct rows and band coordinates when the interface is scaled to 200%',()=>{
+    document.documentElement.style.setProperty('--mw-ui-zoom','2');
+    const w=build();
+    try{
+      for(const el of [w.scroller,...w.rows.map(row=>row.el)]){
+        const measure=el.getBoundingClientRect.bind(el);
+        el.getBoundingClientRect=()=>{const r=measure();return rect(r.left*2,r.top*2,r.width*2,r.height*2);};
+      }
+      fire(w.gap,'pointerdown',{clientX:340,clientY:400});
+      fire(document,'pointermove',{clientX:320,clientY:140});flush();
+      expect(ids(w)).toEqual(['c','d','e','f']);
+      const band=document.querySelector<HTMLElement>('[data-marquee-band]')!;
+      expect(band.style.left).toBe('160px');expect(band.style.top).toBe('70px');
+      fire(document,'pointerup',{clientX:320,clientY:140});
+    }finally{w.stop();document.documentElement.style.removeProperty('--mw-ui-zoom');}
+  });
   it('a plain drag from empty space replaces the selection with the rows it touches, live', () => {
     const w = build(); w.selection = new Set(['f']);
     fire(w.gap, 'pointerdown', { clientX: 195, clientY: 200 });

@@ -1,3 +1,4 @@
+import {interfacePixels} from '../theme/interfaceScale.ts';
 import { createEffect, createMemo, createResource, createSignal, createUniqueId, For, onCleanup, onMount, Show, type Accessor, type JSX } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import type { ContactCard } from '../api/pim-types.ts';
@@ -85,6 +86,7 @@ function AddressContactCard(props: { target: Target; onClose: () => void; onComp
     const viewport = host.visualViewport, width = viewport?.width ?? host.innerWidth, height = viewport?.height ?? host.innerHeight;
     const left = viewport?.offsetLeft ?? 0, top = viewport?.offsetTop ?? 0, rect = node.getBoundingClientRect();
     const next = { left: Math.max(left + 8, Math.min(props.target.x, left + width - rect.width - 8)), top: Math.max(top + 8, Math.min(props.target.y, top + height - Math.min(rect.height, height - 16) - 8)), maxHeight: Math.max(44, height - 16) };
+    next.left=interfacePixels(next.left,props.target.document);next.top=interfacePixels(next.top,props.target.document);next.maxHeight=interfacePixels(next.maxHeight,props.target.document);
     setPosition(previous => previous.left === next.left && previous.top === next.top && previous.maxHeight === next.maxHeight ? previous : next);
   }
   createEffect(() => { void result(); void contact(); queueMicrotask(reposition); });

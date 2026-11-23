@@ -1,3 +1,4 @@
+import {interfacePixels,interfaceRect} from '../theme/interfaceScale.ts';
 // Marquee (rubber-band) selection controller, framework-free so any list can
 // reuse it (the folder tree now, the message list later).
 //
@@ -52,12 +53,12 @@ export function attachMarquee(options: MarqueeOptions): () => void {
   let modifiers = { ctrlKey: false, metaKey: false, shiftKey: false };
 
   const origin = (): Point => {
-    const box = scroller.getBoundingClientRect();
+    const box = interfaceRect(scroller.getBoundingClientRect(),scroller.ownerDocument);
     return { x: box.left + scroller.clientLeft - scroller.scrollLeft, y: box.top + scroller.clientTop - scroller.scrollTop };
   };
   const toContent = (point: Point): Point => { const o = origin(); return { x: point.x - o.x, y: point.y - o.y }; };
   const viewport = (): Box => {
-    const box = scroller.getBoundingClientRect();
+    const box = interfaceRect(scroller.getBoundingClientRect(),scroller.ownerDocument);
     return { left: box.left + scroller.clientLeft, top: box.top + scroller.clientTop, right: box.left + scroller.clientLeft + scroller.clientWidth, bottom: box.top + scroller.clientTop + scroller.clientHeight };
   };
 
@@ -65,7 +66,7 @@ export function attachMarquee(options: MarqueeOptions): () => void {
   function onScrollbar(event: PointerEvent): boolean {
     if (event.target !== scroller) return false;
     const view = viewport();
-    return event.clientX < view.left || event.clientX > view.right || event.clientY < view.top || event.clientY > view.bottom;
+    return interfacePixels(event.clientX,scroller.ownerDocument) < view.left || interfacePixels(event.clientX,scroller.ownerDocument) > view.right || interfacePixels(event.clientY,scroller.ownerDocument) < view.top || interfacePixels(event.clientY,scroller.ownerDocument) > view.bottom;
   }
 
   const prevent = (event: Event): void => event.preventDefault();
@@ -77,7 +78,7 @@ export function attachMarquee(options: MarqueeOptions): () => void {
     if (target.closest(ignore) || options.items().some(item => item.el.contains(target))) return;
     if (onScrollbar(event)) return;
     pointerId = event.pointerId;
-    startClient = { x: event.clientX, y: event.clientY };
+    startClient = { x: interfacePixels(event.clientX,scroller.ownerDocument), y: interfacePixels(event.clientY,scroller.ownerDocument) };
     start = toContent(startClient);
     last = { ...startClient };
     modifiers = { ctrlKey: event.ctrlKey, metaKey: event.metaKey, shiftKey: event.shiftKey };
@@ -104,7 +105,7 @@ export function attachMarquee(options: MarqueeOptions): () => void {
 
   function move(event: PointerEvent): void {
     if (event.pointerId !== pointerId || !startClient) return;
-    last = { x: event.clientX, y: event.clientY };
+    last = { x: interfacePixels(event.clientX,scroller.ownerDocument), y: interfacePixels(event.clientY,scroller.ownerDocument) };
     if (!dragging) {
       if (!passedThreshold(startClient, last, threshold)) return;
       activate();
@@ -136,7 +137,7 @@ export function attachMarquee(options: MarqueeOptions): () => void {
     const content = boxBetween(start, toContent(last));
     const hit = new Set<string>(), order: string[] = [];
     for (const item of options.items()) {
-      const r = item.el.getBoundingClientRect();
+      const r = interfaceRect(item.el.getBoundingClientRect(),item.el.ownerDocument);
       if (r.width === 0 && r.height === 0) continue; // hidden or collapsed: not selectable
       order.push(item.id);
       const box: Box = { left: r.left - o.x, top: r.top - o.y, right: r.right - o.x, bottom: r.bottom - o.y };
@@ -169,7 +170,7 @@ export function attachMarquee(options: MarqueeOptions): () => void {
   function up(event: PointerEvent): void {
     if (event.pointerId !== pointerId) return;
     const wasDrag = dragging;
-    if (wasDrag) { last = { x: event.clientX, y: event.clientY }; update(); }
+    if (wasDrag) { last = { x: interfacePixels(event.clientX,scroller.ownerDocument), y: interfacePixels(event.clientY,scroller.ownerDocument) }; update(); }
     finish();
     // A plain click on empty space clears; with a modifier it leaves the selection alone.
     if (!wasDrag && !modifiers.ctrlKey && !modifiers.metaKey && !modifiers.shiftKey) (options.onEmptyClick ?? (() => options.onChange(new Set())))(event);

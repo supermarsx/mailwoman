@@ -1,3 +1,4 @@
+import {interfacePixels} from '../theme/interfaceScale.ts';
 import * as css from './messageListMotion.css.ts';
 
 const DURATION=160;
@@ -140,7 +141,7 @@ export function createMessageListMotion():{
           const delta=old.top-row.top;
           if(Math.abs(delta)<1||Math.abs(delta)>next.height)continue;
           moving++;
-          animate(row.element,[{translate:`0 ${delta}px`},{translate:'0 0'}]);
+          animate(row.element,[{translate:`0 ${interfacePixels(delta,row.element.ownerDocument)}px`},{translate:'0 0'}]);
         }
       });
     },

@@ -1,3 +1,4 @@
+import {interfacePixels} from '../../theme/interfaceScale.ts';
 // Pointer-driven reordering for short vertical lists (t40 f): the mailbox
 // picker and Settings › Linked mailboxes. One primitive for mouse, pen and
 // touch: a mouse drag starts after a few pixels of movement, a touch drag after
@@ -82,7 +83,7 @@ export function createPointerReorder(options: {
     const state = dragging();
     if (!state) return;
     lastY = y;
-    row?.style.setProperty('transform', `translateY(${y - originY}px)`);
+    if(row)row.style.setProperty('transform', `translateY(${interfacePixels(y-originY,row.ownerDocument)}px)`);
     const over = slotAt(y);
     if (over !== state.over) setDragging({ ...state, over });
     if (!frame) frame = requestAnimationFrame(autoscroll);

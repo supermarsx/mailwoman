@@ -1,3 +1,4 @@
+import {interfacePixels,interfaceScale} from '../theme/interfaceScale.ts';
 import {createSignal,onCleanup} from 'solid-js';
 import {createTouchDrag} from './touchDrag.ts';
 import {afterDepthRange,depthFromX,keyMoveFor,movingSet,placementForKey,resolveDrop,zoneOf,type DndFolder,type DndPolicy,type DndRow,type DropProblem,type DropZone,type Placement} from './folderDnd.ts';
@@ -71,8 +72,8 @@ export function createFolderDnd(options:FolderDndOptions){
   const rect=el.getBoundingClientRect(),zone=zoneOf(clientY,rect.top,rect.height);
   const rows=options.rows(),scroller=options.scroller(),base=scroller?.getBoundingClientRect().left??rect.left;
   const range=zone==='after'?afterDepthRange(rows,id):{min:0,max:0};
-  const rtl=getComputedStyle(el).direction==='rtl',x=rtl?2*base+(scroller?.clientWidth??0)-clientX:clientX;
-  const asked=zone==='after'?depthFromX(x,base+8,options.indent(),range.min,range.max):undefined;
+  const rtl=getComputedStyle(el).direction==='rtl',x=rtl?2*base+(scroller?.clientWidth??0)*interfaceScale(el.ownerDocument)-clientX:clientX;
+  const asked=zone==='after'?depthFromX(interfacePixels(x,el.ownerDocument),interfacePixels(base,el.ownerDocument)+8,options.indent(),range.min,range.max):undefined;
   const result=resolveDrop(rows,options.folders(),dragging(),{targetId:id,zone,depth:asked},options.policy());
   const row=rows.find(r=>r.id===id);
   const shown=zone==='inside'?(row?.depth??0)+1:zone==='before'?(row?.depth??0):(asked??row?.depth??0);

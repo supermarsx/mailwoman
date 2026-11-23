@@ -1,3 +1,4 @@
+import {interfacePixels} from '../../theme/interfaceScale.ts';
 // The filter chips under the top-bar search input (t88). The chips are a view of
 // `parseQuery(text)`; every edit, toggle or removal builds the next query and
 // hands its canonical text (`serializeQuery`) to `onChange`, which writes it
@@ -312,8 +313,8 @@ function ChipEditor(props: ChipEditorProps): JSX.Element {
       const a = props.state.anchor.getBoundingClientRect();
       const vv = window.visualViewport;
       const view = { left: vv?.offsetLeft ?? 0, top: vv?.offsetTop ?? 0, width: vv?.width ?? window.innerWidth, height: vv?.height ?? window.innerHeight };
-      const p = placePopover({ left: a.left, top: a.top, width: a.width, height: a.height }, { width: panel.offsetWidth, height: panel.offsetHeight }, view, { rtl: document.dir === 'rtl' });
-      setPos({ left: p.left, top: p.top, maxHeight: p.maxHeight });
+      const p = placePopover({ left: a.left, top: a.top, width: a.width, height: a.height }, { width: panel.getBoundingClientRect().width, height: panel.getBoundingClientRect().height }, view, { rtl: document.dir === 'rtl' });
+      setPos({ left:interfacePixels(p.left,panel.ownerDocument),top:interfacePixels(p.top,panel.ownerDocument),maxHeight:interfacePixels(p.maxHeight,panel.ownerDocument) });
     };
     place();
     panel.querySelector<HTMLElement>('input,select')?.focus({ preventScroll: true });

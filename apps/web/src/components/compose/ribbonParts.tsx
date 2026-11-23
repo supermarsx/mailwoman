@@ -1,3 +1,4 @@
+import {interfacePixels} from '../../theme/interfaceScale.ts';
 // Composer ribbon helpers (t38-e5).
 //
 // `RibbonSlot` marks where, in one ribbon tab's `RibbonPanel`, the rich-text
@@ -115,17 +116,17 @@ export function RibbonPopover(props: RibbonPopoverProps): JSX.Element {
     const rect = buttonEl?.getBoundingClientRect();
     if (!rect || !buttonEl) return;
     const view = buttonEl.ownerDocument.defaultView ?? window;
-    const width = popEl?.offsetWidth ?? 0;
-    const height = popEl?.offsetHeight ?? 0;
+    const width = popEl?.getBoundingClientRect().width ?? 0;
+    const height = popEl?.getBoundingClientRect().height ?? 0;
     // Under the button; above it when it would run off the bottom and there is more room there.
     const below = view.innerHeight - rect.bottom;
     const top = height > 0 && rect.bottom + 2 + height > view.innerHeight - 8 && rect.top > below
       ? Math.max(8, rect.top - 2 - height)
       : rect.bottom + 2;
     if (getComputedStyle(buttonEl).direction === 'rtl') {
-      setPosition({ top, right: Math.max(8, Math.min(view.innerWidth - rect.right, view.innerWidth - 8 - width)) });
+      setPosition({ top:interfacePixels(top,buttonEl.ownerDocument),right:interfacePixels(Math.max(8, Math.min(view.innerWidth - rect.right, view.innerWidth - 8 - width)),buttonEl.ownerDocument) });
     } else {
-      setPosition({ top, left: Math.max(8, Math.min(rect.left, view.innerWidth - 8 - width)) });
+      setPosition({ top:interfacePixels(top,buttonEl.ownerDocument),left:interfacePixels(Math.max(8, Math.min(rect.left, view.innerWidth - 8 - width)),buttonEl.ownerDocument) });
     }
   }
 

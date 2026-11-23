@@ -1,3 +1,4 @@
+import {interfacePixels,interfaceScale} from '../../theme/interfaceScale.ts';
 // The app colour picker (t81): one themed control for every colour a person
 // picks, in place of the browser's own `<input type="color">` dialog.
 //
@@ -186,7 +187,7 @@ export function ColorField(props: ColorFieldProps): JSX.Element {
     const w = view();
     const vv = w.visualViewport;
     const anchor = triggerEl.getBoundingClientRect();
-    const size = { width: popEl.offsetWidth, height: popEl.scrollHeight };
+    const size = { width: popEl.getBoundingClientRect().width, height: popEl.scrollHeight*interfaceScale(popEl.ownerDocument) };
     const rtl = w.getComputedStyle(triggerEl).direction === 'rtl';
     const spot = placePopover(
       { left: anchor.left, top: anchor.top, width: anchor.width, height: anchor.height },
@@ -194,9 +195,9 @@ export function ColorField(props: ColorFieldProps): JSX.Element {
       { left: vv?.offsetLeft ?? 0, top: vv?.offsetTop ?? 0, width: vv?.width ?? w.innerWidth, height: vv?.height ?? w.innerHeight },
       { rtl },
     );
-    paint(popEl, 'left', `${spot.left}px`);
-    paint(popEl, 'top', `${spot.top}px`);
-    paint(popEl, 'max-height', `${spot.maxHeight}px`);
+    paint(popEl, 'left', `${interfacePixels(spot.left,popEl.ownerDocument)}px`);
+    paint(popEl, 'top', `${interfacePixels(spot.top,popEl.ownerDocument)}px`);
+    paint(popEl, 'max-height', `${interfacePixels(spot.maxHeight,popEl.ownerDocument)}px`);
     popEl.setAttribute('data-side', spot.side);
   }
 

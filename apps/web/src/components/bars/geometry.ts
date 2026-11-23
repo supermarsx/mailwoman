@@ -1,3 +1,4 @@
+import {interfaceRect} from '../../theme/interfaceScale.ts';
 // `assertRibbonGeometry(root)`: the 3-row ribbon contract as a check (t38 §2.2).
 //
 // Returns every violation under `root`:
@@ -70,7 +71,7 @@ export function assertRibbonGeometry(root: Element, options: RibbonGeometryOptio
   const sized = root.querySelectorAll('[data-ribbon-body], [data-ribbon-controls]');
   for (const element of Array.from(sized)) {
     if (isHidden(element, root)) continue;
-    const height = element.getBoundingClientRect().height;
+    const height = interfaceRect(element.getBoundingClientRect(),element.ownerDocument).height;
     if (Math.abs(height - expected) > tolerance) {
       violations.push({ kind: 'height', element, detail: `${describe(element)} is ${height}px tall, expected ${expected}px` });
     }
@@ -92,11 +93,11 @@ export function assertRibbonGeometry(root: Element, options: RibbonGeometryOptio
 
   for (const group of Array.from(root.querySelectorAll('[data-ribbon-group]'))) {
     if (isHidden(group, root)) continue;
-    const box = group.getBoundingClientRect();
+    const box = interfaceRect(group.getBoundingClientRect(),group.ownerDocument);
     const children = Array.from(group.querySelectorAll('[data-ribbon-controls] > *, [data-ribbon-more]'));
     for (const control of children) {
       if (isHidden(control, root) || control.closest('[data-ribbon-popover]')) continue;
-      const r = control.getBoundingClientRect();
+      const r = interfaceRect(control.getBoundingClientRect(),control.ownerDocument);
       if (
         r.top < box.top - tolerance ||
         r.bottom > box.bottom + tolerance ||

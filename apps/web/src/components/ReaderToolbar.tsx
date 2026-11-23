@@ -1,3 +1,4 @@
+import {interfacePixels} from '../theme/interfaceScale.ts';
 import {useCommandRibbon} from './CommandRibbonContext.tsx';
 import {followUpActions} from './followUpActions.ts';
 import {requestDraftPreview} from './compose/draftPreview.ts';
@@ -222,8 +223,8 @@ export function ReaderToolbar(props:{
  let moreWidth=0;
  function fit():void {
   if(!row?.isConnected)return;
-  for(const element of Array.from(row.querySelectorAll<HTMLElement>('[data-reader-item]')))if(!element.hidden&&placement(element.dataset['readerItem']!)==='toolbar'){const style=getComputedStyle(element);widths.set(element.dataset['readerItem']!,element.getBoundingClientRect().width+(Number.parseFloat(style.marginLeft)||0)+(Number.parseFloat(style.marginRight)||0));}
-  const measuredMore=moreButton.getBoundingClientRect().width;if(measuredMore>0)moreWidth=measuredMore;
+  for(const element of Array.from(row.querySelectorAll<HTMLElement>('[data-reader-item]')))if(!element.hidden&&placement(element.dataset['readerItem']!)==='toolbar'){const style=getComputedStyle(element);widths.set(element.dataset['readerItem']!,interfacePixels(element.getBoundingClientRect().width,element.ownerDocument)+(Number.parseFloat(style.marginLeft)||0)+(Number.parseFloat(style.marginRight)||0));}
+  const measuredMore=interfacePixels(moreButton.getBoundingClientRect().width,moreButton.ownerDocument);if(measuredMore>0)moreWidth=measuredMore;
   const style=getComputedStyle(row);const gap=Number.parseFloat(style.columnGap)||0;
   const available=row.clientWidth-(Number.parseFloat(style.paddingLeft)||0)-(Number.parseFloat(style.paddingRight)||0);
   if(available<=0)return;
