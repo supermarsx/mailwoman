@@ -21,21 +21,22 @@ import type { ZeroAccessAccount } from './service.ts';
 export interface ZeroAccessStatus {
   readonly enabled: boolean;
   /**
-   * The HONEST list of what the server still sees at rest (SPEC §9.2, plan §1.4):
-   * ciphertext blobs, opaque IDs, message sizes, timestamps, and the envelope routing
-   * needed to proxy IMAP/SMTP. Zero-access protects data AT REST against a curious/
-   * breached host; a malicious ACTIVE server is NOT defended by this mode. No
-   * searchable-encryption claim is made.
+   * What the server still holds and can read (SPEC §9.2), in short form; the full
+   * wording is `ZA_SERVER_STILL_SEES` in `./disclosure.ts`. Stored mail is sealed
+   * with the SERVER's key whether or not this mode is on, so the mode does not
+   * defend against the server, its operator, or a database copy taken with the key.
+   * It keeps the account out of the search index. No searchable-encryption claim
+   * is made.
    */
   readonly serverVisibleMetadata: readonly string[];
 }
 
-/** Default status (disabled) + the honest server-visible metadata list. */
+/** Default status (disabled) + the server-visible list. */
 export const ZERO_ACCESS_DEFAULT: ZeroAccessStatus = {
   enabled: false,
   serverVisibleMetadata: [
-    'ciphertext blobs',
-    'opaque IDs',
+    'message bodies and envelopes (sealed with the server key)',
+    'mail in transit',
     'message sizes',
     'timestamps',
     'envelope routing for IMAP/SMTP proxying',

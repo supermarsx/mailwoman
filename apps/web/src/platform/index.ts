@@ -7,8 +7,9 @@
 // screen-capture protection, biometric app-lock, deep links, share/drag-out, push,
 // multi-server, self-contained local server) is reached ONLY through this
 // interface, never by calling a Tauri API directly. Two implementations back it:
-//   * `./browser.ts`  — web fallbacks (Notification API, Web Push, OPFS vault,
-//                        watermark). Created SYNCHRONOUSLY; the default everywhere.
+//   * `./browser.ts`  — web fallbacks (Notification API, Web Push, OPFS vault;
+//                        no capture protection and no watermark). Created
+//                        SYNCHRONOUSLY; the default everywhere.
 //   * `./tauri.ts`    — native impl; DYNAMICALLY imported only under `isTauri()`
 //                        so `@tauri-apps/*` never enter the browser bundle.
 //

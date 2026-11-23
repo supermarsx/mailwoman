@@ -415,6 +415,32 @@ describe('Compose', () => {
     });
   }
 
+  // A composition quoting decrypted mail is never stored (Compose.reply.test.tsx
+  // "is never written to the local drafts store"), so a reopened draft holds only
+  // text that was stored as ordinary mail and is labelled plain.
+  it('labels a reopened saved draft plain', async () => {
+    const sent: Array<{ input: { context: Array<{ kind: string; text: string }> } }> = [];
+    const service = new AssistService(async (input: string, init?: RequestInit) => {
+      if (input.includes('/api/assist/config')) {
+        return json({ availability: 'enabled', capabilities: ['grammar'], endpoint_host: 'assist.local', include_e2ee: false, include_attachments: false });
+      }
+      if (input.includes('/api/assist/invoke')) {
+        sent.push(JSON.parse(String(init?.body ?? '{}')) as (typeof sent)[number]);
+        return json({ text: 'Fixed.', disclosure: { endpoint_host: 'assist.local', sent: [], withheld: [] } });
+      }
+      return json({}, 404);
+    });
+    saveDraft({ id: 'reopen-assist', accountId: 'acct1', storageAuthority: 'test-storage-authority-acct1', bodyFormat: 'plain', to: 'you@example.org', subject: 'Reopened', bodyText: 'Saved words', bodyHtml: '', savedAt: 1 });
+    const { app } = renderWithApp(() => <Compose resumeDraftId="reopen-assist" onClose={() => undefined} />, { deps: { assistService: service } });
+    await app.login({ username: 'me@example.org', password: 'p' });
+    await app.assist.loadConfig();
+    fireEvent.click(screen.getByRole('tab', { name: 'Insert' }));
+    fireEvent.click(within(await screen.findByTestId('compose-assist')).getAllByRole('button')[0]!);
+    fireEvent.click(screen.getByRole('button', { name: 'Fix grammar' }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]!.input.context[0]).toMatchObject({ kind: 'plain', text: expect.stringContaining('Saved words') });
+  }, 30_000);
+
   it('withholds a draft quoting decrypted mail when decrypted content is not allowed', async () => {
     const invoked: string[] = [];
     const service = new AssistService(async (input: string) => {

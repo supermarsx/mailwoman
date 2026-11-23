@@ -166,7 +166,7 @@ describe('getPushTransport() + capture protection', () => {
     expect(createBrowserPlatform().getPushTransport()).toBe('webpush');
   });
 
-  it('reports capture protection unsupported (caller keeps the watermark)', async () => {
+  it('reports capture protection unsupported (no watermark stands in)', async () => {
     expect(await createBrowserPlatform().setCaptureProtection(true)).toEqual({ supported: false });
   });
 });
