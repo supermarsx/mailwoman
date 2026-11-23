@@ -191,7 +191,7 @@ Run Mailwoman behind a reverse proxy that terminates TLS, or let the server get 
 - [ACME and certificates](acme.md): built-in Let's Encrypt (`--acme`) or your own certificate files.
 - [WebSocket and event streams](websocket.md).
 
-Until you set both `MW_TRUSTED_PROXIES` and `MW_FORWARDED_MODE`, the server records every client as the proxy's address (audit log, rate limits, bans) and does not see that the original request was HTTPS.
+Until the proxy's address is in `MW_TRUSTED_PROXIES`, the server ignores its forwarded headers: it does not see that the original request was HTTPS, and it records every client as the proxy's address (audit log, rate limits, bans). `MW_TRUSTED_PROXIES` alone is enough for the scheme and host (`X-Forwarded-Proto`, `X-Forwarded-Host`); the client address also needs `MW_FORWARDED_MODE` (`xff` or `forwarded`), which picks the header it is read from.
 
 ## Operating the server
 
