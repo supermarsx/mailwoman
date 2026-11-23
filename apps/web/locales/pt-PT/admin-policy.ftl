@@ -16,7 +16,7 @@ admin-policy-min-tls-12 = TLS 1.2 e posteriores
 admin-policy-min-tls-13 = Apenas TLS 1.3
 
 admin-policy-group-sign-in = Início de sessão
-admin-policy-group-sign-in-help = O custo de hash de palavras-passe aplica-se aos hashes recém-criados de palavras-passe e códigos de recuperação. O hash existente de uma conta de caixa de correio local é atualizado no próximo início de sessão bem-sucedido; a palavra-passe de um administrador mantém o seu custo até ser alterada. As contas verificadas por um diretório ou servidor de correio não têm hash aqui.
+admin-policy-group-sign-in-help = O custo do hash aplica-se aos novos hashes de palavras-passe e de códigos de recuperação; os hashes existentes mantêm o seu custo até a palavra-passe ser alterada.
 admin-policy-require-2fa = Exigir um segundo fator em todas as contas
 admin-policy-require-2fa-help = As contas sem segundo fator são convidadas a configurá-lo no próximo início de sessão; as regras por domínio estão na página da autenticação de dois fatores.
 admin-policy-argon-memory = Memória do Argon2, em KiB
