@@ -58,7 +58,7 @@ The terms Mailwoman uses in its screens and in this manual, each with a one-sent
 - **Passkey**: A WebAuthn credential used to sign in, for mailbox accounts and, separately, for administrator accounts. See [Passkeys](../security/passkeys.md).
 - **Pin (environment)**: The way an environment variable relates to a setting: while the variable is set its value applies and the console refuses to change the stored value. A **fallback** variable is used only when nothing is stored. See [Environment variables](environment.md).
 - **Plugin**: An engine plugin is a WebAssembly component that runs inside the server; a **UI plugin** extends the web client. See [Plugins](../admin/plugins.md) and [UI plugins](../plugins/ui-plugins.md).
-- **Pre-added user**: An address an administrator adds in advance so that its owner can create an account at first sign-in when the **First sign-in** rule requires it. See [First sign-in and pre-added users](../admin/preprovisioned-users.md).
+- **Pre-added user**: An address an administrator adds in advance so that its owner can create an account at first sign-in when the sign-in policy admits only pre-added addresses. See [First sign-in and pre-added users](../admin/preprovisioned-users.md).
 - **Proxy mode**: The default server mode, in which Mailwoman proxies JMAP to your mail servers. See **engine mode** and [`serve`](cli.md#serve).
 
 ## R

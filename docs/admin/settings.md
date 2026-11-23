@@ -529,7 +529,7 @@ How often the stored data of each user is measured, in hours.
 
 **Saving this setting currently has no effect.** Only `MW_ASSIST_RATE_LIMIT_PER_MIN` is read. With that variable set to `0` every Assist request is refused (not "no limit"); with the variable unset there is no limit.
 
-The most AI assistant requests per minute for the whole server. 0 means no limit.
+The most Assist requests per minute for one account. The environment variable is the only control that is read.
 
 <a id="plugins.kv.maxKeyBytes"></a>
 ### Plugin key size (`plugins.kv.maxKeyBytes`)
@@ -687,6 +687,8 @@ The https address used to test an outbound proxy.
 
 <a id="push.vapidContact"></a>
 ### Push contact (`push.vapidContact`)
+
+**Saving this setting currently has no effect.** Only `MW_VAPID_CONTACT` is read.
 
 The contact (mailto: or https:) given to push services with each notification.
 
@@ -2470,7 +2472,7 @@ Administrator ceiling (global/domain, default true) for account-authorized backg
 
 <a id="offline.persistentStorageAllowed"></a>
 ### `offline.persistentStorageAllowed`
-Administrator ceiling (global/domain, default false) for an explicit browser persistent-storage request. The browser decides whether to grant the request; this setting cannot silently grant permission.
+Administrator ceiling (global/domain, default true) for an explicit browser persistent-storage request. The browser decides whether to grant the request; this setting cannot silently grant permission.
 
 <a id="security.signin.mailboxFailureLimit"></a>
 <a id="security.signin.adminFailureLimit"></a>
@@ -3721,7 +3723,7 @@ Global/domain boolean, default `true`. When off the category is not offered, and
 <a id="cookies.functional.default"></a>
 ### `cookies.functional.default`
 
-Global/domain boolean, default `false`. Used as the initial toggle in `optIn` and as the applied state in `optOut` and `noticeOnly`.
+Global/domain boolean, default `true`. Used as the initial toggle in `optIn` and as the applied state in `optOut` and `noticeOnly`.
 
 <a id="cookies.analytics.enabled"></a>
 ### `cookies.analytics.enabled`
@@ -5532,7 +5534,7 @@ Every key in the settings registry, generated from the registry and checked agai
 | [`notifications.view.enabled`](#notifications.view.enabled) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
 | <a id="notifications.view.showinsidebar"></a>[`notifications.view.showInSidebar`](#notifications.view.showInSidebar) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
 | [`notifications.enabled`](#notifications.enabled) | on or off | `false` | server, domain, user |  | Applied by the server and the web app. |
-| <a id="push.vapidcontact"></a>[`push.vapidContact`](#push.vapidContact) | `mailto:` address or https:// URL, up to 320 characters; may be unset | `null` | server | `MW_VAPID_CONTACT` (pin) | Applied by the server. |
+| <a id="push.vapidcontact"></a>[`push.vapidContact`](#push.vapidContact) | `mailto:` address or https:// URL, up to 320 characters; may be unset | `null` | server | `MW_VAPID_CONTACT` (pin) | **No effect when saved.** Only `MW_VAPID_CONTACT` is read. |
 | <a id="push.quiethours"></a>[`push.quietHours`](#push.quietHours) | object `{"start": 0-23, "end": 0-23}` in UTC hours; may be unset | `null` | server |  | Applied by the server. |
 
 ### AI assistant keys

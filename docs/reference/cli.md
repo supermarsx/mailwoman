@@ -3,7 +3,7 @@
 `mailwoman` is one binary. Without a command it prints its help and exits with status 2.
 `--help` works on every command and subcommand, and `--version` prints the build version.
 
-Every command that opens the database takes the same two options:
+Most commands that open the database take the same two options (`db` and `erasure` take only `--db-path`, and `migrate-store` takes neither; it has its own `--from` and `--to`):
 
 | Option | Environment | Default | What it does |
 |---|---|---|---|
@@ -62,14 +62,17 @@ Notes:
 - **Certificates.** `--tls-cert` and `--tls-key` take effect only together. With only
   one of them the server starts without TLS and logs nothing about the missing half.
   `--acme` wins over a certificate and key.
-- **Secure cookies.** An explicit `MW_COOKIE_SECURE` (`1`, `true`, `yes`, `on`, or `0`,
-  `false`, `no`, `off`) forces the `Secure` attribute on or off. Without it, cookies are
-  `Secure` when the request is HTTPS (judged from the scheme of `MW_PUBLIC_URL` or
-  from trusted proxy headers) or when `--cookie-secure` is given.
-- **Booleans.** `--coep` is on by default and the flag cannot turn it off. Set
-  `MW_COEP=false` to omit the header.
+- **Secure cookies.** An explicit `MW_COOKIE_SECURE` of `true` or `false` forces the `Secure`
+  attribute on or off. Without it, cookies are `Secure` when the request is HTTPS (judged
+  from the scheme of `MW_PUBLIC_URL` or from trusted proxy headers) or when
+  `--cookie-secure` is given.
+- **Booleans.** `MW_COOKIE_SECURE`, `MW_CSRF_STRICT`, `MW_COEP` and `MW_ACME_STAGING` accept
+  only the literal values `true` and `false`; anything else (`1`, `yes`, `on`) stops
+  `serve` with an "invalid value" error. `--coep` is on by default and the flag cannot turn
+  it off: set `MW_COEP=false` to omit the header.
 - **Sessions.** The same limits can be set under the settings `session.idleSecs` and
-  `session.absoluteSecs`; the shorter limit applies.
+  `session.absoluteSecs`; the shorter limit applies. A non-zero absolute lifetime is capped
+  at 15 days.
 - **Everything else** the server reads comes from environment variables and stored
   settings, not from options: see the [environment reference](environment.md) and
   [Settings](../admin/settings.md).
@@ -264,8 +267,8 @@ everything except the swap and reports what would happen.
 ## erasure
 
 `mailwoman erasure [--db-path <FILE>] <command>` backs up and restores a SQLite database
-so that people erased after a backup are erased again after a restore. All commands except
-`scrub-logs` need the server key in `MW_SERVER_KEY` (the one the databases were written
+so that people erased after a backup are erased again after a restore. All commands, `scrub-logs`
+included, need the server key in `MW_SERVER_KEY` (the one the databases were written
 with). See [Erasure coverage](../admin/erasure-coverage.md) for what an erasure removes.
 
 | Command | What it does |
@@ -316,8 +319,8 @@ registry. See [Plugins](../admin/plugins.md).
 `mailwoman password [OPTIONS]` changes an account's password through the backend that
 `MW_PASSWD_BACKEND` selects, then re-seals the account's stored upstream credentials
 under the new password when the backend asks for it. It prints a summary line with
-the number of credentials that were re-sealed, and records the change in the audit log. A backend that is selected but cannot be built stops
-the command with the configuration error.
+the number of credentials that were re-sealed, and records the change in the audit log. A backend that is selected but cannot be built makes
+the command panic with the configuration error (exit status 101, not 1).
 
 | Option | Environment | What it does |
 |---|---|---|

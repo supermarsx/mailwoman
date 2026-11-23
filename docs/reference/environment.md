@@ -39,7 +39,7 @@ Built-in certificates, your own certificate files, and transport headers.
 | [`MW_HSTS_MAX_AGE`](../admin/configuration.md#mw-hsts-max-age) | HSTS max-age in seconds |
 | [`MW_HSTS_INCLUDE_SUBDOMAINS`](../admin/configuration.md#mw-hsts-include-subdomains) | HSTS includeSubDomains |
 | [`MW_HSTS_PRELOAD`](../admin/configuration.md#mw-hsts-preload) | HSTS preload |
-| [`MW_DB_REQUIRE_TLS`](../admin/configuration.md#mw-db-require-tls) | 1, true, yes or on: refuse a PostgreSQL URL that does not force TLS (sslmode=require, verify-ca or verify-full |
+| [`MW_DB_REQUIRE_TLS`](../admin/configuration.md#mw-db-require-tls) | 1, true, yes or on: refuse a PostgreSQL URL that does not force TLS (sslmode=require, verify-ca or verify-full) |
 
 ## Database, keys and storage
 
@@ -50,7 +50,7 @@ The database, the key that seals stored secrets, encryption at rest, and the dir
 | [`MW_DB_PATH`](../admin/configuration.md#mw-db-path) | SQLite path or PostgreSQL URL |
 | [`MW_SERVER_KEY`](../admin/configuration.md#mw-server-key) | 32-byte key that seals every stored secret |
 | [`MW_SERVER_KEY_FILE`](../admin/configuration.md#mw-server-key-file) | persistent sealing key file; PostgreSQL requires this or MW_SERVER_KEY |
-| [`MW_DB_ENCRYPTION`](../admin/configuration.md#mw-db-encryption) | database encryption at rest: off, optional (encrypt when a key is given) or required (refuse to start without  |
+| [`MW_DB_ENCRYPTION`](../admin/configuration.md#mw-db-encryption) | database encryption at rest: off, optional (encrypt when a key is given) or required (refuse to start without one) |
 | [`MW_DB_KEY`](../admin/configuration.md#mw-db-key) | database encryption key, inline; MW_DB_KEY_FILE and MW_DB_KEY_COMMAND are the alternatives |
 | [`MW_DB_KEY_FILE`](../admin/configuration.md#mw-db-key-file) | read the database encryption key from this file |
 | [`MW_DB_KEY_COMMAND`](../admin/configuration.md#mw-db-key-command) | run this command and use its output as the database encryption key |
@@ -58,7 +58,7 @@ The database, the key that seals stored secrets, encryption at rest, and the dir
 | [`MW_UPLOAD_DIR`](../admin/configuration.md#mw-upload-dir) | sealed upload directory |
 | [`MW_SEARCH_DIR`](../admin/configuration.md#mw-search-dir) | search index location (memory or a path) |
 | [`MW_WEB_DIR`](../admin/configuration.md#mw-web-dir) | serve the web client from this directory |
-| [`MW_RETAINED_ASSETS_DIR`](../admin/configuration.md#mw-retained-assets-dir) | keep the hashed web files of the last 5 builds (14 days after replacement) for tabs still running one; off dis |
+| [`MW_RETAINED_ASSETS_DIR`](../admin/configuration.md#mw-retained-assets-dir) | keep the hashed web files of the last 5 builds (14 days after replacement) for tabs still running one; off disables |
 | [`MW_WKD_DIR`](../admin/configuration.md#mw-wkd-dir) | WKD files directory |
 | [`MW_ABUSE_SPOOL`](../admin/configuration.md#mw-abuse-spool) | abuse report (ARF) spool directory |
 | [`MW_GEOIP_DB`](../admin/configuration.md#mw-geoip-db) | local country database file; when set it overrides the console-managed one |
@@ -79,7 +79,7 @@ How the server reaches your mail servers.
 | [`MW_SMTP_PORT`](../admin/configuration.md#mw-smtp-port) | engine submission port |
 | [`MW_SMTP_SECURITY`](../admin/configuration.md#mw-smtp-security) | engine submission security |
 | [`MW_SMTP_POLICY_DOH_URL`](../admin/configuration.md#mw-smtp-policy-doh-url) | DNS wire resolver for enabled SMTP transport policies; DNSSEC validates locally through the dns_auth route |
-| [`MW_ENGINE_TLS`](../admin/configuration.md#mw-engine-tls) | forces the engine's TLS mode (test override; the dashboard warns while it is set) |
+| [`MW_ENGINE_TLS`](../admin/configuration.md#mw-engine-tls) | forces the transport (implicit, starttls or plaintext) of engine connections for a domain that has no mail configuration of its own; for fronting a plaintext test server |
 | [`MW_AUTOCONFIG_ALLOW_PRIVATE`](../admin/configuration.md#mw-autoconfig-allow-private) | allow private addresses in autoconfig lookups |
 | [`MW_ALLOWED_FROMS`](../admin/configuration.md#mw-allowed-froms) | server-advertised sender identities |
 
@@ -211,9 +211,9 @@ How the server reads these variables. Where this differs from the default shown 
 |---|---|
 | [`MW_ADMIN_ENABLED`](../admin/configuration.md#mw-admin-enabled) | The console is on unless the variable is `0` or `false` (any case). The default is on whether or not `MW_ADMIN_USER` and `MW_ADMIN_PASSWORD` are set. |
 | [`MW_ACME`](../admin/configuration.md#mw-acme) | A comma-separated list of domain names, not a switch. Unset means no ACME. Do not set it to `true` or `false`: either would be read as a domain name. |
-| [`MW_COOKIE_SECURE`](../admin/configuration.md#mw-cookie-secure) | No fixed default. Without it, cookies are `Secure` on requests the server treats as HTTPS (from the scheme of `MW_PUBLIC_URL` or from trusted proxy headers). `1`, `true`, `yes` or `on` forces `Secure` on; `0`, `false`, `no` or `off` forces it off. |
-| [`MW_CSRF_STRICT`](../admin/configuration.md#mw-csrf-strict) | Off unless set. The `deploy.sh` script sets it to `true`. |
-| [`MW_COEP`](../admin/configuration.md#mw-coep) | On. The command-line flag cannot turn it off; set the variable to `false`. |
+| [`MW_COOKIE_SECURE`](../admin/configuration.md#mw-cookie-secure) | No fixed default. Without it, cookies are `Secure` on requests the server treats as HTTPS (from the scheme of `MW_PUBLIC_URL` or from trusted proxy headers). `true` forces `Secure` on and `false` forces it off. `mailwoman serve` accepts only the literal values `true` and `false` for this variable; any other value stops it with an invalid-value error. |
+| [`MW_CSRF_STRICT`](../admin/configuration.md#mw-csrf-strict) | Off unless set. The `deploy.sh` script sets it to `true`. Only `true` and `false` are accepted. |
+| [`MW_COEP`](../admin/configuration.md#mw-coep) | On. The command-line flag cannot turn it off; set the variable to `false`. Only `true` and `false` are accepted. |
 
 ## Variables tied to a setting
 
@@ -238,7 +238,7 @@ These variables are tied to a registry setting. A **pin** wins over the stored v
 | `MW_DLP_ADMIN` | [`dlp.adminAddress`](../admin/settings.md#dlp.adminaddress) | pin | no |
 | `MW_ERROR_FORWARD_URL` | [`observability.errorForwardUrl`](../admin/settings.md#observability.errorforwardurl) | pin | no |
 | `MW_EGRESS_PROBE_URL` | [`egress.probeUrl`](../admin/settings.md#egress.probeurl) | pin | no |
-| `MW_VAPID_CONTACT` | [`push.vapidContact`](../admin/settings.md#push.vapidcontact) | pin | yes |
+| `MW_VAPID_CONTACT` | [`push.vapidContact`](../admin/settings.md#push.vapidcontact) | pin | no |
 | `MW_DB_POOL` | [`database.pool`](../admin/settings.md#database.pool) | pin | yes |
 
 Where the last column says **no**, see the effect column of the setting in the [key reference](../admin/settings.md#key-reference).
