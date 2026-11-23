@@ -61,7 +61,7 @@ On screens narrower than 600 px the ribbon starts hidden, so the message keeps m
 | Label | What it does | Default | Who can change it |
 | --- | --- | --- | --- |
 | **Editor ribbon** ([`ui.bar.composerRibbon`](/admin/settings#ui.bar.composerribbon)) | `pinned` keeps the ribbon open, `auto` shows only the tab names | `pinned` | Administrators globally and per domain, and users, unless locked |
-| **Ribbon auto-hide button** ([`compose.feature.layout.ribbonAutoHide`](/admin/settings#compose.feature.*)) | Shows the pin button, and enables Ctrl+F1 and a double-click on a tab | on | Administrators globally and per domain, and users, unless locked |
+| **Ribbon auto-hide button** ([`compose.feature.layout.ribbonAutoHide`](/admin/settings#compose.feature)) | Shows the pin button, and enables Ctrl+F1 and a double-click on a tab | on | Administrators globally and per domain, and users, unless locked |
 
 ## Troubleshooting
 

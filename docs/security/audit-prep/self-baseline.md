@@ -46,7 +46,7 @@ forward, so re-run the command rather than trusting this paragraph.
 
 **Advisory ignores in `deny.toml`:** 19 IDs in four groups, each with its reason in
 the file — see
-[`surface-inventory.md`](./surface-inventory.md#6-supply-chain-posture--the-denytoml-bounded-ignores)
+[`surface-inventory.md`](./surface-inventory.md#_6-supply-chain-posture-the-deny-toml-bounded-ignores)
 for the boundaries:
 - RUSTSEC-2023-0071 — `rsa` Marvin timing side-channel (a vulnerability advisory with
   no fixed version; bounded to client-side decryption);
@@ -95,7 +95,7 @@ docker compose -f docker-compose.dev.yml down -v
 `-I` = warnings do not fail (only FAIL-level rules); `-m 5` caps the spider. **Auditor
 action:** treat this baseline scan as a floor, then run an authenticated/active ZAP scan
 (out of scope for the CI baseline) against the live surfaces in
-[`surface-inventory.md`](./surface-inventory.md#1-network-reachable-endpoints-mw-server).
+[`surface-inventory.md`](./surface-inventory.md#_1-network-reachable-endpoints-mw-server).
 
 ## 4. Live-E2E security assertions (already enforced)
 

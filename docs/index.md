@@ -12,51 +12,51 @@ hero:
     alt: Mailwoman icon
   actions:
     - theme: brand
-      text: Deploy Mailwoman
-      link: /deploy/script
+      text: Install Mailwoman
+      link: /getting-started/install-quick
     - theme: alt
       text: Use the app
-      link: /user/sync-offline
+      link: /user/
     - theme: alt
       text: Documentation map
       link: /README
 
 features:
+  - title: Start here
+    details: What Mailwoman is, a quick install and your first sign-in.
+    link: /getting-started/what-is-mailwoman
+    linkText: Get started
   - title: Using Mailwoman
-    details: Sync and offline access, multiple windows, unified mail and snooze.
-    link: /user/sync-offline
+    details: Reading, writing, searching and organizing mail; contacts, calendar, tasks and notes; personal settings.
+    link: /user/
     linkText: Read the user guide
-  - title: Installation & operations
-    details: The deployment script, reverse proxies, TLS, PostgreSQL, backups, packaging and the desktop and Android shells.
-    link: /deploy/README
-    linkText: Deploy and operate
-  - title: Administration
-    details: One page per admin console area, plus the settings and configuration references.
+  - title: Administering
+    details: Install and upgrade, accounts and domains, security policy, privacy and compliance, and day-to-day operations.
     link: /admin/index
-    linkText: Configure the server
-  - title: Security & privacy
-    details: The security model, one page per surface, including what each control does not guarantee.
+    linkText: Run the server
+  - title: Security model
+    details: One page per surface, including what each control does not guarantee.
     link: /security/README
     linkText: Review the model
-  - title: Mail providers
-    details: JMAP discovery, IMAP and POP3, and the Microsoft Graph, Exchange EWS and Gmail API bridges.
+  - title: Integrations and protocols
+    details: Mail provider bridges, Nextcloud, plugins and message export.
     link: /bridges/index
-    linkText: Connect a provider
-  - title: Integrations & plugins
-    details: Nextcloud, WebAssembly plugins, spam trainers, masked email and message export.
-    link: /integrations/nextcloud
-    linkText: Extend Mailwoman
+    linkText: Connect and extend
+  - title: Reference
+    details: The command line, environment variables, configuration, every setting and a glossary.
+    link: /reference/cli
+    linkText: Look something up
 ---
 
-![The Mailwoman mailbox in the default dark theme: a folder sidebar, a message list of fictional demo messages, and an open message in the reading pane](/screenshots/mailbox-dark.png){.mw-shot}
+![The Mailwoman mailbox in the dark theme: the folder list with unread counts, a message list of demo messages and an open message in the reading pane](/screenshots/core/mailbox.webp){.mw-shot}
 
 ## Start with your role
 
 | You want to… | Read |
 | --- | --- |
-| Read, compose and organize mail | [Using Mailwoman](./user/sync-offline.md) |
-| Install or upgrade a server | [Deployment guide](./deploy/script.md) · [Operations index](./deploy/README.md) |
-| Configure users and policies | [Administrator settings](./admin/settings.md) |
+| Read, compose and organize mail | [Using Mailwoman](./user/index.md) |
+| Install or upgrade a server | [Quick install](./getting-started/install-quick.md) · [Install and configure](./deploy/README.md) |
+| Configure users and policies | [The admin console](./admin/index.md) · [Settings reference](./admin/settings.md) |
 | Understand privacy and security | [Security guide](./security/README.md) |
 | Connect a mail provider | [JMAP discovery](./admin/jmap.md) · [IMAP/POP3](./deploy/imap-pop3.md) · [Graph](./bridges/graph.md) |
 | Find all documentation | [Documentation map](./README.md) |

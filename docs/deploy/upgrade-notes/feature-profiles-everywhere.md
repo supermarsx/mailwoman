@@ -9,7 +9,7 @@ call features an administrator can now turn off.
   list (`access.protocols`, default `["imap","pop3","ews"]`) and one limit
   (`limit.linked_mailboxes`, default `0` = only the server maximum). The full list
   with what each one refuses is in [settings.md](../../admin/settings.md#feature-and-integration-permissions)
-  and [feature-governance.md](../../admin/feature-governance.md#what-a-profile-controls).
+  and [feature-governance.md](../../admin/feature-governance.md#what-turning-a-feature-off-does).
 - **The server refuses a feature that is off**, with
   `403 {"code":"feature_disabled","feature":"<id>","key":"<key>"}` (a limit:
   `409`/`413 {"code":"limit_exceeded","limit":"<key>","max":<n>}`), before any part

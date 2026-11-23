@@ -14,7 +14,7 @@ The card is part of the console's **Settings** screen. Users see a matching card
 ## Before you start
 
 - You need a console role that can read and change settings. Without the change capability the card is read-only.
-- A feature is stored as a setting with the key `compose.feature.<id>` ([`compose.feature.*`](/admin/settings#compose.feature.*)). Each is a yes or no value that is on unless set otherwise, and it can be set globally, for a domain or by the user. The card writes the global and domain values.
+- A feature is stored as a setting with the key `compose.feature.<id>` ([`compose.feature.*`](/admin/settings#compose.feature)). Each is a yes or no value that is on unless set otherwise, and it can be set globally, for a domain or by the user. The card writes the global and domain values.
 
 ## Switch features on or off
 

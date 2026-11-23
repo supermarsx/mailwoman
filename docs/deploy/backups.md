@@ -136,7 +136,7 @@ python3 scripts/backup-destinations.py fetch --config /etc/mailwoman/backup-targ
     --destination nextcloud-copy --name <name>.tar.age --output /srv/restore
 ```
 
-`fetch` verifies the files against the completion manifest. See [Configuration transfer and backup destinations](../admin/configuration-transfer.md#nextcloud) for more on each type.
+`fetch` verifies the files against the completion manifest. See [Configuration transfer and backup destinations](../admin/configuration-transfer.md#send-settings-backups-to-nextcloud) for more on each type.
 
 ## Scheduling: `timers`
 

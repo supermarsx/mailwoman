@@ -18,9 +18,10 @@ Set `DOCS_BASE` when hosting under a subdirectory (for example `/mailwoman/` on
 GitHub Pages); the `Documentation` workflow (`.github/workflows/docs.yml`) builds
 with it on every change under `docs/`.
 
-- **Sidebar**: generated from the folders in `.vitepress/config.mjs`; a new page
-  appears in its section automatically, titled by its first `# heading`. Add a new
-  top-level folder to the `sections` list there.
+- **Sidebar**: groups and page order are set in `.vitepress/sidebar.mjs`, labelled by
+  each page's `# heading`. A page missing from that list still appears: in "More"
+  under Administering for `admin/` and `deploy/`, in Engineering notes for loose
+  top-level pages.
 - **Theme**: `.vitepress/theme/style.css` maps the web app's colour tokens
   (`apps/web/src/theme/tokens.ts`) onto VitePress's variables. The fonts (Jost,
   JetBrains Mono) are self-hosted in `.vitepress/theme/fonts/`; the site makes no
@@ -72,35 +73,30 @@ with it on every change under `docs/`.
   build into scratch: `node node_modules/vitepress/dist/node/cli.js build . --outDir
   <scratch>/out --cacheDir <scratch>/cache` from `docs/`. Serve the output with any
   static file server (`vitepress preview` ignores `--outDir`).
-- **Sidebar**: new folders `getting-started/`, `user/**`, `reference/`, `changelog/`
-  and `engineering/` are picked up automatically; `redirect:` stubs are left out.
 
-## For users
+## The manual by reader
 
-- [Sync, offline access and multiple windows](./user/sync-offline.md).
-
-## For operators
-
-- [`deploy/`](./deploy/README.md) — installing, reverse proxies, TLS, Postgres,
-  caching, push, packaging, the desktop and Android shells, and
-  [`deploy/egress-proxy.md`](./deploy/egress-proxy.md) for routing outbound
-  fetches through your own proxy.
-- [`security/`](./security/README.md) — the security model, one page per surface.
+- **Start here**: [what Mailwoman is](./getting-started/what-is-mailwoman.md),
+  [a quick install](./getting-started/install-quick.md) and
+  [your first sign-in](./getting-started/first-sign-in.md).
+- **Using Mailwoman**: [the mailbox](./user/index.md), one page per task, and
+  [personal settings](./user/settings/index.md), one page per category.
+- **Administering**: [the admin console](./admin/index.md);
+  [install and upgrade](./deploy/README.md) (with reverse-proxy recipes and upgrade
+  notes); accounts and domains; security policy; privacy and compliance; mail
+  features; appearance; operations; [troubleshooting](./admin/troubleshooting.md).
+  The sidebar groups the `admin/` and `deploy/` pages by task.
+- **Security model**: [`security/`](./security/README.md), one page per surface.
   [`security/egress.md`](./security/egress.md) states what the outbound-fetch
-  policy guarantees **and what it does not**, which is the more useful half.
-- [`admin/`](./admin/index.md) — one page per administrator setting area. Newer pages:
-  [`compliance.md`](./admin/compliance.md), [`breach-register.md`](./admin/breach-register.md),
-  [`consent.md`](./admin/consent.md), [`cookies.md`](./admin/cookies.md),
-  [`data-requests.md`](./admin/data-requests.md), [`erasure-coverage.md`](./admin/erasure-coverage.md),
-  [`retention.md`](./admin/retention.md), [`encryption.md`](./admin/encryption.md),
-  [`sessions.md`](./admin/sessions.md), [`request-protection.md`](./admin/request-protection.md),
-  [`metrics-persistence.md`](./admin/metrics-persistence.md), [`observability.md`](./admin/observability.md),
-  [`composer-features.md`](./admin/composer-features.md); the settings and configuration references are
-  [`settings.md`](./admin/settings.md) and [`configuration.md`](./admin/configuration.md).
-- [`bridges/`](./bridges/index.md) — Graph / EWS / Gmail / PIM bridges.
-- [`integrations/nextcloud.md`](./integrations/nextcloud.md),
-  [`export/msg-oft-docx.md`](./export/msg-oft-docx.md),
-  [`assist.md`](./assist.md) (AI privacy and governance).
+  policy guarantees and what it does not.
+- **Integrations and protocols**: [mail provider bridges](./bridges/index.md),
+  [Nextcloud](./integrations/nextcloud.md), [plugins](./plugins/index.md),
+  [message export](./export/index.md).
+- **Reference**: [command line](./reference/cli.md),
+  [environment variables](./reference/environment.md),
+  [configuration](./admin/configuration.md), [every setting](./admin/settings.md),
+  [glossary](./reference/glossary.md), [IMAP extensions](./protocols/imap-extensions.md).
+- **Changelog**: [release notes](./changelog/26.8.md).
 
 ## For contributors
 
@@ -113,7 +109,7 @@ with it on every change under `docs/`.
 - [`testing/coverage.md`](./testing/coverage.md),
   [`testing/mutation.md`](./testing/mutation.md) — the coverage ratchet and
   mutation harness.
-- [`a11y-manual-checklist.md`](./a11y-manual-checklist.md),
+- [`engineering/`](./engineering/a11y-manual-checklist.md): history and UI-internals notes (accessibility checklist, load baseline, build history),
   [`i18n.md`](./i18n.md).
 - [`perf/`](./perf/index.md) — build-profile and size-budget measurements, with their
   methods stated.

@@ -285,7 +285,7 @@ body {font-feature-settings:'kern' 1;}
 .vp-doc img.mw-shot, .vp-doc img.mw-crop {cursor:zoom-in;}
 .dark .vp-doc img.mw-shot, .dark .vp-doc img.mw-crop {border-color:var(--mw-border-strong);}
 /* Full-size viewer. */
-.mw-lightbox {position:fixed;inset:0;z-index:100;overflow:auto;background:color-mix(in srgb,var(--mw-bg-sink) 94%,transparent);
+.mw-lightbox {position:fixed;inset:0;z-index:100;overflow:auto;background:color-mix(in srgb,var(--mw-bg-sink) 98%,transparent);
  padding:4rem 1rem 1rem;cursor:zoom-out;}
 .mw-lightbox img {display:block;max-inline-size:none;margin:0 auto;border:var(--mw-rule-heavy) solid var(--mw-border-strong);}
 .mw-lightbox-close {position:fixed;inset-block-start:.75rem;inset-inline-end:.75rem;z-index:101;padding:.4rem 1rem;cursor:pointer;

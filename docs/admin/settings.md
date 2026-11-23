@@ -1618,7 +1618,7 @@ first; recovery codes do not count. Where two-factor authentication is
 required, the last factor is kept whatever this says. The earlier value
 `requireRecoveryCodes` is read and accepted as `block` (migration 0074
 rewrites stored rows). See
-[Removing the last factor](security-center.md#removing-the-last-factor).
+[Removing the last factor](security-center.md#two-factor-sign-in-requirements).
 
 These eleven settings support global, domain, group, profile and
 administrator-set account policy, without user overrides.
