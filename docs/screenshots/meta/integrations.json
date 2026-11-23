@@ -103,15 +103,17 @@
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
     "export-dialog": {
-      "hash": "0103b631afbac553",
-      "bytes": 72924,
+      "hash": "7cff416a506620cf",
+      "bytes": 72328,
       "width": 1440,
       "height": 900,
       "quality": 0.9,
       "kind": "full",
-      "commit": "4d3d5b3a",
+      "commit": "f823e09e",
       "stack": "E",
-      "web": "given",
+      "web": "994ceebcda39814c",
+      "webRevision": "36d39e20+local changes",
+      "webBuiltAt": "2026-11-23T06:01:18.941Z",
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
     "nextcloud-user-link": {

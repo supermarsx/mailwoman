@@ -6,7 +6,7 @@ title: Exporting messages
 
 You can download a message, a conversation, a selection of messages or a whole folder in a format you choose. The server writes EML, mbox, plain text, Markdown, MSG and DOCX files. The web client builds CSV and JSON summaries from the message list, and a PDF comes from your browser's print function.
 
-![The Export dialog opened over the mailbox for one message, with What to export, Format set to EML, Packaging, File name pattern, Privacy options and the size estimate.](/screenshots/integrations/export-dialog.webp){.mw-shot}
+![The Export dialog opened over the mailbox for a conversation of two messages, with What to export, Format set to EML, Packaging set to ZIP, File name pattern, Privacy options and the size estimate.](/screenshots/integrations/export-dialog.webp){.mw-shot}
 
 ## Before you start
 
@@ -21,7 +21,7 @@ You can download a message, a conversation, a selection of messages or a whole f
 3. Choose a **Format**.
 4. Under **Packaging**, choose **One file** or **ZIP with a file per message**. Formats that cannot hold several messages in one file (everything except MBOX, CSV and JSON) offer the ZIP only. A folder is always a ZIP.
 5. Optionally change the **File name pattern**. Use `{date}`, `{from}`, `{subject}`, `{id}` and `{n}`; characters a file system does not allow are replaced. **Longest name (characters)** limits the length (20 to 200, default 80). The dialog shows an **Example**.
-6. For EML and MBOX you can tick **Remove Received headers** or **Remove Bcc**. Removing headers changes the message, so a signature on it no longer verifies.
+6. For EML and MBOX you can tick **Remove Received headers**. **Remove Bcc** is offered for every format. Removing headers changes the message, so a signature on it no longer verifies.
 7. For a folder, tick **Include subfolders** if you want them.
 8. Read the size estimate (**n messages, about size**) and choose **Export**. Choose **Stop** to cancel a running export, and **Download again** when it finishes.
 

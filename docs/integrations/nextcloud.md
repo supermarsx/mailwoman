@@ -33,7 +33,7 @@ Before an administrator approves an instance, the section reads **No enabled Nex
 6. Turn on **Allow users to link this instance**.
 7. Save.
 
-![The Add Nextcloud instance form filled in with the display name Team cloud, the URL https://cloud.example.org/ and Allow users to link this instance ticked.](/screenshots/integrations/admin-nextcloud-form.webp){.mw-crop}
+![The Instance authority section of the Add Nextcloud instance form, filled in with the display name Team cloud, the URL https://cloud.example.org/ and Allow users to link this instance ticked.](/screenshots/integrations/admin-nextcloud-form.webp){.mw-crop}
 
 After saving, the **Nextcloud** page lists the instance with its **Display name**, **HTTPS installation URL** and **Status**. The pencil button edits it.
 

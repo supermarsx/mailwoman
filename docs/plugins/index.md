@@ -86,7 +86,7 @@ The effective grant is the capabilities the plugin declares that the administrat
 
 A first-party component loads only if its SHA-256 digest equals the digest built into the server. A file that does not match is skipped and logged.
 
-A third-party component is a `<id>.wasm` file in the third-party directory. The **Third-party allowlist** at the bottom of the **Plugins** page lists the files found with the SHA-256 the server computed. Approving a digest pins those exact bytes and asks you to type the id. Revoking removes the approval and disables the plugin. The registration form has no signature field, so a third-party plugin runs only when **Allow this unsigned plugin to run** is on for it; a banner then reports that an unsigned plugin is loaded.
+A third-party component is a `<id>.wasm` file in the third-party directory. The **Third-party plugin allowlist** at the bottom of the **Plugins** page lists the files found with the SHA-256 the server computed. Approving a digest pins those exact bytes and asks you to type the id. Revoking removes the approval and disables the plugin. The registration form has no signature field, so a third-party plugin runs only when **Allow this unsigned plugin to run** is on for it; a banner then reports that an unsigned plugin is loaded.
 
 Third-party components cannot hold `account-backend`. In practice the only third-party plugin the server calls is a spam classifier.
 

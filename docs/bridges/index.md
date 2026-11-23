@@ -28,7 +28,7 @@ The Graph and EWS plugins contain more code than the server uses. Copying provid
 A bridge loads for a mailbox only when all of these hold:
 
 1. The plugin is approved, enabled and granted the `account-backend` and `net` capabilities in **Admin → Plugins**. See [Plugins](../plugins/index.md#approve-and-enable).
-2. The permission switches for the plugin are on: **Plugins** and, for the Microsoft and Google bridges, **Microsoft bridge** and **Google bridge** under **Integration permissions** in the admin settings (`cap.plugins`, `cap.integration.microsoft`, `cap.integration.google`).
+2. The permission switches for the plugin are on: **Plugins** (`cap.plugins`), the individual integration permission for the plugin (**Individual integration**, `cap.integration.*`, default on) and, for the Microsoft and Google bridges, **Microsoft bridge** and **Google bridge** under **Integration permissions** (`cap.integration.microsoft`, `cap.integration.google`).
 3. The mailbox is bound to the bridge, by a completed provider connection (Graph, Gmail) or by a domain configured with an EWS backend.
 
 A change to the plugin registry takes effect for running bridges at once when it removes permission. Starting a bridge that was not running needs a server restart, except the EWS activation that happens when a user signs in on a configured domain.

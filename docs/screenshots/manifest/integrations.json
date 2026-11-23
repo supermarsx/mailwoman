@@ -456,10 +456,24 @@
             "text": "@export-scope",
             "first": true
           }
+        },
+        {
+          "click": {
+            "text": "This conversation",
+            "first": true,
+            "exact": false
+          }
+        },
+        {
+          "waitFor": {
+            "text": "2 messages",
+            "first": true,
+            "exact": false
+          }
         }
       ],
       "shot": "full",
-      "alt": "The Export dialog for one message with the scope, format, packaging, file name pattern and privacy options."
+      "alt": "The Export dialog opened over the mailbox for a conversation of two messages, with What to export, Format set to EML, Packaging, File name pattern, Privacy options and the size estimate."
     },
     {
       "id": "admin-plugin-approved",
@@ -545,7 +559,7 @@
         },
         "padding": 14
       },
-      "alt": "The Add Nextcloud instance form filled in with the display name Team cloud, the URL https://cloud.example.org/ and Allow users to link this instance ticked."
+      "alt": "The Instance authority section of the Add Nextcloud instance form, filled in with the display name Team cloud, the URL https://cloud.example.org/ and Allow users to link this instance ticked."
     }
   ]
 }

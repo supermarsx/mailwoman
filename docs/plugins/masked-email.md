@@ -17,7 +17,7 @@ This page is not about the `plugins/masked-email` source in the repository. That
 
 - The server runs in engine mode.
 - The feature **masked** is on (`cap.masked`, default on) for the user.
-- Choose the alias domain with the setting `maskedEmail.domain` (environment `MW_MASKED_EMAIL_DOMAIN`). When it is empty, aliases are created under the domain of the signed-in address. The admin settings help says an empty value turns masked addresses off; the server does not do that, so set the permission rather than relying on an empty domain.
+- Choose the alias domain with the environment variable `MW_MASKED_EMAIL_DOMAIN`. The settings registry lists a key `maskedEmail.domain`, but the server does not read it; only the environment variable has an effect. When the variable is empty or unset, aliases are created under the domain of the signed-in address. The admin settings help says an empty value turns masked addresses off; the server does not do that, so set the permission rather than relying on an empty domain.
 
 ## Manage aliases
 

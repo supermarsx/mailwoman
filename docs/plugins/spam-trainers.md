@@ -16,7 +16,7 @@ When a new message arrives in an Inbox, the server sends its raw bytes to the cl
 - **ham**: nothing changes.
 - **unknown**: nothing changes. This is the result when the filter is unreachable, answers with an error status, returns more than 1 MiB or returns malformed data. A failure never blocks or drops a message.
 
-Messages delivered to other folders are not classified. The server records a content-free audit event, `spam.classified`, with the verdict only. If no classifier is loaded, delivery is unchanged.
+Messages delivered to other folders are not classified. When the verdict is spam, the server records a content-free audit event, `spam.classified`. Ham and unknown verdicts are not recorded. If no classifier is loaded, delivery is unchanged.
 
 Only one classifier runs at a time: the first approved, enabled plugin in id order that has the `spam-action` grant and a component that passes the digest check. The page of any other classifier shows **Not loaded: another spam classifier is loaded. Only one runs at a time.**
 
