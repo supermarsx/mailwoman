@@ -5,6 +5,7 @@ import {dirname,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {setTimeout as sleep} from 'node:timers/promises';
 import {MAX_TARGETS} from './http-targets.mjs';
+import {createH2Client} from './http-h2-client.mjs';
 
 // Fetch exposes decoded body chunks, never TLS/header/on-wire byte counts.
 // Generator scale limits (t53s). Defaults of every caller are unchanged; only the ceilings moved.
@@ -109,13 +110,16 @@ export function mergeLatencyBreakdowns(snapshots,counts,dispatches){
  return timingReport(merged,total);
 }
 
-export async function measure({base,requests,concurrency,seconds,timeoutMs=10000,headers={},arrivalRate,commonStartAtMs,includeRawMeasurements=false,latePolicy='drop',bases}){
+export async function measure({base,requests,concurrency,seconds,timeoutMs=10000,headers={},arrivalRate,commonStartAtMs,includeRawMeasurements=false,latePolicy='drop',bases,h2}){
   const aggregate=new Measurements(),byRequest=new Map(requests.map(request=>[request.name,new Measurements()]));
   if(!Number.isInteger(concurrency)||concurrency<1||concurrency>MAX_OUTSTANDING||!Number.isFinite(seconds)||seconds<=0||seconds>MAX_STAGE_SECONDS||!requests.length||requests.length>100||!Number.isFinite(timeoutMs)||timeoutMs<1||timeoutMs>120000)throw new Error('Invalid bounded measurement parameters');
   if(typeof includeRawMeasurements!=='boolean')throw new Error('Invalid raw measurement option');
   if(bases!==undefined&&(!Array.isArray(bases)||!bases.length||bases.length>MAX_TARGETS||bases.some(value=>typeof value!=='string')))throw new Error('Invalid target rotation list');
   if(!['drop','dispatch'].includes(latePolicy)||latePolicy==='dispatch'&&arrivalRate===undefined)throw new Error('Late policy must be drop or dispatch, and dispatch needs an arrival rate');
   const lateDispatch=latePolicy==='dispatch',acceptedPerSecond=new Array(Math.ceil(seconds)).fill(0);let lateSlotsDispatched=0;
+  // HTTP/2 is an alternative transport behind the same templates, validators and counters; absent h2 = HTTP/1.1.
+  const client=h2?createH2Client(h2):null;
+  if(client)await client.warm([...new Set((bases??[base]).map(value=>new URL(value).origin))]);
   const wallOrigin=Date.now(),monotonicOrigin=performance.now();
   if(commonStartAtMs!==undefined&&(!Number.isSafeInteger(commonStartAtMs)||Math.abs(commonStartAtMs-wallOrigin)>60000))throw new Error('Common fixture start must be within sixty seconds');
   const start=commonStartAtMs===undefined?monotonicOrigin:monotonicOrigin+(commonStartAtMs-wallOrigin),deadline=start+seconds*1000;
@@ -136,10 +140,10 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
       const index=sequence++,template=requests[index%requests.length],spec=template.materialize?{...template,...template.materialize(index,{requestCount:requests.length}),name:template.name}:template,began=performance.now();
       increment(principals.attempted,spec.principalIndex);increment(clients.attempted,spec.clientIndex);
       peakOutstanding=Math.max(peakOutstanding,++activeCount);
-      scheduling.add(Math.max(0,began-planned),'scheduled',0,true);if(lateDispatch&&began-planned>100)lateSlotsDispatched++;
+      const lagBase=Math.max(0,began-planned);if(!client)scheduling.add(lagBase,'scheduled',0,true);if(lateDispatch&&began-planned>100)lateSlotsDispatched++;
       let status='network',bytes=0,ok=false,timedOut=false;
       const signal=AbortSignal.timeout(timeoutMs);
-      let unlock=null,dispatched=false,dispatchAt=null,queueMs=0,validationMs=null,reason503='other503';
+      let slot=null,lagRecorded=!client,unlock=null,dispatched=false,dispatchAt=null,queueMs=0,validationMs=null,reason503='other503';
       try{
         if(spec.serializePrincipal){
           if(!boundedIndex(spec.principalIndex))throw new Error('Serialized fixture requests require a bounded principal');
@@ -153,8 +157,12 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
           signal.throwIfAborted();
         }
         if(mutationStateTainted){status='campaign-aborted';blockedAfterMutationTaint++;throw new Error('Mutation outcome is unknown; fixture state cannot be reused');}
+        const url=new URL(spec.path,bases?bases[index%bases.length]:base);
+        // A full stream limit queues here, in the generator; the wait is scheduling lag, never a drop.
+        if(client){slot=await client.acquire(url.origin,spec.clientIndex,signal);scheduling.add(lagBase+slot.queuedMs,'scheduled',0,true);lagRecorded=true;}
         dispatched=true;httpDispatchAttempts++;dispatchAt=performance.now();
-        const response=await fetch(new URL(spec.path,bases?bases[index%bases.length]:base),{method:spec.method??'GET',headers:{...headers,...spec.headers},...(spec.body!==undefined?{body:spec.body}:{}),signal,redirect:'error'});
+        const init={method:spec.method??'GET',headers:{...headers,...spec.headers},...(spec.body!==undefined?{body:spec.body}:{}),signal,redirect:'error'};
+        const response=await(client?client.request(slot,url,init):fetch(url,init));
         status=String(response.status);const chunks=[];let errorBody=status==='503'?Buffer.allocUnsafe(4096):null;const reader=response.body?.getReader();
         if(reader)for(;;){const part=await reader.read();if(part.done)break;bytes+=part.value.length;if(errorBody){if(bytes<=4096)errorBody.set(part.value,bytes-part.value.length);else errorBody=null;}if(bytes>8*1024*1024){await reader.cancel();throw new Error('response too large');}if(spec.validate||spec.validateBytes){if(bytes>(spec.validate?65536:1024*1024)){await reader.cancel();throw new Error('validation response too large');}chunks.push(part.value);}}
         if(status==='503')reason503=classifyHttp503(errorBody?errorBody.subarray(0,bytes):null,true);
@@ -170,7 +178,7 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
         // A client abort does not cancel a server mutation. Fence the queue
         // before releasing it and never reuse an uncertain fixture state.
         if(spec.statefulMutation&&dispatched&&!ok){mutationStateTainted=true;unknownMutationOutcomes++;if(boundedIndex(spec.principalIndex))taintedPrincipals.add(spec.principalIndex);}
-        unlock?.();
+        unlock?.();slot?.release();if(!lagRecorded)scheduling.add(lagBase,'scheduled',0,true);
       }
       const completed=performance.now(),elapsed=lateDispatch?completed-planned:completed-began,inWindow=acceptedInScheduledWindow(status,ok,completed,deadline);
       if(status==='503')for(const value of [error503,error503ByRequest.get(spec.name)]){value.total++;value.counts[reason503]++;}
@@ -218,6 +226,7 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
     await Promise.all(Array.from({length:concurrency},async()=>{while(!mutationStateTainted&&performance.now()<deadline)await send();}));
   }
   const completedAt=performance.now(),elapsed=(completedAt-start)/1000;
+  const http2=client?client.report():undefined;client?.close();
   const cpu=process.cpuUsage(cpuStart),memoryEnd=process.memoryUsage();
   const cpuElapsed=commonStartAtMs===undefined?elapsed:Math.max(.000001,(completedAt-actualStart)/1000);
   const hooks={
@@ -225,9 +234,15 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
     latencyBreakdown:timingReport(latency,aggregate.count),http503Reasons:error503,
     ...(includeRawMeasurements?{rawMeasurements:{schema:1,aggregate:aggregate.snapshot(),byRequest:Object.fromEntries([...byRequest].map(([name,measurements])=>[name,measurements.snapshot()])),scheduling:scheduling.snapshot(),arrivalLatency:arrivalLatency.snapshot(),http503Reasons:{schema:1,aggregate:error503,byRequest:Object.fromEntries(error503ByRequest)},latencyBreakdown:{schema:1,aggregate:timingSnapshot(latency),byRequest:Object.fromEntries([...latencyByRequest].map(([name,value])=>[name,timingSnapshot(value)]))}}}:{}),
   };
-  return {...hooks,mutationStateTainted,unknownMutationOutcomes,taintedPrincipals:taintedPrincipals.size,httpDispatchAttempts,blockedAfterMutationTaint,abortedUnscheduled,uniquePrincipalsAccepted:principals.accepted.size,uniquePrincipalsAttempted:principals.attempted.size,uniquePrincipalsAcceptedDuringScheduledWindow:principals.withinWindow.size,uniqueClientsAttempted:clients.attempted.size,uniqueClientsAccepted:clients.accepted.size,uniqueClientsAcceptedDuringScheduledWindow:clients.withinWindow.size,participantDistribution:{principals:{attempted:distribution(principals.attempted),accepted:distribution(principals.accepted)},simulatedClients:{attempted:distribution(clients.attempted),accepted:distribution(clients.accepted)}},peakOutstanding,acceptedDuringScheduledWindow:acceptedWithinWindow,acceptedDuringScheduledWindowRps:acceptedWithinWindow/seconds,acceptedPerSecond,generator:{cpuUserMs:cpu.user/1000,cpuSystemMs:cpu.system/1000,cpuLogicalCores:(cpu.user+cpu.system)/(cpuElapsed*1000000),rssBeforeBytes:memoryStart.rss,rssAfterBytes:memoryEnd.rss,heapAfterBytes:memoryEnd.heapUsed},concurrency,scheduledSeconds:seconds,elapsedSeconds:elapsed,...(arrivalRate===undefined?{}:{arrivalRate,offered,attempted:aggregate.count,attemptedRequestsPerSecond:aggregate.count/seconds,achievedRequestsPerSecond:aggregate.count/elapsed,droppedCapacity,droppedScheduler,peakOutstanding,latePolicy,lateSlotsDispatched,droppedLateSlots,unissuedAtWindowEnd:droppedScheduler-droppedLateSlots,latencyBasis:lateDispatch?'scheduled-slot':'send',generatorLimited:scheduling.percentile(.99)>SCHEDULING_LAG_LIMIT_MS,schedulingLagLimitMs:SCHEDULING_LAG_LIMIT_MS,schedulingLagMs:scheduling.report(elapsed).latencyMs,plannedArrivalLatencyMs:arrivalLatency.report(elapsed).latencyMs}),...aggregate.report(elapsed),byRequest:Object.fromEntries([...byRequest].map(([key,value])=>[key,{...value.report(elapsed),latencyBreakdown:timingReport(latencyByRequest.get(key),value.count),http503Reasons:error503ByRequest.get(key)}]))};
+  return {...hooks,protocol:http2?http2.protocol:'http/1.1',...(http2?{http2}:{}),mutationStateTainted,unknownMutationOutcomes,taintedPrincipals:taintedPrincipals.size,httpDispatchAttempts,blockedAfterMutationTaint,abortedUnscheduled,uniquePrincipalsAccepted:principals.accepted.size,uniquePrincipalsAttempted:principals.attempted.size,uniquePrincipalsAcceptedDuringScheduledWindow:principals.withinWindow.size,uniqueClientsAttempted:clients.attempted.size,uniqueClientsAccepted:clients.accepted.size,uniqueClientsAcceptedDuringScheduledWindow:clients.withinWindow.size,participantDistribution:{principals:{attempted:distribution(principals.attempted),accepted:distribution(principals.accepted)},simulatedClients:{attempted:distribution(clients.attempted),accepted:distribution(clients.accepted)}},peakOutstanding,acceptedDuringScheduledWindow:acceptedWithinWindow,acceptedDuringScheduledWindowRps:acceptedWithinWindow/seconds,acceptedPerSecond,generator:{cpuUserMs:cpu.user/1000,cpuSystemMs:cpu.system/1000,cpuLogicalCores:(cpu.user+cpu.system)/(cpuElapsed*1000000),rssBeforeBytes:memoryStart.rss,rssAfterBytes:memoryEnd.rss,heapAfterBytes:memoryEnd.heapUsed},concurrency,scheduledSeconds:seconds,elapsedSeconds:elapsed,...(arrivalRate===undefined?{}:{arrivalRate,offered,attempted:aggregate.count,attemptedRequestsPerSecond:aggregate.count/seconds,achievedRequestsPerSecond:aggregate.count/elapsed,droppedCapacity,droppedScheduler,peakOutstanding,latePolicy,lateSlotsDispatched,droppedLateSlots,unissuedAtWindowEnd:droppedScheduler-droppedLateSlots,latencyBasis:lateDispatch?'scheduled-slot':'send',generatorLimited:scheduling.percentile(.99)>SCHEDULING_LAG_LIMIT_MS,schedulingLagLimitMs:SCHEDULING_LAG_LIMIT_MS,schedulingLagMs:scheduling.report(elapsed).latencyMs,plannedArrivalLatencyMs:arrivalLatency.report(elapsed).latencyMs}),...aggregate.report(elapsed),byRequest:Object.fromEntries([...byRequest].map(([key,value])=>[key,{...value.report(elapsed),latencyBreakdown:timingReport(latencyByRequest.get(key),value.count),http503Reasons:error503ByRequest.get(key)}]))};
 }
 
+function protocolNote(report){
+ const rows=report.stages.filter(stage=>stage.http2);
+ return rows.length?`
+HTTP/2 stages: ${rows.map(stage=>{const h=stage.http2;return `${stage.phase??'smoke'} / ${stage.endpoint??'mixed'}: ${h.protocol}, ${h.preset}, ${h.connectionsOpened} connections opened (${h.reconnects} reconnects), server stream limit ${h.serverMaxConcurrentStreams??'unknown'}, ${h.queuedStreams} streams queued in the generator, GOAWAY ${h.goaway}, RST_STREAM ${h.rstStreamTotal} (REFUSED_STREAM ${h.refusedStreams})`;}).join('; ')}. Calibrations are per protocol; HTTP/1.1 and HTTP/2 results are not interchangeable.
+`:'';
+}
 function limitedNote(report){
  const rows=report.stages.filter(stage=>stage.generatorLimited===true);
  return rows.length?`\nGenerator-limited stages (scheduling lag p99 above ${SCHEDULING_LAG_LIMIT_MS} ms, so the generator rather than the target may explain a shortfall): ${rows.map(stage=>`${stage.phase??'smoke'} / ${stage.endpoint??'mixed'} / ${stage.arrivalRate}`).join('; ')}.\n`:'';
@@ -240,7 +255,7 @@ export function markdownReport(report){
   const value=stage.latencyBreakdown,cell=part=>part.samples===0?'not measured':`${part.mean.toFixed(2)} / ${part.p50} / ${part.p95} / ${part.p99}`;
   return `| ${stage.phase??'smoke'} / ${stage.endpoint??'mixed'} | ${value?cell(value.principalQueue):'not measured'} | ${value?cell(value.httpAndValidation):'not measured'} | ${value?cell(value.validation):'not measured'} | ${value?`${value.httpAndValidation.samples} / ${value.validation.samples}`:'not measured'} |`;
  }).join('\n')+'\n\nLegacy latencyMs above includes principal serialization wait. HTTP + validation starts immediately before Fetch and includes decoded body reads; validation is nested inside it. These intervals are client wall time, not isolated Rust CPU or DB time. Percentiles cannot be subtracted or added to attribute server layers. Historical reports without phase proof remain unreported.\n';
- return `# HTTP load report\n\nTarget: ${report.target}\n\nScenario: ${report.scenario}; runtime: ${report.runtime}. ${report.model}.${report.protection?' Protection: '+report.protection+'.':''}\n\n${startup}\n\n| Phase / endpoint / outstanding requests | Fixture protection | Offered RPS | Attempted | Accepted | Completed RPS | Accepted RPS | p50/p95/p99 ms | Errors | 429 | Timeouts | Capacity/scheduler drops | Lag p99 ms |\n| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- | ---: |\n`+report.stages.map(s=>`| ${s.phase??'smoke'} / ${s.endpoint??'mixed'} / ${s.concurrency} | ${s.fixtureProtection===undefined?'see scenario':s.fixtureProtection?'on (simulated)':'off (simulated)'} | ${s.arrivalRate??'closed-loop'} | ${s.requests} | ${s.accepted} | ${s.requestsPerSecond.toFixed(1)} | ${s.acceptedRequestsPerSecond.toFixed(1)} | ${s.latencyMs.p50}/${s.latencyMs.p95}/${s.latencyMs.p99} | ${s.errors} | ${s.throttled} | ${s.timeouts} | ${s.droppedCapacity??0}/${s.droppedScheduler??0} | ${s.schedulingLagMs?.p99??0} |`).join('\n')+'\n\n| Phase / endpoint | Distinct users attempted / accepted | Simulated clients attempted / accepted | Accepted requests per user min / max |\n| --- | ---: | ---: | ---: |\n'+report.stages.map(s=>`| ${s.phase??'smoke'} / ${s.endpoint??'mixed'} | ${s.uniquePrincipalsAttempted??0} / ${s.uniquePrincipalsAccepted??0} | ${s.uniqueClientsAttempted??0} / ${s.uniqueClientsAccepted??0} | ${perUserRange(s)} |`).join('\n')+'\n\nSimulated client addresses are a fixture proxy model, not separate physical generator hosts. Zero tracked identities is not evidence of multi-user load. Dropped arrivals have no response latency and must be evaluated alongside percentiles. This report alone is not a production capacity claim.\n'+limitedNote(report)+layerTable;
+ return `# HTTP load report\n\nTarget: ${report.target}\n\nScenario: ${report.scenario}; runtime: ${report.runtime}. ${report.model}.${report.protection?' Protection: '+report.protection+'.':''}\n\n${startup}\n\n| Phase / endpoint / outstanding requests | Fixture protection | Offered RPS | Attempted | Accepted | Completed RPS | Accepted RPS | p50/p95/p99 ms | Errors | 429 | Timeouts | Capacity/scheduler drops | Lag p99 ms |\n| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- | ---: |\n`+report.stages.map(s=>`| ${s.phase??'smoke'} / ${s.endpoint??'mixed'} / ${s.concurrency} | ${s.fixtureProtection===undefined?'see scenario':s.fixtureProtection?'on (simulated)':'off (simulated)'} | ${s.arrivalRate??'closed-loop'} | ${s.requests} | ${s.accepted} | ${s.requestsPerSecond.toFixed(1)} | ${s.acceptedRequestsPerSecond.toFixed(1)} | ${s.latencyMs.p50}/${s.latencyMs.p95}/${s.latencyMs.p99} | ${s.errors} | ${s.throttled} | ${s.timeouts} | ${s.droppedCapacity??0}/${s.droppedScheduler??0} | ${s.schedulingLagMs?.p99??0} |`).join('\n')+'\n\n| Phase / endpoint | Distinct users attempted / accepted | Simulated clients attempted / accepted | Accepted requests per user min / max |\n| --- | ---: | ---: | ---: |\n'+report.stages.map(s=>`| ${s.phase??'smoke'} / ${s.endpoint??'mixed'} | ${s.uniquePrincipalsAttempted??0} / ${s.uniquePrincipalsAccepted??0} | ${s.uniqueClientsAttempted??0} / ${s.uniqueClientsAccepted??0} | ${perUserRange(s)} |`).join('\n')+'\n\nSimulated client addresses are a fixture proxy model, not separate physical generator hosts. Zero tracked identities is not evidence of multi-user load. Dropped arrivals have no response latency and must be evaluated alongside percentiles. This report alone is not a production capacity claim.\n'+limitedNote(report)+protocolNote(report)+layerTable;
 }
 
 async function main(){

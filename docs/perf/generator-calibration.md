@@ -188,3 +188,66 @@ slots (581 scheduler drops, 7,685 at the cap) and reported p99 scheduling lag 10
 at the window end, and reported scheduling lag p50 578 ms. Both were marked
 generator-limited. This only demonstrates that the policies and fields behave as
 described; it says nothing about the generator's ceiling on a rig.
+
+## HTTP/2 mode (t53s)
+
+The coordinated generator can speak HTTP/2 instead of HTTP/1.1. The default is
+unchanged (HTTP/1.1). The request templates, response validators, byte limits and
+503 classification are the same code for both protocols: HTTP/2 is only a
+different transport behind `measure()`. A calibration or application result is
+valid for the protocol it was run with; repeat the calibration per protocol and
+do not carry numbers from one to the other. No HTTP/2 figures are claimed here.
+
+Options (campaign environment, or the controller flags in parentheses):
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `MW_LOAD_FIXTURE_HTTP2` (`--http2=`) | unset = HTTP/1.1 | `h2c`: cleartext prior-knowledge HTTP/2 to the plain listener; `tls`: HTTP/2 over TLS negotiated by ALPN (targets are `https://` literal private addresses) |
+| `MW_LOAD_FIXTURE_H2_PRESET` (`--h2-preset=`) | `proxy-like` | see below; `custom` also reads `MW_LOAD_FIXTURE_H2_PER_CLIENT=1` |
+| `MW_LOAD_FIXTURE_H2_CONNECTIONS` (`--h2-connections=`) | preset (4 / 1) | connections per pool, 1-64 |
+| `MW_LOAD_FIXTURE_H2_MAX_STREAMS` (`--h2-max-streams=`) | 100 | streams per connection used by the generator, 1-1000; the effective limit is the smaller of this and the server's announced `SETTINGS_MAX_CONCURRENT_STREAMS` (32 for the Mailwoman server) |
+| `MW_LOAD_FIXTURE_H2_CA_FILE` (`--h2-ca-file=`) | none | rig CA (PEM) the server certificate is verified against; required for `tls` unless the next flag is used |
+| `MW_LOAD_FIXTURE_H2_SERVERNAME` (`--h2-servername=`) | target address | TLS server name for verification |
+| `MW_LOAD_RIG_ONLY_INSECURE_TLS_NO_VERIFY=1` | off | disables certificate verification; only for a throwaway rig, never together with a CA file |
+
+Presets:
+
+- `browser-like`: one pool per simulated client (target + client index), one
+  connection per pool by default, up to the stream limit on each. A run with
+  10,000 simulated clients therefore opens up to 10,000 connections (bounded at
+  20,000); per-client connections are opened on first use, inside the measured
+  window.
+- `proxy-like`: four connections per target shared by all simulated clients, as
+  an nginx/Caddy/Traefik upstream behaves, opened before the window. The
+  simulated client address still travels in each request's forwarded header, so
+  the 10,000 distinct addresses are unchanged.
+
+When every connection is at its stream limit the request waits in the generator
+(FIFO); the wait is added to the request's scheduling lag, so the 1 ms
+generator-limited rule applies and nothing is dropped silently. A GOAWAY or
+connection error retires the connection and opens a replacement (counted); a
+refused stream is an error and is counted as such, not retried. The target
+allow-list, private-address and ownership rules apply to HTTP/2 unchanged (for
+`tls` the target scheme must be `https`); the ownership proof itself runs over the
+chosen protocol.
+
+Each stage reports `protocol` (`http/1.1`, `h2c`, `h2`) and, for HTTP/2, an
+`http2` object: connections opened/closed, reconnects, GOAWAY count, RST_STREAM
+counts by code, REFUSED_STREAM count, streams per connection (connections, min,
+max, total), peak and queued streams, queue wait, the server's announced stream
+limit. Flow-control stalls are not exposed by `node:http2` and are not reported.
+Latency basis is unchanged (send, or the scheduled slot with `late=dispatch`).
+
+`h2Burst()` in `http-h2-client.mjs` issues N distinct GETs at once on one
+connection (the cold asset-burst pattern) and reports per-path status, the
+reasons of any 503 and the connection counters. By default it stays within the
+server's stream limit like a browser; `exceedServerLimit: true` opens all streams
+at once to observe refusals.
+
+Verification state: unit tests use an in-process `node:http2` server (stream
+limit queueing, GOAWAY reconnect, refused streams, both presets, burst, protocol
+parity, TLS with a throwaway CA). A short run against the Mailwoman debug build's
+plain listener confirmed prior-knowledge h2c, the 32-stream limit and a 64-GET
+burst on one connection; TLS against a real TLS-terminating proxy has not been
+run.
+

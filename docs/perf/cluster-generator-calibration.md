@@ -72,3 +72,10 @@ phases (at most five rates up to 100,000 RPS; the synthetic server keeps its own
 hosts with measured clock offsets and supports a `late=dispatch` policy; see
 "Scale-out of the coordinated generator" in `generator-calibration.md`. The
 multi-process path has still not been run at rate.
+
+The calibration scripts themselves speak HTTP/1.1 only. The HTTP/2 mode of the
+coordinated generator (see "HTTP/2 mode" in `generator-calibration.md`) has no
+synthetic-server counterpart yet; a calibration for HTTP/2 needs its own
+constant-response h2 server and must be run and reported separately from the
+HTTP/1.1 one. No numbers are claimed.
+

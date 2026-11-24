@@ -33,23 +33,24 @@ export function classifyHost(hostname){
 }
 
 // Plain http origin with a literal address and an explicit port; nothing else.
-export function parseTargetOrigin(text){
+// With `tls` (HTTP/2 over TLS) the scheme must be https, otherwise http; the address rules are identical.
+export function parseTargetOrigin(text,{tls=false}={}){
  let url;
  try{url=new URL(text);}catch{throw new Error('Invalid target origin');}
- if(url.protocol!=='http:'||!url.port||url.pathname!=='/'||url.search||url.hash||url.username||url.password)throw new Error('Invalid target origin');
+ if(url.protocol!==(tls?'https:':'http:')||!url.port||url.pathname!=='/'||url.search||url.hash||url.username||url.password)throw new Error('Invalid target origin');
  const kind=classifyHost(url.hostname);
  if(kind==='refused')throw new Error('Target address is not a literal loopback or private rig address');
  return {origin:url.origin,host:url.hostname,port:url.port,kind};
 }
 
 // Allow-list entries are `address:port` (IPv6 as `[address]:port`).
-export function parseAllowList(value){
+export function parseAllowList(value,{tls=false}={}){
  const entries=Array.isArray(value)?value:typeof value==='string'&&value?value.split(','):[];
  if(entries.length>MAX_TARGETS)throw new Error('Too many allowed targets');
  const result=new Set();
  for(const entry of entries){
   let parsed;
-  try{parsed=parseTargetOrigin('http://'+String(entry).trim()+'/');}catch{throw new Error('Allowed target must be a private rig address with a port');}
+  try{const text=String(entry).trim();parsed=parseTargetOrigin(text.includes('://')?text:(tls?'https://':'http://')+text+'/',{tls});}catch{throw new Error('Allowed target must be a private rig address with a port');}
   if(parsed.kind!=='private')throw new Error('Allowed target must be a private rig address with a port');
   result.add(parsed.origin);
  }
@@ -58,11 +59,11 @@ export function parseAllowList(value){
 
 // Targets for a run. A loopback origin is accepted as today; any other
 // address must be private AND listed in the operator's allow-list.
-export function validateTargets(origins,allowed=[]){
+export function validateTargets(origins,allowed=[],{tls=false}={}){
  if(!Array.isArray(origins)||!origins.length||origins.length>MAX_TARGETS)throw new Error('Invalid target list');
- const allow=new Set(parseAllowList(allowed)),seen=new Set(),result=[];
+ const allow=new Set(parseAllowList(allowed,{tls})),seen=new Set(),result=[];
  for(const text of origins){
-  const target=parseTargetOrigin(text);
+  const target=parseTargetOrigin(text,{tls});
   if(seen.has(target.origin))throw new Error('Duplicate target');
   if(target.kind==='private'&&!allow.has(target.origin))throw new Error('Private target is not in the explicit allow-list');
   seen.add(target.origin);result.push(target);

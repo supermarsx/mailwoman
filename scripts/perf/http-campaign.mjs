@@ -2,6 +2,7 @@ import {requestInputsExpected} from './request-inputs-experiment.mjs';
 import {cacheExperimentFromEnv} from './sqlite-page-cache-witness.mjs';
 // Bounded plans for an explicitly opted-in, isolated application fixture.
 import {measure,MAX_OUTSTANDING,MAX_STAGE_SECONDS} from './http-load.mjs';
+import {h2FromEnv} from './http-h2-client.mjs';
 
 function number(env,key,fallback,min,max){
  const value=Number(env[key]??fallback);
@@ -18,6 +19,7 @@ function latePolicyOption(env){
  if(!['drop','dispatch'].includes(env.MW_LOAD_FIXTURE_LATE))throw new Error('Invalid MW_LOAD_FIXTURE_LATE');
  return {latePolicy:env.MW_LOAD_FIXTURE_LATE};
 }
+function h2Option(env){const h2=h2FromEnv(env);return h2?{h2}:{};}
 export function campaignOptions(env=process.env){
  const mode=env.MW_LOAD_FIXTURE_MODE??'smoke';
  if(!['smoke','ramp','capacity'].includes(mode))throw new Error('Invalid MW_LOAD_FIXTURE_MODE');
@@ -36,7 +38,7 @@ export function campaignOptions(env=process.env){
   maxErrorRate:number(env,'MW_LOAD_FIXTURE_MAX_ERROR_RATE',.001,0,1),
   maxThrottleRate:number(env,'MW_LOAD_FIXTURE_MAX_THROTTLE_RATE',0,0,1),
   maxP99Ms:number(env,'MW_LOAD_FIXTURE_MAX_P99_MS',2000,1,120000),
-  allowOverload:env.MW_LOAD_FIXTURE_ALLOW_OVERLOAD==='1',...latePolicyOption(env),adaptive:env.MW_LOAD_FIXTURE_ADAPTIVE!=='0',...(env.MW_LOAD_FIXTURE_SQLITE_CACHE_EXPECT===undefined?{}:{sqliteCacheExperiment:cacheExperimentFromEnv(env.MW_LOAD_FIXTURE_SQLITE_CACHE_EXPECT)})};
+  allowOverload:env.MW_LOAD_FIXTURE_ALLOW_OVERLOAD==='1',...latePolicyOption(env),...h2Option(env),adaptive:env.MW_LOAD_FIXTURE_ADAPTIVE!=='0',...(env.MW_LOAD_FIXTURE_SQLITE_CACHE_EXPECT===undefined?{}:{sqliteCacheExperiment:cacheExperimentFromEnv(env.MW_LOAD_FIXTURE_SQLITE_CACHE_EXPECT)})};
 }
 export function stopReason(stage,options){
  if(stage.mutationStateTainted)return 'unknown-mutation-outcome';
@@ -55,7 +57,7 @@ export async function runCampaign({base,headers,groups,options,run=measure,diagn
   const requests=groups[endpoint];if(!requests?.length)throw new Error('Unknown endpoint group');
   if(options.warmupSeconds){
    if(room()<options.warmupSeconds+options.timeoutMs/1000+2){deadlineReached=true;break;}
-   const result=await run({base,headers,requests,concurrency:1,seconds:options.warmupSeconds,timeoutMs:options.timeoutMs});
+   const result=await run({base,headers,requests,concurrency:1,seconds:options.warmupSeconds,timeoutMs:options.timeoutMs,...(options.h2?{h2:options.h2}:{})});
    warmups.push({endpoint,...result});
    if(result.mutationStateTainted){mutationStateTainted=true;decisions.push({endpoint,reason:'warmup-unknown-mutation-outcome'});break campaign;}
    const reason=stopReason(result,options);if(reason){decisions.push({endpoint,reason:'warmup-'+reason});continue;}
@@ -64,7 +66,7 @@ export async function runCampaign({base,headers,groups,options,run=measure,diagn
   const stage=async(concurrency,arrivalRate)=>{
    if(room()<options.seconds+options.timeoutMs/1000+2){deadlineReached=true;return null;}
    const before=await diagnostics('before');
-   const result=await run({base,headers,requests,concurrency,seconds:options.seconds,timeoutMs:options.timeoutMs,...(arrivalRate===undefined?{}:{arrivalRate,...(options.latePolicy===undefined?{}:{latePolicy:options.latePolicy})})});
+   const result=await run({base,headers,requests,concurrency,seconds:options.seconds,timeoutMs:options.timeoutMs,...(options.h2?{h2:options.h2}:{}),...(arrivalRate===undefined?{}:{arrivalRate,...(options.latePolicy===undefined?{}:{latePolicy:options.latePolicy})})});
    const after=await diagnostics('after');
    stages.push({endpoint,phase:arrivalRate===undefined?'concurrency-ramp':'offered-rate',diagnostics:{before,after},...result,...(options.requestInputsExpected===undefined?{}:{requestInputsWindow:{schema:1,kind:'workload-and-drain-only',eligibleControlRequests:0}})});
    return result;
