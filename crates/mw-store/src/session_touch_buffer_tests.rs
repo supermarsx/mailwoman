@@ -288,3 +288,81 @@ fn outside_a_runtime_nothing_is_buffered() {
     assert!(!store.session_touch_buffered());
     runtime.block_on(store.close());
 }
+
+/// Retention deletes sessions by `last_seen` age (`retention.sessions.idleDays`,
+/// whole days, at least 1 when enabled; default 1095). The stored value lags a
+/// buffered touch by at most the flush interval plus the throttle (20 s by
+/// default, 305 s at the largest throttle), far below one day; and the sweep
+/// writes the buffered touches before it compares. A session in active use is
+/// therefore never deleted as stale; an idle one still is.
+async fn retention_never_prunes_a_session_with_a_newer_buffered_touch(store: &Store) {
+    assert!(store.enable_session_touch_buffer(config(1024)));
+    let target = crate::jobs::retention::target("sessions").unwrap();
+    let day = 86_400;
+    let now = Utc::now().timestamp();
+    // Both rows stored as 2 days old, against a 1-day threshold.
+    let stored = (Utc::now() - Age::days(2)).to_rfc3339();
+    let active = session(store, &format!("r{}", uuid::Uuid::new_v4().simple())).await;
+    let idle = session(store, &format!("i{}", uuid::Uuid::new_v4().simple())).await;
+    set_last_seen(store, &active, &stored).await;
+    set_last_seen(store, &idle, &stored).await;
+    // The active session's touch is only in the buffer.
+    store.touch_session_throttled(&active, 15).await.unwrap();
+    assert_eq!(
+        row_last_seen(store, &active).await.as_deref(),
+        Some(stored.as_str()),
+        "row lags"
+    );
+    let lag_bound = Duration::from_secs(5 + 15);
+    assert!(
+        lag_bound.as_secs() * 1000 < day as u64,
+        "lag is orders of magnitude below one day"
+    );
+    let counted = store
+        .retention_sweep(target, now - day, 100, 1, true, &[])
+        .await
+        .unwrap();
+    // Other rows of a shared test database may be old too: count, at least ours.
+    assert!(counted.rows >= 1, "dry run counts the idle session");
+    let swept = store
+        .retention_sweep(target, now - day, 100, 4, false, &[])
+        .await
+        .unwrap();
+    assert!(swept.rows >= 1, "the idle session is deleted");
+    assert!(
+        store
+            .get_primary_session_with_activity(&active)
+            .await
+            .is_ok(),
+        "active session kept"
+    );
+    assert!(
+        store
+            .get_primary_session_with_activity(&idle)
+            .await
+            .is_err(),
+        "idle session deleted"
+    );
+    store.delete_session(&active).await.unwrap();
+    store.disable_session_touch_buffer().await.unwrap();
+}
+
+#[tokio::test]
+async fn sqlite_retention_never_prunes_a_session_with_a_newer_buffered_touch() {
+    let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+    retention_never_prunes_a_session_with_a_newer_buffered_touch(&store).await;
+    store.close().await;
+}
+
+#[tokio::test]
+async fn postgres_retention_never_prunes_a_session_with_a_newer_buffered_touch() {
+    let Ok(url) = std::env::var("MW_TEST_PG") else {
+        mw_test_gate::skip("touch buffer retention PostgreSQL leg: MW_TEST_PG not configured");
+        return;
+    };
+    let store = Store::open_postgres(&url, ServerKey::generate())
+        .await
+        .unwrap();
+    retention_never_prunes_a_session_with_a_newer_buffered_touch(&store).await;
+    store.close().await;
+}

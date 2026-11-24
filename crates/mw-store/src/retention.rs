@@ -234,6 +234,12 @@ impl Store {
         dry_run: bool,
         held: &[String],
     ) -> Result<Swept, StoreError> {
+        // t50hp-e22: `sessions.last_seen` may lag this process's touch buffer
+        // (at most the flush interval plus the throttle); write the buffered
+        // touches first so the age compared below is the latest one.
+        if t.table == "sessions" {
+            self.flush_session_touches().await?;
+        }
         let cond = where_clause(t, held);
         let text = matches!(t.age, Age::Text(_));
         let rc = matches!(t.age, Age::RcHandle);
