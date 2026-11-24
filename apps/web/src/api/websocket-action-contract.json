@@ -31,6 +31,7 @@
     "jsonPrefixes": ["/api/"],
     "httpRequired": [
       {"exact": "/api/me", "reason": "cookie-bootstrap"},
+      {"exact": "/api/bootstrap", "reason": "cookie-bootstrap"},
       {"exact": "/api/login", "reason": "cookie-bootstrap"},
       {"prefix": "/api/login/", "reason": "cookie-bootstrap"},
       {"exact": "/api/logout", "reason": "cookie-bootstrap"},
