@@ -2791,9 +2791,9 @@ admin-settings-help-web-assets-cache-max-file-mi-b = مقيد بميزانية �
 admin-settings-key-web-assets-cache-max-entries = حد الإدخالات
 admin-settings-help-web-assets-cache-max-entries = يشمل مراجع الملفات المضمنة دون نسخ بايتاتها الأصلية.
 admin-settings-key-web-assets-cache-revalidate-seconds = إعادة التحقق من الموارد المنشورة (ثوانٍ)
-admin-settings-help-web-assets-cache-revalidate-seconds = أقصى عمر للبيانات المنشورة المخزنة، بما فيها الصفحة الأولية وعامل الخدمة. البايتات المضمنة ثابتة.
+admin-settings-help-web-assets-cache-revalidate-seconds = أقصى عمر في الذاكرة للملفات المنشورة دون بصمة محتوى (الصفحة الأولية، عامل الخدمة) وللبايتات المحتفظ بها؛ تُبقى الملفات غير المتغيرة بعد فحص الحجم والتاريخ. الملفات ذات البصمة والمضمنة لا تنتهي صلاحيتها.
 admin-settings-key-web-assets-cache-preload = وضع التحميل المسبق
-admin-settings-help-web-assets-cache-preload = off: لا شيء؛ shell: الصفحة الأولية؛ core: الصفحة ومجموعة محدودة من النصوص والأنماط. بأفضل جهد مع أولوية الطلبات النشطة.
+admin-settings-help-web-assets-cache-preload = off: لا شيء؛ shell: الصفحة الأولية؛ core: الصفحة ومجموعة محدودة من النصوص والأنماط؛ app (افتراضي): الصفحة وعامل الخدمة والبيان وكل ملفات النصوص والأنماط وWebAssembly ذات البصمة، والفهارس الإنجليزية. يعمل بعد الطلبات النشطة.
 
 admin-settings-key-web-assets-cache-compression-enabled = ضغط الملفات العامة الثابتة
 admin-settings-help-web-assets-cache-compression-enabled = تشارك الملفات العامة المضغوطة ميزانية التخزين المؤقت. تُقارن بالبايتات الأصلية، ويمكن ترميز الملفات المعدّلة مرة واحدة أثناء تحميل محدود. يُستثنى البريد وبيانات API وHTML الخاص.

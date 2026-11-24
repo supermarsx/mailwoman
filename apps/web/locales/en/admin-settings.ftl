@@ -2688,9 +2688,9 @@ admin-settings-help-web-assets-cache-max-file-mi-b = Capped by the payload budge
 admin-settings-key-web-assets-cache-max-entries = Entry limit
 admin-settings-help-web-assets-cache-max-entries = Includes metadata references to embedded files, without copying their raw bytes.
 admin-settings-key-web-assets-cache-revalidate-seconds = Deployed asset revalidation (seconds)
-admin-settings-help-web-assets-cache-revalidate-seconds = Maximum cached age for deployed/retained bytes, including shell and service worker. Embedded build bytes are immutable.
+admin-settings-help-web-assets-cache-revalidate-seconds = Maximum cached age for deployed files without a content hash (shell, service worker) and retained bytes; unchanged files are kept after a size and date check. Content-hashed and embedded files do not expire.
 admin-settings-key-web-assets-cache-preload = Preload mode
-admin-settings-help-web-assets-cache-preload = off: none; shell: initial page; core: shell and a bounded set of its scripts/styles. Best effort, after foreground work.
+admin-settings-help-web-assets-cache-preload = off: none; shell: initial page; core: shell and a bounded set of its scripts/styles; app (default): shell, service worker, manifest, every content-hashed script, stylesheet and WebAssembly file, and the English catalogs. Runs after foreground work.
 
 admin-settings-key-web-assets-cache-compression-enabled = Public static compression
 admin-settings-help-web-assets-cache-compression-enabled = Public static encodings share the cache budget. Sidecars are checked against raw bytes; adapted assets may be encoded once on a bounded cache miss. Mail, API data and private HTML are excluded.

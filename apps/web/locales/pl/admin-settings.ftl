@@ -2787,9 +2787,9 @@ admin-settings-help-web-assets-cache-max-file-mi-b = Ograniczony budżetem danyc
 admin-settings-key-web-assets-cache-max-entries = Limit wpisów
 admin-settings-help-web-assets-cache-max-entries = Obejmuje odwołania do wbudowanych plików bez kopiowania ich surowych bajtów.
 admin-settings-key-web-assets-cache-revalidate-seconds = Ponowna weryfikacja zasobów (sekundy)
-admin-settings-help-web-assets-cache-revalidate-seconds = Maksymalny wiek buforowanych wdrożonych danych, w tym strony startowej i service workera. Wbudowane bajty są niezmienne.
+admin-settings-help-web-assets-cache-revalidate-seconds = Maksymalny wiek buforowanych wdrożonych plików bez hasha treści (strona startowa, service worker) i zachowanych bajtów; niezmienione pliki pozostają po sprawdzeniu rozmiaru i daty. Pliki z hashem treści i wbudowane nie wygasają.
 admin-settings-key-web-assets-cache-preload = Tryb ładowania wstępnego
-admin-settings-help-web-assets-cache-preload = off: brak; shell: strona startowa; core: strona i ograniczone skrypty/style. W miarę możliwości, po bieżących żądaniach.
+admin-settings-help-web-assets-cache-preload = off: brak; shell: strona startowa; core: strona i ograniczone skrypty/style; app (domyślnie): strona, service worker, manifest, wszystkie skrypty, style i pliki WebAssembly z hashem treści oraz katalogi angielskie. Działa po bieżących żądaniach.
 
 admin-settings-key-web-assets-cache-compression-enabled = Kompresja plików publicznych
 admin-settings-help-web-assets-cache-compression-enabled = Skompresowane pliki publiczne korzystają z tego samego budżetu pamięci podręcznej. Są porównywane z bajtami źródłowymi; zmienione pliki mogą być kodowane raz podczas ograniczonego ładowania. Poczta, dane API i prywatny HTML są wykluczone.

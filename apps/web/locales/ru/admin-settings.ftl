@@ -2787,9 +2787,9 @@ admin-settings-help-web-assets-cache-max-file-mi-b = Ограничен бюдж
 admin-settings-key-web-assets-cache-max-entries = Предел записей
 admin-settings-help-web-assets-cache-max-entries = Включает ссылки на встроенные файлы без копирования их байтов.
 admin-settings-key-web-assets-cache-revalidate-seconds = Повторная проверка ресурсов (секунды)
-admin-settings-help-web-assets-cache-revalidate-seconds = Максимальный возраст кешированных развёрнутых данных, включая стартовую страницу и service worker. Встроенные байты неизменны.
+admin-settings-help-web-assets-cache-revalidate-seconds = Максимальный возраст кешированных развёрнутых файлов без хеша содержимого (стартовая страница, service worker) и сохранённых байтов; неизменённые файлы остаются после проверки размера и даты. Файлы с хешем содержимого и встроенные файлы не устаревают.
 admin-settings-key-web-assets-cache-preload = Режим предзагрузки
-admin-settings-help-web-assets-cache-preload = off: нет; shell: стартовая страница; core: страница и ограниченные скрипты/стили. По возможности, после текущих запросов.
+admin-settings-help-web-assets-cache-preload = off: нет; shell: стартовая страница; core: страница и ограниченные скрипты/стили; app (по умолчанию): страница, service worker, манифест, все скрипты, стили и файлы WebAssembly с хешем содержимого, а также английские каталоги. Выполняется после текущих запросов.
 
 admin-settings-key-web-assets-cache-compression-enabled = Сжатие общедоступных файлов
 admin-settings-help-web-assets-cache-compression-enabled = Сжатые общедоступные файлы используют общий бюджет кэша. Они проверяются по исходным байтам; изменённые файлы могут кодироваться один раз при ограниченной загрузке кэша. Почта, данные API и частный HTML исключены.

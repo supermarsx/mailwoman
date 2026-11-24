@@ -2761,9 +2761,9 @@ admin-settings-help-web-assets-cache-max-file-mi-b = データ予算が上限で
 admin-settings-key-web-assets-cache-max-entries = エントリ上限
 admin-settings-help-web-assets-cache-max-entries = 埋め込みファイルの参照を含み、元のバイトを複製しません。
 admin-settings-key-web-assets-cache-revalidate-seconds = 配備アセットの再検証 (秒)
-admin-settings-help-web-assets-cache-revalidate-seconds = 初期ページとサービスワーカーを含む配備データの最大キャッシュ期間です。埋め込みバイトは不変です。
+admin-settings-help-web-assets-cache-revalidate-seconds = 内容ハッシュのない配備ファイル (初期ページ、サービスワーカー) と保持データの最大キャッシュ期間です。変更のないファイルはサイズと日時の確認後に保持されます。内容ハッシュ付きファイルと埋め込みファイルは期限切れになりません。
 admin-settings-key-web-assets-cache-preload = 事前読み込みモード
-admin-settings-help-web-assets-cache-preload = off: なし、shell: 初期ページ、core: ページと制限内のスクリプト・スタイル。実行中の要求を優先したベストエフォートです。
+admin-settings-help-web-assets-cache-preload = off: なし、shell: 初期ページ、core: ページと制限内のスクリプト・スタイル、app (既定): ページ、サービスワーカー、マニフェスト、内容ハッシュ付きのすべてのスクリプト・スタイル・WebAssembly ファイル、英語カタログ。実行中の要求の後に動作します。
 
 admin-settings-key-web-assets-cache-compression-enabled = 公開静的ファイルの圧縮
 admin-settings-help-web-assets-cache-compression-enabled = 公開静的ファイルの圧縮データはキャッシュ予算を共有します。元のバイト列と照合し、調整したファイルは上限付きのキャッシュ読み込み時に一度エンコードできます。メール、APIデータ、非公開HTMLは対象外です。

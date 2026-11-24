@@ -4438,28 +4438,38 @@ clear action. Active responses finish normally and enabled preload may refill.
 while preserving bounded asynchronous loading.
 
 <a id="web.assets.cache.budgetMiB"></a>
-`web.assets.cache.budgetMiB` defaults to 64 (8–512 MiB). This is an owned resident
+`web.assets.cache.budgetMiB` defaults to 128 (8–512 MiB). This is an owned resident
 payload budget, excluding active responses, metadata and embedded static bytes;
 it is not a process RSS limit.
 
 <a id="web.assets.cache.maxFileMiB"></a>
-`web.assets.cache.maxFileMiB` defaults to 4 (1–16 MiB), capped by the budget. Larger
+`web.assets.cache.maxFileMiB` defaults to 8 (1–16 MiB), capped by the budget. Larger
 owned files bypass retention but still use the bounded loader. Embedded borrowed
 bytes are referenced without a duplicate raw allocation.
 
 <a id="web.assets.cache.maxEntries"></a>
-`web.assets.cache.maxEntries` defaults to 1024 (16–4096), including embedded
+`web.assets.cache.maxEntries` defaults to 4096 (16–4096), including embedded
 metadata references.
 
 <a id="web.assets.cache.revalidateSeconds"></a>
-`web.assets.cache.revalidateSeconds` defaults to 1 (1–60 seconds). Deployed and
-retained bytes, including unhashed shell and service worker, can remain stale for
-this interval. Embedded build bytes are immutable.
+`web.assets.cache.revalidateSeconds` defaults to 1 (1–60 seconds). Deployed
+files without a content hash in their name (shell, service worker, manifest) and
+retained-build bytes can remain stale for this interval; after it, a deployed
+file whose length and modification time are unchanged is kept without a re-read.
+Content-hashed deployed files and embedded build bytes do not expire. When the
+deployed `index.html` changes, the cache drops the previous build's entries and
+preloads again.
 
 <a id="web.assets.cache.preload"></a>
-`web.assets.cache.preload` is `off`, `shell` (default) or `core`. Preload is
-nonblocking and best effort, requiring an immediately available loader slot and
-no pending foreground work. Core includes a bounded set of shell scripts/styles.
+`web.assets.cache.preload` is `off`, `shell`, `core` or `app` (default). `shell`
+loads `index.html`; `core` adds `sw.js`, the manifest and at most sixteen
+scripts/styles named by the shell; `app` loads `index.html`, `sw.js`, the
+manifest, every content-hashed script, stylesheet and WebAssembly module under
+`assets/`, and the `en` catalogs. Only `en` catalogs are preloaded because the
+server has no default-locale setting; other locales, fonts, images and pdf.js
+are cached on first use. Preload starts after startup, waits while foreground
+loads are pending, uses one of the two loader slots, and stops at three quarters
+of the budget or entry limit. Maintenance → Cache shows its progress.
 
 ## Key reference
 
@@ -5360,11 +5370,11 @@ Every key in the settings registry, generated from the registry and checked agai
 | <a id="web.assets.cache.compression.brotli"></a>`web.assets.cache.compression.brotli` | on or off | `true` | server |  | Applied by the server. |
 | <a id="web.assets.cache.compression.minBytes"></a><a id="web.assets.cache.compression.minbytes"></a>`web.assets.cache.compression.minBytes` | integer, 256 to 65,536 | `1024` | server |  | Applied by the server. |
 | [`web.assets.cache.enabled`](#web.assets.cache.enabled) | on or off | `true` | server |  | Applied by the server. |
-| <a id="web.assets.cache.budgetmib"></a>[`web.assets.cache.budgetMiB`](#web.assets.cache.budgetMiB) | integer, 8 to 512 | `64` | server |  | Applied by the server. |
-| <a id="web.assets.cache.maxfilemib"></a>[`web.assets.cache.maxFileMiB`](#web.assets.cache.maxFileMiB) | integer, 1 to 16 | `4` | server |  | Applied by the server. |
-| <a id="web.assets.cache.maxentries"></a>[`web.assets.cache.maxEntries`](#web.assets.cache.maxEntries) | integer, 16 to 4096 | `1024` | server |  | Applied by the server. |
+| <a id="web.assets.cache.budgetmib"></a>[`web.assets.cache.budgetMiB`](#web.assets.cache.budgetMiB) | integer, 8 to 512 | `128` | server |  | Applied by the server. |
+| <a id="web.assets.cache.maxfilemib"></a>[`web.assets.cache.maxFileMiB`](#web.assets.cache.maxFileMiB) | integer, 1 to 16 | `8` | server |  | Applied by the server. |
+| <a id="web.assets.cache.maxentries"></a>[`web.assets.cache.maxEntries`](#web.assets.cache.maxEntries) | integer, 16 to 4096 | `4096` | server |  | Applied by the server. |
 | <a id="web.assets.cache.revalidateseconds"></a>[`web.assets.cache.revalidateSeconds`](#web.assets.cache.revalidateSeconds) | integer, 1 to 60 | `1` | server |  | Applied by the server. |
-| [`web.assets.cache.preload`](#web.assets.cache.preload) | one of `off`, `shell`, `core` | `"shell"` | server |  | Applied by the server. |
+| [`web.assets.cache.preload`](#web.assets.cache.preload) | one of `off`, `shell`, `core`, `app` | `"app"` | server |  | Applied by the server. |
 | [`web.prefetch.enabled`](#web.prefetch.enabled) | on or off | `true` | server |  | Applied by the server and the web app. |
 | <a id="web.prefetch.idledelayms"></a>[`web.prefetch.idleDelayMs`](#web.prefetch.idleDelayMs) | integer, 0 to 30,000 | `2500` | server |  | Applied by the server and the web app. |
 | <a id="ui.notifynewversion"></a>[`ui.notifyNewVersion`](#ui.notifyNewVersion) | on or off | `true` | server, domain, user |  | Applied by the web app only. |

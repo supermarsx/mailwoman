@@ -2761,9 +2761,9 @@ admin-settings-help-web-assets-cache-max-file-mi-b = 受数据预算限制。较
 admin-settings-key-web-assets-cache-max-entries = 条目上限
 admin-settings-help-web-assets-cache-max-entries = 包括嵌入式文件的引用，不复制其原始字节。
 admin-settings-key-web-assets-cache-revalidate-seconds = 已部署资源重新验证（秒）
-admin-settings-help-web-assets-cache-revalidate-seconds = 已部署缓存数据的最长保留时间，包括初始页面和服务工作线程。嵌入式字节不可变。
+admin-settings-help-web-assets-cache-revalidate-seconds = 无内容哈希的已部署文件（初始页面、服务工作线程）和保留数据的最长缓存时间；未更改的文件在检查大小和日期后保留。带内容哈希的文件和嵌入式文件不会过期。
 admin-settings-key-web-assets-cache-preload = 预加载模式
-admin-settings-help-web-assets-cache-preload = off：不加载；shell：初始页面；core：页面及有界脚本和样式。尽力执行，优先处理前台请求。
+admin-settings-help-web-assets-cache-preload = off：不加载；shell：初始页面；core：页面及有界脚本和样式；app（默认）：页面、服务工作线程、清单、所有带内容哈希的脚本、样式和 WebAssembly 文件，以及英文目录。在前台请求之后执行。
 
 admin-settings-key-web-assets-cache-compression-enabled = 公共静态文件压缩
 admin-settings-help-web-assets-cache-compression-enabled = 公共静态文件的压缩数据共享缓存预算。压缩文件会与原始字节核对；调整后的文件可在有界缓存加载时编码一次。邮件、API 数据和私有 HTML 不在范围内。

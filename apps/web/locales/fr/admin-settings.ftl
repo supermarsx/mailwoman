@@ -2775,9 +2775,9 @@ admin-settings-help-web-assets-cache-max-file-mi-b = Plafonnée par le budget de
 admin-settings-key-web-assets-cache-max-entries = Limite d’entrées
 admin-settings-help-web-assets-cache-max-entries = Inclut les références aux fichiers intégrés sans recopier leurs octets bruts.
 admin-settings-key-web-assets-cache-revalidate-seconds = Revalidation des ressources déployées (secondes)
-admin-settings-help-web-assets-cache-revalidate-seconds = Âge maximal en cache des octets déployés ou retenus, page initiale et service worker inclus. Les octets intégrés sont immuables.
+admin-settings-help-web-assets-cache-revalidate-seconds = Âge maximal en cache des fichiers déployés sans empreinte de contenu (page initiale, service worker) et des octets retenus ; un fichier inchangé est conservé après vérification de la taille et de la date. Les fichiers à empreinte et intégrés n’expirent pas.
 admin-settings-key-web-assets-cache-preload = Mode de préchargement
-admin-settings-help-web-assets-cache-preload = off : aucun ; shell : page initiale ; core : page et ensemble borné de scripts et styles. Au mieux, après les tâches de premier plan.
+admin-settings-help-web-assets-cache-preload = off : aucun ; shell : page initiale ; core : page et ensemble borné de scripts et styles ; app (par défaut) : page, service worker, manifeste, tous les scripts, styles et fichiers WebAssembly à empreinte de contenu, et les catalogues anglais. S’exécute après les tâches de premier plan.
 
 admin-settings-key-web-assets-cache-compression-enabled = Compression des fichiers publics
 admin-settings-help-web-assets-cache-compression-enabled = Les fichiers publics compressés partagent le budget du cache. Ils sont vérifiés contre les octets bruts ; les fichiers adaptés peuvent être encodés une fois lors d’un chargement limité du cache. Courriels, données API et HTML privé sont exclus.

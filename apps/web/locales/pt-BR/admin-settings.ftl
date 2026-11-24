@@ -2769,9 +2769,9 @@ admin-settings-help-web-assets-cache-max-file-mi-b = Limitado pelo orçamento de
 admin-settings-key-web-assets-cache-max-entries = Limite de entradas
 admin-settings-help-web-assets-cache-max-entries = Inclui referências a arquivos incorporados sem copiar seus bytes originais.
 admin-settings-key-web-assets-cache-revalidate-seconds = Revalidação dos recursos publicados (segundos)
-admin-settings-help-web-assets-cache-revalidate-seconds = Idade máxima do cache para bytes publicados ou retidos, incluindo página inicial e service worker. Os bytes incorporados são imutáveis.
+admin-settings-help-web-assets-cache-revalidate-seconds = Idade máxima do cache para arquivos publicados sem hash de conteúdo (página inicial, service worker) e bytes retidos; arquivos inalterados são mantidos após verificar tamanho e data. Arquivos com hash de conteúdo e incorporados não expiram.
 admin-settings-key-web-assets-cache-preload = Modo de pré-carregamento
-admin-settings-help-web-assets-cache-preload = off: nenhum; shell: página inicial; core: página e conjunto limitado de scripts e estilos. Melhor esforço, com prioridade ao trabalho em primeiro plano.
+admin-settings-help-web-assets-cache-preload = off: nenhum; shell: página inicial; core: página e conjunto limitado de scripts e estilos; app (padrão): página, service worker, manifesto, todos os scripts, estilos e arquivos WebAssembly com hash de conteúdo e os catálogos em inglês. Executa após o trabalho em primeiro plano.
 
 admin-settings-key-web-assets-cache-compression-enabled = Compressão de arquivos públicos
 admin-settings-help-web-assets-cache-compression-enabled = Os arquivos públicos comprimidos compartilham o orçamento do cache. São verificados com os bytes originais; arquivos adaptados podem ser codificados uma vez em um carregamento limitado do cache. Correio, dados da API e HTML privado são excluídos.

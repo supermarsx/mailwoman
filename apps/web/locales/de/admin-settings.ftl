@@ -2775,9 +2775,9 @@ admin-settings-help-web-assets-cache-max-file-mi-b = Durch das Nutzdatenbudget b
 admin-settings-key-web-assets-cache-max-entries = Eintragsgrenze
 admin-settings-help-web-assets-cache-max-entries = Beinhaltet Verweise auf eingebettete Dateien ohne Kopie ihrer Rohdaten.
 admin-settings-key-web-assets-cache-revalidate-seconds = Prüfintervall bereitgestellter Dateien (Sekunden)
-admin-settings-help-web-assets-cache-revalidate-seconds = Maximales Cachealter bereitgestellter Dateien, einschließlich Startseite und Service Worker. Eingebettete Bytes sind unveränderlich.
+admin-settings-help-web-assets-cache-revalidate-seconds = Maximales Cachealter bereitgestellter Dateien ohne Inhalts-Hash (Startseite, Service Worker) und aufbewahrter Bytes; unveränderte Dateien bleiben nach Prüfung von Größe und Datum erhalten. Dateien mit Inhalts-Hash und eingebettete Dateien laufen nicht ab.
 admin-settings-key-web-assets-cache-preload = Vorlademodus
-admin-settings-help-web-assets-cache-preload = off: aus; shell: Startseite; core: Startseite und begrenzte Skripte/Stile. Nach Möglichkeit, mit Vorrang für aktuelle Anfragen.
+admin-settings-help-web-assets-cache-preload = off: aus; shell: Startseite; core: Startseite und begrenzte Skripte/Stile; app (Standard): Startseite, Service Worker, Manifest, alle Skripte, Stile und WebAssembly-Dateien mit Inhalts-Hash sowie die englischen Kataloge. Läuft nach aktuellen Anfragen.
 
 admin-settings-key-web-assets-cache-compression-enabled = Komprimierung öffentlicher Dateien
 admin-settings-help-web-assets-cache-compression-enabled = Komprimierte öffentliche Dateien teilen sich das Cache-Budget. Begleitdateien werden mit den Rohdaten verglichen; angepasste Dateien werden bei einem begrenzten Cache-Fehlzugriff einmal kodiert. E-Mails, API-Daten und privates HTML sind ausgeschlossen.

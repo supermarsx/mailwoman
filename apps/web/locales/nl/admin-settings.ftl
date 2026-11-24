@@ -2769,9 +2769,9 @@ admin-settings-help-web-assets-cache-max-file-mi-b = Beperkt door het gegevensbu
 admin-settings-key-web-assets-cache-max-entries = Itemlimiet
 admin-settings-help-web-assets-cache-max-entries = Inclusief verwijzingen naar ingebedde bestanden zonder hun ruwe bytes te kopiëren.
 admin-settings-key-web-assets-cache-revalidate-seconds = Hercontrole uitgerolde bestanden (seconden)
-admin-settings-help-web-assets-cache-revalidate-seconds = Maximale cacheleeftijd van uitgerolde of bewaarde bytes, inclusief startpagina en service worker. Ingebedde bytes zijn onveranderlijk.
+admin-settings-help-web-assets-cache-revalidate-seconds = Maximale cacheleeftijd van uitgerolde bestanden zonder inhoudshash (startpagina, service worker) en bewaarde bytes; ongewijzigde bestanden blijven na controle van grootte en datum. Bestanden met inhoudshash en ingebedde bestanden verlopen niet.
 admin-settings-key-web-assets-cache-preload = Voorlaadmodus
-admin-settings-help-web-assets-cache-preload = off: geen; shell: startpagina; core: startpagina en begrensde scripts/stijlen. Naar mogelijkheid, na actuele aanvragen.
+admin-settings-help-web-assets-cache-preload = off: geen; shell: startpagina; core: startpagina en begrensde scripts/stijlen; app (standaard): startpagina, service worker, manifest, alle scripts, stijlen en WebAssembly-bestanden met inhoudshash, en de Engelse catalogi. Draait na actuele aanvragen.
 
 admin-settings-key-web-assets-cache-compression-enabled = Compressie van openbare bestanden
 admin-settings-help-web-assets-cache-compression-enabled = Gecomprimeerde openbare bestanden delen het cachebudget. Ze worden met de bronbytes vergeleken; aangepaste bestanden kunnen eenmaal bij een begrensde cachemisser worden gecodeerd. E-mail, API-gegevens en privé-HTML zijn uitgesloten.
