@@ -118,3 +118,14 @@ test('actual multi controller and real worker preserve measured mode/consumption
   assert.equal(app.order.at(-1),'scanner');assert.ok(app.phaseRequests()>0);
  }finally{await app.close();}
 });
+test('published consumption is judged over the whole run: partial stages pass, a zero total fails, per-stage ratios are data',()=>{
+ const first=stage('published',10,10),second=stage('published',10,14);
+ const result=evidence(witness('published',10),[first,second],'published');
+ assert.equal(result.qualified,true);assert.equal(result.consumedFramesDelta,4);assert.equal(result.observations[0].deltas.consumedFrames,0);assert.equal(result.observations[1].deltas.consumedFrames,4);
+ assert.equal(result.observations[0].consumedFramesPerContext,null,'no contexts observed means no ratio');
+ const partial=stage('published',14,14);partial.diagnostics.after.ordinaryRequestInputs.ordinaryContexts=18;partial.diagnostics.after.ordinaryRequestInputs.consumedFrames=16;
+ assert.equal(evidence(witness('published',10),[first,second,partial],'published').observations[2].consumedFramesPerContext,0.5);
+ assert.throws(()=>evidence(witness('published',10),[first,stage('published',10,10)],'published'),/in the whole run/);
+ assert.throws(()=>evidence(witness('published',10),[first],'published',{backend:'sqlite'}),/in the whole run/);
+ assert.equal(evidence(witness('published',10),[first],'published',{backend:'postgres'}).exercise,'not-applicable-backend');
+});

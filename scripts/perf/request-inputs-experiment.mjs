@@ -51,10 +51,16 @@ export function requestInputsEvidence(handoff,stages,expected,{backend}={}){
   for(const name of names){const sample=stage.byRequest[name];if(!sample||!Number.isSafeInteger(sample.requests)||sample.requests<0||!Number.isSafeInteger(sample.acceptedDuringScheduledWindow)||sample.acceptedDuringScheduledWindow<0||sample.acceptedDuringScheduledWindow>sample.requests)throw Error('Missing request-input accepted HTTP proof');if(eligible.has(name))accepted=add(accepted,sample.acceptedDuringScheduledWindow);}
   if(accepted>0){
    if(skipsPublished){if(expected==='published'&&deltas.consumedFrames!==0)throw Error('Published inputs were consumed on a backend that does not publish them');}
-   else{eligiblePhases++;if(expected==='published'&&deltas.consumedFrames===0)throw Error('Eligible accepted HTTP phase did not consume published inputs');}
+   else eligiblePhases++;
   }
   eligibleAccepted=add(eligibleAccepted,accepted);consumedFramesDelta=add(consumedFramesDelta,deltas.consumedFrames);
-  observations.push({endpoint:stage.endpoint,phase:stage.phase,knownSubsetAcceptedDuringScheduledWindow:accepted,before,after,deltas});previous=after;
+  // Per-stage consumption is data, not a gate: a frame is ready only while the session's last_seen
+  // touch is not due (flush interval, default 15 s) and a built entry exists, so at low per-user rates
+  // many requests legitimately take the original path.
+  observations.push({endpoint:stage.endpoint,phase:stage.phase,knownSubsetAcceptedDuringScheduledWindow:accepted,consumedFramesPerContext:deltas.ordinaryContexts>0?+(deltas.consumedFrames/deltas.ordinaryContexts).toFixed(4):null,before,after,deltas});previous=after;
  }
+ // The requirement: when published inputs are expected (SQLite, at least one consuming stage) the
+ // path must be exercised at all during the run. Partial or zero consumption in one stage is allowed.
+ if(expected==='published'&&!skipsPublished&&eligiblePhases>0&&consumedFramesDelta===0)throw Error('Eligible accepted HTTP phases did not consume published inputs in the whole run');
  return {expectedMode:expected,startup,observations,knownSubsetPhases:eligiblePhases,knownSubsetAcceptedDuringScheduledWindow:eligibleAccepted,consumedFramesDelta,qualified:eligiblePhases>0,exercise:eligiblePhases>0?'known-subset-http-observed':skipsPublished?'not-applicable-backend':'unexercised',backend:skipsPublished?backend:'sqlite-or-unnamed',eligibilityScope:'conservative known subset; excludes Email/get labels without proving those requests unsupported',controlAuthenticationBound:0,window:'process before/after includes drain; not in-window consumption or per-request attribution'};
 }

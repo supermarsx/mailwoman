@@ -225,3 +225,9 @@ test('guard snapshot lookups are required per group: account-polls never consult
  const unknown=t34ModesEvidence(handoff('snapshot'),[stage('identity',snap({g:g0}),snap({g:g1})),stage('brand-new-group',snap({g:g1}),snap({g:flat}))]);
  assert.match(unknown.invalidReasons.join(),/no snapshot lookups in brand-new-group/);
 });
+test('partial published-input consumption across stages is valid; a zero total is not',()=>{
+ const st=[stage('identity',snap(),snap()),stage('query',snap(),snap())];
+ const mk=consumed=>({expectedMode:'published',startup:{mode:'published'},consumedFramesDelta:consumed,knownSubsetPhases:2});
+ assert.equal(t34ModesEvidence(handoff('baseline'),st,{requestInputsEvidence:mk(1)}).valid,true);
+ assert.equal(t34ModesEvidence(handoff('baseline'),st,{requestInputsEvidence:mk(0)}).valid,false);
+});

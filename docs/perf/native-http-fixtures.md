@@ -446,6 +446,8 @@ receipt reports `exercise: not-applicable-backend`, `qualified: false` and the
 backend. SQLite runs, and runs whose handoff names no backend, keep the strict
 check that an eligible accepted phase consumed published inputs.
 
+When published inputs are expected, the receipt requires that the published path was exercised at all: the total `consumedFrames` delta across the run must be above zero when at least one accepted stage belongs to a consuming group. A single stage may consume none or only part of its eligible contexts; each observation reports `consumedFramesPerContext` as data. A frame is ready only while a built entry exists and the session's last_seen write is not yet due (flush interval `session_persistence::flush_seconds`, 15 s by default), so at low per-user request rates, as with 1,000 users, many requests legitimately take the original path.
+
 ### Failures after the load
 
 If the coordinated generator fails after the load completed (scanner probe,
