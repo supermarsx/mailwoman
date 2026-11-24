@@ -4,6 +4,30 @@ import {adminSessionGeneration} from './adminSession.ts';
 import {ApiError,ActionCompletionError} from './errors.ts';
 import {sendActionCookieDelivery} from './workerHttp.ts';
 import {actionContract,actionHeaders,actionRoute,validActionPath,type ActionActor} from './websocketActionRoute.ts';
+import {closeKind,jittered,reconnectDelay,type CloseKind} from '../realtime/reconnectPolicy.ts';
+
+// t52w: one reconnect window for every action socket of this page (the
+// realtime/reconnectPolicy.ts rules the push stream uses). A failed open, or a
+// server close with 1012 (restarting) or 1013 (try later), sets `notBefore`;
+// until then connect() answers false and every request goes over HTTP, so
+// nothing waits on the backoff. After a failed open the window is 30 s +-50 %
+// (15-45 s) or, for 1012/1013, reconnectDelay's window if longer; an
+// established socket closed with 1012/1013 waits reconnectDelay (1012: 0-15 s,
+// 1013: 15-30 s for the first). A socket that becomes ready clears the count.
+const OPEN_FAILURE_MS=30_000;
+let notBefore=0,failures=0,random:()=>number=Math.random;
+function backOff(kind:CloseKind,opened:boolean):void{
+ if(kind==='ended')return;
+ if(opened&&kind==='drop')return;
+ failures++;
+ const policy=kind==='drop'?0:reconnectDelay(kind,failures,random);
+ const wait=opened?policy:Math.max(jittered(OPEN_FAILURE_MS,0.5,random),policy);
+ notBefore=Math.max(notBefore,Date.now()+wait);
+}
+/** Forget the shared window, or replace its random source (tests). */
+export function resetActionBackoff(source:(()=>number)|null=null):void{notBefore=0;failures=0;random=source??Math.random;}
+/** When the action sockets may next try to open (diagnostics, tests). */
+export function actionSocketsNotBefore():number{return notBefore;}
 
 interface CookieDelivery {token:string;expiresInMs:number}
 interface Ack {type?:string;protocol?:string;id?:string;status?:number;headers?:unknown;body?:string;actionOutcome?:string;httpRequired?:boolean;cookieDelivery?:unknown}
@@ -34,7 +58,7 @@ function replyHeaders(value:unknown):Headers|undefined{
 /** A lost ACK is terminal, including for a read. Only an explicit pre-dispatch
  * HTTP control refusal can return undefined after send. Queued jobs never spill. */
 export function createWebSocketActions(options:{endpoint:string;WebSocketImpl?:typeof WebSocket;timeoutMs?:number;maxInFlight?:number;onConnection?:(connected:boolean)=>void;onCookieDelivery?:(receipt:CookieDelivery,response:Response,init:RequestInit,assertAuthority:()=>void)=>Promise<void>}){
- let socket:WebSocket|undefined,ready=false,sequence=0,opening:Promise<boolean>|undefined,disabledUntil=0,retired=false,completing=false;
+ let socket:WebSocket|undefined,ready=false,sequence=0,opening:Promise<boolean>|undefined,retired=false,completing=false;
  let finishOpening:((ready:boolean)=>void)|undefined,onRetired:(()=>void)|undefined;
  const pending=new Map<string,Job>(),queue:Job[]=[];let queueBytes=0;
  const limit=Math.min(8,Math.max(1,options.maxInFlight??8));
@@ -62,7 +86,7 @@ export function createWebSocketActions(options:{endpoint:string;WebSocketImpl?:t
   }
  }
  async function receive(value:Ack):Promise<void>{
-  if(value.type==='ready'&&value.protocol===actionContract.protocol){ready=true;options.onConnection?.(true);finishOpening?.(true);pump();return;}
+  if(value.type==='ready'&&value.protocol===actionContract.protocol){ready=true;failures=0;options.onConnection?.(true);finishOpening?.(true);pump();return;}
   if(typeof value.id!=='string')return;const job=pending.get(value.id);if(!job||job.completed)return;
   if(!Number.isInteger(value.status)||value.status!<200||value.status!>599||typeof value.body!=='string'||new TextEncoder().encode(value.body).length>actionContract.limits.responseBytes){settle(job,unknown());pending.delete(value.id);close();return;}
   if(value.actionOutcome==='notDispatched'){pending.delete(value.id);if(value.httpRequired===true)settle(job);else settle(job,new ApiError(value.status!,'The server refused the action before dispatch.',{code:'actionNotDispatched'}));close();return;}
@@ -90,10 +114,10 @@ export function createWebSocketActions(options:{endpoint:string;WebSocketImpl?:t
   pending.delete(value.id);if(completedTransportFailure){retired=true;settle(job,new ActionCompletionError(response));close();return;}settle(job,undefined,response);drain();
  }
  function connect():Promise<boolean>{
-  if(retired)return Promise.resolve(false);if(ready)return Promise.resolve(true);if(opening)return opening;if(Date.now()<disabledUntil)return Promise.resolve(false);
+  if(retired)return Promise.resolve(false);if(ready)return Promise.resolve(true);if(opening)return opening;if(Date.now()<notBefore)return Promise.resolve(false);
   const Constructor=options.WebSocketImpl??globalThis.WebSocket;if(typeof Constructor!=='function')return Promise.resolve(false);
   opening=new Promise(resolve=>{
-   let settled=false;const finish=(value:boolean)=>{if(settled)return;settled=true;clearTimeout(timer);finishOpening=undefined;if(!value)disabledUntil=Date.now()+30000;resolve(value);};
+   let settled=false,kind:CloseKind='drop';const finish=(value:boolean)=>{if(settled)return;settled=true;clearTimeout(timer);finishOpening=undefined;if(!value)backOff(kind,false);resolve(value);};
    finishOpening=finish;const timer=setTimeout(()=>{finish(false);close(true);},5000);
    try{socket=new Constructor(options.endpoint);}catch{finish(false);return;}
    socket.onmessage=event=>{
@@ -101,7 +125,7 @@ export function createWebSocketActions(options:{endpoint:string;WebSocketImpl?:t
     let value:Ack;try{value=JSON.parse(event.data) as Ack;if(!value||typeof value!=='object'){close();return;}}catch{close();return;}
     void receive(value).catch(()=>close());
    };
-   socket.onerror=()=>{if(!retired)options.onConnection?.(false);const fallback=!ready;finish(false);close(fallback);};socket.onclose=()=>{if(!retired)options.onConnection?.(false);const fallback=!ready;finish(false);close(fallback);};
+   socket.onerror=()=>{if(!retired)options.onConnection?.(false);const fallback=!ready;finish(false);close(fallback);};socket.onclose=(event?:{code?:number})=>{if(!retired)options.onConnection?.(false);kind=closeKind(event?.code);const fallback=!ready;if(ready)backOff(kind,true);finish(false);close(fallback);};
   });
   const attempt=opening;return attempt.then(value=>{if(!value&&opening===attempt)opening=undefined;return value;});
  }

@@ -1,10 +1,10 @@
 // t52w: a read caught by an action-channel change before dispatch is sent over HTTP, never failed for a transport reason.
 import {afterEach,expect,it,vi} from 'vitest';
 import {apiFetch} from './http.ts';
-import {clearWebSocketActions} from './websocketActions.ts';
+import {clearWebSocketActions,resetActionBackoff} from './websocketActions.ts';
 import {activateAccountPreferences,suspendAccountPreferences} from './accountPreferenceLifecycle.ts';
 class Socket{static all:Socket[]=[];onmessage:((event:{data:string})=>void)|null=null;onclose:(()=>void)|null=null;onerror:(()=>void)|null=null;sent:string[]=[];constructor(){Socket.all.push(this);}send(value:string){this.sent.push(value);}close(){}}
-afterEach(()=>{clearWebSocketActions();suspendAccountPreferences();vi.unstubAllGlobals();document.cookie='mw_csrf=; Max-Age=0; Path=/';Socket.all=[];});
+afterEach(()=>{clearWebSocketActions();resetActionBackoff();suspendAccountPreferences();vi.unstubAllGlobals();document.cookie='mw_csrf=; Max-Age=0; Path=/';Socket.all=[];});
 it('a restored session read that meets an account activation mid-handshake is answered over HTTP',async()=>{
  document.cookie='mw_csrf=restored; Path=/';
  vi.stubGlobal('WebSocket',Socket);

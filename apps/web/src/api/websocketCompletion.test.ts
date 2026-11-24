@@ -1,5 +1,5 @@
 import {afterEach,expect,it,vi} from 'vitest';
-import {createWebSocketActions,websocketAction,clearWebSocketActions} from './websocketActions.ts';
+import {createWebSocketActions,websocketAction,clearWebSocketActions,resetActionBackoff} from './websocketActions.ts';
 import {actionContract,actionHeaders,actionRoute,validActionPath} from './websocketActionRoute.ts';
 import {ActionCompletionError,ApiError} from './errors.ts';
 import {recoverRequest} from './recovery.ts';
@@ -15,7 +15,7 @@ const latest=()=>Socket.all.at(-1)!;
 const flush=async()=>{for(let i=0;i<12;i++)await Promise.resolve();};
 const ready=(socket=latest())=>socket.receive({type:'ready',protocol:actionContract.protocol});
 const ack=(socket:Socket,index=0,extra:Record<string,unknown>={})=>socket.receive({id:JSON.parse(socket.sent[index]!).id,status:200,headers:{'content-type':'application/json'},body:'{"saved":true}',actionOutcome:'completed',...extra});
-afterEach(()=>{clearWebSocketActions();Socket.all=[];document.cookie='mw_csrf=; Max-Age=0; Path=/';document.querySelector('meta[name="mw-console"]')?.remove();vi.useRealTimers();vi.unstubAllGlobals();});
+afterEach(()=>{clearWebSocketActions();resetActionBackoff();Socket.all=[];document.cookie='mw_csrf=; Max-Age=0; Path=/';document.querySelector('meta[name="mw-console"]')?.remove();vi.useRealTimers();vi.unstubAllGlobals();});
 it('uses exact shared actor routes and permits encoded query data without route escapes or forged headers',()=>{
  expect(actionRoute('/api/account/items?q=a%2Fb%20c',{method:'GET'},location.origin,'/ops')?.actor).toBe('webmail');
  expect(actionRoute('/ops/users?q=a%2Fb',{},location.origin,'/ops')).toMatchObject({actor:'admin',cookieEndpoint:'/ops/actions/cookies'});

@@ -1,10 +1,10 @@
-import {afterEach,expect,it,vi} from 'vitest';
-import {createWebSocketActions,websocketAction,clearWebSocketActions} from './websocketActions.ts';
+import {afterEach,describe,expect,it,vi} from 'vitest';
+import {createWebSocketActions,websocketAction,clearWebSocketActions,resetActionBackoff,actionSocketsNotBefore} from './websocketActions.ts';
 class Socket{
- static latest:Socket;onmessage:((event:{data:string})=>void)|null=null;onclose:(()=>void)|null=null;onerror:(()=>void)|null=null;
+ static latest:Socket;onmessage:((event:{data:string})=>void)|null=null;onclose:((event?:{code?:number})=>void)|null=null;onerror:(()=>void)|null=null;
  closed=false;sent:string[]=[];constructor(){Socket.latest=this;}send(value:string){this.sent.push(value);}close(){this.closed=true;}receive(value:unknown){this.onmessage?.({data:JSON.stringify(value)});}
 }
-afterEach(()=>{clearWebSocketActions();vi.useRealTimers();vi.unstubAllGlobals();});
+afterEach(()=>{clearWebSocketActions();resetActionBackoff();vi.useRealTimers();vi.unstubAllGlobals();});
 const socketType=Socket as unknown as typeof WebSocket;
 it('sends JSON actions with CSRF, account fences and idempotency keys and matches acknowledgements',async()=>{
  const client=createWebSocketActions({endpoint:'ws://localhost/jmap/actions',WebSocketImpl:socketType});
@@ -86,4 +86,46 @@ it('a read queued when the account changes falls back to HTTP instead of failing
  const read=websocketAction('/api/public-config',{method:'GET',headers:{'x-csrf-token':'proof'}},location.origin);
  await Promise.resolve();clearWebSocketActions();
  await expect(read).resolves.toBeUndefined();
+});
+
+describe('shared reconnect window (t52w)',()=>{
+ const ready=()=>{Socket.latest.receive({type:'ready',protocol:'mailwoman-actions-v1'});};
+ const open=(client:ReturnType<typeof createWebSocketActions>)=>client.send('/api/settings',{method:'GET'});
+ it('a failed open holds every action socket of the page for 30 s +-50 % and requests go to HTTP meanwhile',async()=>{
+  vi.useFakeTimers();resetActionBackoff(()=>0.5);
+  const first=createWebSocketActions({endpoint:'ws://localhost/jmap/actions',WebSocketImpl:socketType});
+  const waiting=open(first);const failed=Socket.latest;failed.onclose?.();await expect(waiting).resolves.toBeUndefined();
+  expect(actionSocketsNotBefore()-Date.now()).toBe(30000);
+  const second=createWebSocketActions({endpoint:'ws://localhost/jmap/actions',WebSocketImpl:socketType});
+  await expect(open(second)).resolves.toBeUndefined();expect(Socket.latest).toBe(failed);
+  vi.advanceTimersByTime(30000);const later=open(second);expect(Socket.latest).not.toBe(failed);
+  ready();await Promise.resolve();await Promise.resolve();Socket.latest.receive({id:JSON.parse(Socket.latest.sent[0]!).id,status:200,body:'{}'});
+  expect((await later)?.status).toBe(200);first.close();second.close();
+ });
+ it('spreads the failed-open window between 15 and 45 s',async()=>{
+  for(const [r,ms] of [[0,15000],[0.999999,45000]] as const){
+   vi.useFakeTimers();resetActionBackoff(()=>r);
+   const client=createWebSocketActions({endpoint:'ws://localhost/jmap/actions',WebSocketImpl:socketType});
+   const waiting=open(client);Socket.latest.onclose?.();await waiting;
+   expect(Math.abs(actionSocketsNotBefore()-Date.now()-ms)).toBeLessThanOrEqual(1);client.close();vi.useRealTimers();
+  }
+ });
+ it.each([[1012,7500],[1013,22500]])('an established socket closed with %i waits the push stream window',async(code,ms)=>{
+  vi.useFakeTimers();resetActionBackoff(()=>0.5);
+  const client=createWebSocketActions({endpoint:'ws://localhost/jmap/actions',WebSocketImpl:socketType});
+  const first=open(client);ready();await Promise.resolve();await Promise.resolve();
+  Socket.latest.receive({id:JSON.parse(Socket.latest.sent[0]!).id,status:200,body:'{}'});await first;
+  const closed=Socket.latest;closed.onclose?.({code});
+  expect(actionSocketsNotBefore()-Date.now()).toBe(ms);
+  await expect(open(client)).resolves.toBeUndefined();expect(Socket.latest).toBe(closed);
+  vi.advanceTimersByTime(ms);void open(client);expect(Socket.latest).not.toBe(closed);client.close();
+ });
+ it('an ordinary drop of an established socket reconnects on the next send; ready clears the count',async()=>{
+  vi.useFakeTimers();resetActionBackoff(()=>0.5);
+  const client=createWebSocketActions({endpoint:'ws://localhost/jmap/actions',WebSocketImpl:socketType});
+  const first=open(client);ready();await Promise.resolve();await Promise.resolve();
+  Socket.latest.receive({id:JSON.parse(Socket.latest.sent[0]!).id,status:200,body:'{}'});await first;
+  const dropped=Socket.latest;dropped.onclose?.({code:1006});expect(actionSocketsNotBefore()).toBe(0);
+  void open(client);expect(Socket.latest).not.toBe(dropped);client.close();
+ });
 });
