@@ -44,10 +44,24 @@ export async function publicConfig(): Promise<PublicConfig> {
 /** Read it from the server now (and keep the answer). */
 export function refreshPublicConfig(signal?:AbortSignal): Promise<PublicConfig> {
   const base = transportBase();
-  // A bounded caller owns its cancellation; do not cancel a shared SWR request.
-  if(signal)return fetchPublicConfig(base,signal);
-  if (!swrCachesEnabled()) return fetchPublicConfig(base);
-  return cache.refresh(base, () => fetchPublicConfig(base));
+  if (!swrCachesEnabled()) return fetchPublicConfig(base, signal);
+  const shared = cache.refresh(base, () => fetchPublicConfig(base));
+  // t52w: a bounded caller (the boot's performance read) shares the request and
+  // fills the cache like any other; its signal ends only its own wait, never the
+  // shared request the sign-in page and the remembered sign-ins read from.
+  return signal ? untilAborted(shared, signal) : shared;
+}
+
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+  return new Promise<T>((resolve, reject) => {
+    const abort = (): void => reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+    signal.addEventListener('abort', abort, { once: true });
+    promise.then(
+      (value) => { signal.removeEventListener('abort', abort); resolve(value); },
+      (error: unknown) => { signal.removeEventListener('abort', abort); reject(error); },
+    );
+  });
 }
 
 /** Forget the kept copy (tests). */
