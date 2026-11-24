@@ -85,7 +85,9 @@ export function armSelection(name){
 export function armEnvLines(name){const {env}=armSelection(name);return Object.entries(env).map(([k,v])=>`${k}=${v}`);}
 
 // ---- evidence ---------------------------------------------------------------------------------
-const MUTATING=new Set(['representative','flag-write','move-write']);
+// Endpoint groups whose phases write (journal activity must be shown for them).
+export const MUTATING_ENDPOINTS=Object.freeze(['representative','flag-write','move-write','goal-65-35']);
+const MUTATING=new Set(MUTATING_ENDPOINTS);
 // Per endpoint group: does the group's routes consult the bounded guard snapshot (hit or miss)?
 // Observed live: the /api/account/* polls never consult it. Everything else is expected to,
 // and so is any group not listed (strict by default). Published request inputs are decided by

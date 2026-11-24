@@ -4,6 +4,7 @@ import {cacheExperimentFromEnv} from './sqlite-page-cache-witness.mjs';
 import {measure,MAX_OUTSTANDING,MAX_STAGE_SECONDS} from './http-load.mjs';
 import {h2FromEnv} from './http-h2-client.mjs';
 import {goalOption} from './http-goal.mjs';
+import {mixWithDiagnostics} from './representative-workload.mjs';
 
 function number(env,key,fallback,min,max){
  const value=Number(env[key]??fallback);
@@ -69,7 +70,7 @@ export async function runCampaign({base,headers,groups,options,run=measure,diagn
    const before=await diagnostics('before');
    const result=await run({base,headers,requests,concurrency,seconds:options.seconds,timeoutMs:options.timeoutMs,...(options.h2?{h2:options.h2}:{}),...(arrivalRate===undefined?{}:{arrivalRate,...(options.latePolicy===undefined?{}:{latePolicy:options.latePolicy})})});
    const after=await diagnostics('after');
-   stages.push({endpoint,phase:arrivalRate===undefined?'concurrency-ramp':'offered-rate',diagnostics:{before,after},...result,...(options.requestInputsExpected===undefined?{}:{requestInputsWindow:{schema:1,kind:'workload-and-drain-only',eligibleControlRequests:0}})});
+   stages.push({endpoint,phase:arrivalRate===undefined?'concurrency-ramp':'offered-rate',diagnostics:{before,after},...result,...(result.mix?{mix:mixWithDiagnostics(result.mix,{before,after},options.seconds)}:{}),...(options.requestInputsExpected===undefined?{}:{requestInputsWindow:{schema:1,kind:'workload-and-drain-only',eligibleControlRequests:0}})});
    return result;
   };
   if(options.mode!=='smoke')for(const concurrency of options.concurrency){

@@ -301,53 +301,73 @@ them). Without the option, a loopback qualification run still cannot qualify.
 ## The goal mix `goal-65-35` (t53s)
 
 Selected as the campaign endpoint group `goal-65-35` (`MW_LOAD_FIXTURE_ENDPOINTS=goal-65-35`)
-on a representative-seeded fixture (at least four messages per user). The Rust
-fixture's `MW_NATIVE_LOAD_WORKLOAD` still accepts `baseline` and `representative`
-only; the JS side already treats a profile kind `goal-65-35` as representative
-seeding, so that value only needs enabling in the fixture. The existing
-`representative` mix is unchanged.
+on a fixture seeded with `MW_NATIVE_LOAD_WORKLOAD=goal-65-35`, which adds a trash
+and a drafts folder per user, planted search terms (`quarterly`, `zephyrine`) and
+five or more messages, with `messageIds[2]` starting read and `messageIds[3]`
+starting flagged. A fixture without that seeding simply has no such group. The
+existing `representative` mix is unchanged.
 
 One entry in the mix is one HTTP request. The mix is 100 slots in a fixed,
 deterministic order (smooth weighted round robin), so any 100 consecutive requests
 hold exactly 65 reads and 35 writes by request count.
 
-| Shape | Kind | Weight | Template |
-| --- | --- | ---: | --- |
-| `authenticated-identity` | read | 6 | `GET /api/me` |
-| `jmap-session` | read | 6 | `GET /jmap/session` |
-| `list-batch` | read | 16 | the web client's list batch: query + header get + unread count |
-| `Email/get` | read | 10 | headers of two messages, default UI properties |
-| `body-and-attachment-metadata` | read | 10 | reader body and attachment metadata |
-| `changes` | read | 9 | `Email/query` + `Email/queryChanges` + `Email/changes` poll |
-| `account-preferences` | read | 4 | `GET /api/account/preferences` |
-| `appearance-customization` | read | 4 | `GET /api/account/appearance/customization` |
-| `mark-read-and-restore` | write | 8 | set `$seen`, read back, clear it, read back |
-| `mark-unread-and-restore` | write | 5 | clear `$seen`, read back, set it, read back |
-| `flag-and-restore` | write | 8 | set `$flagged`, read back, clear it, read back |
-| `unflag-and-restore` | write | 4 | clear `$flagged`, read back, set it, read back |
-| `move-and-restore` | write | 10 | move inbox to archive, read back, move back, read back |
+| Shape | Kind | Weight | Mutations per request | Template |
+| --- | --- | ---: | ---: | --- |
+| `authenticated-identity` | read | 6 | 0 | `GET /api/me` |
+| `jmap-session` | read | 5 | 0 | `GET /jmap/session` |
+| `list-batch` | read | 15 | 0 | the web client's list batch: query + header get + unread count |
+| `Email/get` | read | 9 | 0 | headers of two messages, default UI properties |
+| `body-and-attachment-metadata` | read | 10 | 0 | reader body and attachment metadata |
+| `changes` | read | 9 | 0 | `Email/query` + `Email/queryChanges` + `Email/changes` poll |
+| `account-preferences` | read | 4 | 0 | `GET /api/account/preferences` |
+| `appearance-customization` | read | 3 | 0 | `GET /api/account/appearance/customization` |
+| `search-planted-term` | read | 4 | 0 | `Email/query` with `text: quarterly` in the inbox (total must equal the seeded count) + `Email/get` of the page |
+| `mark-read-and-restore` | write | 7 | 2 | set `$seen`, read back, clear it, read back |
+| `mark-unread-and-restore` | write | 4 | 2 | clear `$seen`, read back, set it, read back |
+| `flag-and-restore` | write | 6 | 2 | set `$flagged`, read back, clear it, read back |
+| `unflag-and-restore` | write | 3 | 2 | clear `$flagged`, read back, set it, read back |
+| `move-and-restore` | write | 8 | 2 | move inbox to archive, read back, move back, read back |
+| `delete-to-trash-and-restore` | write | 5 | 2 | move one message to trash, read back, move it back, read back |
+| `draft-save` | write | 1 | 1 | one `Email/set` create of a draft in the drafts folder |
+| `draft-discard` | write | 1 | 1 | `Email/get` of a saved draft, then `Email/set` destroy of it |
 
-What one write request is: one `POST /jmap/api` carrying four method calls,
-`Email/set`, `Email/get`, `Email/set`, `Email/get`: two message updates (mutations,
-each on one message) and two verifying reads. So the 35% is 35% of HTTP requests,
-which is 0.70 message mutations per request overall. Each write shape verifies
-both updates by its read-backs, and an unverified or lost update is an error that
-taints the stage. Requests for one user are serialised (as in the representative
-mix), including reads, because the change poll assumes a stable state. The
-shapes use distinct messages (`messageIds[0..3]`); a message the seed left in the
-other state ends in the state the shape sets, which is the only drift.
+What one write request is: toggle, move and trash writes are one `POST /jmap/api`
+with four method calls, `Email/set`, `Email/get`, `Email/set`, `Email/get`: two
+message mutations and two verifying reads. A draft is two requests, each with one
+mutation: the save creates it, the discard reads it back and destroys it; together
+they hold exactly two write slots. Over a full cycle the 35 write slots carry
+(7+4+6+3+8+5) x 2 + 2 = 68 mutations, so 0.68 mutations per request overall.
+`mutationsPerSecond` counts verified mutations only (accepted write requests in the
+window times that row's count).
 
-Not in the mix, because no validated template or seeded folder exists: delete to
-trash (no trash folder is seeded), draft save (no drafts folder), search (no
-validated search shape) and the `session-activity` POST (its read/write class is
-unclear). They should be added together with seeding and validators, not as
-unvalidated shapes. The `session-activity` poll stays available in the
-`account-polls` group.
+A discard slot destroys the oldest draft this generator process saved, for the user
+that saved it. Before any draft exists (the first cycle of a run) the slot creates
+a draft instead and is counted under the discard label. No creation back-reference
+is used, because the engine does not resolve it. Each save currently leaves a copy
+in the upstream Drafts folder (a known engine defect), which is why the draft
+weight is low.
 
-Each stage of this group reports `mix`: attempted and accepted read/write counts and
-shares, read and write requests per second, verified mutations per second (2 per
-accepted write request) and `upstreamCommandsPerSecond`, which is `null`: the
-fixture diagnostics carry no upstream command counter and none is estimated.
+Every write shape verifies its effect by read-back, and an unverified or lost
+mutation is an error that taints the stage. Requests for one user are serialised
+(as in the representative mix), including reads, because the change poll assumes a
+stable state. The shapes use distinct messages (`messageIds[0..4]`).
+
+Each stage of this group reports `mix`:
+- attempted and accepted read/write counts and shares, read and write requests per second;
+- `mutationsPerSecond`;
+- `upstream`: from the fixture diagnostics `upstreamCommands` counters, the delta
+  between the stage's before and after snapshots: commands per second, per kind
+  (store, move, expunge, append, fetch, list), and write commands (store + move +
+  append + expunge) per write request attempted. The counters are process-wide and
+  cumulative and the delta includes drain after the window. `upstreamCommandsPerSecond`
+  is `null` when the snapshots lack them or a counter reset;
+- `requestInputs.consumedFramesPerContext`: consumed frames per ordinary context
+  from the same diagnostics, when the request-inputs counters are present;
+- `perUser`: accepted requests per second per user and the serialised ceiling per
+  user, 1000 / mean latency ms, because one user has one request in flight.
+
 A `goal-65-35` stage qualifies only when its accepted write share is 30-40%;
-`capacityTarget.goalMixMet` is judged on that group alone.
-
+`capacityTarget.goalMixMet` is judged on that group alone. `t34-modes.mjs` counts
+`goal-65-35` as a mutating group. The request-inputs evidence in
+`request-inputs-experiment.mjs` does not know this group's shape list; do not
+combine `MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT` with it until that is extended.

@@ -1,28 +1,31 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {prepareFixtureRequests} from './fixture-requests.mjs';
-import {GOAL_MIX_TABLE,GOAL_MIX_CYCLE,GOAL_MIX_NAME,goalMixSchedule,goalMixReport,goalMixWriteSpecs,isRepresentativeKind,workloadProfileReport} from './representative-workload.mjs';
+import {GOAL_MIX_TABLE,GOAL_MIX_CYCLE,GOAL_MIX_NAME,goalMixSchedule,goalMixReport,goalMixWriteSpecs,goalMixSearchSpec,goalMixDraftSpecs,goalMixSeeded,mixWithDiagnostics,upstreamReport,requestInputsRatio,isRepresentativeKind,workloadProfileReport} from './representative-workload.mjs';
 import {goalFromEnv,judgedAgainst,hostFacts,DEFAULT_TARGET_RPS,GOAL_WORKLOAD} from './http-goal.mjs';
 import {campaignOptions} from './http-campaign.mjs';
 import {qualifiesHttpTarget} from './http-multi-controller.mjs';
 import {markdownReport} from './http-load.mjs';
+import {MUTATING_ENDPOINTS} from './t34-modes.mjs';
 
 const profile={kind:'representative',messagesPerPrincipal:50,bodySampleBytes:4096,attachmentSampleBytes:65536,seededMessages:50*6,seedSeconds:1};
 function users(count=6,messages=50){
  return Array.from({length:count},(_,index)=>({cookie:`mw_session=private-${index}; mw_csrf=csrf-${index}`,csrfToken:`csrf-${index}`,accountId:`acct-${index}`,ownerAccountId:`acct-${index}`,
-  messageIds:Array.from({length:messages},(_,n)=>`m-${index}-${n}`),inboxId:`inbox-${index}`,archiveId:`archive-${index}`,attachmentBlobId:`blob-${index}`,attachmentSampleBytes:65536,bodySampleBytes:4096,clientAddress:`198.18.0.${index+1}`}));
+  messageIds:Array.from({length:messages},(_,n)=>`m-${index}-${n}`),inboxId:`inbox-${index}`,archiveId:`archive-${index}`,trashId:`trash-${index}`,draftsId:`drafts-${index}`,plantedQuarterly:10,attachmentBlobId:`blob-${index}`,attachmentSampleBytes:65536,bodySampleBytes:4096,clientAddress:`198.18.0.${index+1}`}));
 }
 const prepare=(seeded,workloadProfile=profile)=>prepareFixtureRequests({principals:seeded,clientSimulation:{mode:'fixture-loopback-trusted-proxy',clientCount:seeded.length},engineMode:'native',representative:true,workloadProfile});
 
-test('the weight table is one reviewed table: 65 reads and 35 writes per 100 requests, 2 mutations per write request',()=>{
+test('the weight table is one reviewed table: 65 reads and 35 writes per 100 requests, mutations per request stated per row',()=>{
  const reads=GOAL_MIX_TABLE.filter(row=>row.kind==='read'),writes=GOAL_MIX_TABLE.filter(row=>row.kind==='write');
  assert.equal(reads.reduce((n,row)=>n+row.weight,0),65);
  assert.equal(writes.reduce((n,row)=>n+row.weight,0),35);
- assert.ok(writes.every(row=>row.mutationsPerRequest===2)&&reads.every(row=>row.mutationsPerRequest===0));
+ assert.deepEqual(Object.fromEntries(GOAL_MIX_TABLE.map(row=>[row.name,row.weight])),{'authenticated-identity':6,'jmap-session':5,'list-batch':15,'Email/get':9,'body-and-attachment-metadata':10,changes:9,'account-preferences':4,'appearance-customization':3,'search-planted-term':4,'mark-read-and-restore':7,'mark-unread-and-restore':4,'flag-and-restore':6,'unflag-and-restore':3,'move-and-restore':8,'delete-to-trash-and-restore':5,'draft-save':1,'draft-discard':1});
+ assert.ok(reads.every(row=>row.mutationsPerRequest===0));
+ assert.deepEqual(writes.map(row=>[row.name,row.mutationsPerRequest]).filter(([,n])=>n!==2),[['draft-save',1],['draft-discard',1]],'toggle, move and trash writes carry 2 mutations; the two draft requests carry 1 each');
  assert.equal(new Set(GOAL_MIX_TABLE.map(row=>row.name)).size,GOAL_MIX_TABLE.length);
  assert.ok(Object.isFrozen(GOAL_MIX_TABLE)&&GOAL_MIX_TABLE.every(Object.isFrozen));
- // nothing unvalidated: no trash, draft or search shape
- assert.ok(!GOAL_MIX_TABLE.some(row=>/trash|draft|search/i.test(row.name)));
+ // the draft pair holds exactly two write slots
+ assert.equal(writes.filter(row=>/^draft-/.test(row.name)).reduce((n,row)=>n+row.weight,0),2);
 });
 
 test('the schedule is deterministic, exact per cycle and spreads writes through it',()=>{
@@ -60,7 +63,7 @@ test('the goal group is built from existing validated templates, serialised per 
  assert.equal(seen.size,6);
  // the three added write shapes use distinct messages, never the one the mark-read/move pair uses
  const bodies=goalMixWriteSpecs(seeded[0]).map(spec=>JSON.parse(spec.body).methodCalls[0][1].update);
- assert.deepEqual(bodies.map(update=>Object.keys(update)[0]),['m-0-2','m-0-1','m-0-3']);
+ assert.deepEqual(bodies.map(update=>Object.keys(update)[0]),['m-0-2','m-0-1','m-0-3','m-0-4']);
  // fixtures with fewer than four messages simply have no goal group
  assert.equal(prepare(users(2,3),{...profile,messagesPerPrincipal:3,seededMessages:6}).groups[GOAL_MIX_NAME],undefined);
  assert.ok(isRepresentativeKind('representative')&&isRepresentativeKind(GOAL_MIX_NAME)&&!isRepresentativeKind('baseline'));
@@ -86,7 +89,7 @@ test('each added write shape verifies both mutations by read-back; a lost or wro
  }
 });
 
-test('the per-stage mix report: achieved split, verified mutations and the unmeasured upstream rate',()=>{
+test('the per-stage mix report: achieved split, verified mutations and per-user line',()=>{
  const stat=(requests,accepted)=>({requests,accepted,acceptedDuringScheduledWindow:accepted});
  const byRequest={'list-batch':stat(300,300),'Email/get':stat(50,50),'mark-read-and-restore':stat(100,98),'move-and-restore':stat(50,50)};
  const report=goalMixReport(byRequest,10);
@@ -97,7 +100,7 @@ test('the per-stage mix report: achieved split, verified mutations and the unmea
  assert.equal(report.mutationsPerSecond,(98+50)*2/10);
  assert.equal(report.readRequestsPerSecond,35);
  assert.equal(report.upstreamCommandsPerSecond,null);
- assert.match(report.upstreamCommandsNote,/not exposed/);
+ assert.equal(report.perUser.users,null);
  assert.equal(goalMixReport({...byRequest,'Mailbox/get':stat(1,1)},10),undefined,'unknown shapes are not classified');
  assert.equal(goalMixReport({},10),undefined);
 });
@@ -149,4 +152,101 @@ test('MW_LOAD_FIXTURE_ENDPOINTS accepts the goal group and rejects an unknown on
  const env={MW_LOAD_FIXTURE_MODE:'capacity',MW_LOAD_FIXTURE_LONG:'1',MW_LOAD_FIXTURE_ENDPOINTS:GOAL_MIX_NAME};
  assert.deepEqual(campaignOptions(env).endpoints,[GOAL_MIX_NAME]);
  assert.throws(()=>campaignOptions({...env,MW_LOAD_FIXTURE_ENDPOINTS:'goal-70-30'}),/ENDPOINTS/);
+});
+
+test('goal seeding is required: fixtures without trash, drafts, search term or five messages have no goal group',()=>{
+ assert.equal(goalMixSeeded(users(1)[0]),true);
+ for(const patch of [{trashId:undefined},{draftsId:undefined},{plantedQuarterly:undefined},{messageIds:['a','b','c','d']}])assert.equal(goalMixSeeded({...users(1)[0],...patch}),false);
+ const bare=users(2).map(({trashId,draftsId,plantedQuarterly,...rest})=>rest);
+ assert.equal(prepare(bare).groups[GOAL_MIX_NAME],undefined);
+ assert.equal(prepare(bare).groups.representative.length,10);
+});
+
+const ok=(id)=>({accountId:'a',updated:{[id]:null}});
+const inFolders=(id,folders)=>({accountId:'a',list:[{id,mailboxIds:Object.fromEntries(folders.map(f=>[f,true]))}]});
+test('delete-to-trash moves one message to trash and back, verified by read-back',()=>{
+ const p=users(1)[0],spec=goalMixWriteSpecs(p).find(row=>row.name==='delete-to-trash-and-restore');
+ assert.ok(spec&&spec.statefulMutation&&spec.serializePrincipal);
+ const id='m-0-4',good=[ok(id),inFolders(id,['trash-0']),ok(id),inFolders(id,['inbox-0'])];
+ assert.equal(spec.validate(respond(spec,good)),true);
+ assert.equal(spec.validate(respond(spec,[good[0],inFolders(id,['trash-0','inbox-0']),good[2],good[3]])),false,'must leave the inbox');
+ assert.equal(spec.validate(respond(spec,[good[0],good[1],good[2],inFolders(id,['trash-0'])])),false,'must be restored');
+ assert.equal(goalMixWriteSpecs({...p,trashId:undefined}).some(row=>row.name==='delete-to-trash-and-restore'),false);
+});
+
+test('search of the planted term must find exactly the seeded count',()=>{
+ const p=users(1)[0],spec=goalMixSearchSpec(p),ids=Array.from({length:10},(_,i)=>'s'+i);
+ const rows=(total,list)=>respond(spec,[{ids,total},{list:list.map(id=>({id}))}]);
+ assert.equal(spec.validate(rows(10,ids)),true);
+ assert.equal(spec.validate(rows(9,ids)),false);
+ assert.equal(spec.validate(rows(10,ids.slice(1))),false);
+ assert.deepEqual(JSON.parse(spec.body).methodCalls[0][1].filter,{inMailbox:'inbox-0',text:'quarterly'});
+ assert.throws(()=>goalMixSearchSpec({...p,plantedQuarterly:undefined}));
+});
+
+test('draft save is two requests: a create, then a get + destroy of the created id, one mutation each',()=>{
+ const p=users(1)[0],created=[],{save,discard}=goalMixDraftSpecs(p,{onCreated:id=>created.push(id)});
+ assert.ok(save.statefulMutation&&discard('x').statefulMutation);
+ assert.deepEqual(JSON.parse(save.body).methodCalls.map(c=>c[0]),['Email/set']);
+ assert.ok(JSON.parse(save.body).methodCalls[0][1].create.d1.mailboxIds['drafts-0']);
+ assert.equal(JSON.stringify(JSON.parse(save.body)).includes('#d1'),false,'no creation back-reference');
+ assert.equal(save.validate(respond(save,[{created:{d1:{id:'draft-9'}}}])),true);
+ assert.deepEqual(created,['draft-9']);
+ assert.equal(save.validate(respond(save,[{notCreated:{d1:{type:'forbidden'}}}])),false);
+ assert.equal(created.length,1,'a failed save hands nothing on');
+ const next=discard('draft-9');
+ assert.deepEqual(JSON.parse(next.body).methodCalls.map(c=>c[0]),['Email/get','Email/set']);
+ assert.deepEqual(JSON.parse(next.body).methodCalls[1][1].destroy,['draft-9']);
+ const good=[{list:[{id:'draft-9',mailboxIds:{'drafts-0':true},keywords:{$draft:true}}]},{destroyed:['draft-9']}];
+ assert.equal(next.validate(respond(next,good)),true);
+ assert.equal(next.validate(respond(next,[good[0],{destroyed:[]}])),false);
+ assert.equal(next.validate(respond(next,[{list:[]},good[1]])),false);
+});
+
+test('a discard slot destroys the oldest saved draft for the user that saved it; with none it creates',()=>{
+ const seeded=users(4),group=prepare(seeded).groups[GOAL_MIX_NAME];
+ const save=group.findIndex(spec=>spec.name==='draft-save'),discardSlot=group.findIndex(spec=>spec.name==='draft-discard');
+ assert.ok(save>=0&&discardSlot>=0);
+ const first=group[discardSlot].materialize(discardSlot,{requestCount:100});
+ assert.equal(JSON.parse(first.body).methodCalls[0][0],'Email/set','nothing saved yet: the slot creates a draft');
+ const made=group[save].materialize(save+100,{requestCount:100});
+ assert.equal(made.validate(respond(made,[{created:{d1:{id:'d-77'}}}])),true);
+ const destroy=group[discardSlot].materialize(discardSlot+200,{requestCount:100});
+ assert.equal(destroy.principalIndex,made.principalIndex);
+ assert.deepEqual(JSON.parse(destroy.body).methodCalls[1][1].destroy,['d-77']);
+ assert.equal(destroy.headers.cookie,seeded[made.principalIndex].cookie);
+ assert.equal(destroy.serializePrincipal,true);
+ assert.equal(JSON.parse(group[discardSlot].materialize(discardSlot+300,{requestCount:100}).body).methodCalls[0][0],'Email/set','the pool is consumed');
+});
+
+test('upstream commands per second come from the diagnostics delta, split by kind and per write request',()=>{
+ const before={commands:1000,fetch:600,store:100,move:40,expunge:10,append:20,list:230,fetchedMessages:5},after={commands:2500,fetch:1300,store:400,move:140,expunge:30,append:40,list:590,fetchedMessages:9};
+ const up=upstreamReport(before,after,{seconds:10,writeRequests:100});
+ assert.equal(up.available,true);
+ assert.equal(up.commandsPerSecond,150);
+ assert.deepEqual(up.perKindPerSecond,{store:30,move:10,expunge:2,append:2,fetch:70,list:36});
+ assert.equal(up.writeCommands,300+100+20+20);
+ assert.equal(up.writeCommandsPerWriteRequest,4.4);
+ assert.equal(upstreamReport(before,{...after,commands:5},{seconds:10,writeRequests:1}).available,false,'a reset counter is not a delta');
+ assert.equal(upstreamReport(undefined,after,{seconds:10,writeRequests:1}).available,false);
+ const stat=(requests,accepted)=>({requests,accepted,acceptedDuringScheduledWindow:accepted});
+ const mix=goalMixReport({'list-batch':stat(65,65),'mark-read-and-restore':stat(35,35)},10,{users:5,meanLatencyMs:20});
+ assert.equal(mix.perUser.acceptedRequestsPerSecondPerUser,2);
+ assert.equal(mix.perUser.serialisedCeilingPerUser,50);
+ const ratios=requestInputsRatio({ordinaryRequestInputs:{consumedFrames:10,ordinaryContexts:100}},{ordinaryRequestInputs:{consumedFrames:70,ordinaryContexts:200}});
+ assert.deepEqual(ratios,{consumedFramesPerContext:.6,consumedFrames:60,ordinaryContexts:100});
+ const full=mixWithDiagnostics(mix,{before:{upstreamCommands:before,ordinaryRequestInputs:{consumedFrames:10,ordinaryContexts:100}},after:{upstreamCommands:after,ordinaryRequestInputs:{consumedFrames:70,ordinaryContexts:200}}},10);
+ assert.equal(full.upstreamCommandsPerSecond,150);
+ assert.equal(full.upstream.writeCommandsPerWriteRequest,440/35);
+ assert.equal(full.requestInputs.consumedFramesPerContext,.6);
+ const none=mixWithDiagnostics(mix,{before:{},after:{}},10);
+ assert.equal(none.upstreamCommandsPerSecond,null);
+ assert.equal(none.upstream.available,false);
+ assert.equal(none.requestInputs,null);
+ assert.equal(mixWithDiagnostics(undefined,{},10),undefined);
+});
+
+test('t34 modes treat goal-65-35 as a mutating endpoint group and keep the existing ones',()=>{
+ assert.deepEqual([...MUTATING_ENDPOINTS],['representative','flag-write','move-write','goal-65-35']);
+ for(const read of ['mixed','identity','list-batch','changes','account-polls'])assert.ok(!MUTATING_ENDPOINTS.includes(read));
 });

@@ -2,7 +2,7 @@
 // No network, main entrypoint, preflight or reporting side effects.
 import {nativeReadIntentHeaders,nativeReadContract} from './native-read-intent.mjs';
 import {prepareFixtureClients,fixturePrincipalIndex} from './fixture-clients.mjs';
-import {representativeSpecs,goalMixSchedule,goalMixWriteSpecs,GOAL_MIX_NAME,GOAL_MIX_CYCLE} from './representative-workload.mjs';
+import {representativeSpecs,goalMixSchedule,goalMixWriteSpecs,goalMixSearchSpec,goalMixDraftSpecs,goalMixSeeded,GOAL_MIX_NAME,GOAL_MIX_CYCLE} from './representative-workload.mjs';
 import {DEFAULT_HEADER_PROPERTIES,MINIMAL_HEADER_PROPERTIES} from './fixture-properties.mjs';
 
 export function jmapFixtureRequest(p,name,args,{native=false}={}){
@@ -73,22 +73,28 @@ export function prepareFixtureRequests({principals,clientSimulation,engineMode,r
   representative:requests,'paged-headers':[requests[5]],reader:[requests[6]],attachment:[requests[7]],'flag-write':[requests[8]],'move-write':[requests[9]],
  }:{})};
 
- // goal-65-35: 100-slot deterministic schedule of existing validated templates (plus three write shapes built like them).
- // Every entry is serialised per user, so writes for one user never interleave with each other or with the reads that
- // assume stable state (the change poll in particular).
- // Needs four seeded messages per user (three write shapes use distinct messages); smaller fixtures simply have no such group.
- const goalSlots=representative&&principals.every(p=>p.messageIds.length>=4)?(()=>{
-  const order=goalMixSchedule();
+ // goal-65-35: 100-slot deterministic schedule of validated templates (see GOAL_MIX_TABLE). Every entry is serialised per
+ // user, so writes for one user never interleave with each other or with the reads that assume stable state (the change
+ // poll in particular). Needs the goal seeding (trash and drafts folders, planted search term, five messages per user);
+ // other fixtures simply have no such group.
+ const goalSlots=representative&&principals.every(goalMixSeeded)?(()=>{
+  const order=goalMixSchedule(),pool=[],withHeaders=(index,spec)=>({...spec,serializePrincipal:true,headers:{...clientModel.clients[index].headers,...spec.headers}});
+  const draftsFor=principals.map((p,index)=>goalMixDraftSpecs(p,{onCreated:id=>{pool.push({principalIndex:index,id});}}));
   const perPrincipal=principals.map((p,index)=>{
-   const byName=new Map([...specs(p),...clientHotSpecs(p),...goalMixWriteSpecs(p)].map(spec=>[spec.name,spec]));
+   const byName=new Map([...specs(p),...clientHotSpecs(p),...goalMixWriteSpecs(p),goalMixSearchSpec(p),draftsFor[index].save,{...draftsFor[index].save,name:'draft-discard'}].map(spec=>[spec.name,spec]));
    return order.map(name=>{
     const spec=byName.get(name);
     if(!spec)throw new Error('Goal mix shape has no template: '+name);
-    return {...spec,serializePrincipal:true,headers:{...clientModel.clients[index].headers,...spec.headers}};
+    return withHeaders(index,spec);
    });
   });
   return perPrincipal[0].map((spec,slot)=>({...spec,materialize:(sequence)=>{
-   const principalIndex=fixturePrincipalIndex(sequence,GOAL_MIX_CYCLE,principals.length);
+   let principalIndex=fixturePrincipalIndex(sequence,GOAL_MIX_CYCLE,principals.length);
+   // A discard slot destroys the oldest draft this process saved, for the user that saved it. With none yet it creates one.
+   if(spec.name==='draft-discard'&&pool.length){
+    const entry=pool.shift();principalIndex=entry.principalIndex;
+    return {...withHeaders(principalIndex,draftsFor[principalIndex].discard(entry.id)),principalIndex,clientIndex:clientModel.clients[principalIndex].clientIndex};
+   }
    return {...perPrincipal[principalIndex][slot],principalIndex,clientIndex:clientModel.clients[principalIndex].clientIndex};
   }}));
  })():null;

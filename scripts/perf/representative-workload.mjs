@@ -66,29 +66,35 @@ export function representativeSpecs(p){
 }
 
 // ---- goal-65-35: the user's goal mix (30,000 requests/s, about 65% reads / 35% writes BY HTTP REQUEST COUNT) ----
-// One entry is one actual HTTP request. A WRITE request is one POST /jmap/api carrying four JMAP method calls:
-// Email/set (mutation 1), Email/get (read-back verifying it), Email/set (mutation 2), Email/get (read-back).
-// So a write request holds exactly `mutationsPerRequest` = 2 message updates (each touches one message) and 2 read-backs.
-// Every template is an existing validated one (identity, jmap-session, list batch, Email/get, reader body, changes,
-// preferences, appearance) or a write shape built like the validated mark-read/move pairs.
-// NOT in the mix, because no validated template or seeded folder exists: delete-to-trash (the fixture seeds no trash
-// folder), draft save (no drafts folder), search (no validated search shape), and the session-activity POST (its
-// read/write class is unclear). Add them only together with seeding and validators.
-// Weights are per 100 requests, so every 100 consecutive requests contain exactly 65 reads and 35 writes.
+// One entry is one actual HTTP request. Every template is validated: either an existing one (identity, jmap-session,
+// list batch, Email/get, reader body, changes, preferences, appearance, mark-read, move) or one built like them and
+// smoke-validated against a real seeded fixture (t60): mark-unread, flag, unflag, delete-to-trash, draft save, search.
+// Weights are per 100 request slots: exactly 65 reads and 35 writes in every 100 consecutive requests.
+// `mutationsPerRequest` is the number of message mutations (Email/set creates, updates or destroys) one request carries.
+//  - a toggle/move/trash write request is one POST /jmap/api: Email/set, Email/get, Email/set, Email/get = 2 mutations
+//    and 2 read-backs;
+//  - draft save is TWO requests: `draft-save` (one Email/set create = 1 mutation) and `draft-discard` (Email/get of
+//    the created draft, then Email/set destroy = 1 mutation). They hold one slot each (2 write slots). A discard slot
+//    destroys the oldest draft this generator process created; before any draft exists (the first cycle) it creates one
+//    instead, so that slot is then counted under the discard label while carrying a create.
 export const GOAL_MIX_TABLE=Object.freeze([
  {name:'authenticated-identity',kind:'read',weight:6,mutationsPerRequest:0},
- {name:'jmap-session',kind:'read',weight:6,mutationsPerRequest:0},
- {name:'list-batch',kind:'read',weight:16,mutationsPerRequest:0},
- {name:'Email/get',kind:'read',weight:10,mutationsPerRequest:0},
+ {name:'jmap-session',kind:'read',weight:5,mutationsPerRequest:0},
+ {name:'list-batch',kind:'read',weight:15,mutationsPerRequest:0},
+ {name:'Email/get',kind:'read',weight:9,mutationsPerRequest:0},
  {name:'body-and-attachment-metadata',kind:'read',weight:10,mutationsPerRequest:0},
  {name:'changes',kind:'read',weight:9,mutationsPerRequest:0},
  {name:'account-preferences',kind:'read',weight:4,mutationsPerRequest:0},
- {name:'appearance-customization',kind:'read',weight:4,mutationsPerRequest:0},
- {name:'mark-read-and-restore',kind:'write',weight:8,mutationsPerRequest:2},
- {name:'mark-unread-and-restore',kind:'write',weight:5,mutationsPerRequest:2},
- {name:'flag-and-restore',kind:'write',weight:8,mutationsPerRequest:2},
- {name:'unflag-and-restore',kind:'write',weight:4,mutationsPerRequest:2},
- {name:'move-and-restore',kind:'write',weight:10,mutationsPerRequest:2},
+ {name:'appearance-customization',kind:'read',weight:3,mutationsPerRequest:0},
+ {name:'search-planted-term',kind:'read',weight:4,mutationsPerRequest:0},
+ {name:'mark-read-and-restore',kind:'write',weight:7,mutationsPerRequest:2},
+ {name:'mark-unread-and-restore',kind:'write',weight:4,mutationsPerRequest:2},
+ {name:'flag-and-restore',kind:'write',weight:6,mutationsPerRequest:2},
+ {name:'unflag-and-restore',kind:'write',weight:3,mutationsPerRequest:2},
+ {name:'move-and-restore',kind:'write',weight:8,mutationsPerRequest:2},
+ {name:'delete-to-trash-and-restore',kind:'write',weight:5,mutationsPerRequest:2},
+ {name:'draft-save',kind:'write',weight:1,mutationsPerRequest:1},
+ {name:'draft-discard',kind:'write',weight:1,mutationsPerRequest:1},
 ].map(row=>Object.freeze(row)));
 export const GOAL_MIX_CYCLE=100;
 const weightOf=kind=>GOAL_MIX_TABLE.filter(row=>row.kind===kind).reduce((n,row)=>n+row.weight,0);
@@ -105,15 +111,23 @@ export function goalMixSchedule(){
  return order;
 }
 
-// Write shapes added for the goal mix. Each sets, reads back, sets again, reads back; the validators check both
-// read-backs and both updates, so an unverified or lost mutation is an error (and taints the stage).
-export function goalMixWriteSpecs(p){
- if(!p||!Array.isArray(p.messageIds)||p.messageIds.length<4||typeof p.accountId!=='string')throw new Error('The goal mix needs at least four seeded messages per user');
- const call=(method,args,tag)=>[method,{accountId:p.accountId,...args},tag];
- const batch=(name,calls,validate)=>({name,path:'/jmap/api',method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({using:['urn:ietf:params:jmap:core','urn:ietf:params:jmap:mail'],methodCalls:calls}),serializePrincipal:true,statefulMutation:true,validate:value=>{
+const USING=['urn:ietf:params:jmap:core','urn:ietf:params:jmap:mail'];
+// A user can run the goal mix when the fixture seeded trash and drafts folders, the planted search term and five messages.
+export const goalMixSeeded=p=>Boolean(p&&Array.isArray(p.messageIds)&&p.messageIds.length>=5&&typeof p.accountId==='string'&&typeof p.inboxId==='string'&&typeof p.trashId==='string'&&p.trashId&&typeof p.draftsId==='string'&&p.draftsId&&Number.isInteger(p.plantedQuarterly)&&p.plantedQuarterly>=0);
+function mailBatch(p,name,calls,validate,extra={}){
+ return {name,path:'/jmap/api',method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({using:USING,methodCalls:calls}),serializePrincipal:true,...extra,validate:value=>{
   const rows=value?.methodResponses;
   return Boolean(Array.isArray(rows)&&rows.length===calls.length&&rows.every((row,index)=>row[0]===calls[index][0]&&row[2]===calls[index][2]&&row[1]?.accountId===p.accountId)&&validate(rows.map(row=>row[1])));
- }});
+ }};
+}
+const callFor=p=>(method,args,tag)=>[method,{accountId:p.accountId,...args},tag];
+
+// Write shapes added for the goal mix. Each sets, reads back, sets again, reads back; the validators check both
+// read-backs and both updates, so an unverified or lost mutation is an error (and taints the stage).
+// goalMixWriteSpecs(p) returns the stateless shapes only (the draft pair needs run-time state, see goalMixDraftSpecs).
+export function goalMixWriteSpecs(p){
+ if(!p||!Array.isArray(p.messageIds)||p.messageIds.length<4||typeof p.accountId!=='string')throw new Error('The goal mix needs at least four seeded messages per user');
+ const call=callFor(p),batch=(name,calls,validate)=>mailBatch(p,name,calls,validate,{statefulMutation:true});
  const changed=(row,id)=>row.updated&&Object.hasOwn(row.updated,id)&&(!row.notUpdated||Object.keys(row.notUpdated).length===0);
  const one=(row,id)=>Array.isArray(row.list)&&row.list.length===1&&row.list[0].id===id&&(!row.notFound||row.notFound.length===0);
  const toggle=(name,id,keyword,first,second)=>batch(name,[
@@ -121,15 +135,54 @@ export function goalMixWriteSpecs(p){
   call('Email/set',{update:{[id]:{['keywords/'+keyword]:second}}},'second'),call('Email/get',{ids:[id],properties:['id','keywords']},'secondback'),
  ],([a,ab,b,bb])=>changed(a,id)&&changed(b,id)&&one(ab,id)&&one(bb,id)&&Boolean(ab.list[0].keywords?.[keyword])===(first===true)&&Boolean(bb.list[0].keywords?.[keyword])===(second===true));
  // Distinct messages per shape; per-user serialisation keeps shapes that share a message from interleaving.
- return [
+ const specs=[
   toggle('mark-unread-and-restore',p.messageIds[2],'$seen',null,true),
   toggle('flag-and-restore',p.messageIds[1],'$flagged',true,null),
   toggle('unflag-and-restore',p.messageIds[3],'$flagged',null,true),
  ];
+ if(goalMixSeeded(p)){
+  const id=p.messageIds[4],inFolder=(row,folder)=>one(row,id)&&row.list[0].mailboxIds?.[folder]===true&&Object.keys(row.list[0].mailboxIds).length===1;
+  specs.push(batch('delete-to-trash-and-restore',[
+   call('Email/set',{update:{[id]:{['mailboxIds/'+p.trashId]:true,['mailboxIds/'+p.inboxId]:null}}},'trash'),call('Email/get',{ids:[id],properties:['id','mailboxIds']},'trashed'),
+   call('Email/set',{update:{[id]:{['mailboxIds/'+p.inboxId]:true,['mailboxIds/'+p.trashId]:null}}},'restore'),call('Email/get',{ids:[id],properties:['id','mailboxIds']},'restored'),
+  ],([a,ab,b,bb])=>changed(a,id)&&inFolder(ab,p.trashId)&&changed(b,id)&&inFolder(bb,p.inboxId)));
+ }
+ return specs;
+}
+
+// Search of the planted term in the inbox: the total must equal the seeded count and the page must be fetched.
+export function goalMixSearchSpec(p){
+ if(!goalMixSeeded(p))throw new Error('The goal mix search needs the planted search term seeding');
+ const call=callFor(p);
+ return mailBatch(p,'search-planted-term',[
+  call('Email/query',{filter:{inMailbox:p.inboxId,text:'quarterly'},sort:[{property:'receivedAt',isAscending:false}],limit:50,calculateTotal:true},'q'),
+  call('Email/get',{'#ids':{resultOf:'q',name:'Email/query',path:'/ids'},properties:['id','subject','receivedAt']},'g'),
+ ],([q,g])=>q.total===p.plantedQuarterly&&Array.isArray(q.ids)&&q.ids.length===Math.min(50,p.plantedQuarterly)&&Array.isArray(g.list)&&g.list.length===q.ids.length);
+}
+
+// Draft save is two requests. The save creates a draft in the drafts folder and hands (user, id) to `onCreated`;
+// the discard reads that draft back and destroys it. A creation back-reference in one request is not used: the
+// engine does not resolve it (t60). Each save leaves a copy in the upstream Drafts folder (known engine defect).
+export function goalMixDraftSpecs(p,{onCreated}){
+ if(!goalMixSeeded(p))throw new Error('Draft save needs the drafts folder seeding');
+ const call=callFor(p);
+ const save=mailBatch(p,'draft-save',[
+  call('Email/set',{create:{d1:{mailboxIds:{[p.draftsId]:true},keywords:{$draft:true,$seen:true},to:[{email:'someone@native-load.invalid'}],subject:'Goal mix draft',bodyValues:{b1:{value:'Draft body.'}},textBody:[{partId:'b1',type:'text/plain'}]}}},'save'),
+ ],([row])=>{
+  const id=row.created?.d1?.id;
+  if(typeof id!=='string'||!id||row.notCreated&&Object.keys(row.notCreated).length)return false;
+  onCreated?.(id);return true;
+ },{statefulMutation:true});
+ const discard=id=>mailBatch(p,'draft-discard',[
+  call('Email/get',{ids:[id],properties:['id','mailboxIds','keywords']},'saved'),
+  call('Email/set',{destroy:[id]},'discard'),
+ ],([saved,gone])=>Array.isArray(saved.list)&&saved.list.length===1&&saved.list[0].mailboxIds?.[p.draftsId]===true&&saved.list[0].keywords?.$draft===true&&Array.isArray(gone.destroyed)&&gone.destroyed.includes(id)&&(!gone.notDestroyed||Object.keys(gone.notDestroyed).length===0),{statefulMutation:true});
+ return {save,discard};
 }
 
 // Per-stage mix accounting from the fixed per-shape counters. Returns undefined unless every shape is in the table.
-export function goalMixReport(byRequest,seconds){
+// `facts` (optional): {users, meanLatencyMs} for the per-user line.
+export function goalMixReport(byRequest,seconds,facts={}){
  const names=Object.keys(byRequest??{});
  if(!names.length||!Number.isFinite(seconds)||seconds<=0||names.some(name=>!GOAL_MIX_TABLE.some(row=>row.name===name)))return undefined;
  const tally={read:{requests:0,accepted:0,acceptedInWindow:0},write:{requests:0,accepted:0,acceptedInWindow:0}};
@@ -141,11 +194,42 @@ export function goalMixReport(byRequest,seconds){
   mutationsAttempted+=stat.requests*row.mutationsPerRequest;mutationsVerified+=stat.acceptedDuringScheduledWindow*row.mutationsPerRequest;
  }
  const total=tally.read.requests+tally.write.requests,accepted=tally.read.acceptedInWindow+tally.write.acceptedInWindow;
+ const users=Number.isInteger(facts.users)&&facts.users>0?facts.users:null,meanMs=Number.isFinite(facts.meanLatencyMs)&&facts.meanLatencyMs>0?facts.meanLatencyMs:null;
  return {schema:1,mix:GOAL_MIX_NAME,
   attempted:{reads:tally.read.requests,writes:tally.write.requests,readShare:total?tally.read.requests/total:0,writeShare:total?tally.write.requests/total:0},
   acceptedInWindow:{reads:tally.read.acceptedInWindow,writes:tally.write.acceptedInWindow,readShare:accepted?tally.read.acceptedInWindow/accepted:0,writeShare:accepted?tally.write.acceptedInWindow/accepted:0},
   readRequestsPerSecond:tally.read.acceptedInWindow/seconds,writeRequestsPerSecond:tally.write.acceptedInWindow/seconds,
   mutationsAttempted,mutationsPerSecond:mutationsVerified/seconds,
-  mutationsBasis:'verified message updates (2 per accepted write request) in the scheduled window',
-  upstreamCommandsPerSecond:null,upstreamCommandsNote:'not exposed: the fixture diagnostics carry no upstream command counter, so none is estimated'};
+  mutationsBasis:'verified message mutations in the scheduled window: 2 per accepted toggle/move/trash write request, 1 per draft-save and per draft-discard',
+  perUser:{users,acceptedRequestsPerSecondPerUser:users?accepted/seconds/users:null,
+   serialisedCeilingPerUser:meanMs?1000/meanMs:null,
+   note:'each user\'s requests are serialised (one in flight per user), so a user cannot exceed 1000 / mean latency ms requests per second; the ceiling uses the stage mean latency'},
+  upstreamCommandsPerSecond:null,upstreamCommandsNote:'attached from the fixture diagnostics before/after snapshots (see upstream); null when they are missing'};
+}
+
+// Upstream command rate from the cumulative process-wide counters of the fixture diagnostics (before/after the stage).
+// Commands include those caused by reads (fetch); `writeCommandsPerWriteRequest` counts store, move, append and expunge only.
+const UPSTREAM_KINDS=['store','move','expunge','append','fetch','list'];
+export function upstreamReport(before,after,{seconds,writeRequests}){
+ const counters=(before&&after&&typeof before==='object'&&typeof after==='object')?UPSTREAM_KINDS.concat('commands'):null;
+ if(!counters||counters.some(key=>!Number.isSafeInteger(before[key])||!Number.isSafeInteger(after[key])||after[key]<before[key]))return {available:false,reason:'upstream command counters missing or reset in the stage diagnostics'};
+ const delta=Object.fromEntries(counters.map(key=>[key,after[key]-before[key]]));
+ const writeCommands=delta.store+delta.move+delta.append+delta.expunge;
+ return {available:true,basis:'delta of cumulative process-wide counters between the stage\'s before and after snapshots; includes drain after the window',
+  commands:delta.commands,commandsPerSecond:delta.commands/seconds,
+  perKindPerSecond:Object.fromEntries(UPSTREAM_KINDS.map(key=>[key,delta[key]/seconds])),perKind:Object.fromEntries(UPSTREAM_KINDS.map(key=>[key,delta[key]])),
+  writeCommands,writeCommandsPerWriteRequest:writeRequests>0?writeCommands/writeRequests:null,commandsPerWriteRequestBasis:'store + move + append + expunge divided by write requests attempted in the stage'};
+}
+// consumedFrames per ordinary context for the stage (the request-inputs counters of the diagnostics), as the request-inputs evidence reports it.
+export function requestInputsRatio(before,after){
+ const a=before?.ordinaryRequestInputs,b=after?.ordinaryRequestInputs;
+ if(!a||!b||![a.consumedFrames,a.ordinaryContexts,b.consumedFrames,b.ordinaryContexts].every(Number.isSafeInteger))return null;
+ const contexts=b.ordinaryContexts-a.ordinaryContexts,frames=b.consumedFrames-a.consumedFrames;
+ return contexts>0&&frames>=0?{consumedFramesPerContext:+(frames/contexts).toFixed(4),consumedFrames:frames,ordinaryContexts:contexts}:null;
+}
+// Added to a stage's `mix` once its diagnostics are known.
+export function mixWithDiagnostics(mix,diagnostics,seconds){
+ if(!mix)return mix;
+ const upstream=upstreamReport(diagnostics?.before?.upstreamCommands,diagnostics?.after?.upstreamCommands,{seconds,writeRequests:mix.attempted.writes});
+ return {...mix,upstream,upstreamCommandsPerSecond:upstream.available?upstream.commandsPerSecond:null,requestInputs:requestInputsRatio(diagnostics?.before,diagnostics?.after)};
 }
