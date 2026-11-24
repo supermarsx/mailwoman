@@ -12,7 +12,28 @@
 //!   event, before the decision is returned;
 //! - the first observation of a subject without a row (or whose row has expired), so the
 //!   subject-capacity check still runs before the request is answered;
+//! - every `CredentialRejected` and `Malformed` observation (never deferred);
 //! - loading a subject that is not cached (one read).
+//!
+//! When a cached subject is re-read (t50hp-e8):
+//! - Ownership rule. While this instance is the only writer of the request-protection
+//!   tables of its database, proven by the file witness in
+//!   `mw_store::request_protection` (`ProtectionParticipant::check`, run on every flush
+//!   tick), a cached subject is used until its row expires by its own policy window, it
+//!   is evicted (bounded, below), or something invalidates it. A warm request then reads
+//!   nothing. Ownership is checked again at every tick and lapses by itself two flush
+//!   intervals after the last successful check. Whenever it is gained (again), or the
+//!   check reports that another writer joined since the previous check, every cached
+//!   subject without pending observations is re-read once on its next use.
+//! - Re-read rule, without ownership (another participant exists, PostgreSQL never
+//!   reaches this module, the witness is lost or unavailable): a subject with nothing
+//!   pending is re-read when it was synced more than one flush interval ago.
+//! - Writers outside the request path: administrative clear goes through [`WriteBehind::clear`];
+//!   policy and settings changes call [`WriteBehind::invalidate`]; expiry pruning only
+//!   deletes rows the evaluator already treats as absent; every other writer
+//!   (a synchronous process, another write-behind process, a command-line tool using the
+//!   store's request-protection functions) is a participant, which ends ownership
+//!   before its first write.
 //!
 //! What can be lost on a crash: queued ordinary observations not yet flushed. Under
 //! healthy storage they are at most `FLUSH_MS` old (plus one flush), and never more than
@@ -27,17 +48,20 @@
 //! `2 x FLUSH_MS`, when the queue is full, when a write-through fails, or when a cold
 //! load fails. Otherwise the local decision is used.
 //!
-//! Single process only. Each process decides from its own cache between flushes, so N
-//! processes sharing one SQLite file may together admit up to about (N - 1) x a
-//! subject's requests within one flush interval beyond its limit. Active subjects are
-//! reconciled from the database at every flush that carries one of their observations;
-//! idle cached subjects are re-read when older than one flush interval. The default
-//! `synchronous` mode keeps exact serialization across processes.
+//! Several processes (no ownership). Each process decides from its own cache between
+//! flushes. A process sees another's observations once that process has flushed them
+//! (at most one interval after they were made) and it has re-read or reconciled the
+//! subject (at most one interval later), so N processes sharing one SQLite file may
+//! together admit up to about (N - 1) x a subject's admitted rate x 2 flush intervals
+//! beyond its limit. Transitions are written through, so a block or throttle decided by
+//! one process is seen by the others within one interval. The default `synchronous`
+//! mode keeps exact serialization across processes.
 use mw_store::{
     Store, StoreError,
     request_protection::{
-        PreparedProtection, ProtectionObservation, ProtectionOutcome, ProtectionSource,
-        SUBJECT_CAPACITY, StoredProtection, evaluate_protection,
+        Ownership, PreparedProtection, ProtectionObservation, ProtectionOutcome,
+        ProtectionParticipant, ProtectionSource, SUBJECT_CAPACITY, StoredProtection,
+        SubjectKeyer, evaluate_protection,
     },
     request_protection_model::{Decision, Policy, Signal, State},
 };
@@ -83,6 +107,10 @@ impl Default for AccountingConfig {
 }
 impl AccountingConfig {
     pub(crate) fn from_env() -> Result<Self, String> {
+        #[cfg(test)]
+        if let Some(config) = TEST_CONFIG.with(std::cell::Cell::get) {
+            return Ok(config);
+        }
         let read = |name| std::env::var(name).ok();
         Self::parse(
             read(MODE_VAR).as_deref(),
@@ -135,6 +163,13 @@ impl AccountingConfig {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Test-only: the configuration `from_env` returns on this thread.
+    pub(crate) static TEST_CONFIG: std::cell::Cell<Option<AccountingConfig>> =
+        const { std::cell::Cell::new(None) };
+}
+
 /// The answer for one observation or probe read.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct Answer {
@@ -172,6 +207,10 @@ pub(crate) struct WriteBehindStatus {
     pub degraded: bool,
     pub cache_size: usize,
     pub evictions: u64,
+    /// This instance currently holds ownership (cached subjects are not re-read).
+    pub owned: bool,
+    pub ownership_gained: u64,
+    pub ownership_lost: u64,
 }
 #[derive(Default)]
 struct Counters {
@@ -185,6 +224,8 @@ struct Counters {
     loads: AtomicU64,
     evictions: AtomicU64,
     storage_failures: AtomicU64,
+    ownership_gained: AtomicU64,
+    ownership_lost: AtomicU64,
 }
 fn bump(counter: &AtomicU64, by: u64) {
     counter.fetch_add(by, Ordering::Relaxed);
@@ -258,9 +299,11 @@ impl Entry {
         }
     }
     /// An entry with pending observations is the database plus those observations,
-    /// which is the most current view this process has; it is never re-read.
-    fn usable(&self, flush_every: Duration) -> bool {
-        !self.pending.is_empty() || (!self.stale && self.synced_at.elapsed() < flush_every)
+    /// which is the most current view this process has; it is never re-read. Without
+    /// pending observations: valid while owned, else for one flush interval.
+    fn usable(&self, flush_every: Duration, owned: bool) -> bool {
+        !self.pending.is_empty()
+            || (!self.stale && (owned || self.synced_at.elapsed() < flush_every))
     }
 }
 
@@ -275,14 +318,22 @@ enum Recorded {
 
 pub(crate) struct WriteBehind {
     store: Store,
+    /// Subject keys without re-deriving the HMAC subkey per key.
+    keyer: SubjectKeyer,
     flush_every: Duration,
     max_pending: usize,
     shards: Vec<Mutex<HashMap<String, Entry>>>,
     /// Global observation order; the batch contract applies observations in this order.
     queue: Mutex<VecDeque<Arc<Pending>>>,
     next_seq: AtomicU64,
-    /// One flusher at a time, so committed order is queue order.
-    flushing: tokio::sync::Mutex<()>,
+    /// One flusher at a time, so committed order is queue order. Holds this
+    /// instance's witness participant (joined on first use).
+    flushing: tokio::sync::Mutex<Option<ProtectionParticipant>>,
+    /// Whether the ownership rule may be used at all.
+    ownership: bool,
+    /// Milliseconds since `epoch` until which ownership holds; 0 = not owned.
+    owned_until_ms: AtomicU64,
+    epoch: Instant,
     wake: Arc<tokio::sync::Notify>,
     degraded_since: Mutex<Option<Instant>>,
     counters: Counters,
@@ -291,13 +342,17 @@ pub(crate) struct WriteBehind {
 impl WriteBehind {
     pub(crate) fn new(store: Store, config: AccountingConfig) -> Self {
         Self {
+            keyer: store.request_protection_keyer(),
             store,
             flush_every: config.flush_every,
             max_pending: config.max_pending,
             shards: (0..SHARDS).map(|_| Mutex::new(HashMap::new())).collect(),
             queue: Mutex::new(VecDeque::new()),
             next_seq: AtomicU64::new(1),
-            flushing: tokio::sync::Mutex::new(()),
+            flushing: tokio::sync::Mutex::new(None),
+            ownership: true,
+            owned_until_ms: AtomicU64::new(0),
+            epoch: Instant::now(),
             wake: Arc::new(tokio::sync::Notify::new()),
             degraded_since: Mutex::new(None),
             counters: Counters::default(),
@@ -312,6 +367,9 @@ impl WriteBehind {
         let wake = accounting.wake.clone();
         let every = accounting.flush_every;
         tokio::spawn(async move {
+            if let Some(accounting) = weak.upgrade() {
+                accounting.check_ownership().await;
+            }
             loop {
                 tokio::select! {
                     () = tokio::time::sleep(every) => {}
@@ -321,9 +379,84 @@ impl WriteBehind {
                 if accounting.flush_pending().await.is_err() {
                     super::warning();
                 }
+                accounting.check_ownership().await;
             }
         });
         accounting
+    }
+
+    /// Test hook: never use the ownership rule.
+    #[cfg(test)]
+    pub(crate) fn without_ownership(mut self) -> Self {
+        self.ownership = false;
+        self
+    }
+
+    fn now_ms(&self) -> u64 {
+        u64::try_from(self.epoch.elapsed().as_millis()).unwrap_or(u64::MAX)
+    }
+    /// Ownership holds now (see the module docs).
+    pub(crate) fn owned(&self) -> bool {
+        let until = self.owned_until_ms.load(Ordering::Acquire);
+        until != 0 && self.now_ms() < until
+    }
+    fn lose_ownership(&self) {
+        if self.owned_until_ms.swap(0, Ordering::AcqRel) != 0 {
+            bump(&self.counters.ownership_lost, 1);
+        }
+    }
+    /// Every cached subject without pending observations is re-read on its next use.
+    fn mark_all_stale(&self) {
+        for shard in &self.shards {
+            for entry in lock(shard).values_mut() {
+                if entry.pending.is_empty() {
+                    entry.stale = true;
+                }
+            }
+        }
+    }
+    /// The participant held in the `flushing` slot, joining on first use.
+    async fn participant<'a>(
+        &self,
+        slot: &'a mut Option<ProtectionParticipant>,
+    ) -> Result<&'a ProtectionParticipant, StoreError> {
+        if slot.is_none() {
+            *slot = Some(self.store.request_protection_participant().await?);
+        }
+        Ok(slot.as_ref().expect("participant joined"))
+    }
+    /// One ownership check (each flush tick). No SQL.
+    pub(crate) async fn check_ownership(&self) {
+        let mut slot = self.flushing.lock().await;
+        if !self.ownership {
+            return;
+        }
+        if self.participant(&mut slot).await.is_err() {
+            self.lose_ownership();
+            return;
+        }
+        let participant = slot.as_mut().expect("participant joined");
+        match participant.check() {
+            Ownership::Alone { changed } => {
+                let was_owned = self.owned();
+                if changed || !was_owned {
+                    // Before ownership is (re)asserted: anything cached may predate
+                    // another writer's rows.
+                    self.mark_all_stale();
+                }
+                let window = u64::try_from(self.flush_every.as_millis()).unwrap_or(u64::MAX) * 2;
+                self.owned_until_ms.store(self.now_ms().saturating_add(window).max(1), Ordering::Release);
+                if !was_owned {
+                    bump(&self.counters.ownership_gained, 1);
+                }
+            }
+            Ownership::Shared | Ownership::Busy => self.lose_ownership(),
+            Ownership::Lost => {
+                self.lose_ownership();
+                // Join again (new lock handle) before the next write.
+                *slot = None;
+            }
+        }
     }
 
     fn shard(&self, key: &str) -> &Mutex<HashMap<String, Entry>> {
@@ -349,7 +482,7 @@ impl WriteBehind {
         {
             let mut entries = lock(self.shard(key));
             if let Some(entry) = entries.get_mut(key)
-                && entry.usable(self.flush_every)
+                && entry.usable(self.flush_every, self.owned())
             {
                 entry.last_used = Instant::now();
                 return Ok(f(entry));
@@ -384,7 +517,8 @@ impl WriteBehind {
             return;
         }
         let before = entries.len();
-        entries.retain(|_, entry| entry.usable(self.flush_every));
+        let owned = self.owned();
+        entries.retain(|_, entry| entry.usable(self.flush_every, owned));
         if entries.len() >= SHARD_CAPACITY {
             let mut idle: Vec<_> = entries
                 .iter()
@@ -429,7 +563,7 @@ impl WriteBehind {
         signal: Option<Signal>,
         source: ProtectionSource<'_>,
     ) -> Answer {
-        let prepared = match self.store.request_protection_prepare(kind, value, policy, now, signal, source) {
+        let prepared = match self.keyer.prepare(kind, value, policy, now, signal, source) {
             Ok(Some(prepared)) => prepared,
             Ok(None) => return Answer::ok(Decision::default()),
             Err(_) => return Answer::failed(Decision::default()),
@@ -464,10 +598,12 @@ impl WriteBehind {
                 });
                 entry.pending.push_back(pending.clone());
                 queue.push_back(pending.clone());
+                // Typed rejection signals are written through: never deferred.
+                let typed = matches!(signal, Some(Signal::CredentialRejected | Signal::Malformed));
                 Recorded::Queued {
                     pending,
                     decision: step.decision,
-                    through: step.transition || new_row,
+                    through: step.transition || new_row || typed,
                     queued: queue.len(),
                 }
             })
@@ -513,7 +649,7 @@ impl WriteBehind {
         if policy.adaptive_mode == mw_store::request_protection_model::Mode::Off {
             return Answer::ok(Decision::default());
         }
-        let Ok(key) = self.store.request_protection_subject(kind, value) else {
+        let Ok(key) = self.keyer.subject(kind, value) else {
             return Answer::failed(Decision::default());
         };
         let answer = match self
@@ -534,15 +670,25 @@ impl WriteBehind {
 
     /// Commit every observation up to and including `target`, in queue order.
     async fn drain(&self, target: u64) -> Result<(), StoreError> {
-        let _flushing = self.flushing.lock().await;
-        self.drain_locked(target).await
+        let mut slot = self.flushing.lock().await;
+        self.drain_locked(&mut slot, target).await
     }
     /// `drain` for a caller that already holds `flushing`.
-    async fn drain_locked(&self, target: u64) -> Result<(), StoreError> {
+    async fn drain_locked(
+        &self,
+        slot: &mut Option<ProtectionParticipant>,
+        target: u64,
+    ) -> Result<(), StoreError> {
         loop {
             let front = lock(&self.queue).front().map(|pending| pending.seq);
             match front {
-                Some(seq) if seq <= target => self.flush_batch().await?,
+                Some(seq) if seq <= target => {
+                    let participant = match self.participant(slot).await {
+                        Ok(participant) => participant,
+                        Err(error) => return Err(self.degrade(error)),
+                    };
+                    self.flush_batch(participant).await?
+                }
                 _ => return Ok(()),
             }
         }
@@ -566,14 +712,15 @@ impl WriteBehind {
         }
     }
 
-    /// One group of at most 64 from the front of the queue. Caller holds `flushing`.
-    async fn flush_batch(&self) -> Result<(), StoreError> {
+    /// One group of at most 64 from the front of the queue, one writer transaction
+    /// (set-based in the store when every subject has a row). Caller holds `flushing`.
+    async fn flush_batch(&self, participant: &ProtectionParticipant) -> Result<(), StoreError> {
         let batch: Vec<Arc<Pending>> = lock(&self.queue).iter().take(BATCH).cloned().collect();
         if batch.is_empty() {
             return Ok(());
         }
         let observations: Vec<_> = batch.iter().map(|pending| pending.observation()).collect();
-        match self.store.request_protection_sqlite_batch_with_state(&observations).await {
+        match self.store.request_protection_sqlite_batch_as(participant, &observations).await {
             Ok(results) => {
                 self.committed(&batch, results);
                 Ok(())
@@ -584,7 +731,7 @@ impl WriteBehind {
                 for pending in &batch {
                     match self
                         .store
-                        .request_protection_sqlite_batch_with_state(&[pending.observation()])
+                        .request_protection_sqlite_batch_as(participant, &[pending.observation()])
                         .await
                     {
                         Ok(results) => self.committed(std::slice::from_ref(pending), results),
@@ -675,12 +822,13 @@ impl WriteBehind {
     /// expected revision, then restart the cached subject from an absent row.
     pub(crate) async fn clear(&self, key: &str, expected: &str, now: i64) -> Result<bool, StoreError> {
         // Hold the flusher out until the cached subject matches the cleared row.
-        let _flushing = self.flushing.lock().await;
+        let mut slot = self.flushing.lock().await;
         let last = lock(&self.queue).back().map(|pending| pending.seq);
         if let Some(last) = last {
-            self.drain_locked(last).await?;
+            self.drain_locked(&mut slot, last).await?;
         }
-        let cleared = self.store.clear_request_protection(key, expected, now).await?;
+        let participant = self.participant(&mut slot).await?;
+        let cleared = self.store.clear_request_protection_as(participant, key, expected, now).await?;
         let mut entries = lock(self.shard(key));
         if cleared && let Some(entry) = entries.get_mut(key) {
             if entry.pending.is_empty() {
@@ -715,6 +863,9 @@ impl WriteBehind {
             degraded: lock(&self.degraded_since).is_some(),
             cache_size: self.shards.iter().map(|shard| lock(shard).len()).sum(),
             evictions: counter(&self.counters.evictions),
+            owned: self.owned(),
+            ownership_gained: counter(&self.counters.ownership_gained),
+            ownership_lost: counter(&self.counters.ownership_lost),
         }
     }
 }

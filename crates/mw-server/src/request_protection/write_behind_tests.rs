@@ -457,3 +457,404 @@ async fn fixture_snapshot_reports_counts_only_and_zero_when_synchronous() {
     drop(runtime);
     assert_eq!(fixture_snapshot()["accounting"], "synchronous");
 }
+
+// ---------------------------------------------------------------------------
+// t50hp-e8: ownership rule, set-based flush, and the "limits still limit" tests.
+// ---------------------------------------------------------------------------
+
+use mw_store::pool_telemetry::{QuerySnapshot, measure_queries};
+
+fn file_store_path(dir: &tempfile::TempDir) -> String {
+    dir.path().join("owned.db").to_string_lossy().into_owned()
+}
+fn statements(sql: &QuerySnapshot) -> (u64, u64, u64) {
+    (sql.read.calls, sql.write.calls, sql.other.calls)
+}
+/// Wait (bounded) until the flusher has asserted ownership or given it up.
+async fn settle_ownership(accounting: &WriteBehind, owned: bool) {
+    for _ in 0..300 {
+        if accounting.status().owned == owned {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("ownership did not become {owned}: {:?}", accounting.status());
+}
+
+/// Acceptance 1 and 7 (unit level): with ownership, a warm subject is answered
+/// with no SQL at a real client's pace (longer than a flush interval between
+/// requests), and the request past the budget is throttled at once, its
+/// transition written through first. Without ownership the same request re-reads.
+#[tokio::test]
+async fn owned_subject_is_answered_without_sql_and_throttled_on_the_next_request() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&file_store_path(&dir), ServerKey::generate()).await.unwrap();
+    let accounting = WriteBehind::start(store.clone(), config(50, 4096));
+    settle_ownership(&accounting, true).await;
+    let p = policy(); // rate limit 3
+    assert!(!accounting.record("account", "paced", &p, 1000, None, NONE).await.decision.enforced);
+    for _ in 0..2 {
+        // Idle for more than one flush interval: the flusher commits and the
+        // entry is synced, then the next request arrives.
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        let (answer, sql) = measure_queries(accounting.record("account", "paced", &p, 1000, None, NONE)).await;
+        assert!(!answer.decision.enforced && !answer.storage_failed);
+        assert_eq!(statements(&sql), (0, 0, 0), "warm owned subject: no SQL ({sql:?})");
+    }
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    let (refused, sql) = measure_queries(accounting.record("account", "paced", &p, 1000, None, NONE)).await;
+    assert!(refused.decision.enforced && !refused.storage_failed, "throttled on the first request past the budget");
+    assert!(sql.write.calls > 0, "the transition is written through before the answer");
+    assert_eq!(rate_count(&store, "account", "paced", 1000).await, Some(4));
+    let events = store.request_protection_events(1000, None, 10).await.unwrap();
+    assert!(events.iter().any(|event| event.reason == "request-rate" && event.enforced));
+    // Still refused from memory afterwards.
+    let (again, sql) = measure_queries(accounting.record("account", "paced", &p, 1000, None, NONE)).await;
+    assert!(again.decision.enforced);
+    assert_eq!(statements(&sql), (0, 0, 0), "{sql:?}");
+    assert_eq!(accounting.status().loads, 1, "one cold load in total");
+
+    // The same pace without ownership: every request after an interval re-reads.
+    let other_dir = tempfile::tempdir().unwrap();
+    let other = Store::open(&file_store_path(&other_dir), ServerKey::generate()).await.unwrap();
+    let unowned = WriteBehind::new(other.clone(), config(50, 4096)).without_ownership();
+    unowned.record("account", "paced", &p, 1000, None, NONE).await;
+    unowned.flush_pending().await.unwrap();
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    let (_, sql) = measure_queries(unowned.record("account", "paced", &p, 1000, None, NONE)).await;
+    assert_eq!(sql.read.calls, 1, "re-read rule: {sql:?}");
+}
+
+/// Acceptance 2: a probe-path block refuses the next request from that source
+/// with 0 SQL reads, and an administrative unblock admits the next one.
+#[tokio::test]
+async fn probe_block_refuses_from_memory_and_admin_unblock_admits_the_next_request() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&file_store_path(&dir), ServerKey::generate()).await.unwrap();
+    let accounting = WriteBehind::start(store.clone(), config(50, 4096));
+    settle_ownership(&accounting, true).await;
+    let p = policy();
+    let subject = "probe-path:192.0.2.50";
+    let hit = accounting.record("client", subject, &p, 1000, Some(Signal::ProbePath), NONE).await;
+    assert!(hit.decision.enforced && hit.decision.action == Action::Block);
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    for now in [1001, 1100, 1299] {
+        let (answer, sql) = measure_queries(accounting.probe_decision("client", subject, &p, now)).await;
+        assert!(answer.decision.enforced && !answer.storage_failed, "{now}");
+        assert_eq!(statements(&sql), (0, 0, 0), "probe decision from the cached entry ({sql:?})");
+    }
+    // The block ends by its own window, still from memory.
+    let (expired, sql) = measure_queries(accounting.probe_decision("client", subject, &p, 1300)).await;
+    assert!(!expired.decision.enforced);
+    assert_eq!(statements(&sql), (0, 0, 0));
+    // Administrative unblock (the console's clear, by revision).
+    let key = store.request_protection_subject("client", subject).unwrap();
+    let revision = store.request_protection_rows(1001, None, 10).await.unwrap()
+        .into_iter().find(|row| row.subject_key == key).unwrap().revision;
+    assert!(accounting.clear(&key, &revision, 1002).await.unwrap());
+    let next = accounting.probe_decision("client", subject, &p, 1002).await;
+    assert!(!next.decision.enforced && !next.storage_failed, "admitted right after the unblock");
+}
+
+/// A protection writer outside this instance (a synchronous process, a second
+/// write-behind process, a tool using the store functions) joins the witness
+/// before its write: the owner gives up ownership first, so the block that
+/// writer records refuses the owner's very next request.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_external_writer_ends_ownership_before_its_block_is_written() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = file_store_path(&dir);
+    let key = ServerKey::generate();
+    let store = Store::open(&path, key.clone()).await.unwrap();
+    let accounting = WriteBehind::start(store.clone(), config(50, 4096));
+    settle_ownership(&accounting, true).await;
+    let mut p = policy();
+    p.rate_limit = 1000;
+    assert!(!accounting.record("client", "192.0.2.60", &p, 1000, None, NONE).await.decision.enforced);
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    assert!(accounting.status().owned);
+    // Another "process": its own Store handle on the same file, synchronous path.
+    let other = Store::open(&path, key).await.unwrap();
+    let blocked = other
+        .request_protection("client", "192.0.2.60", &p, 1001, Some(Signal::ProbePath))
+        .await
+        .unwrap();
+    assert!(blocked.decision.enforced);
+    let status = accounting.status();
+    assert!(!status.owned && status.ownership_lost >= 1, "{status:?}");
+    let next = accounting.record("client", "192.0.2.60", &p, 1001, None, NONE).await;
+    assert!(next.decision.enforced, "the external block is seen by the next request");
+}
+
+/// The witness lost at runtime (lock file replaced): ownership ends at the next
+/// tick and the re-read rule applies until the instance joins again.
+#[tokio::test]
+async fn a_lost_witness_falls_back_to_the_reread_rule() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = file_store_path(&dir);
+    let store = Store::open(&path, ServerKey::generate()).await.unwrap();
+    let accounting = WriteBehind::start(store.clone(), config(50, 4096));
+    settle_ownership(&accounting, true).await;
+    let lock = format!("{path}.mw-request-protection.lock");
+    if std::fs::remove_file(&lock).is_err() {
+        eprintln!("[write_behind] the held lock file cannot be removed on this platform; replacement not exercised");
+        return;
+    }
+    if std::fs::write(&lock, b"").is_err() {
+        eprintln!("[write_behind] a removed lock file cannot be re-created yet on this platform; not exercised");
+        return;
+    }
+    settle_ownership(&accounting, false).await;
+    // It joins again with the new file and, alone, regains ownership.
+    settle_ownership(&accounting, true).await;
+    let status = accounting.status();
+    assert!(status.ownership_lost >= 1 && status.ownership_gained >= 2, "{status:?}");
+}
+
+/// Acceptance 3: a crash during a flush interval. The runtime is dropped, which
+/// stops the flusher, without the shutdown flush (a real kill -9 is not
+/// practical in a unit test). After restart the stored count is behind by
+/// exactly the queued ordinary observations, which were at most what was made
+/// in the last two intervals, and every transition answered to a client is present.
+#[test]
+fn crash_loses_at_most_one_interval_of_ordinary_observations_and_no_transition() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = file_store_path(&dir);
+    let key = ServerKey::generate();
+    let (made, pending, answered_blocks, recent) = {
+        let (path, key) = (path.clone(), key.clone());
+        std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+            let result = runtime.block_on(async move {
+                let store = Store::open(&path, key).await.unwrap();
+                let accounting = WriteBehind::start(store.clone(), config(200, 65536));
+                let mut p = policy();
+                p.rate_limit = 100_000;
+                let started = Instant::now();
+                let (mut made, mut stamps, mut blocks) = (0u64, Vec::new(), 0u64);
+                while started.elapsed() < Duration::from_millis(900) {
+                    accounting.record("account", "crash", &p, 1000, None, NONE).await;
+                    made += 1;
+                    stamps.push(Instant::now());
+                    if made % 50 == 0 {
+                        let ip = format!("probe-path:192.0.2.{}", 100 + blocks);
+                        let hit = accounting.record("client", &ip, &p, 1000, Some(Signal::ProbePath), NONE).await;
+                        assert!(hit.decision.enforced && !hit.storage_failed);
+                        blocks += 1;
+                    }
+                    tokio::time::sleep(Duration::from_millis(2)).await;
+                }
+                let pending = accounting.status().pending as u64;
+                // A probe-path write-through also drains what was queued before it.
+                let window = Instant::now() - Duration::from_millis(2 * 200 + 50);
+                let recent = stamps.iter().filter(|at| **at >= window).count() as u64;
+                (made, pending, blocks, recent)
+            });
+            drop(runtime); // the crash: the flusher stops, nothing more is flushed
+            result
+        })
+        .join()
+        .unwrap()
+    };
+    let reopened = tokio::runtime::Runtime::new().unwrap();
+    reopened.block_on(async move {
+        let store = Store::open(&path, key).await.unwrap();
+        let stored = u64::from(rate_count(&store, "account", "crash", 1000).await.unwrap());
+        assert_eq!(made - stored, pending, "lost exactly the queued observations");
+        assert!(pending <= recent, "queued {pending} > made in the last two intervals {recent}");
+        let events = store.request_protection_events(1000, None, 250).await.unwrap();
+        let recorded = events.iter().filter(|event| event.reason == "probe-path" && event.enforced).count() as u64;
+        assert_eq!(recorded, answered_blocks, "every answered transition survives");
+        eprintln!("[write_behind] crash: made={made} stored={stored} lost={pending} made-in-last-two-intervals={recent}");
+    });
+}
+
+/// Acceptance 4: the shutdown flush commits the whole queue.
+#[tokio::test]
+async fn shutdown_flush_commits_every_queued_observation() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&file_store_path(&dir), ServerKey::generate()).await.unwrap();
+    let runtime = super::super::Runtime::start_with(store.clone(), config(5000, 4096));
+    let accounting = runtime.write_behind().unwrap();
+    let mut p = policy();
+    p.rate_limit = 100;
+    for _ in 0..25 {
+        accounting.record("account", "shutdown", &p, 1000, None, NONE).await;
+    }
+    assert_eq!(accounting.status().pending, 24);
+    runtime.flush_all(tokio::time::Instant::now() + Duration::from_secs(5)).await.unwrap();
+    assert_eq!(accounting.status().pending, 0);
+    assert_eq!(rate_count(&store, "account", "shutdown", 1000).await, Some(25));
+}
+
+/// Acceptance 5: two processes (two Store handles and two accounting instances
+/// on one file) never own; each re-reads after an interval, and over-admission
+/// stays within (processes - 1) x rate x 2 intervals.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_processes_without_ownership_over_admit_within_the_bound() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = file_store_path(&dir);
+    let key = ServerKey::generate();
+    let interval = Duration::from_millis(100);
+    let limit = 60u32;
+    let mut p = policy();
+    p.rate_limit = limit;
+    p.rate_window_secs = 3600;
+    let stores = [Store::open(&path, key.clone()).await.unwrap(), Store::open(&path, key).await.unwrap()];
+    let processes: Vec<_> = stores.iter().map(|store| WriteBehind::start(store.clone(), config(100, 4096))).collect();
+    // Each joins at its first check; with two participants neither owns.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    for process in &processes {
+        settle_ownership(process, false).await;
+    }
+    let started = Instant::now();
+    let tasks: Vec<_> = processes
+        .iter()
+        .map(|process| {
+            let (process, p) = (process.clone(), p.clone());
+            tokio::spawn(async move {
+                let (mut made, mut admitted) = (0u64, 0u64);
+                while started.elapsed() < Duration::from_millis(1500) {
+                    let answer = process.record("account", "shared", &p, 1000, None, NONE).await;
+                    assert!(!answer.storage_failed);
+                    made += 1;
+                    admitted += u64::from(!answer.decision.enforced);
+                    assert!(!process.status().owned, "never owned with a second participant");
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+                (made, admitted)
+            })
+        })
+        .collect();
+    let mut results = Vec::new();
+    for task in tasks {
+        results.push(task.await.unwrap());
+    }
+    let elapsed = started.elapsed().as_secs_f64();
+    let admitted: u64 = results.iter().map(|(_, admitted)| admitted).sum();
+    let rate = results.iter().map(|(made, _)| *made as f64 / elapsed).fold(0.0, f64::max);
+    let bound = (rate * 2.0 * interval.as_secs_f64()).ceil() as u64 + 1;
+    eprintln!("[write_behind] two processes: admitted={admitted} limit={limit} rate/process={rate:.0}/s bound=+{bound}");
+    assert!(admitted >= u64::from(limit), "the limit itself is admitted");
+    assert!(admitted <= u64::from(limit) + bound, "over-admission {} > bound {bound}", admitted - u64::from(limit));
+}
+
+/// CredentialRejected and Malformed are never deferred.
+#[tokio::test]
+async fn credential_rejected_and_malformed_are_written_through() {
+    let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+    let accounting = WriteBehind::new(store.clone(), config(5000, 4096));
+    let mut p = policy();
+    p.rate_limit = 100;
+    p.short.absolute_anomalies = 100;
+    p.long.absolute_anomalies = 100;
+    p.short.ratio_percent = 100;
+    p.long.ratio_percent = 100;
+    accounting.record("client", "192.0.2.70", &p, 1000, None, NONE).await;
+    accounting.record("client", "192.0.2.70", &p, 1000, Some(Signal::Normal), NONE).await;
+    assert_eq!(accounting.status().pending, 1, "an ordinary completion is queued");
+    for signal in [Signal::CredentialRejected, Signal::Malformed] {
+        let before = accounting.status().write_throughs;
+        accounting.record("client", "192.0.2.70", &p, 1000, Some(signal), NONE).await;
+        let status = accounting.status();
+        assert_eq!(status.write_throughs, before + 1, "{signal:?}");
+        assert_eq!(status.pending, 0, "{signal:?} and everything before it committed");
+    }
+    let key = store.request_protection_subject("client", "192.0.2.70").unwrap();
+    let row = store.request_protection_load(&key, "client", 1000).await.unwrap().unwrap();
+    assert_eq!(row.state.snapshot().short.anomalous, 2);
+}
+
+/// Memory stays bounded under ownership too (no entry is dropped as "old").
+#[tokio::test]
+async fn owned_cache_stays_bounded() {
+    let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+    let accounting = WriteBehind::new(store.clone(), config(5000, 4096));
+    accounting.check_ownership().await;
+    assert!(accounting.status().owned, "an in-memory database is private to its pool");
+    let p = policy();
+    for i in 0..(SUBJECT_CAPACITY as usize + 500) {
+        let ip = format!("10.{}.{}.{}", i >> 16, (i >> 8) & 255, i & 255);
+        accounting.probe_decision("client", &format!("probe-path:{ip}"), &p, 1000).await;
+    }
+    let status = accounting.status();
+    assert!(status.cache_size <= SUBJECT_CAPACITY as usize && status.evictions > 0, "{status:?}");
+}
+
+/// Acceptance 6: sign-in failure throttling is unaffected by the accounting
+/// mode: the same responses, the same source locks, the same protection rows.
+#[test]
+fn sign_in_failure_throttling_is_the_same_with_and_without_write_behind() {
+    let run = |mode: Option<AccountingConfig>| {
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(move || {
+                TEST_CONFIG.with(|cell| cell.set(mode));
+                tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(sign_in_failures())
+            })
+            .unwrap()
+            .join()
+            .unwrap()
+    };
+    let synchronous = run(None);
+    let deferred = run(Some(config(250, 4096)));
+    eprintln!("[write_behind] sign-in failures: {synchronous:?}");
+    assert_eq!(synchronous, deferred);
+    assert!(!synchronous.1.is_empty(), "the source failure lock engaged: {synchronous:?}");
+}
+
+/// Wrong-password sign-ins from one address against the proxy-mode router.
+/// Returns (statuses, source-lock failure counts, protection rows).
+async fn sign_in_failures() -> (Vec<u16>, Vec<(String, usize)>, Vec<Value>) {
+    use axum::body::Body;
+    use axum::http::Request as HttpRequest;
+    use tower::ServiceExt;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, mw_mock_jmap::router()).await.unwrap() });
+    let dir = tempfile::tempdir().unwrap();
+    let db = file_store_path(&dir);
+    let key = ServerKey::generate();
+    let store = Store::open(&db, key.clone()).await.unwrap();
+    for (name, value) in [
+        ("signin.retryCooldownSecs", json!(0)),
+        ("security.protection.rateMode", json!("enforce")),
+        ("security.protection.adaptiveMode", json!("enforce")),
+    ] {
+        store.put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+            key: name.into(), global_value: Some(value.to_string()), allow_user_override: false,
+            global_locked: false, updated_by: "fixture".into(), updated_at: 1,
+        }).await.unwrap();
+    }
+    let (router, _) = crate::build_app_full(
+        crate::AppConfig {
+            db_path: db.clone(), server_key_hex: Some(key.to_hex()), web_dir: None, cookie_secure: false,
+            mode: crate::ServerMode::Proxy, hardening: Default::default(),
+            security: crate::SecurityConfig {
+                upstream_default: Some(upstream.clone()), jmap_upstreams: Some(vec![upstream]), ..Default::default()
+            },
+        },
+        crate::V6Config { admin_enabled: false, ..Default::default() },
+    ).await.unwrap();
+    let mut statuses = Vec::new();
+    for _ in 0..12 {
+        let mut request = HttpRequest::builder()
+            .method("POST").uri("/api/login").header("host", "localhost")
+            .header("content-type", "application/json").header("user-agent", "Mozilla/5.0")
+            .body(Body::from(json!({"username": mw_mock_jmap::USER, "password": "wrong-password"}).to_string()))
+            .unwrap();
+        request.extensions_mut().insert(axum::extract::ConnectInfo("127.0.0.1:41000".parse::<std::net::SocketAddr>().unwrap()));
+        statuses.push(router.clone().oneshot(request).await.unwrap().status().as_u16());
+    }
+    // Write-behind: queued completions are flushed within one interval.
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    let now = chrono::Utc::now().timestamp();
+    let locks = store.list_auth_source_locks(now).await.unwrap()
+        .into_iter().map(|lock| (lock.surface, lock.failures)).collect();
+    let mut rows: Vec<Value> = store.request_protection_rows(now, None, 250).await.unwrap().into_iter()
+        .map(|row| json!({"kind": row.subject_kind, "rate": row.snapshot.rate_count,
+            "anomalous": row.snapshot.short.anomalous, "stage": row.snapshot.stage}))
+        .collect();
+    rows.sort_by_key(Value::to_string);
+    (statuses, locks, rows)
+}

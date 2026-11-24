@@ -383,3 +383,76 @@ fn postgres_revision_preconditions_for_shared_guard_reads() {
         trust_policy_follows_the_request_revision(&reader, &fixture.writer, "postgres").await;
     });
 }
+
+// ---------------------------------------------------------------------------
+// t50hp-e8 acceptance 7: the enforced protection profile on the production
+// router, synchronous accounting against write-behind accounting with the
+// ownership rule. The warm request of the write-behind run carries no
+// protection statement: no write, no BEGIN, and exactly the synchronous run's
+// reads minus its protection reads. The enforced profile's other statements
+// are unchanged.
+// ---------------------------------------------------------------------------
+
+const ENFORCED: [(&str, &str); 4] = [
+    ("security.protection.rateMode", "enforce"),
+    ("security.protection.adaptiveMode", "enforce"),
+    ("security.protection.probePathMode", "enforce"),
+    ("security.protection.userAgentMode", "enforce"),
+];
+
+type Warm = (mw_store::pool_telemetry::QuerySnapshot, mw_store::pool_telemetry::QuerySnapshot);
+
+fn measure_enforced(
+    accounting: Option<crate::request_protection::write_behind::AccountingConfig>,
+    enforced: bool,
+) -> Warm {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    run_fixture(move || async move {
+        crate::request_protection::write_behind::TEST_CONFIG.with(|cell| cell.set(accounting));
+        let fixture = Fixture::new(sqlite_db(), "sqlite-enforced").await;
+        if enforced {
+            for (key, value) in ENFORCED {
+                put_policy(&fixture.writer, key, json!(value)).await;
+            }
+        }
+        // The accounting's first ownership check runs on its flusher task.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let me = fixture.warm(|| fixture.me()).await;
+        let echo = fixture.warm(|| fixture.echo()).await;
+        sender.send((me, echo)).unwrap();
+    });
+    receiver.recv().unwrap()
+}
+
+#[test]
+fn sqlite_write_behind_warm_request_has_no_protection_statements() {
+    use crate::request_protection::write_behind::{AccountingConfig, AccountingMode};
+    let write_behind = AccountingConfig {
+        mode: AccountingMode::WriteBehind,
+        flush_every: std::time::Duration::from_millis(250),
+        max_pending: 4096,
+    };
+    let off = measure_enforced(None, false);
+    let synchronous = measure_enforced(None, true);
+    let deferred = measure_enforced(Some(write_behind), true);
+    for (route, off, synchronous, deferred) in [
+        ("GET /api/me", off.0, synchronous.0, deferred.0),
+        ("POST /jmap/api Core/echo", off.1, synchronous.1, deferred.1),
+    ] {
+        eprintln!(
+            "{}",
+            json!({"kind":"t50hp-e8-protection-statements","route":route,
+                "off":{"reads":off.read.calls,"writes":off.write.calls,"other":off.other.calls},
+                "enforcedSynchronous":{"reads":synchronous.read.calls,"writes":synchronous.write.calls,"other":synchronous.other.calls},
+                "enforcedWriteBehind":{"reads":deferred.read.calls,"writes":deferred.write.calls,"other":deferred.other.calls}})
+        );
+        assert_eq!((deferred.write.calls, deferred.other.calls), (0, 0), "{route}: {deferred:?}");
+        assert!(synchronous.write.calls >= 4 && synchronous.other.calls >= 2, "{route}: {synchronous:?}");
+        // Protection reads of the synchronous run: one probe-decision read and one
+        // state read inside each of the two accounting transactions.
+        assert_eq!(synchronous.read.calls, deferred.read.calls + 3, "{route}: {synchronous:?} / {deferred:?}");
+        // Without protection statements the enforced profile reads no more than
+        // the default profile (measured: one read fewer, outside protection).
+        assert!(deferred.read.calls <= off.read.calls, "{route}: {deferred:?} / {off:?}");
+    }
+}

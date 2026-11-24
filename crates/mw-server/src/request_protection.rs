@@ -76,6 +76,17 @@ impl Runtime {
         let accounting = (mode == write_behind::AccountingMode::WriteBehind)
             .then(|| write_behind::WriteBehind::start(store.clone(), config));
         let runtime = Arc::new(Self { accounting, ..Self::default() });
+        if runtime.accounting.is_none() && store.uses_sqlite() {
+            // A synchronous writer joins the witness at startup, so a write-behind
+            // owner on the same file stops trusting its cache before this process
+            // serves a request (its first write would join anyway).
+            let joining = store.clone();
+            tokio::spawn(async move {
+                if joining.request_protection_join().await.is_err() {
+                    warning();
+                }
+            });
+        }
         let weak = Arc::downgrade(&runtime);
         tokio::spawn(async move {
             loop {
