@@ -1475,7 +1475,15 @@ jobs:
   # convention). ubuntu-latest ships OpenSSL 3.x; the first step fails the job
   # if that ever stops being true, before any test can skip.
   crypto-interop:
-    runs-on: ubuntu-latest
+    # Pinned (t56): ubuntu-26.04 (ubuntu-latest since 2026-11) has GnuPG 2.4.8
+    # with libgcrypt 1.12. There gpg-agent intermittently rejects an imported
+    # cv25519 secret key at first use, and gpg reports "Bad passphrase"; the agent
+    # log (seen with GnuPG 2.4.9 on libgcrypt 1.12.0) says "Point 'G' does not
+    # belong to curve 'E'" / "ecc_testkey => Bad secret key". Keys GnuPG itself
+    # generated and exported are rejected the same way, so this leg cannot judge
+    # our keys there. 24.04 (GnuPG 2.4.4, libgcrypt 1.10) passed every run;
+    # re-check pgp_gnupg_live before moving this job.
+    runs-on: ubuntu-24.04
     needs: [rust]
     # Run, and fail on its own, even when `rust`/`web` are red (t61);
     # it builds what it needs itself. Only a cancelled run skips it.
