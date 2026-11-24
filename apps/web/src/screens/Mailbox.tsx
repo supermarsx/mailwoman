@@ -1,3 +1,4 @@
+import {folderViewValue,folderViewLocked,setFolderView,activeFolderViewId} from '../components/folderViewPreferences.ts';
 import '../components/mobileMailChrome.css';
 import {createMobileScrollChrome} from '../components/mobileScrollChrome.ts';
 import {unifiedAccountEnabled as workspaceUnifiedAccountEnabled} from '../state/unifiedAccountPreferences.ts';
@@ -236,7 +237,7 @@ export function MailboxScreen(): JSX.Element {
   const folderWidth=()=>folderMode()==='hidden' ? 0 : folderMode()==='compact' ? (mailFeature('showCreateFolderButton')&&!unifiedMailboxActive()?104:64) : Math.max(160,Math.min(folderMax(),folderDrag() ?? accountUiPreferences().folderSidebarWidth ?? 220));
   const listBounds=createMemo(()=>{
     const bottom=readingPane()==='bottom';
-    return readingPaneSplit(bottom?bodySize().height:bodySize().width,listDrag() ?? (bottom?accountUiPreferences().messageListHeight??320:accountUiPreferences().messageListWidth??340),bottom);
+    return readingPaneSplit(bottom?bodySize().height:bodySize().width,listDrag() ?? (bottom?folderViewValue('listHeight'):folderViewValue('listWidth')),bottom);
   });
   const listSize=()=>listBounds().size;
   const tileExtent=()=>Math.max(1,isStackedLayout(workspaceLayout()) ? tileSize().height : tileSize().width);
@@ -521,7 +522,7 @@ export function MailboxScreen(): JSX.Element {
       <For each={WORKSPACE_LAYOUTS}>{mode=><RibbonItem><button type="button" class={ribbonButton} aria-pressed={workspaceLayout()===mode} onClick={()=>setWorkspaceLayout(mode)}><Icon name={mode==='tabs'?'layoutTabs':mode==='stack'?'layoutRows':mode==='masonry-stack'?'layoutMasonryRows':mode==='masonry-side-by-side'?'layoutMasonryColumns':'layoutColumns'}/><span>{t(`mail-workspace-${mode}`)}</span></button></RibbonItem>}</For>
     </RibbonGroup>
     <RibbonGroup label={t('mail-reading-pane')} icon="paneRight" priority={35}>
-      <For each={READING_PANE_OPTIONS}>{mode=><RibbonItem><button type="button" class={ribbonButton} aria-pressed={readingPane()===mode} onClick={()=>{setAccountUiPreferences({readerCollapsed:false,...(mode!=='off'?{messageListCollapsed:false}:{})});setReadingPane(mode);}}><Icon name={mode==='right'?'paneRight':mode==='bottom'?'paneBottom':'eyeOff'}/><span>{t(`mail-reading-pane-${mode}`)}</span></button></RibbonItem>}</For>
+      <For each={READING_PANE_OPTIONS}>{mode=><RibbonItem><button type="button" class={ribbonButton} aria-pressed={readingPane()===mode} disabled={folderViewLocked('readingPane')} onClick={()=>{setAccountUiPreferences({readerCollapsed:false,...(mode!=='off'?{messageListCollapsed:false}:{})});setReadingPane(mode);}}><Icon name={mode==='right'?'paneRight':mode==='bottom'?'paneBottom':'eyeOff'}/><span>{t(`mail-reading-pane-${mode}`)}</span></button></RibbonItem>}</For>
     </RibbonGroup>
     <RibbonGroup label={t('mail-ribbon-group-folders')} icon="folder" priority={30}>
       <RibbonItem><button type="button" class={ribbonButton} aria-pressed={folderMode()!=='hidden'} onClick={()=>setAccountUiPreferences({folderSidebarMode:folderMode()==='hidden'?'expanded':'hidden'})}><Icon name="folder"/><span>{t(folderMode()==='hidden'?'mail-show-folders':'mail-hide-folders')}</span></button></RibbonItem>
@@ -548,7 +549,7 @@ export function MailboxScreen(): JSX.Element {
   }
   const compactBadges=()=>settings()['mail.compactFolderBadges']?.value!==false;
   const folderCountShown=(box:{role?:string|null;unreadEmails:number;totalEmails:number})=>showsFolderCount(box,folderCountMode(),folderCountScope());
-  createEffect(on(()=>JSON.stringify([settings()['mail.messageListOrder']?.value??'newest',settings()['mail.messageListGroup']?.value??'none',settings()['time.displayZone']?.value]),()=>{if(app.accountId())void app.refreshMessageOrder();},{defer:true}));
+  createEffect(on(()=>JSON.stringify([settings()['mail.messageListOrder']?.value??'newest',folderViewValue('group'),folderViewValue('filter'),folderViewValue('filterQuery'),folderViewValue('sort'),settings()['time.displayZone']?.value]),()=>{if(app.accountId())void app.refreshMessageOrder();},{defer:true}));
   /** `mail.closeOnDelete`: the message views (reading pane, message tabs, detached panes) of deleted messages close instead of staying open on a message that is gone. */
   function closeDeleted(ids:ReadonlySet<string>):void {
     const closing=viewsClosedByDelete(ids,{previewId,panes:panes()});
@@ -978,6 +979,8 @@ export function MailboxScreen(): JSX.Element {
   // folder, or the folders in the multi-selection), aria-expanded where it has subfolders, and a roving tabindex so the
   // list is one Tab stop. Up/Down/Home/End move, Right opens or enters, Left closes or goes to the parent, typing jumps
   // to the next name starting with it, Enter/Space opens the folder. The buttons inside the row stay for the pointer.
+  const userFoldersCollapsible=()=>settings()['folders.userSectionCollapsible']?.value!==false;
+  const userFoldersCollapsed=()=>userFoldersCollapsible()&&accountUiPreferences().userFoldersCollapsed===true;
   const USER_FOLDERS_ID='__user-folders';
   const [treeFocus,setTreeFocus]=createSignal<string|null>(null);
   const treeKey=(id:string,pinned:boolean):string=>pinned?`pin:${id}`:id;
@@ -1003,7 +1006,7 @@ export function MailboxScreen(): JSX.Element {
     const row=from??event.target as HTMLElement;
     if(!row.matches?.('[role="treeitem"][data-treeitem-id]'))return;
     const id=row.dataset['treeitemId']??'',rows=treeRowEls(),at=rows.indexOf(row);
-    const disclosure=id===USER_FOLDERS_ID,open=!accountUiPreferences().userFoldersCollapsed;
+    const disclosure=id===USER_FOLDERS_ID,open=!userFoldersCollapsed();
     const go=(el:HTMLElement|undefined):void=>{if(el){event.preventDefault();el.focus();}};
     if(!disclosure&&folderDnd.key(event,id))return;
     if(event.altKey||event.ctrlKey||event.metaKey){
@@ -1015,7 +1018,7 @@ export function MailboxScreen(): JSX.Element {
     const rtl=getComputedStyle(row).direction==='rtl',forward=rtl?'ArrowLeft':'ArrowRight',back=rtl?'ArrowRight':'ArrowLeft';
     const folderRow=disclosure?undefined:folderTreeRows().system.concat(folderTreeRows().custom).find(value=>value.box.id===id);
     const expandable=disclosure?true:!!folderRow?.hasChildren,expanded=disclosure?open:!!folderRow?.expanded;
-    const setExpanded=(value:boolean):void=>{if(disclosure)setAccountUiPreferences({userFoldersCollapsed:!value});else toggleFolder(id,value);};
+    const setExpanded=(value:boolean):void=>{if(disclosure){if(userFoldersCollapsible())setAccountUiPreferences({userFoldersCollapsed:!value});}else toggleFolder(id,value);};
     switch(event.key){
       case 'ArrowDown':return go(rows[at+1]);
       case 'ArrowUp':return go(rows[at-1]);
@@ -1227,7 +1230,7 @@ export function MailboxScreen(): JSX.Element {
     if(app.mailboxes().length===0)return;
     const visible=navigationFolders();
     const custom=visible.filter(box=>!box.role).length;
-    setFolderRows(visible.length-custom+(custom>0?1:0)+(accountUiPreferences().userFoldersCollapsed?0:custom));
+    setFolderRows(visible.length-custom+(custom>0?1:0)+(userFoldersCollapsed()?0:custom));
   });
 
   const mobileListChrome=createMobileScrollChrome({root:()=>shellElement,selector:'.list__scroll',active:()=>narrow()&&listVisible(),scope:()=>`${app.accountId()}:${app.selectedMailboxId()}`});
@@ -1323,9 +1326,9 @@ export function MailboxScreen(): JSX.Element {
             </div>
           </Show>
           <For each={[false,true]}>{custom=><>
-          <Show when={custom&&sectionRows(true).length>0}><div role="treeitem" data-treeitem-id={USER_FOLDERS_ID} aria-level={1} aria-label={t('mail-user-folders')} aria-expanded={!accountUiPreferences().userFoldersCollapsed} aria-controls="sidebar-user-folders" aria-selected={false} tabindex={treeTab(USER_FOLDERS_ID)} onClick={event=>{if(event.target===event.currentTarget)setAccountUiPreferences({userFoldersCollapsed:!accountUiPreferences().userFoldersCollapsed});}}><button type="button" tabindex={-1} class={`sidebar__box ${a11y.focusable}`} data-folder-disclosure="" aria-label={t('mail-user-folders')} title={t('mail-user-folders')} aria-expanded={!accountUiPreferences().userFoldersCollapsed} aria-controls="sidebar-user-folders" onClick={()=>setAccountUiPreferences({userFoldersCollapsed:!accountUiPreferences().userFoldersCollapsed})}><Icon name={accountUiPreferences().userFoldersCollapsed?'chevron':'chevronDown'}/><span class="sidebar__box-name">{t('mail-user-folders')}</span></button></div></Show>
-          <div class="sidebar__folder-rows" id={custom?'sidebar-user-folders':undefined} role={custom?'group':undefined} hidden={sectionRows(custom).length===0||(custom&&!!accountUiPreferences().userFoldersCollapsed)}>
-          <Show when={!custom||!accountUiPreferences().userFoldersCollapsed}>
+          <Show when={custom&&sectionRows(true).length>0}><div role="treeitem" data-treeitem-id={USER_FOLDERS_ID} aria-level={1} aria-label={t('mail-user-folders')} aria-expanded={!userFoldersCollapsed()} aria-controls="sidebar-user-folders" aria-selected={false} tabindex={treeTab(USER_FOLDERS_ID)} onClick={event=>{if(userFoldersCollapsible()&&event.target===event.currentTarget)setAccountUiPreferences({userFoldersCollapsed:!userFoldersCollapsed()});}}><Show when={userFoldersCollapsible()} fallback={<span class="sidebar__box"><Icon name="folder"/><span class="sidebar__box-name">{t('mail-user-folders')}</span></span>}><button type="button" tabindex={-1} class={`sidebar__box ${a11y.focusable}`} data-folder-disclosure="" aria-label={t('mail-user-folders')} title={t('mail-user-folders')} aria-expanded={!userFoldersCollapsed()} aria-controls="sidebar-user-folders" onClick={()=>setAccountUiPreferences({userFoldersCollapsed:!userFoldersCollapsed()})}><Icon name={userFoldersCollapsed()?'chevron':'chevronDown'}/><span class="sidebar__box-name">{t('mail-user-folders')}</span></button></Show></div></Show>
+          <div class="sidebar__folder-rows" id={custom?'sidebar-user-folders':undefined} role={custom?'group':undefined} hidden={sectionRows(custom).length===0||(custom&&!!userFoldersCollapsed())}>
+          <Show when={!custom||!userFoldersCollapsed()}>
           <For each={sectionRows(custom).map(row=>row.box.id)}>
             {(id) => folderItem(id,custom,false)}
           </For>
@@ -1442,7 +1445,7 @@ export function MailboxScreen(): JSX.Element {
           <div class={`mail-pane ${motion.surface}`} hidden={!listVisible()} data-mw-entering={mailEntering()}>
             <Show when={app.layout()!=='ribbon'}><div class="mail-list-search-chrome"><SearchBox /><InboxTabs /><EventsViewBar /></div></Show><MessageList onOpenReplyDraft={id=>void openReplyDraft(id)} hideReadingPane hideSelectionToggle hideOrderControl selectionMode={listSelecting} onSelectionModeChange={setListSelecting} selectionReset={selectionReset} onOpenMessage={id=>void openFromList(id,'activate')} onOpenMessageTab={id=>void openFromList(id,'tab')} onCompose={openReply} restoreAnchor={restoreAnchor} onAnchorChange={setListAnchor}/>
           </div>
-          <Show when={splitVisible()}><ResizeHandle label={t('mail-resize-list')} orientation={readingPane()==='bottom'?'horizontal':'vertical'} value={listSize()} min={listBounds().min} max={listBounds().max} onChange={setListDrag} onCommit={value=>{setAccountUiPreferences(readingPane()==='bottom'?{messageListHeight:value}:{messageListWidth:value});setListDrag(null);}}/></Show>
+          <Show when={splitVisible()}><ResizeHandle disabled={folderViewLocked(readingPane()==='bottom'?'listHeight':'listWidth')} label={t('mail-resize-list')} orientation={readingPane()==='bottom'?'horizontal':'vertical'} value={listSize()} min={listBounds().min} max={listBounds().max} onChange={setListDrag} onCommit={value=>{const folder=activeFolderViewId();if(folder)setFolderView(folder,readingPane()==='bottom'?{listHeight:value}:{listWidth:value});else setAccountUiPreferences(readingPane()==='bottom'?{messageListHeight:value}:{messageListWidth:value});setListDrag(null);}}/></Show>
           <div class="workspace-panes" ref={tilesElement} data-layout={effectiveLayout()} data-pair={isSplitLayout(effectiveLayout())} data-companion={companion()!==null} hidden={!readersVisible()}>
             <For each={orderedPanes()}>{pane=><PaneNavigationContext.Provider value={pane.id}><section class="workspace-pane" role="tabpanel" aria-label={displayText(subTabs.tabs().find(tab=>tab.id===pane.id)?.title??pane.title)}
               hidden={!paneVisible(pane.id)}

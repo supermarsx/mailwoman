@@ -1054,3 +1054,6 @@ settings-alert-notifications-login-summary-minimum-away-minutes = Ausência mín
 settings-alert-help-notifications-login-summary-minimum-away-minutes = Omite o resumo após recarregamentos breves. Zero permite cada retorno.
 settings-alert-notifications-login-summary-lookback-days = Período máximo (dias)
 settings-alert-help-notifications-login-summary-lookback-days = Número máximo de dias a contar após uma ausência prolongada.
+
+settings-folders-user-section-collapsible = Permitir recolher Pastas do usuário
+settings-folders-user-section-collapsible-help = Quando desativado, a secção mantém-se expandida e o botão fica oculto.

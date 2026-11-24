@@ -1,3 +1,8 @@
+import {loadCatalog} from '../i18n/catalog.ts';
+void loadCatalog('properties');
+import {folderViewValue,folderViewFontSize,folderViewStyle,folderColumnWidth,activeFolderViewId,type ViewColumn} from './folderViewPreferences.ts';
+import * as viewCss from './messageView.css.ts';
+import {messagePreviewLines,type PreviewLines} from './messagePreview.ts';
 import {incomingHighlighted} from '../realtime/notificationAttention.ts';
 import {mentionsAny} from '../modules/mentions/metadata.ts';
 import {hasFileAttachments} from './attachmentMetadata.ts';
@@ -229,12 +234,34 @@ export function MessageRowFrame(props:{email:Email;top:number;height:number;inde
 }
 
 /** Use identical density and table geometry across single and combined mailboxes. */
-export function messageRowHeight(density:Density,table:boolean):number{return table?({compact:36,cozy:44,relaxed:52}[density]):ROW_HEIGHTS[density];}
+export function messageRowHeight(density:Density,table:boolean,lines:PreviewLines=messagePreviewLines(),folderId=activeFolderViewId()):number {
+ const line={compact:15,cozy:18,relaxed:21}[density],size=folderViewFontSize(density,folderId);
+ const fontExtra=Math.max(0,size-({compact:13,cozy:14,relaxed:15}[density]))*(2+lines)*1.4;
+ const delta=size-({compact:13,cozy:14,relaxed:15}[density]),textLine=({compact:16,cozy:18,relaxed:21}[density])+Math.ceil(delta*1.3),previewLine=({compact:14,cozy:16,relaxed:18}[density])+Math.ceil(delta*1.3);
+ const minimum=(table?1:2)*textLine+lines*previewLine+(table?8:2*({compact:3,cozy:7,relaxed:10}[density]))+(lines>0?2:1)*({compact:1,cozy:2,relaxed:3}[density])+2+2*folderViewValue('rowSpacing',folderId);
+ return Math.max(minimum,Math.ceil((table?({compact:36,cozy:44,relaxed:52}[density])+lines*line:ROW_HEIGHTS[density]+(lines-1)*line)+fontExtra+2*folderViewValue('rowSpacing',folderId)));
+}
+
+function MessageTableContent(props:{email:Email;folderId?:string|undefined;selected:boolean;previewLines:PreviewLines;metadata?:JSX.Element}):JSX.Element {
+ const columns=()=>folderViewValue('columns',props.folderId);
+ const value=(column:ViewColumn):JSX.Element=>{
+  const email=props.email;
+  switch(column){
+   case 'sender':return <><SelectedMark selected={props.selected}/><PersonAvatar name={email.from?.[0]?.name??undefined} address={email.from?.[0]?.email} messageSender auth={email.mailwomanAuth}/>{displayText(senderLabel(email.from))}</>;
+   case 'to':return displayText(senderLabel(email.to));case 'subject':return displayText(email.subject??t('mail-no-subject'));
+   case 'received':return formatDate(email.receivedAt);case 'sent':return email.sentAt?formatDate(email.sentAt):'—';
+   case 'size':return email.size===undefined?'—':new Intl.NumberFormat(undefined,{style:'unit',unit:'kilobyte',maximumFractionDigits:1}).format(email.size/1024);
+   case 'importance':return <PriorityMark priority={priorityOf(email)}/>;
+  }
+ };
+ return <><For each={columns()}>{(column,index)=><span class={viewCss.cell} data-column={column} style={{'grid-column':index()+1}}>{value(column)}<Show when={index()===0}>{props.metadata}<Show when={props.email.keywords?.['$flagged']}><span data-testid="row-flagged"><Icon name="flag"/></span></Show><Show when={hasFileAttachments(props.email)}><Icon name="attachment"/></Show></Show></span>}</For><Show when={props.previewLines>0}><span class={`list__preview ${rowCss.preview} ${rowCss.previewLines[props.previewLines]} ${viewCss.tablePreview}`}><EventHint hint={props.email.mailwomanCalendar}/>{displayText(props.email.preview)}</span></Show></>;
+}
 
 /** Shared row presentation for the main list and independently opened folder tabs. */
-export function MessageRowContent(props:{email:Email;selected:boolean;replyDraft:ReplyDraft|undefined;sourceMetadata?:boolean;metadata?:JSX.Element}):JSX.Element {
+export function MessageRowContent(props:{email:Email;selected:boolean;replyDraft:ReplyDraft|undefined;sourceMetadata?:boolean;metadata?:JSX.Element;folderId?:string|undefined;previewLines?:PreviewLines}):JSX.Element {
   const app=useApp(),email=()=>props.email;
-  return <>
+  const previewLines=()=>props.previewLines??messagePreviewLines(props.folderId??app.selectedMailboxId()??undefined);
+  return <Show when={folderViewValue('style',props.folderId??activeFolderViewId())==='table'} fallback={<>
         <span class={`list__line1 ${rowCss.line1}`}>
           <SelectedMark selected={props.selected} />
           {/* isolate the sender: it shares a line with the date, so a spoofed
@@ -264,9 +291,9 @@ export function MessageRowContent(props:{email:Email;selected:boolean;replyDraft
           <span class={`list__date ${rowCss.date}`}>{formatDate(email().receivedAt)}</span>
         </span>
         <span class="list__subject">{displayText(email().subject ?? t('mail-no-subject'))}</span>
-        <Show when={settings()['mail.messageListPreview']?.value!==false}><span class={`list__preview ${rowCss.preview}`}><EventHint hint={email().mailwomanCalendar} />{displayText(email().preview)}</span></Show>
+        <Show when={previewLines()>0}><span class={`list__preview ${rowCss.preview} ${rowCss.previewLines[previewLines()]}`}><EventHint hint={email().mailwomanCalendar} />{displayText(email().preview)}</span></Show>
         <Show when={props.sourceMetadata!==false}><TagChips email={email()} /></Show>
-  </>;
+  </>}><MessageTableContent email={email()} selected={props.selected} previewLines={previewLines()} folderId={props.folderId??activeFolderViewId()} metadata={props.metadata}/></Show>;
 }
 
 /**
@@ -384,6 +411,7 @@ function ThreadHeadRow(props: {
           <span class={a11y.srOnly}>{t('mail-unread')}</span>
         </Show>
         <span class={a11y.srOnly}>{t('mail-row-position', { pos: props.index + 1, total: props.total })}</span>
+        <Show when={folderViewValue('style')==='table'} fallback={<>
         <span class={`list__line1 ${rowCss.line1}`}>
           <SelectedMark selected={props.selected} />
           <span class={`list__sender ${rowCss.sender}`}><PersonAvatar name={rep().from?.[0]?.name??undefined} address={rep().from?.[0]?.email} messageSender auth={rep().mailwomanAuth}/>{isolate(displayText(senderLabel(rep().from)))}</span>
@@ -401,7 +429,8 @@ function ThreadHeadRow(props: {
           <span class={`list__date ${rowCss.date}`}>{formatDate(rep().receivedAt)}</span>
         </span>
         <span class="list__subject">{displayText(rep().subject ?? t('mail-no-subject'))}</span>
-        <Show when={settings()['mail.messageListPreview']?.value!==false}><span class={`list__preview ${rowCss.preview}`}><EventHint hint={rep().mailwomanCalendar} />{displayText(rep().preview)}</span></Show>
+        <Show when={messagePreviewLines(app.selectedMailboxId()??undefined)>0}><span class={`list__preview ${rowCss.preview} ${rowCss.previewLines[messagePreviewLines(app.selectedMailboxId()??undefined)]}`}><EventHint hint={rep().mailwomanCalendar} />{displayText(rep().preview)}</span></Show>
+        </>}><MessageTableContent email={rep()} selected={props.selected} previewLines={messagePreviewLines(app.selectedMailboxId()??undefined)} metadata={<span class={thread.count}>{props.row.count}</span>}/></Show>
       </button>
       <FolderChip email={rep()}/>
       <MessageActions email={rep()} onMore={e=>props.contextMenu.open(e,rep(),true)} contextOpen={props.contextMenu.isOpen(rep().id)}/>
@@ -474,6 +503,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   createEffect(on(()=>props.selectionReset?.()??0,()=>setSelecting(false),{defer:true}));
   createEffect(()=>{app.accountId();app.selectedMailboxId();setSelecting(false);});
   const [scrollTop, setScrollTop] = createSignal(0);
+  const [scrollLeft,setScrollLeft]=createSignal(0);
   const [autoFillPaused, setAutoFillPaused] = createSignal(false);
   // jsdom reports 0 for clientHeight; fall back to a sane viewport so tests
   // (and first paint before layout) still mount a window of rows.
@@ -489,8 +519,8 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   let rangeAdded:Id[]=[];
   createEffect(on(()=>JSON.stringify([orderScope(),app.searchActive(),app.search?.(),order.value(),order.group(),app.loadedRange().start]),()=>{setAnchor(null);rangeAdded=[];}));
 
-  const tableMode=()=>settings()['mail.messageListStyle']?.value==='table';
-  const rowHeight = (): number => messageRowHeight(app.density(),tableMode());
+  const tableMode=()=>folderViewValue('style')==='table';
+  const rowHeight = (): number => messageRowHeight(app.density(),tableMode(),messagePreviewLines(app.selectedMailboxId()??undefined));
   // The FLAT list folded into visual rows (singletons + conversation heads/members).
   const grouping=createMemo(()=>groupMessageRows(visibleRows(app.listMessages()) as Email[],expanded(),order.group(),rowHeight(),messageTimeZone(),conversationsEnabled()));
   const rows=()=>grouping().rows;
@@ -759,6 +789,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
 
   function onScroll(): void {
     if (scroller !== undefined) {
+      setScrollLeft(scroller.scrollLeft);
       const focused=focusedRowEl();
       if(focused){const index=rows().findIndex(row=>rowId(row)===focused[0]);const top=rowTop(index);if(top+rowHeight()<scroller.scrollTop||top>scroller.scrollTop+(scroller.clientHeight||viewportH())){focusedRowId=null;focused[1].blur();}}
       setScrollTop(scroller.scrollTop);
@@ -1011,9 +1042,9 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
       if(event.key==='Escape'&&!event.defaultPrevented&&selecting()&&app.selectedIds().size===0){
         event.preventDefault();event.stopPropagation();setSelecting(false);setAnchor(null);
       }
-    }} onContextMenu={backgroundContext} data-list-style={tableMode()?'table':'cards'} aria-label={t('mail-list-label')} aria-busy={app.listLoading() || app.loadingMore() || showSkeleton()}>
+    }} onContextMenu={backgroundContext} data-list-style={tableMode()?'table':'cards'} data-view-highlight={folderViewValue('highlight')} style={folderViewStyle(app.density())} aria-label={t('mail-list-label')} aria-busy={app.listLoading() || app.loadingMore() || showSkeleton()}>
       <ListToolbar order={order} scope={orderScope} hideOrderControl={props.hideOrderControl===true} goToTop={mailFeature('showGoToTop')&&rows().length>0?goToTop:undefined} hideSelectionToggle={props.hideSelectionToggle===true} hideReadingPane={props.hideReadingPane===true} selecting={selecting()} toggleSelection={()=>setSelecting(value=>!value)}/>
-      <Show when={tableMode()}><div class="list-column-headers"><span>{t('mail-from')}</span><span>{t('mail-subject')}</span><select aria-label={t('mail-list-order')} value={order.value()} disabled={order.locked()||order.saving()} onChange={event=>{const select=event.currentTarget,value=select.value;if(isMessageListOrder(value))void order.set(value).then(()=>{if(select.isConnected)select.value=order.value();});}}><For each={MESSAGE_LIST_ORDERS}>{order=><option value={order}>{t(`mail-list-order-${order}`)}</option>}</For></select></div></Show>
+      <Show when={tableMode()}><div class={viewCss.headerViewport}><div class={viewCss.headers} style={{transform:`translateX(${-scrollLeft()}px)`,'grid-template-columns':folderViewValue('columns').map(c=>`${folderColumnWidth(c)}px`).join(' ')}}><For each={folderViewValue('columns')}>{column=><span>{t(`props-view-column-${column}`)}</span>}</For></div></div><div class={viewCss.tableOptions}><select aria-label={t('mail-list-order')} value={order.value()} disabled={order.locked()||order.saving()} onChange={event=>{const select=event.currentTarget,value=select.value;if(isMessageListOrder(value))void order.set(value).then(()=>{if(select.isConnected)select.value=order.value();});}}><For each={MESSAGE_LIST_ORDERS}>{order=><option value={order}>{t(`mail-list-order-${order}`)}</option>}</For></select></div></Show>
       <OfflineQueueNotice />
       <Show when={sync.running() && rows().length > 0}><div class={loadingCss.syncProgress} aria-hidden="true" data-testid="sync-progress" /></Show>
         <Show when={rows().length > 0} fallback={
@@ -1050,7 +1081,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
                     index={index}
                     total={app.total()===null?null:spanRows()}
                     table={tableMode()}
-                    preview={settings()['mail.messageListPreview']?.value!==false}
+                    preview={messagePreviewLines(app.selectedMailboxId()??undefined)>0}
                   />
                 )}
               </For>

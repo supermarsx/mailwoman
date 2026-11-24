@@ -1,9 +1,10 @@
+import {activeFolderViewId,folderViewAllowed,folderViewValue,folderViewLocked,setFolderView} from './folderViewPreferences.ts';
 // Reading-pane position is account-synchronized; signed-out contexts retain a
 // device fallback. The root attribute follows remote hydration as well as clicks.
 
 import { createEffect, createRoot, createSignal, type Accessor } from 'solid-js';
 
-import { accountUiPreferences, setAccountUiPreferences } from '../api/accountPreferences.ts';
+import { setAccountUiPreferences } from '../api/accountPreferences.ts';
 import { preferenceAccount } from '../api/accountPreferenceLifecycle.ts';
 
 export type ReadingPane = 'right' | 'bottom' | 'off';
@@ -32,13 +33,14 @@ apply(pane());
 
 /** Current reading-pane position (reactive). */
 export const readingPane: Accessor<ReadingPane> = () => {
-  const preferences = accountUiPreferences();
-  return preferenceAccount() ? preferences.readingPane ?? 'right' : pane();
+  return preferenceAccount() ? folderViewValue('readingPane') : pane();
 };
 createRoot(() => createEffect(() => apply(readingPane())));
 
 /** Set + persist + reflect the reading-pane position. */
 export function setReadingPane(mode: ReadingPane): void {
+  if(folderViewLocked('readingPane'))return;
+  const folder=activeFolderViewId();if(folder&&folderViewAllowed()){setFolderView(folder,{readingPane:mode});apply(mode);return;}
   if (preferenceAccount()) { setAccountUiPreferences({readingPane: mode}); apply(mode); return; }
   setPaneSig(mode);
   apply(mode);

@@ -1056,3 +1056,6 @@ settings-alert-notifications-login-summary-minimum-away-minutes = Минимал
 settings-alert-help-notifications-login-summary-minimum-away-minutes = Пропускает краткие перезагрузки. Ноль разрешает каждый возврат.
 settings-alert-notifications-login-summary-lookback-days = Максимальный период (дни)
 settings-alert-help-notifications-login-summary-lookback-days = Максимальное число дней после долгого отсутствия.
+
+settings-folders-user-section-collapsible = Разрешить сворачивание папок пользователя
+settings-folders-user-section-collapsible-help = При отключении раздел остаётся развёрнутым, а кнопка скрыта.

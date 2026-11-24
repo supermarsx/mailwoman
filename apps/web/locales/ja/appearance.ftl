@@ -219,3 +219,20 @@ appearance-preference-option-keep = メッセージを開いたままにする
 
 appearance-preference-appearance-uiScale = インターフェースの倍率 (%)
 appearance-ui-scale-help = 操作部品、文字、余白を含む画面全体を拡大・縮小します（50～200%）。メッセージの倍率とは独立しています。
+
+appearance-preference-mail-messageListPreviewLines = メッセージのプレビュー行数
+appearance-preview-lines-help = メッセージ本文を最大 5 行表示します。オフでは非表示になり、行の高さは自動調整されます。
+appearance-preview-lines-0 = オフ
+appearance-preview-lines-1 = 1 行
+appearance-preview-lines-2 = 2 行
+appearance-preview-lines-3 = 3 行
+appearance-preview-lines-4 = 4 行
+appearance-preview-lines-5 = 5 行
+appearance-preference-mail-messageListFilter = { props-view-filter }
+appearance-preference-mail-messageListFont = { props-view-font }
+appearance-preference-mail-messageListFontSize = { props-view-fontSize }
+appearance-preference-mail-messageListRowSpacing = { props-view-rowSpacing }
+appearance-preference-mail-messageListHighlight = { props-view-highlight }
+appearance-preference-mail-readingPane = { props-view-readingPane }
+appearance-preference-mail-messageListWidth = { props-view-listWidth }
+appearance-preference-mail-messageListHeight = { props-view-listHeight }

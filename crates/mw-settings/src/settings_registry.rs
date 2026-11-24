@@ -3012,7 +3012,7 @@ pub static REGISTRY: &[SettingDef] = &[
             max_len: 32,
             max_item: 24
         },
-        r#"["counters","badgeColour","compactBadge","notifications","sort","threading","previewLines","markReadDelay","replyIdentity","unifiedInbox","hideWhenEmpty","folderColour","markMovedRead"]"#,
+        r#"["counters","badgeColour","compactBadge","notifications","sort","threading","previewLines","markReadDelay","replyIdentity","unifiedInbox","hideWhenEmpty","folderColour","markMovedRead","view"]"#,
         GD,
         "mail",
         "Per-folder overrides users may set: counters, badgeColour, compactBadge, notifications, sort, threading, previewLines, markReadDelay, replyIdentity, unifiedInbox, hideWhenEmpty, folderColour, markMovedRead"
@@ -4032,6 +4032,32 @@ pub static REGISTRY: &[SettingDef] = &[
         GDU,
         "mail",
         "Default scope for a new normal mail search: current folder or all folders; explicit search scope choices remain available"
+    ),
+    def!("mail.messageListColumns", Kind::StringList { max_len: 7, max_item: 20 }, r#"["sender","subject","received"]"#, GDU, "mail", "Visible message table columns in display order"),
+    def!("mail.messageListFilterQuery",Kind::Text {shape:Text::Plain,max:2000},r#""""#,GDU,"mail","Mail search expression applied with the folder view filter; never widens folder or account authority"),
+    def!("mail.messageListFilter", Kind::Enum(&["all","unread","read","flagged","attachments","mentions"]), r#""all""#, GDU, "mail", "Default folder view filter; applies to server queries"),
+    def!("mail.messageListFont", Kind::Enum(&["inherit","sans","serif","mono"]), r#""inherit""#, GDU, "mail", "Message list font family"),
+    def!("mail.messageListFontSize", int(11, 24), r#"14"#, GDU, "mail", "Message list font size in CSS pixels"),
+    def!("mail.messageListRowSpacing", int(0, 16), r#"0"#, GDU, "mail", "Additional vertical padding on each side of message rows"),
+    def!("mail.messageListHighlight", Kind::Enum(&["default","unread","flagged","important","none"]), r#""default""#, GDU, "mail", "Which messages receive a background highlight"),
+    def!("mail.readingPane", Kind::Enum(&["right","bottom","off"]), r#""right""#, GDU, "mail", "Reading pane position; can be overridden per folder unless locked"),
+    def!("mail.messageListWidth", int(180, 1200), r#"340"#, GDU, "mail", "Message list width next to the reading pane in CSS pixels"),
+    def!("mail.messageListHeight", int(160, 1200), r#"320"#, GDU, "mail", "Message list height above the reading pane in CSS pixels"),
+    def!("mail.messageListColumnWidth.sender", int(64, 800), r#"180"#, GDU, "mail", "Message table sender column width in CSS pixels"),
+    def!("mail.messageListColumnWidth.subject", int(64, 800), r#"300"#, GDU, "mail", "Message table subject column width in CSS pixels"),
+    def!("mail.messageListColumnWidth.received", int(64, 800), r#"180"#, GDU, "mail", "Message table received column width in CSS pixels"),
+    def!("mail.messageListColumnWidth.sent", int(64, 800), r#"180"#, GDU, "mail", "Message table sent column width in CSS pixels"),
+    def!("mail.messageListColumnWidth.to", int(64, 800), r#"180"#, GDU, "mail", "Message table to column width in CSS pixels"),
+    def!("mail.messageListColumnWidth.size", int(64, 800), r#"90"#, GDU, "mail", "Message table size column width in CSS pixels"),
+    def!("mail.messageListColumnWidth.importance", int(64, 800), r#"90"#, GDU, "mail", "Message table importance column width in CSS pixels"),
+    def!("folders.userSectionCollapsible",Kind::Bool,"true",GDU,"folders","Allow collapsing the user-folders section; disabled keeps it expanded"),
+    def!(
+        "mail.messageListPreviewLines",
+        int(0, 5),
+        "1",
+        GDU,
+        "mail",
+        "Message body preview lines: 0 hides previews; 1 to 5 wrap and size list rows accordingly"
     ),
     def!(
         "mail.messageListPreview",
@@ -9182,6 +9208,11 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
     {
         return bad("use id:<folder ID> or role:inbox/drafts/sent/trash/junk/archive".into());
     }
+    if def.key=="mail.messageListColumns" && !value.as_array().is_some_and(|columns|{
+        !columns.is_empty()&&columns.len()<=7
+        &&columns.iter().all(|c|c.as_str().is_some_and(|c|["sender","subject","received","sent","to","size","importance"].contains(&c)))
+        &&columns.iter().filter_map(Value::as_str).collect::<std::collections::BTreeSet<_>>().len()==columns.len()
+    }) {return bad("choose one to seven distinct supported message columns".into());}
     match def.kind {
         Kind::PreparedMail => {
             let valid=value.as_object().is_some_and(|object|object.len()==5

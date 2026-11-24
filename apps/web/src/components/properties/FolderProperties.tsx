@@ -1,3 +1,5 @@
+import {FolderViewTab} from './FolderViewTab.tsx';
+import {allowedOverrides} from './policy.ts';
 // The folder Properties dialog: a summary header (icon, name, path, type, switches
 // and four stat tiles) over a tab rail and a scrolling panel with a fixed footer.
 // Tabs: General, Appearance, Remote location, Size and storage, Offline cache,
@@ -29,8 +31,8 @@ export interface FolderDialogActions {
  onEmpty?:()=>void;onMarkRead?:()=>void;onRename?:()=>void;onMove?:()=>void;onDelete?:()=>void;onRetention?:()=>void;onRefresh?:()=>void;
 }
 
-type Tab=FolderSection|'appearance';
-const TAB_ICONS:Record<Tab,IconName>={general:'info',appearance:'paint',remote:'globe',size:'chart',offline:'cloud',overrides:'tag',notes:'edit',actions:'more'};
+type Tab=FolderSection|'appearance'|'view';
+const TAB_ICONS:Record<Tab,IconName>={view:'preferences',general:'info',appearance:'paint',remote:'globe',size:'chart',offline:'cloud',overrides:'tag',notes:'edit',actions:'more'};
 const TAB_KEY='mw.folderProps.tab';
 function remembered(account:string):string|null {try{return localStorage.getItem(`${TAB_KEY}:${account}`);}catch{return null;}}
 function remember(account:string,tab:string):void {try{localStorage.setItem(`${TAB_KEY}:${account}`,tab);}catch{/* private mode: the tab is simply not remembered */}}
@@ -39,7 +41,7 @@ export function FolderPropertiesDialog(props:{box:Mailbox;actions?:FolderDialogA
  const app=useApp(),titleId=`props-${createUniqueId()}`;
  onMount(()=>{void loadCatalog('properties');void loadCatalog('mail');});
  const tabs=createMemo<readonly Tab[]>(()=>{
-  const list=folderSections();
+  const list:Tab[]=[...folderSections()];if(list.includes('overrides')&&allowedOverrides().includes('view'))list.splice(list.indexOf('overrides'),0,'view');
   // Appearance belongs to General: it is offered wherever General is.
   return list.includes('general')?['general','appearance',...list.filter(section=>section!=='general')]:list;
  });
@@ -83,6 +85,7 @@ export function FolderPropertiesDialog(props:{box:Mailbox;actions?:FolderDialogA
     <div class={css.panel} role="tabpanel" id={`${titleId}-panel`} aria-labelledby={`${titleId}-tab-${active()}`} tabindex="0">
      <Show when={active()==='general'}><General box={box()}/></Show>
      <Show when={active()==='appearance'}><Appearance box={box()}/></Show>
+     <Show when={active()==='view'}><FolderViewTab id={box().id}/></Show>
      <Show when={active()==='remote'}><Remote box={box()} stats={stats}/></Show>
      <Show when={active()==='size'}><Size box={box()} stats={stats} onOpenMessage={openMessage}/></Show>
      <Show when={active()==='offline'}><Offline box={box()} stats={stats} onRefresh={props.actions?.onRefresh}/></Show>

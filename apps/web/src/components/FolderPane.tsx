@@ -1,4 +1,7 @@
-import {createEffect,createMemo,createSignal,For,onCleanup,onMount,Show,untrack,type JSX} from 'solid-js';
+import {folderViewValue,folderViewStyle} from './folderViewPreferences.ts';
+import {groupMessageRows} from './messageGrouping.ts';
+import {messageTimeZone} from './TimeHelpers.tsx';
+import {createEffect,on,createMemo,createSignal,For,onCleanup,onMount,Show,untrack,type JSX} from 'solid-js';
 import {SelectionBar,type SelectionAction} from './SelectionBar.tsx';
 import {ReaderReplyState} from './ReplyState.tsx';
 import {createReplyDraftIndex} from './compose/replyDrafts.ts';
@@ -81,6 +84,9 @@ export function FolderPane(props:{onOpenReplyDraft?:(id:string)=>void;mailboxId:
  // Rows keyed by message id, not by object (t51, as t44 did for MessageList):
  // every reload builds new message objects, and keying by reference remounted
  // every row, so the focused row left the document and focus fell to <body>.
+ const grouping=createMemo(()=>groupMessageRows(view.messages(),new Set(),folderViewValue('group',props.mailboxId) as import('./messageOrder.ts').MessageListGroup,72,messageTimeZone(),false));
+ const headerAt=(index:number)=>grouping().headers.find(header=>header.index===index);
+ createEffect(on(()=>JSON.stringify([folderViewValue('sort',props.mailboxId),folderViewValue('group',props.mailboxId),folderViewValue('filter',props.mailboxId),folderViewValue('filterQuery',props.mailboxId)]),()=>{if(props.active)void view.load(0);},{defer:true}));
  const rowById=createMemo(()=>new Map(view.messages().map(email=>[email.id,email])));
  const rowIds=createMemo(()=>view.messages().map(email=>email.id),undefined,{equals:(a,b)=>a.length===b.length&&a.every((id,i)=>id===b[i])});
  let viewport:HTMLDivElement|undefined;
@@ -107,7 +113,7 @@ export function FolderPane(props:{onOpenReplyDraft?:(id:string)=>void;mailboxId:
   const next=event.key==='ArrowDown'?at+1:event.key==='ArrowUp'?at-1:event.key==='Home'?0:event.key==='End'?rows.length-1:null;
   if(next!==null){event.preventDefault();const target=rows[Math.max(0,Math.min(rows.length-1,next))];target?.focus();if(modifierSelectionEnabled()&&event.shiftKey&&target?.dataset['folderMessage'])view.select(target.dataset['folderMessage'],true);}
  }
- return <div class={css.pane}>
+ return <div class={`${css.pane} list`} style={folderViewStyle(app.density(),props.mailboxId)} data-list-style={folderViewValue('style',props.mailboxId)} data-view-highlight={folderViewValue('highlight',props.mailboxId)}>
   <header class={css.toolbar}><h2>{box()?.name??t('folder-tabs-unavailable')}</h2><button type="button" class="btn btn--ghost" disabled={disabled()} onClick={()=>void manualRefresh()}>{t('folder-tabs-refresh')}</button><button type="button" class="btn btn--ghost" disabled={disabled()||!view.messages().length} onClick={view.selectAll}>{t('folder-tabs-select-page')}</button><Show when={box()&&canRename(box()!)}><button ref={renameButton} type="button" class="btn btn--ghost" disabled={!admitted()} onClick={()=>setRenaming(true)}>{t('rename-folder-action')}</button></Show><Show when={box()&&canEmpty(box()!)}><button type="button" class="btn btn--ghost" disabled={disabled()} onClick={()=>setEmptying(true)}>{t('empty-folder-action')}</button></Show></header>
   <Show when={renaming()&&box()&&renameContext()}>{context=><RenameFolderDialog box={box()!} context={context()} {...(viewport?.ownerDocument&&viewport.ownerDocument!==document?{mount:viewport.ownerDocument.body}:{})} onClose={()=>{setRenaming(false);queueMicrotask(()=>renameButton?.focus());}}/>}</Show>
   <Show when={emptying()&&box()&&emptyAbility()}>{ability=><EmptyFolderDialog box={box()!} ability={ability()} onClose={()=>setEmptying(false)} onEmptied={()=>{view.retainSelection([]);void reconcile();}}/>}</Show>
@@ -119,13 +125,13 @@ export function FolderPane(props:{onOpenReplyDraft?:(id:string)=>void;mailboxId:
   <div class={barCss.paneBody}>
   <div class={css.viewport} classList={{[barCss.listInset]:view.selection().size>0}} ref={viewport} onScroll={event=>view.setScroll(event.currentTarget.scrollTop)}>
    <ul class={css.list} aria-label={box()?.name??t('folder-tabs-unavailable')} aria-busy={view.loading()||(view.messages().length===0&&sync.pending())}>
-    <For each={rowIds()}>{id=>{let last=rowById().get(id)!;const email=():Email=>{const found=rowById().get(id);if(found)last=found;return last;};return <li class={css.row} data-selected={view.selection().has(id)} data-unread={!email().keywords?.['$seen']}>
+    <For each={rowIds()}>{(id,index)=>{let last=rowById().get(id)!;const email=():Email=>{const found=rowById().get(id);if(found)last=found;return last;};return <><Show when={headerAt(index())}>{header=><li class={css.confirmation}>{header().label} · {header().count}</li>}</Show><li class={css.row} data-selected={view.selection().has(id)} data-unread={!email().keywords?.['$seen']}>
      <input type="checkbox" disabled={busy()} checked={view.selection().has(id)} aria-label={t('folder-tabs-select',{subject:email().subject??''})} onChange={()=>view.select(id,false,true)}/>
      <button type="button" disabled={busy()} class={`list__row ${rowCss.row} ${css.message}`} classList={{'list__row--unread':!email().keywords?.['$seen'],'list__row--selected':view.selection().has(id),[bulkCss.selectedRow]:view.selection().has(id)}} data-folder-message={id} onKeyDown={event=>key(event,id)} onClick={event=>{const extend=modifierSelectionEnabled()&&event.shiftKey,toggle=modifierSelectionEnabled()&&(event.ctrlKey||event.metaKey);view.select(id,extend,toggle||props.selecting===true);if(!props.selecting&&!extend&&!toggle&&view.current())props.onOpen(id);}}>
-      <MessageRowContent email={email()} selected={view.selection().has(id)} replyDraft={replyDrafts().get(id)}/>
+      <MessageRowContent folderId={props.mailboxId} email={email()} selected={view.selection().has(id)} replyDraft={replyDrafts().get(id)}/>
      </button>
      <Show when={replyDrafts().get(id)&&props.onOpenReplyDraft}><ReaderReplyState answered={false} forwarded={false} draft={replyDrafts().get(id)} onOpen={props.onOpenReplyDraft}/></Show>
-    </li>;}}</For>
+    </li></>;}}</For>
    </ul>
    <Show when={!view.loading()&&!view.error()&&view.messages().length===0&&!sync.pending()&&!sync.failed()}><p>{t('folder-tabs-empty')}</p></Show>
   </div>

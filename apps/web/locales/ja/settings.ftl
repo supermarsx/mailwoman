@@ -1025,3 +1025,6 @@ settings-alert-notifications-login-summary-minimum-away-minutes = 最短不在�
 settings-alert-help-notifications-login-summary-minimum-away-minutes = 短い再読み込みでは表示しません。0で毎回表示可能になります。
 settings-alert-notifications-login-summary-lookback-days = 最大集計期間 (日)
 settings-alert-help-notifications-login-summary-lookback-days = 長期間不在だった場合に集計する最大日数です。
+
+settings-folders-user-section-collapsible = ユーザーフォルダーを折りたたむ
+settings-folders-user-section-collapsible-help = 無効にすると、セクションは展開されたままとなり、ボタンは非表示になります。

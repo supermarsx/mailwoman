@@ -235,3 +235,20 @@ appearance-preference-option-keep = Bericht openhouden
 
 appearance-preference-appearance-uiScale = Interfaceschaal (%)
 appearance-ui-scale-help = Schaalt alle bedieningselementen, tekst en ruimte (50–200%). Berichtzoom blijft onafhankelijk.
+
+appearance-preference-mail-messageListPreviewLines = Regels berichtvoorbeeld
+appearance-preview-lines-help = Toon maximaal vijf regels berichttekst. Uit verbergt het voorbeeld; de rijhoogte past zich automatisch aan.
+appearance-preview-lines-0 = Uit
+appearance-preview-lines-1 = 1 regel
+appearance-preview-lines-2 = 2 regels
+appearance-preview-lines-3 = 3 regels
+appearance-preview-lines-4 = 4 regels
+appearance-preview-lines-5 = 5 regels
+appearance-preference-mail-messageListFilter = { props-view-filter }
+appearance-preference-mail-messageListFont = { props-view-font }
+appearance-preference-mail-messageListFontSize = { props-view-fontSize }
+appearance-preference-mail-messageListRowSpacing = { props-view-rowSpacing }
+appearance-preference-mail-messageListHighlight = { props-view-highlight }
+appearance-preference-mail-readingPane = { props-view-readingPane }
+appearance-preference-mail-messageListWidth = { props-view-listWidth }
+appearance-preference-mail-messageListHeight = { props-view-listHeight }

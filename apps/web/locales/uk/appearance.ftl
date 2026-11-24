@@ -235,3 +235,20 @@ appearance-preference-option-keep = Залишити повідомлення в
 
 appearance-preference-appearance-uiScale = Масштаб інтерфейсу (%)
 appearance-ui-scale-help = Змінює розмір елементів керування, тексту й відступів (50–200%). Масштаб повідомлень задається окремо.
+
+appearance-preference-mail-messageListPreviewLines = Рядки попереднього перегляду
+appearance-preview-lines-help = Показувати до п’яти рядків тексту листа. Вимкнено приховує перегляд; висота рядків змінюється автоматично.
+appearance-preview-lines-0 = Вимкнено
+appearance-preview-lines-1 = 1 рядок
+appearance-preview-lines-2 = 2 рядків
+appearance-preview-lines-3 = 3 рядків
+appearance-preview-lines-4 = 4 рядків
+appearance-preview-lines-5 = 5 рядків
+appearance-preference-mail-messageListFilter = { props-view-filter }
+appearance-preference-mail-messageListFont = { props-view-font }
+appearance-preference-mail-messageListFontSize = { props-view-fontSize }
+appearance-preference-mail-messageListRowSpacing = { props-view-rowSpacing }
+appearance-preference-mail-messageListHighlight = { props-view-highlight }
+appearance-preference-mail-readingPane = { props-view-readingPane }
+appearance-preference-mail-messageListWidth = { props-view-listWidth }
+appearance-preference-mail-messageListHeight = { props-view-listHeight }

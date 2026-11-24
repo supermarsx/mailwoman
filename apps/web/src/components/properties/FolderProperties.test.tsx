@@ -68,7 +68,7 @@ describe('folder Properties dialog',()=>{
   expect(dialog).toHaveAttribute('aria-modal','true');
   expect(dialog.getAttribute('aria-label')??dialog.textContent).toMatch(/Properties: .?Archive/);
   expect(dialog.getAttribute('aria-labelledby')).toBeTruthy();
-  expect(screen.getAllByRole('tab').map(item=>item.textContent)).toEqual(['General','Appearance','Remote location','Size and storage','Offline cache','Display','Notes','Actions']);
+  expect(screen.getAllByRole('tab').map(item=>item.textContent)).toEqual(['General','Appearance','Remote location','Size and storage','Offline cache','Folder view','Display','Notes','Actions']);
   expect(screen.getByRole('tabpanel')).toBeInTheDocument();
   expect(dialog).toHaveClass(css.phone);
   expect(within(dialog).getByTestId('props-general')).toHaveTextContent('Type');
@@ -446,4 +446,13 @@ describe('folder Properties dialog',()=>{
   fireEvent.keyDown(dialog,{key:'Escape'});
   await waitFor(()=>expect(closed).toBe(1));
  });
+});
+
+it('saves folder view choices and keeps administrator-enforced values locked',async()=>{
+ await policy({'mail.messageListFontSize':{value:16,locked:true,source:'global'}});await open();
+ fireEvent.click(tab('Folder view'));
+ expect(await screen.findByLabelText('Font size (px)')).toHaveValue(16);
+ expect(screen.getByLabelText('Font size (px)')).toBeDisabled();
+ fireEvent.change(screen.getByLabelText('Filter'),{target:{value:'unread'}});
+ expect(h.sets.at(-1)).toMatchObject({folderProps:{archive:{view:{filter:'unread'}}}});
 });

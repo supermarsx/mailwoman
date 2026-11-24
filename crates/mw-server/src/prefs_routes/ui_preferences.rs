@@ -180,7 +180,45 @@ struct Tag {
 /// `properties.folder.overrides.allowed`, enforced where they are read.
 #[derive(Default, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct FolderView {
+    #[serde(skip_serializing_if = "Option::is_none")] columns: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")] column_widths: Option<BTreeMap<String,u16>>,
+    #[serde(skip_serializing_if = "Option::is_none")] sort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")] group: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")] filter: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")] filter_query: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")] font: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")] font_size: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")] row_spacing: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")] highlight: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")] reading_pane: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")] list_width: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")] list_height: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")] style: Option<String>,
+}
+fn valid_folder_view(v:&FolderView)->bool {
+    let columns=["sender","subject","received","sent","to","size","importance"];
+    v.columns.as_ref().is_none_or(|c| !c.is_empty()&&c.len()<=7&&c.iter().all(|s|columns.contains(&s.as_str()))&&c.iter().collect::<std::collections::BTreeSet<_>>().len()==c.len())
+    &&v.column_widths.as_ref().is_none_or(|m|m.len()<=7&&m.iter().all(|(k,n)|columns.contains(&k.as_str())&&(64..=800).contains(n)))
+    &&choices(&v.sort,&["newest","oldest","sender","sender-desc","subject","subject-desc","sent-newest","sent-oldest","importance","importance-asc","size","size-asc"])
+    &&choices(&v.group,&["none","received","sent","sender","subject","importance","size"])
+    &&choices(&v.filter,&["all","unread","read","flagged","attachments","mentions"])
+    &&v.filter_query.as_ref().is_none_or(|q|q.chars().count()<=2000&&!q.chars().any(char::is_control))
+    &&choices(&v.font,&["inherit","sans","serif","mono"])
+    &&choices(&v.highlight,&["default","unread","flagged","important","none"])
+    &&choices(&v.reading_pane,&["right","bottom","off"])
+    &&choices(&v.style,&["cards","table"])
+    &&v.font_size.is_none_or(|n|(11..=24).contains(&n))
+    &&v.row_spacing.is_none_or(|n|n<=16)
+    &&v.list_width.is_none_or(|n|(180..=1200).contains(&n))
+    &&v.list_height.is_none_or(|n|(160..=1200).contains(&n))
+}
+
+#[derive(Default, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct FolderProps {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    view: Option<FolderView>,
     #[serde(skip_serializing_if = "Option::is_none")]
     notes: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -219,7 +257,7 @@ struct AttachmentPin {
 }
 
 fn valid_folder_props(props: &FolderProps) -> bool {
-    props.notes.as_ref().is_none_or(|n| {
+    props.view.as_ref().is_none_or(valid_folder_view) && props.notes.as_ref().is_none_or(|n| {
         n.chars().count() <= 2000 && !n.chars().any(|c| c.is_control() && !matches!(c, '\n' | '\t'))
     }) && choices(&props.counters, &["none", "unread", "total", "both"])
         && [&props.badge_colour, &props.folder_colour].into_iter().all(|colour| {
@@ -600,6 +638,10 @@ mod tests {
         assert!(!ok(serde_json::json!({"a":{"notes":"x".repeat(2001)}})));
         assert!(!ok(serde_json::json!({"a":{"counters":"everything"}})));
         assert!(!ok(serde_json::json!({"a":{"badgeColour":"red"}})));
+        assert!(ok(serde_json::json!({"a":{"view":{"columns":["size","subject"],"columnWidths":{"size":90},"sort":"sender-desc","group":"subject","filter":"unread","filterQuery":"from:example.org","font":"mono","fontSize":18,"rowSpacing":4,"highlight":"flagged","readingPane":"bottom","listWidth":420,"listHeight":280,"style":"table"}}})));
+        for view in [serde_json::json!({"columns":[]}),serde_json::json!({"columns":["subject","subject"]}),serde_json::json!({"columnWidths":{"subject":1000}}),serde_json::json!({"fontSize":50}),serde_json::json!({"filter":"unsafe"}),serde_json::json!({"filterQuery":"\n"}),serde_json::json!({"unknown":true})] {
+            assert!(!ok(serde_json::json!({"a":{"view":view}})));
+        }
         assert!(!ok(serde_json::json!({"a":{"previewLines":9}})));
         assert!(!ok(serde_json::json!({"a":{"other":1}})));
         assert!(!ok(serde_json::json!({"":{"notes":"x"}})));

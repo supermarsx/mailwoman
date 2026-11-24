@@ -1,3 +1,4 @@
+import {setActiveFolderViewId} from '../components/folderViewPreferences.ts';
 import {createPreferenceRefresh} from '../realtime/preferenceSync.ts';
 import {networkCoordinationMode} from '../worker/networkProxy.ts';
 import {syncPolicy} from '../offline/syncPolicy.ts';
@@ -252,6 +253,8 @@ export function createAppState(client: Client, deps: AppStateDeps = {}): AppStat
       if (types.includes('EmailSubmission')) void outbox.refreshOutbox().catch(() => undefined);
     },
   });
+
+  createEffect(()=>setActiveFolderViewId(mail.selectedMailboxId()??undefined));
 
   // Peer-tab sync: an inbound peer ping refetches the current mailbox.
   publishPeerSync = createPeerSync(() => void mail.refreshCurrentMailbox()).publish;

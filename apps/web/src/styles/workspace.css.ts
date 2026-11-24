@@ -125,14 +125,14 @@ globalStyle('.bulk-selection-summary',{display:'flex',flexDirection:'column',ali
 globalStyle('.bulk-selection-actions',{border:0,padding:0,margin:0,display:'flex',flexWrap:'wrap',justifyContent:'center',gap:vars.space[3]});
 globalStyle('.list__scroll',{overflowAnchor:'none'});
 globalStyle('.list-column-headers',{display:'grid',gridTemplateColumns:'minmax(100px,1fr) minmax(120px,2fr) 110px',padding:'6px 12px',gap:'12px',fontSize:'0.75rem',borderBlockEnd:`1px solid ${vars.color.border}`,color:vars.color.textDim});
-globalStyle('.list[data-list-style="table"] .list__row',{display:'grid',gridTemplateColumns:'minmax(100px,1fr) minmax(120px,2fr) 110px',gridTemplateAreas:'none',gridTemplateRows:'minmax(0,1fr) auto',alignItems:'center',columnGap:'12px',padding:'4px 12px',overflow:'hidden'});
+globalStyle('.list[data-list-style="table"] .list__row',{display:'grid',gridTemplateColumns:'minmax(100px,1fr) minmax(120px,2fr) 110px',gridTemplateAreas:'none',gridTemplateRows:'auto auto auto',alignItems:'center',columnGap:'12px',padding:'4px 12px',overflow:'hidden'});
 globalStyle('.list[data-list-style="table"] .list__line1',{display:'flex',gridArea:'auto',gridColumn:'1',gridRow:'1',minWidth:0});
 globalStyle('.list[data-list-style="table"] .list__sender',{gridColumn:'1',gridRow:'1',overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis',minWidth:0});
 globalStyle('.list[data-list-style="table"] .list__subject',{gridColumn:'2',gridRow:'1',overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis',minWidth:0,paddingInlineEnd:'8px'});
 globalStyle('.list[data-list-style="table"] .list__date',{gridArea:'auto',position:'absolute',insetInlineEnd:'12px',insetBlockStart:'50%',transform:'translateY(-50%)',width:'110px',textAlign:'end',fontSize:'0.7rem'});
-globalStyle('.list[data-list-style="table"] .list__preview',{gridColumn:'2',gridRow:'1',marginInlineStart:'45%',overflow:'hidden',whiteSpace:'nowrap',background:vars.color.bg});
-globalStyle('.list[data-list-style="table"] .list__subject:has(+ .list__preview)',{maxWidth:'45%'});
-globalStyle('.list[data-list-style="table"] .tag-chips',{gridArea:'auto',gridColumn:'2',gridRow:'2',minWidth:0,maxHeight:'14px',overflow:'hidden',whiteSpace:'nowrap',fontSize:'10px',lineHeight:'14px'});
+globalStyle('.list[data-list-style="table"] .list__preview',{gridColumn:'2',gridRow:'2',marginInlineStart:0,overflow:'hidden',alignSelf:'start'});
+globalStyle('.list[data-list-style="table"] .list__subject:has(+ .list__preview)',{maxWidth:'100%'});
+globalStyle('.list[data-list-style="table"] .tag-chips',{gridArea:'auto',gridColumn:'2',gridRow:'3',minWidth:0,maxHeight:'14px',overflow:'hidden',whiteSpace:'nowrap',fontSize:'10px',lineHeight:'14px'});
 
 // Structural layout belongs in the stylesheet so strict CSP cannot separate these controls.
 globalStyle('.workspace-shell .sidebar__compose-row',{display:'grid',gridTemplateColumns:'minmax(0, 1fr) auto',gap:vars.space[2],alignItems:'stretch',minWidth:0,width:'100%'});

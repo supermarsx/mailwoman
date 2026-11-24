@@ -1054,3 +1054,6 @@ settings-alert-notifications-login-summary-minimum-away-minutes = Minimale afwez
 settings-alert-help-notifications-login-summary-minimum-away-minutes = Slaat kort herladen over. Nul staat elke terugkeer toe.
 settings-alert-notifications-login-summary-lookback-days = Maximale terugblik (dagen)
 settings-alert-help-notifications-login-summary-lookback-days = Maximaal aantal dagen na een lange afwezigheid.
+
+settings-folders-user-section-collapsible = Inklappen van gebruikersmappen toestaan
+settings-folders-user-section-collapsible-help = Als dit uitstaat, blijft de sectie geopend en wordt de knop verborgen.

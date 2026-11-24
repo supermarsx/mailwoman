@@ -1,3 +1,4 @@
+import {activeFolderViewId,folderViewAllowed,folderViewValue,setFolderView} from './folderViewPreferences.ts';
 import {loadCatalog} from '../i18n/catalog.ts';
 void loadCatalog('appearance');
 // One effective message-order preference drives the list bar and context menus.
@@ -12,32 +13,34 @@ export type MessageListOrder=typeof MESSAGE_LIST_ORDERS[number];
 export const MESSAGE_LIST_GROUPS=['none','received','sent','sender','subject','importance','size'] as const;
 export type MessageListGroup=typeof MESSAGE_LIST_GROUPS[number];
 export const MESSAGE_LIST_GROUP_KEY='mail.messageListGroup';
-export function messageListGroup():MessageListGroup {const value=settings()[MESSAGE_LIST_GROUP_KEY]?.value;return MESSAGE_LIST_GROUPS.some(group=>group===value)?value as MessageListGroup:'none';}
+export function messageListGroup():MessageListGroup {const value=folderViewValue('group');return MESSAGE_LIST_GROUPS.some(group=>group===value)?value as MessageListGroup:'none';}
 export const orderIcons:Record<MessageListOrder,IconName>={newest:'inbox',oldest:'clock',sender:'person','sender-desc':'person',subject:'sortAlphaAsc','subject-desc':'sortAlphaDesc','sent-newest':'sent','sent-oldest':'sent',importance:'flag','importance-asc':'flag',size:'package','size-asc':'package'};
 export const groupIcons:Record<MessageListGroup,IconName>={none:'minus',received:'inbox',sent:'sent',sender:'person',subject:'heading',importance:'flag',size:'package'};
 export const MESSAGE_LIST_ORDER_KEY='mail.messageListOrder';
 export function isMessageListOrder(value:unknown):value is MessageListOrder{return MESSAGE_LIST_ORDERS.some(order=>order===value);}
-export function messageListOrder():MessageListOrder {const value=settings()[MESSAGE_LIST_ORDER_KEY]?.value;return isMessageListOrder(value)?value:'newest';}
-export function createMessageOrder(onError:()=>void){
+export function messageListOrder():MessageListOrder {const value=folderViewValue('sort');return isMessageListOrder(value)?value:'newest';}
+export function createMessageOrder(onError:()=>void,scope:()=>string|undefined=activeFolderViewId){
+ const currentOrder=()=>{const choice=folderViewValue('sort',scope());return isMessageListOrder(choice)?choice:'newest';};
+ const currentGroup=()=>{const choice=folderViewValue('group',scope());return MESSAGE_LIST_GROUPS.includes(choice as MessageListGroup)?choice as MessageListGroup:'none';};
  const [saving,setSaving]=createSignal(false);
  const locked=()=>settings()[MESSAGE_LIST_ORDER_KEY]?.locked===true;
  async function set(value:MessageListOrder):Promise<boolean>{
-  if(locked()){onError();return false;}if(saving())return false;if(value===messageListOrder())return true;
+  if(locked()){onError();return false;}if(saving())return false;if(value===currentOrder())return true;
   setSaving(true);
-  try{await writeSetting(MESSAGE_LIST_ORDER_KEY,value);return true;}catch{onError();return false;}finally{setSaving(false);}
+  try{const id=scope();if(id&&folderViewAllowed())setFolderView(id,{sort:value});else await writeSetting(MESSAGE_LIST_ORDER_KEY,value);return true;}catch{onError();return false;}finally{setSaving(false);}
  }
  const groupLocked=()=>settings()[MESSAGE_LIST_GROUP_KEY]?.locked===true;
  async function setGroup(value:MessageListGroup):Promise<boolean>{
-  if(groupLocked()){onError();return false;}if(saving())return false;if(value===messageListGroup())return true;setSaving(true);
-  try{await writeSetting(MESSAGE_LIST_GROUP_KEY,value);return true;}catch{onError();return false;}finally{setSaving(false);}
+  if(groupLocked()){onError();return false;}if(saving())return false;if(value===currentGroup())return true;setSaving(true);
+  try{const id=scope();if(id&&folderViewAllowed())setFolderView(id,{group:value});else await writeSetting(MESSAGE_LIST_GROUP_KEY,value);return true;}catch{onError();return false;}finally{setSaving(false);}
  }
- const sortActions=():ContextAction[]=>MESSAGE_LIST_ORDERS.map(value=>({id:`message-order:${value}`,label:t(`mail-list-order-${value}`),icon:orderIcons[value],radio:true,checked:messageListOrder()===value,disabled:locked()||saving(),...(locked()?{title:t('mail-list-order-locked')}:{}),run:async()=>{await set(value);}}));
+ const sortActions=():ContextAction[]=>MESSAGE_LIST_ORDERS.map(value=>({id:`message-order:${value}`,label:t(`mail-list-order-${value}`),icon:orderIcons[value],radio:true,checked:currentOrder()===value,disabled:locked()||saving(),...(locked()?{title:t('mail-list-order-locked')}:{}),run:async()=>{await set(value);}}));
  async function setConversations(value:boolean):Promise<void>{
   if(!conversationsAllowed()||settings()[CONVERSATIONS_KEY]?.locked||saving()){onError();return;}
   setSaving(true);try{await writeSetting(CONVERSATIONS_KEY,value);}catch{onError();}finally{setSaving(false);}
  }
- const actions=():ContextAction[]=>[...sortActions(),{id:'message-group',label:t('mail-group-by'),icon:'shapes',separatorBefore:true,children:MESSAGE_LIST_GROUPS.map(value=>({id:`message-group:${value}`,label:t(`mail-list-group-${value}`),icon:groupIcons[value],radio:true,checked:messageListGroup()===value,disabled:groupLocked()||saving(),...(groupLocked()?{title:t('mail-list-group-locked')}:{}),run:async()=>{await setGroup(value);}})),run:()=>{}},{id:'message-conversations',label:t('appearance-preference-mail-conversations-enabled'),icon:'shapes',checked:conversationsEnabled(),disabled:!conversationsAllowed()||settings()[CONVERSATIONS_KEY]?.locked===true||saving(),run:()=>setConversations(!conversationsEnabled())}];
+ const actions=():ContextAction[]=>[...sortActions(),{id:'message-group',label:t('mail-group-by'),icon:'shapes',separatorBefore:true,children:MESSAGE_LIST_GROUPS.map(value=>({id:`message-group:${value}`,label:t(`mail-list-group-${value}`),icon:groupIcons[value],radio:true,checked:currentGroup()===value,disabled:groupLocked()||saving(),...(groupLocked()?{title:t('mail-list-group-locked')}:{}),run:async()=>{await setGroup(value);}})),run:()=>{}},{id:'message-conversations',label:t('appearance-preference-mail-conversations-enabled'),icon:'shapes',checked:conversationsEnabled(),disabled:!conversationsAllowed()||settings()[CONVERSATIONS_KEY]?.locked===true||saving(),run:()=>setConversations(!conversationsEnabled())}];
  const contextAction=():ContextAction=>({id:'message-order',label:t('mail-order-by'),icon:'sort',separatorBefore:true,disabled:saving(),children:actions(),run:()=>{}});
- return {value:messageListOrder,group:messageListGroup,locked,groupLocked,saving,set,setGroup,actions,contextAction};
+ return {value:currentOrder,group:currentGroup,locked,groupLocked,saving,set,setGroup,actions,contextAction};
 }
 export type MessageOrderController=ReturnType<typeof createMessageOrder>;

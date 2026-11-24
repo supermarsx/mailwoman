@@ -1056,3 +1056,6 @@ settings-alert-notifications-login-summary-minimum-away-minutes = Minimalna nieo
 settings-alert-help-notifications-login-summary-minimum-away-minutes = Pomija krótkie przeładowania. Zero zezwala na każdy powrót.
 settings-alert-notifications-login-summary-lookback-days = Maksymalny okres (dni)
 settings-alert-help-notifications-login-summary-lookback-days = Maksymalna liczba dni po długiej nieobecności.
+
+settings-folders-user-section-collapsible = Zezwól na zwijanie folderów użytkownika
+settings-folders-user-section-collapsible-help = Po wyłączeniu sekcja pozostaje rozwinięta, a przycisk jest ukryty.

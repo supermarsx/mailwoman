@@ -235,3 +235,20 @@ appearance-preference-option-keep = إبقاء الرسالة مفتوحة
 
 appearance-preference-appearance-uiScale = مقياس الواجهة (%)
 appearance-ui-scale-help = يغير حجم عناصر التحكم والنصوص والمسافات في الواجهة كلها (50–200%). تكبير الرسائل مستقل.
+
+appearance-preference-mail-messageListPreviewLines = أسطر معاينة الرسالة
+appearance-preview-lines-help = عرض خمسة أسطر من نص الرسالة كحد أقصى. يخفي الإيقاف المعاينة ويتكيف ارتفاع الصف تلقائيًا.
+appearance-preview-lines-0 = إيقاف
+appearance-preview-lines-1 = سطر واحد
+appearance-preview-lines-2 = 2 أسطر
+appearance-preview-lines-3 = 3 أسطر
+appearance-preview-lines-4 = 4 أسطر
+appearance-preview-lines-5 = 5 أسطر
+appearance-preference-mail-messageListFilter = { props-view-filter }
+appearance-preference-mail-messageListFont = { props-view-font }
+appearance-preference-mail-messageListFontSize = { props-view-fontSize }
+appearance-preference-mail-messageListRowSpacing = { props-view-rowSpacing }
+appearance-preference-mail-messageListHighlight = { props-view-highlight }
+appearance-preference-mail-readingPane = { props-view-readingPane }
+appearance-preference-mail-messageListWidth = { props-view-listWidth }
+appearance-preference-mail-messageListHeight = { props-view-listHeight }

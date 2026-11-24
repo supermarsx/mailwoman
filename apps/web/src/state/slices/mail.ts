@@ -1,3 +1,4 @@
+import {folderViewValue,folderViewFilter} from '../../components/folderViewPreferences.ts';
 import {notifyEvent} from '../../realtime/notificationEvents.ts';
 import {clearLinkedMailboxCache,rememberLinkedMailbox,peekLinkedMailbox,linkedMailboxCachedPage,type LinkedMailboxSnapshot} from '../../api/linkedMailboxCache.ts';
 import {readLinkedMailboxIdentity,readWorkspaceJmap,type WorkspaceMailbox} from '../../api/workspaceMail.ts';
@@ -1636,7 +1637,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       showToast('error', t('mail-toast-no-trash-folder'));
       return;
     }
-    const account=accountId(),mailboxId=selectedMailboxId(),sort=settings()['mail.messageListOrder']?.value??'newest',order=listMessages().map(message=>message.id);
+    const account=accountId(),mailboxId=selectedMailboxId(),sort=folderViewValue('sort',selectedMailboxId()??undefined),order=listMessages().map(message=>message.id);
     await relocateWithUndo(asIds(ids), target, (count) =>
       count === 1 ? t('mail-toast-trashed') : t('mail-toast-trashed-count', { count }),
       true,
@@ -1655,7 +1656,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     );
   }
   async function moveMessage(ids: Id | readonly Id[], mailboxId: Id): Promise<void> {
-    const event:MovedMessages={accountId:accountId()??'',mailboxId:selectedMailboxId(),sort:settings()['mail.messageListOrder']?.value??'newest',ids:[],order:listMessages().map(email=>email.id),mode:afterMoveMode()};
+    const event:MovedMessages={accountId:accountId()??'',mailboxId:selectedMailboxId(),sort:folderViewValue('sort',selectedMailboxId()??undefined),ids:[],order:listMessages().map(email=>email.id),mode:afterMoveMode()};
     const legacyId=activeReader()===null?legacyOpenEmail()?.id:undefined;
     const box = mailboxes().find((m) => m.id === mailboxId);
     await relocateWithUndo(asIds(ids), mailboxId, (count) => {
@@ -1666,7 +1667,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       event.ids=moved;
       for(const id of moved)patchMessage(id,{mailboxIds:{[mailboxId]:true}});
       if(event.mode!=='keep'&&legacyId&&moved.includes(legacyId)&&activeReader()===null&&legacyOpenEmail()?.id===legacyId){
-        const sameFolder=event.mailboxId===selectedMailboxId()&&event.sort===(settings()['mail.messageListOrder']?.value??'newest');
+        const sameFolder=event.mailboxId===selectedMailboxId()&&event.sort===(folderViewValue('sort',selectedMailboxId()??undefined));
         const next=sameFolder?moveNeighbour(legacyId,event,new Set(listMessages().map(email=>email.id))):undefined;
         if(next)void openMessage(next);else closeMessage();
       }
@@ -1888,9 +1889,13 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
         ...(mailFeature('showSpam') ? {} : { notKeyword: '$junk' }),
       })
       : searchEmails(acct, src.filter, limit, page);
-    const order=settings()['mail.messageListOrder']?.value;
-    const sort=messageSort(order,settings()['mail.messageListGroup']?.value,displayTimeZone(settings()['time.displayZone']?.value));
-    for(const call of request.methodCalls)if(call[0]==='Email/query')call[1]['sort']=sort;
+    const order=folderViewValue('sort',selectedMailboxId()??undefined);
+    const sort=messageSort(order,folderViewValue('group',selectedMailboxId()??undefined),displayTimeZone(settings()['time.displayZone']?.value));
+    for(const call of request.methodCalls)if(call[0]==='Email/query'){
+      call[1]['sort']=sort;
+      const filter=folderViewFilter(src.kind==='mailbox'?src.mailboxId:undefined);
+      if(filter)call[1]['filter']={operator:'AND',conditions:[...(call[1]['filter']?[call[1]['filter']]:[]),filter]};
+    }
     return request;
   }
 

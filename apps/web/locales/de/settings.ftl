@@ -1035,3 +1035,6 @@ settings-alert-notifications-login-summary-minimum-away-minutes = Mindestabwesen
 settings-alert-help-notifications-login-summary-minimum-away-minutes = Überspringt kurze Neuladungen. Null erlaubt jede Rückkehr.
 settings-alert-notifications-login-summary-lookback-days = Maximaler Rückblick (Tage)
 settings-alert-help-notifications-login-summary-lookback-days = Maximale Anzahl berücksichtigter Tage nach langer Abwesenheit.
+
+settings-folders-user-section-collapsible = Einklappen der Benutzerordner erlauben
+settings-folders-user-section-collapsible-help = Wenn deaktiviert, bleibt der Abschnitt geöffnet und die Schaltfläche wird ausgeblendet.

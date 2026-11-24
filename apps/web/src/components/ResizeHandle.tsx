@@ -4,6 +4,7 @@ import * as css from './ResizeHandle.css.ts';
 export interface ResizeHandleProps {
   label: string;
   controls?: string;
+  disabled?: boolean;
   /** The separator's orientation: vertical changes width, horizontal changes height. */
   orientation?: 'vertical' | 'horizontal';
   value: number;
@@ -26,14 +27,15 @@ export function ResizeHandle(props: ResizeHandleProps): JSX.Element {
     if (!active) return;
     drag = undefined;
     if (active.element.hasPointerCapture?.(active.id)) active.element.releasePointerCapture(active.id);
-    if (commit) props.onCommit?.(active.current);
+    if (commit && !props.disabled) props.onCommit?.(active.current);
     else props.onChange(clamp(active.initial));
   };
   onCleanup(() => { drag = undefined; });
   return <div
     class={css.handle}
     role="separator"
-    tabIndex={0}
+    tabIndex={props.disabled?-1:0}
+    aria-disabled={props.disabled||undefined}
     aria-label={props.label}
     aria-controls={props.controls}
     aria-orientation={props.orientation ?? 'vertical'}
@@ -42,14 +44,14 @@ export function ResizeHandle(props: ResizeHandleProps): JSX.Element {
     aria-valuenow={clamp(props.value)}
     data-orientation={props.orientation ?? 'vertical'}
     onPointerDown={(event) => {
-      if (event.button !== 0 || drag) return;
+      if (props.disabled || event.button !== 0 || drag) return;
       event.preventDefault();
       event.currentTarget.focus();
       event.currentTarget.setPointerCapture(event.pointerId);
       drag = { id: event.pointerId, origin: coordinate(event), initial: props.value, current: clamp(props.value), element: event.currentTarget };
     }}
     onPointerMove={(event) => {
-      if (!drag || event.pointerId !== drag.id) return;
+      if (props.disabled || !drag || event.pointerId !== drag.id) return;
       drag.current = clamp(drag.initial + (coordinate(event) - drag.origin) * (props.direction ?? 1));
       props.onChange(drag.current);
     }}
@@ -57,6 +59,7 @@ export function ResizeHandle(props: ResizeHandleProps): JSX.Element {
     onPointerCancel={(event) => { if (drag?.id === event.pointerId) finish(false); }}
     onLostPointerCapture={() => finish(true)}
     onKeyDown={(event) => {
+      if(props.disabled)return;
       if (event.key === 'Escape' && drag) { event.preventDefault(); finish(false); return; }
       const decrease = horizontal() ? 'ArrowUp' : 'ArrowLeft';
       const increase = horizontal() ? 'ArrowDown' : 'ArrowRight';

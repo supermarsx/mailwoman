@@ -13,6 +13,7 @@ export const handle = style({
   selectors: {
     '&[data-orientation="vertical"]': { width: 6, height: 'auto', cursor: 'col-resize' },
     '&[data-orientation="horizontal"]': { height: 6, width: 'auto', cursor: 'row-resize' },
+    '&[aria-disabled="true"]':{cursor:'default',opacity:.5},
     '&:hover, &:focus-visible': { background: vars.color.text, outline: `2px solid ${vars.color.text}` },
   },
 });

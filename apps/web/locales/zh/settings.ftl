@@ -1044,3 +1044,6 @@ settings-alert-notifications-login-summary-minimum-away-minutes = 最短离开�
 settings-alert-help-notifications-login-summary-minimum-away-minutes = 短暂刷新后不显示摘要。设为零可在每次返回时显示。
 settings-alert-notifications-login-summary-lookback-days = 最长回溯时间 (天)
 settings-alert-help-notifications-login-summary-lookback-days = 长时间离开后统计的最多天数。
+
+settings-folders-user-section-collapsible = 允许折叠用户文件夹
+settings-folders-user-section-collapsible-help = 禁用后，此区域始终展开并隐藏按钮。

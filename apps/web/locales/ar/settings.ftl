@@ -1057,3 +1057,6 @@ settings-alert-notifications-login-summary-minimum-away-minutes = الحد ال�
 settings-alert-help-notifications-login-summary-minimum-away-minutes = يتجاوز عمليات إعادة التحميل السريعة. يسمح الصفر بكل عودة.
 settings-alert-notifications-login-summary-lookback-days = أقصى فترة مراجعة (أيام)
 settings-alert-help-notifications-login-summary-lookback-days = أقصى عدد أيام للمراجعة بعد غياب طويل.
+
+settings-folders-user-section-collapsible = السماح بطي مجلدات المستخدم
+settings-folders-user-section-collapsible-help = عند التعطيل يبقى القسم موسعًا ويختفي الزر.

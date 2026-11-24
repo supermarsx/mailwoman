@@ -129,3 +129,23 @@ These are in **Folders and sidebar** in Settings ([Mail settings](/user/settings
 - [Snooze messages](/user/snooze)
 - [Rules and filters](/user/rules-filters)
 - [Mail settings](/user/settings/mail)
+
+
+## Folder views
+
+Open a folder’s context menu, choose **Properties → Folder view**, and choose
+its table columns, column order and widths, layout, sort, grouping, filter,
+font, text size, row spacing, highlighting, reading-pane position and list
+width or height. Changes save with the account’s folder preferences and follow
+the account to other devices. **Same as default** removes an individual override.
+Administrators can disable folder view overrides or lock the underlying settings;
+locked values apply even to previously saved folder choices.
+
+The filter applies to the server query, including older pages. A search expression
+uses the normal mail search syntax and is combined with the folder and preset
+filter. It does not include other folders or accounts. Preview text can be off or
+one to five lines; rows expand to fit. Folder preview overrides inherit the
+account’s preview setting and respect administrator locks.
+
+**Settings → Folders and sidebar** also controls whether the User folders section
+can collapse. Turning its control off keeps the section expanded.

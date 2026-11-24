@@ -1,3 +1,4 @@
+import {messagePreviewLines} from '../../components/messagePreview.ts';
 import {For, Show, onMount} from 'solid-js';
 import {loadCatalog, t} from '../../i18n';
 import {MESSAGE_LIST_GROUPS, MESSAGE_LIST_ORDERS} from '../../components/messageOrder.ts';
@@ -17,7 +18,15 @@ const fields: {key:string; fallback:string|number|boolean; choices?:readonly str
   {key:'mail.messageListOrder',fallback:'newest',choices:MESSAGE_LIST_ORDERS,help:'appearance-preference-message-order-help'},
   {key:'mail.messageListGroup',fallback:'none',choices:MESSAGE_LIST_GROUPS,choicePrefix:'appearance-preference-group-option',help:'appearance-preference-message-group-help'},
   {key:CONVERSATIONS_KEY,fallback:false,help:'appearance-preference-conversations-help'},
-  {key:'mail.messageListPreview',fallback:true},
+  {key:'mail.messageListPreviewLines',fallback:1,choices:['0','1','2','3','4','5'],choicePrefix:'appearance-preview-lines',help:'appearance-preview-lines-help'},
+  {key:'mail.messageListFilter',fallback:'all',choices:['all','unread','read','flagged','attachments','mentions'],choicePrefix:'props-view-option'},
+  {key:'mail.messageListFont',fallback:'inherit',choices:['inherit','sans','serif','mono'],choicePrefix:'props-view-option'},
+  {key:'mail.messageListFontSize',fallback:14,min:11,max:24},
+  {key:'mail.messageListRowSpacing',fallback:0,min:0,max:16},
+  {key:'mail.messageListHighlight',fallback:'default',choices:['default','unread','flagged','important','none'],choicePrefix:'props-view-option'},
+  {key:'mail.readingPane',fallback:'right',choices:['right','bottom','off'],choicePrefix:'props-view-option'},
+  {key:'mail.messageListWidth',fallback:340,min:180,max:1200},
+  {key:'mail.messageListHeight',fallback:320,min:160,max:1200},
   {key:'mail.list.pageSize',fallback:50,min:20,max:200},
   {key:'mail.afterMove',fallback:'keep',choices:['keep','next','previous','close'],help:'appearance-preference-mail-afterMove-help'},
   {key:'mail.afterDelete',fallback:'next',choices:['next','previous','close']},
@@ -36,7 +45,7 @@ export const APPEARANCE_TEXT_ROWS=[
 export const INTERFACE_CARD:CardSpec={id:'settings-appearance-text-card',section:'appearance',title:'settings-appearance-text-card',help:'settings-appearance-text-card-help',rows:[...fields.map(f=>({id:`preference-${f.key}`,label:labelKey(f.key),...(f.help?{help:f.help}:{})})),...APPEARANCE_TEXT_ROWS]};
 
 export function InterfacePreferences() {
-  onMount(()=>void loadCatalog('appearance'));
+  onMount(()=>{void loadCatalog('appearance');void loadCatalog('properties');});
   return <div><For each={fields}>{field=>{
     const setting=useSetting<string|number|boolean>(field.key,field.fallback);
     const disabled=()=>!setting.entry()||setting.locked()||setting.saving()||(field.key===CONVERSATIONS_KEY&&!conversationsAllowed());
@@ -44,7 +53,7 @@ export function InterfacePreferences() {
     return <SettingRow controlId={id} label={t(labelKey(field.key))} {...(field.help?{help:t(field.help)}:{})} handle={setting} resetLabel={t('appearance-preference-inherit')}>{describedBy=>
       <Show when={typeof field.fallback !== 'boolean'} fallback={<input id={id} type="checkbox" checked={setting.value()===true&&(field.key!==CONVERSATIONS_KEY||conversationsAllowed())} disabled={disabled()} aria-describedby={describedBy()} onChange={event=>void setting.set(event.currentTarget.checked)}/> }>
         <Show when={field.choices} fallback={<input id={id} class={css.input} type={field.color?'color':'number'} min={field.min} max={field.max} step="1" aria-describedby={describedBy()} value={field.color ? (setting.value() || '#000000') as string : setting.value() as number} disabled={disabled()} onChange={event=>{if(event.currentTarget.checkValidity()) void setting.set(field.color?event.currentTarget.value:event.currentTarget.valueAsNumber);}}/>}>
-          {choices=><select id={id} class={css.select} value={String(setting.value())} disabled={disabled()} aria-describedby={describedBy()} onChange={event=>void setting.set(event.currentTarget.value)}><For each={choices()}>{choice=><option value={choice}>{t(`${field.choicePrefix??'appearance-preference-option'}-${choice}`)}</option>}</For></select>}
+          {choices=><select id={id} class={css.select} value={String(field.key==='mail.messageListPreviewLines'?messagePreviewLines():setting.value())} disabled={disabled()} aria-describedby={describedBy()} onChange={event=>void setting.set(typeof field.fallback==='number'?Number(event.currentTarget.value):event.currentTarget.value)}><For each={choices()}>{choice=><option value={choice}>{t(`${field.choicePrefix??'appearance-preference-option'}-${choice}`)}</option>}</For></select>}
         </Show>
       </Show>
     }</SettingRow>;

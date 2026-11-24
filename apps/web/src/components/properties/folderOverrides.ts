@@ -7,6 +7,7 @@ import {settings,type SettingEntry} from '../../api/settings.ts';
 import {allowedOverrides,type OverrideKey} from './policy.ts';
 
 export interface FolderProps {
+ view?:import('../folderViewPreferences.ts').FolderViewPreferences;
  notes?:string;hideWhenEmpty?:boolean;counters?:'none'|'unread'|'total'|'both';badgeColour?:string;folderColour?:string;compactBadge?:boolean;
  notifications?:'on'|'off'|'vips';sort?:'date'|'from'|'subject'|'size';threading?:boolean;
  markMovedRead?:boolean;previewLines?:number;markReadDelayMs?:number;replyIdentity?:string;unifiedInbox?:boolean;
@@ -40,7 +41,7 @@ export const OVERRIDE_DEFS:readonly OverrideDef[]=[
  {key:'notifications',prop:'notifications',setting:null,type:{kind:'enum',options:['on','off','vips']}},
  {key:'sort',prop:'sort',setting:'mail.messageListOrder',type:{kind:'enum',options:['date','from','subject','size']},fromSetting:v=>typeof v==='string'?(v==='newest'||v==='oldest'||v.startsWith('sent-')?'date':v.startsWith('sender')?'from':v.startsWith('subject')?'subject':v.startsWith('size')?'size':'date'):v},
  {key:'threading',prop:'threading',setting:'mail.threading',type:{kind:'bool'}},
- {key:'previewLines',prop:'previewLines',setting:null,type:{kind:'lines'}},
+ {key:'previewLines',prop:'previewLines',setting:'mail.messageListPreviewLines',type:{kind:'lines'},defaultValue:1},
  {key:'markReadDelay',prop:'markReadDelayMs',setting:null,type:{kind:'delay'}},
  {key:'replyIdentity',prop:'replyIdentity',setting:null,type:{kind:'identity'}},
  {key:'unifiedInbox',prop:'unifiedInbox',setting:null,type:{kind:'bool'}},

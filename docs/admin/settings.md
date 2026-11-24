@@ -5803,3 +5803,65 @@ Every key in the settings registry, generated from the registry and checked agai
 ### Unopened application modules
 
 `web.prefetch.modules` defaults to `false`. Settings, Compose, rich-text editing, Calendar and Contacts are loaded when used instead of being imported automatically shortly after opening the inbox. Set it to `true` to restore broad idle module prewarming. `web.prefetch.enabled` remains the master speculation control; reader catalog and mail-header prefetch retain their existing behavior. Full service-worker offline caching is configured separately.
+
+
+## Folder view defaults and policies
+
+<a id="mail.messageListPreviewLines"></a>
+`mail.messageListPreviewLines` supports global, domain and user defaults and administrator locks.
+
+<a id="mail.messageListColumns"></a>
+`mail.messageListColumns` supports global, domain and user defaults and administrator locks.
+
+<a id="mail.messageListFilter"></a>
+`mail.messageListFilter` supports global, domain and user defaults and administrator locks.
+
+<a id="mail.messageListFilterQuery"></a>
+`mail.messageListFilterQuery` supports global, domain and user defaults and administrator locks.
+
+<a id="mail.messageListFont"></a>
+`mail.messageListFont` supports global, domain and user defaults and administrator locks.
+
+<a id="mail.messageListFontSize"></a>
+`mail.messageListFontSize` supports global, domain and user defaults and administrator locks.
+
+<a id="mail.messageListRowSpacing"></a>
+`mail.messageListRowSpacing` supports global, domain and user defaults and administrator locks.
+
+<a id="mail.messageListHighlight"></a>
+`mail.messageListHighlight` supports global, domain and user defaults and administrator locks.
+
+<a id="mail.readingPane"></a>
+`mail.readingPane` supports global, domain and user defaults and administrator locks.
+
+<a id="mail.messageListWidth"></a>
+`mail.messageListWidth` supports global, domain and user defaults and administrator locks.
+
+<a id="mail.messageListHeight"></a>
+`mail.messageListHeight` supports global, domain and user defaults and administrator locks.
+
+<a id="folders.userSectionCollapsible"></a>
+`folders.userSectionCollapsible` supports global, domain and user defaults and administrator locks.
+
+<a id="mail.messageListColumnWidth.sender"></a>
+`mail.messageListColumnWidth.sender` supports global, domain and user defaults and administrator locks.
+
+<a id="mail.messageListColumnWidth.subject"></a>
+`mail.messageListColumnWidth.subject` supports global, domain and user defaults and administrator locks.
+
+<a id="mail.messageListColumnWidth.received"></a>
+`mail.messageListColumnWidth.received` supports global, domain and user defaults and administrator locks.
+
+<a id="mail.messageListColumnWidth.sent"></a>
+`mail.messageListColumnWidth.sent` supports global, domain and user defaults and administrator locks.
+
+<a id="mail.messageListColumnWidth.to"></a>
+`mail.messageListColumnWidth.to` supports global, domain and user defaults and administrator locks.
+
+<a id="mail.messageListColumnWidth.size"></a>
+`mail.messageListColumnWidth.size` supports global, domain and user defaults and administrator locks.
+
+<a id="mail.messageListColumnWidth.importance"></a>
+`mail.messageListColumnWidth.importance` supports global, domain and user defaults and administrator locks.
+
+Remove `view` from `properties.folder.overrides.allowed` to disable folder-specific view overrides. Existing saved values are retained but ignored. Preview counts are bounded to 0–5; column widths to 64–800 pixels; font sizes to 11–24 pixels.

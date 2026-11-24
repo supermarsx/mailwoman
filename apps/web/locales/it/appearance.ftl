@@ -235,3 +235,20 @@ appearance-preference-option-keep = Mantieni il messaggio aperto
 
 appearance-preference-appearance-uiScale = Scala dell’interfaccia (%)
 appearance-ui-scale-help = Ridimensiona controlli, testo e spazi dell’intera interfaccia (50–200%). Lo zoom dei messaggi resta indipendente.
+
+appearance-preference-mail-messageListPreviewLines = Righe di anteprima dei messaggi
+appearance-preview-lines-help = Mostra fino a cinque righe del messaggio. Disattivata nasconde l’anteprima; l’altezza si adatta automaticamente.
+appearance-preview-lines-0 = Disattivata
+appearance-preview-lines-1 = 1 riga
+appearance-preview-lines-2 = 2 righe
+appearance-preview-lines-3 = 3 righe
+appearance-preview-lines-4 = 4 righe
+appearance-preview-lines-5 = 5 righe
+appearance-preference-mail-messageListFilter = { props-view-filter }
+appearance-preference-mail-messageListFont = { props-view-font }
+appearance-preference-mail-messageListFontSize = { props-view-fontSize }
+appearance-preference-mail-messageListRowSpacing = { props-view-rowSpacing }
+appearance-preference-mail-messageListHighlight = { props-view-highlight }
+appearance-preference-mail-readingPane = { props-view-readingPane }
+appearance-preference-mail-messageListWidth = { props-view-listWidth }
+appearance-preference-mail-messageListHeight = { props-view-listHeight }

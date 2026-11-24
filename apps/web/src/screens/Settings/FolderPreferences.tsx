@@ -101,6 +101,7 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
  const unified=useSetting<boolean>('mail.unifiedInbox',false);
  const unifiedAccount=useSetting<boolean>('mail.unifiedAccount',false);
  const transfers=useSetting<boolean>('mail.crossAccountTransfer',false);
+ const collapsible=useSetting<boolean>('folders.userSectionCollapsible',true);
  const hideEmpty=useSetting<boolean>('folders.hideEmpty',false,(value):value is boolean=>typeof value==='boolean');
  const navigation=props.navigation??createSettingsNavigation({section:'folders'});
  const app=useContext(AppContext),owner=preferenceAccount();
@@ -261,8 +262,9 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
    </>},
    {id:'sidebar',label:'settings-folders-title',cards:['folders-card-display','folders-card-counts'],content:<>
   <SettingsCard id="folders-card-display" title={t('settings-folders-title')} description={t('settings-folders-help')}>
+  <ToggleRow id="folders-user-section-collapsible" label={t('settings-folders-user-section-collapsible')} help={t('settings-folders-user-section-collapsible-help')} handle={collapsible}/>
   <ControlRow controlId="folders-collapse-user" label={t('settings-folders-collapse-user')} help={t('settings-folders-collapse-user-help')} note={<p role="status" class={css.meta}>{t(`settings-folders-sync-${props.onChange?'synced':accountUiPreferenceStatus()}`)}</p>}>{describedBy=>
-   <input id="folders-collapse-user" type="checkbox" checked={prefs().userFoldersCollapsed===true} disabled={!current()} aria-describedby={describedBy()} onChange={event=>update({userFoldersCollapsed:event.currentTarget.checked})}/>
+   <input id="folders-collapse-user" type="checkbox" checked={collapsible.value()&&prefs().userFoldersCollapsed===true} disabled={!current()||!collapsible.value()} aria-describedby={describedBy()} onChange={event=>update({userFoldersCollapsed:event.currentTarget.checked})}/>
   }</ControlRow>
   <ControlRow controlId="folders-colour" label={t('settings-folders-colour')} help={t('settings-folders-colour-help')} note={<><LockNote id="folders-colour-lock" locked={defaultColour.locked()}/><Show when={defaultColour.error()}><span role="alert">{defaultColour.error()}</span></Show></>}>{describedBy=>
    <ColorField id="folders-colour" describedBy={describedBy()} label={t('settings-folders-colour')} value={defaultColour.value()||null} fallback="#3366cc" emptyLabel={t('color-picker-default')} disabled={defaultColour.locked()||defaultColour.saving()} onChange={value=>void defaultColour.set(value??'')}/>

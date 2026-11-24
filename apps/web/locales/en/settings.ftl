@@ -1123,3 +1123,6 @@ settings-alert-notifications-login-summary-minimum-away-minutes = Minimum time a
 settings-alert-help-notifications-login-summary-minimum-away-minutes = Skip the summary after brief reloads or account switches. Zero allows every successful return.
 settings-alert-notifications-login-summary-lookback-days = Maximum lookback (days)
 settings-alert-help-notifications-login-summary-lookback-days = Count at most this many days of received mail after a long absence.
+
+settings-folders-user-section-collapsible = Allow collapsing User folders
+settings-folders-user-section-collapsible-help = When disabled, the section stays expanded and its toggle is hidden.

@@ -20,7 +20,7 @@
 //     the cluster, which is `display: none` until then and covers the row as a
 //     bar of touch-sized buttons while open.
 
-import { style } from '@vanilla-extract/css';
+import { style,styleVariants } from '@vanilla-extract/css';
 import { vars } from '../theme/contract.css.ts';
 
 /** Where the cluster is opened by its toggle instead of revealed by hover:
@@ -89,6 +89,14 @@ export const date = style({
 
 /** All densities preserve three complete lines, sized with their virtual slots. */
 export const preview = style({minInlineSize:0});
+export const previewLines=styleVariants({
+  0:{display:'none'},
+  1:{},
+  2:{selectors:{'&&':{display:'-webkit-box',WebkitBoxOrient:'vertical',WebkitLineClamp:2,whiteSpace:'normal',overflowWrap:'anywhere'}}},
+  3:{selectors:{'&&':{display:'-webkit-box',WebkitBoxOrient:'vertical',WebkitLineClamp:3,whiteSpace:'normal',overflowWrap:'anywhere'}}},
+  4:{selectors:{'&&':{display:'-webkit-box',WebkitBoxOrient:'vertical',WebkitLineClamp:4,whiteSpace:'normal',overflowWrap:'anywhere'}}},
+  5:{selectors:{'&&':{display:'-webkit-box',WebkitBoxOrient:'vertical',WebkitLineClamp:5,whiteSpace:'normal',overflowWrap:'anywhere'}}},
+});
 
 /** Wrapper for the toggle and the cluster. It has no box of its own, so the
  *  slot (a containing block, because it is transformed) positions both. */

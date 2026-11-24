@@ -1,3 +1,5 @@
+import {folderViewValue,folderViewFilter} from './folderViewPreferences.ts';
+import {messageSort} from '../state/messageSort.ts';
 import {createSignal,onCleanup} from 'solid-js';
 import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
 import type {Client} from '../api/client.ts';
@@ -20,7 +22,9 @@ export function createFolderView(client:Client,mailboxId:string,allowed:()=>bool
   const generation=++request;abort?.abort();abort=new AbortController();setLoading(true);setError(false);
   try{
    if(options.upstream){await client.refreshMailbox?.(owner!.id,options.upstreamMailboxId===undefined?mailboxId:options.upstreamMailboxId);if(!current()||generation!==request)return;}
-   const response=await client.jmap(listMailbox(owner!.id,mailboxId,100,{position:Math.max(0,next)}),{signal:abort.signal});
+   const queryRequest=listMailbox(owner!.id,mailboxId,100,{position:Math.max(0,next)});
+   for(const call of queryRequest.methodCalls)if(call[0]==='Email/query'){call[1]['sort']=messageSort(folderViewValue('sort',mailboxId),folderViewValue('group',mailboxId));const filter=folderViewFilter(mailboxId);if(filter)call[1]['filter']={operator:'AND',conditions:[...(call[1]['filter']?[call[1]['filter']]:[]),filter]};}
+   const response=await client.jmap(queryRequest,{signal:abort.signal});
    if(!current()||generation!==request)return;
    const query=responseFor<EmailQueryResponse>(response,'q'),result=responseFor<EmailGetResponse>(response,'g');
    if(query.accountId!==owner!.id||result.accountId!==owner!.id||!Array.isArray(query.ids)||!Array.isArray(result.list)||query.ids.length>100)throw new Error('Invalid folder page');

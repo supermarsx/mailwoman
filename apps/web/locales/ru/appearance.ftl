@@ -235,3 +235,20 @@ appearance-preference-option-keep = Оставить сообщение откр
 
 appearance-preference-appearance-uiScale = Масштаб интерфейса (%)
 appearance-ui-scale-help = Изменяет размер элементов управления, текста и отступов (50–200%). Масштаб сообщений задаётся отдельно.
+
+appearance-preference-mail-messageListPreviewLines = Строки предпросмотра письма
+appearance-preview-lines-help = Показывать до пяти строк текста письма. Выключено скрывает предпросмотр; высота строк меняется автоматически.
+appearance-preview-lines-0 = Выключено
+appearance-preview-lines-1 = 1 строка
+appearance-preview-lines-2 = 2 строк
+appearance-preview-lines-3 = 3 строк
+appearance-preview-lines-4 = 4 строк
+appearance-preview-lines-5 = 5 строк
+appearance-preference-mail-messageListFilter = { props-view-filter }
+appearance-preference-mail-messageListFont = { props-view-font }
+appearance-preference-mail-messageListFontSize = { props-view-fontSize }
+appearance-preference-mail-messageListRowSpacing = { props-view-rowSpacing }
+appearance-preference-mail-messageListHighlight = { props-view-highlight }
+appearance-preference-mail-readingPane = { props-view-readingPane }
+appearance-preference-mail-messageListWidth = { props-view-listWidth }
+appearance-preference-mail-messageListHeight = { props-view-listHeight }

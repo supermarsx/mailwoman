@@ -235,3 +235,20 @@ appearance-preference-option-keep = 保持邮件打开
 
 appearance-preference-appearance-uiScale = 界面缩放比例 (%)
 appearance-ui-scale-help = 调整整个界面的控件、文字和间距（50–200%）。邮件缩放独立设置。
+
+appearance-preference-mail-messageListPreviewLines = 邮件预览行数
+appearance-preview-lines-help = 最多显示五行邮件正文。关闭后隐藏预览；列表行高会自动调整。
+appearance-preview-lines-0 = 关闭
+appearance-preview-lines-1 = 1 行
+appearance-preview-lines-2 = 2 行
+appearance-preview-lines-3 = 3 行
+appearance-preview-lines-4 = 4 行
+appearance-preview-lines-5 = 5 行
+appearance-preference-mail-messageListFilter = { props-view-filter }
+appearance-preference-mail-messageListFont = { props-view-font }
+appearance-preference-mail-messageListFontSize = { props-view-fontSize }
+appearance-preference-mail-messageListRowSpacing = { props-view-rowSpacing }
+appearance-preference-mail-messageListHighlight = { props-view-highlight }
+appearance-preference-mail-readingPane = { props-view-readingPane }
+appearance-preference-mail-messageListWidth = { props-view-listWidth }
+appearance-preference-mail-messageListHeight = { props-view-listHeight }

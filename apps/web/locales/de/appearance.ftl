@@ -235,3 +235,20 @@ appearance-preference-option-keep = Nachricht geöffnet lassen
 
 appearance-preference-appearance-uiScale = Oberflächenskalierung (%)
 appearance-ui-scale-help = Skaliert alle Bedienelemente, Texte und Abstände (50–200 %). Der Nachrichtenzoom bleibt unabhängig.
+
+appearance-preference-mail-messageListPreviewLines = Zeilen der Nachrichtenvorschau
+appearance-preview-lines-help = Bis zu fünf Zeilen Nachrichtentext anzeigen. Aus blendet die Vorschau aus; die Zeilenhöhe passt sich automatisch an.
+appearance-preview-lines-0 = Aus
+appearance-preview-lines-1 = 1 Zeile
+appearance-preview-lines-2 = 2 Zeilen
+appearance-preview-lines-3 = 3 Zeilen
+appearance-preview-lines-4 = 4 Zeilen
+appearance-preview-lines-5 = 5 Zeilen
+appearance-preference-mail-messageListFilter = { props-view-filter }
+appearance-preference-mail-messageListFont = { props-view-font }
+appearance-preference-mail-messageListFontSize = { props-view-fontSize }
+appearance-preference-mail-messageListRowSpacing = { props-view-rowSpacing }
+appearance-preference-mail-messageListHighlight = { props-view-highlight }
+appearance-preference-mail-readingPane = { props-view-readingPane }
+appearance-preference-mail-messageListWidth = { props-view-listWidth }
+appearance-preference-mail-messageListHeight = { props-view-listHeight }

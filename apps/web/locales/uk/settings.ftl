@@ -1056,3 +1056,6 @@ settings-alert-notifications-login-summary-minimum-away-minutes = Мінімал
 settings-alert-help-notifications-login-summary-minimum-away-minutes = Пропускає короткі перезавантаження. Нуль дозволяє кожне повернення.
 settings-alert-notifications-login-summary-lookback-days = Максимальний період (дні)
 settings-alert-help-notifications-login-summary-lookback-days = Максимальна кількість днів після довгої відсутності.
+
+settings-folders-user-section-collapsible = Дозволити згортання папок користувача
+settings-folders-user-section-collapsible-help = Коли вимкнено, розділ залишається розгорнутим, а кнопку приховано.

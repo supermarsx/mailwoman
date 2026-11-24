@@ -1,3 +1,5 @@
+import {folderViewStyle} from '../components/folderViewPreferences.ts';
+import {messagePreviewLines} from '../components/messagePreview.ts';
 import {activeUnifiedGroup,unifiedAccountAllowed,unifiedFolderAllowed,unifiedPreference,unifiedName} from '../state/unifiedAccountPreferences.ts';
 import {SearchInput} from '../components/SearchInput.tsx';
 import {settings} from '../api/settings.ts';
@@ -40,7 +42,7 @@ export function unifiedMessageUrl(row:UnifiedRow):string {
  return withBase(`/?${params.toString()}#/mail`);
 }
 export default function UnifiedMail(props:{activeLink:string|null;onOpenMessage?:(row:UnifiedRow)=>void}):JSX.Element {
- const app=useApp(),order=createMessageOrder(()=>toast.error(t('mail-context-failed')));
+ const app=useApp(),order=createMessageOrder(()=>toast.error(t('mail-context-failed')),()=>'');
  const [role,setRole]=createSignal<UnifiedRole>('inbox'),[search,setSearch]=createSignal(''),[query,setQuery]=createSignal(''),[account,setAccount]=createSignal(''),[unreadOnly,setUnreadOnly]=createSignal(false);
  const [refresh,setRefresh]=createSignal(0),[targets,setTargets]=createSignal<WorkspaceMailbox[]>([]),[pages,setPages]=createSignal<MailboxPage[]>([]),[loading,setLoading]=createSignal(true),[error,setError]=createSignal(false),[busy,setBusy]=createSignal(false);
  const [selecting,setSelecting]=createSignal(false),[cursor,setCursor]=createSignal(0);
@@ -79,7 +81,7 @@ export default function UnifiedMail(props:{activeLink:string|null;onOpenMessage?
  });
  const byKey=createMemo(()=>new Map(rows().map(row=>[unifiedRowKey(row),row])));
  const tableMode=()=>settings()['mail.messageListStyle']?.value==='table';
- const rowHeight=()=>messageRowHeight(app.density(),tableMode());
+ const rowHeight=()=>messageRowHeight(app.density(),tableMode(),messagePreviewLines(),'');
  const layout=createMemo(()=>groupMessageRows(rows().map(row=>({...row.email,id:unifiedRowKey(row),...(row.email.threadId?{threadId:JSON.stringify([row.target.storageAuthority,row.email.threadId])}:{})})),expanded(),order.group(),rowHeight(),messageTimeZone(),conversationsEnabled()));
  const win=createMemo(()=>groupedWindow(layout(),top(),height(),rowHeight(),layout().rows.length));
  const visible=()=>layout().rows.slice(win().startIndex,win().endIndex);
@@ -154,7 +156,7 @@ export default function UnifiedMail(props:{activeLink:string|null;onOpenMessage?
  };
  const menu=createContextMenu({label:()=>t('mail-more-actions'),scope:()=>JSON.stringify([props.activeLink,role(),account(),unreadOnly(),query(),order.value(),[...selected()].sort()]),actions:()=>actionsFor(actionRows()).map(action=>({...action,disabled:busy()||action.disabled===true})),onError:()=>toast.error(t('mail-context-failed'))});
  const bulkActions=():SelectionAction[]=>actionsFor(chosen()).filter(action=>action.id!=='open').map(action=>({id:action.id,label:action.label,icon:action.icon,disabled:action.disabled===true,...(action.children?.length?{menu:()=>action.children!}:{run:action.run})}));
- return <section class={`list ${css.root}`} aria-label={t('unified-mail-title')} data-mw-surface data-testid="unified-mail" data-list-style={tableMode()?'table':'cards'} data-selecting={selecting()?'true':undefined}>
+ return <section class={`list ${css.root}`} style={folderViewStyle(app.density(),'')} aria-label={t('unified-mail-title')} data-mw-surface data-testid="unified-mail" data-list-style={tableMode()?'table':'cards'} data-selecting={selecting()?'true':undefined}>
   <header class={css.bar}><Icon name="mailboxes"/><h2 class={css.title}>{unifiedVirtualMode()&&unifiedName()?unifiedName():t('unified-mail-title')}</h2><div class={css.counts} role="status"><span>{t('unified-mail-total',{count:counter(total())})}</span><span>{t('unified-mail-unread',{count:counter(unread())})}</span><span>{t('unified-mail-loaded',{count:rows().length})}</span></div><button type="button" class={threadCss.segBtn} aria-label={t('mail-select-messages')} aria-pressed={selecting()} onClick={()=>{setSelecting(value=>!value);setSelected(new Set<string>());}}><Icon name="bulkSelect"/></button><MessageOrderMenu order={order} scope={()=>JSON.stringify([props.activeLink,role(),query()])} class="btn btn--ghost"/><button type="button" class="btn btn--ghost" disabled={loading()||busy()} title={t('unified-mail-refresh')} aria-label={t('unified-mail-refresh')} onClick={()=>setRefresh(value=>value+1)}><Icon name="refresh"/></button></header>
   <form class={css.bar} onSubmit={event=>{event.preventDefault();setQuery(search().trim());}}>
    <label>{t('unified-mail-folder')}<select value={role()} onChange={event=>{const value=event.currentTarget.value as UnifiedRole;setRole(value);if(unifiedVirtualMode())setUnifiedFolderRole(value);}}><For each={roles}>{value=><option value={value}>{t(`unified-mail-role-${value}`)}</option>}</For></select></label>
@@ -180,7 +182,7 @@ export default function UnifiedMail(props:{activeLink:string|null;onOpenMessage?
         </div><button type="button" class={rowCss.moreToggle} title={t('mail-more-actions')} aria-label={t('mail-more-actions')} onClick={event=>{setContext(members(visual));menu.toggleBelow(event.currentTarget);}}><Icon name="more"/></button></div>
         <Show when={visual.kind==='head'}><button type="button" class={`btn btn--ghost ${css.toggle}`} aria-expanded={visual.expanded} aria-label={t('mail-thread-count',{count:visual.count})} onClick={()=>setExpanded(old=>{const next=new Set(old);if(next.has(visual.key))next.delete(visual.key);else next.add(visual.key);return next;})}><Icon name={visual.expanded?'chevronDown':'chevron'}/>{visual.count}</button></Show>
        </>}>
-       <MessageRowContent email={row().email} selected={selected().has(key())} replyDraft={undefined} sourceMetadata={row().target.current} metadata={<span class={css.badge} title={`${row().target.label} · ${boxesFor(row()).find(box=>box.id===row().folderId)?.name??''}`}>{isolate(row().target.label)}</span>}/>
+       <MessageRowContent folderId="" previewLines={messagePreviewLines()} email={row().email} selected={selected().has(key())} replyDraft={undefined} sourceMetadata={row().target.current} metadata={<span class={css.badge} title={`${row().target.label} · ${boxesFor(row()).find(box=>box.id===row().folderId)?.name??''}`}>{isolate(row().target.label)}</span>}/>
       </MessageRowFrame>;}}</For>
     </ul>
    </Show>

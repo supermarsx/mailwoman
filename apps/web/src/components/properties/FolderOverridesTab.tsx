@@ -57,7 +57,7 @@ export function Overrides(props:{box:Mailbox;onRetention:(()=>void)|undefined}):
     <div class={css.group}><For each={more()}>{group=><section aria-labelledby={`props-ovr-g-${group.id}`} class={css.card}>
      <h3 id={`props-ovr-g-${group.id}`} class={css.cardTitle}>{t(`props-group-${group.id}`)}</h3>
      <p class={css.cardHelp}>{t(`props-group-${group.id}-help`)}</p>
-     <For each={group.defs}>{def=><OverrideRow def={def} props={own()} onSet={set} later/>}</For>
+     <For each={group.defs}>{def=><OverrideRow def={def} props={own()} onSet={set} later={def.key!=='previewLines'}/>}</For>
     </section>}</For></div>
    </details>
   </Show>
@@ -94,7 +94,7 @@ function OverrideRow(props:{def:OverrideDef;props:FolderProps|undefined;onSet:(p
   if(e.value===undefined)return t('props-chip-default-plain');
   return t(e.source==='admin-default'?'props-chip-admin':'props-chip-default',{value});
  };
- const options=():readonly (string|boolean|number)[]=>type.kind==='bool'?[true,false]:type.kind==='enum'?type.options:type.kind==='lines'?[0,1,2,3]:[];
+ const options=():readonly (string|boolean|number)[]=>type.kind==='bool'?[true,false]:type.kind==='enum'?type.options:type.kind==='lines'?[0,1,2,3,4,5]:[];
  const optionText=(o:string|boolean|number)=>typeof o==='boolean'?t(o?'props-opt-on':'props-opt-off'):typeof o==='number'?String(o):t(OPTION_KEYS[o]??o);
  return <div class={css.ovr} data-testid={`ovr-${props.def.key}`} data-source={eff().source}>
   <div class={css.ovrHead}>
