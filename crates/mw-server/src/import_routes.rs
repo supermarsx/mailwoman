@@ -95,20 +95,86 @@ impl ImportLimits {
 }
 
 // Admit work before Bytes extraction: at most two bounded archives occupy memory.
+// A body declared over the limit is refused here too, before admission and
+// before any of it is read (t55); see [`refuse_before_body`] for how the
+// refusal reaches a client that is still uploading.
 async fn import_admission(
     capacity: &tokio::sync::Semaphore,
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
+    if declared_length(&request).is_some_and(|n| n > MAX_MESSAGE_BYTES as u64) {
+        return refuse_before_body(request, import_too_large()).await;
+    }
     let Ok(_permit) = capacity.try_acquire() else {
-        return (
+        let busy = (
             StatusCode::TOO_MANY_REQUESTS,
             [("retry-after", "5")],
             Json(json!({"error":"Import capacity is busy. Retry later."})),
         )
             .into_response();
+        return refuse_before_body(request, busy).await;
     };
     next.run(request).await
+}
+
+/// Most body bytes [`refuse_before_body`] reads and discards so that a refusal
+/// reaches a client still uploading: four times the import limit.
+const REFUSAL_DRAIN_BYTES: u64 = 4 * MAX_MESSAGE_BYTES as u64;
+/// Longest [`refuse_before_body`] keeps reading before it answers anyway.
+const REFUSAL_DRAIN_TIME: std::time::Duration = std::time::Duration::from_secs(30);
+/// A drain answers as soon as the client sends nothing for this long.
+const REFUSAL_DRAIN_IDLE: std::time::Duration = std::time::Duration::from_secs(2);
+
+fn declared_length(request: &axum::extract::Request) -> Option<u64> {
+    request
+        .headers()
+        .get(axum::http::header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.trim().parse().ok())
+}
+
+/// Answer `response` to a request whose body will not be used, so that the
+/// client receives it (t55). HTTP/1 closes the connection after a response to
+/// an unread body; a client still sending then gets a reset and loses the
+/// response (a transport error instead of the 413 / 429).
+///
+/// - `Expect: 100-continue`: answered at once. The body is never polled, so no
+///   `100 Continue` is sent and the client sends no body.
+/// - Otherwise the body is read and discarded first, at most
+///   [`REFUSAL_DRAIN_BYTES`] and [`REFUSAL_DRAIN_TIME`], and no longer than
+///   [`REFUSAL_DRAIN_IDLE`] without data; nothing is kept. A body
+///   declared larger than the bound is answered at once: reading it all is
+///   not bounded, and such a client may still see a reset.
+///
+/// The response carries `Connection: close` either way.
+async fn refuse_before_body(request: axum::extract::Request, mut response: Response) -> Response {
+    use futures_util::StreamExt;
+    response.headers_mut().insert(
+        axum::http::header::CONNECTION,
+        axum::http::HeaderValue::from_static("close"),
+    );
+    let expects_continue = request
+        .headers()
+        .get(axum::http::header::EXPECT)
+        .is_some_and(|v| v.as_bytes().eq_ignore_ascii_case(b"100-continue"));
+    if expects_continue || declared_length(&request).is_some_and(|n| n > REFUSAL_DRAIN_BYTES) {
+        return response;
+    }
+    let deadline = tokio::time::Instant::now() + REFUSAL_DRAIN_TIME;
+    let mut body = request.into_body().into_data_stream();
+    let mut read = 0u64;
+    loop {
+        let wait = deadline.min(tokio::time::Instant::now() + REFUSAL_DRAIN_IDLE);
+        let Ok(Some(Ok(chunk))) = tokio::time::timeout_at(wait, body.next()).await else {
+            break;
+        };
+        read += chunk.len() as u64;
+        if read > REFUSAL_DRAIN_BYTES {
+            break;
+        }
+    }
+    response
 }
 
 /// The mailbox-import + webcal sync-driver routes (mounted by `lib.rs`/e10).
@@ -778,8 +844,11 @@ mod tests {
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         let mut connection = tokio::net::TcpStream::connect(address).await.unwrap();
         // Deliberately send no body; any attempt to extract it would hang.
+        // `Expect: 100-continue` asks for the answer before the body (t55:
+        // without it the refusal first drains what the client sends, see
+        // import_body_limit_tests).
         connection
-            .write_all(b"POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 1000000\r\n\r\n")
+            .write_all(b"POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 1000000\r\nExpect: 100-continue\r\n\r\n")
             .await
             .unwrap();
         let mut reader = tokio::io::BufReader::new(connection);
@@ -1298,3 +1367,7 @@ mod feed_tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "import_body_limit_tests.rs"]
+mod import_body_limit_tests;
