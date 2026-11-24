@@ -15,4 +15,5 @@
 - [UI-default two-worker diagnostic: 100 users](./ui-default-profile-baseline.md)
 - [Generator and transport calibration](./generator-calibration.md)
 - [Coordinated multi-process generators](./coordinated-generator.md)
+- [Bounded guard snapshot](./guard-snapshot.md)
 - [Size-budget revisions (SPEC §23 — 26.9; SPEC §16 shells — 26.20; both — 2026-10-27 / t33)](./size-budget-revision.md)

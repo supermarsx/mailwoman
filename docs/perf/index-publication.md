@@ -38,8 +38,11 @@ reader-revocation mechanism.
 
 Existing limitations remain explicit:
 
-- An unknown SQL commit or process crash before ownership handoff is not covered
-  by a durable dirty journal. Existing startup reconciliation remains necessary.
+- In the default `commit` acknowledgement mode, an unknown SQL commit or process
+  crash before ownership handoff is not covered by a durable dirty journal.
+  Existing startup reconciliation remains necessary. `MW_INDEX_PUBLICATION_ACK=journal`
+  (SQLite, single process) closes this gap for that mode only: see
+  [Journal acknowledgement](#journal-acknowledgement-mode).
 - Arbitrary raw SQL and external direct Search writers bypass the Engine's
   supported mutation/barrier protocol. A fresh snapshot is not cross-process
   linearizability or physical-erasure acknowledgement for those writers.
@@ -59,6 +62,31 @@ Existing limitations remain explicit:
   required source fails into repair; no reader body lease is renewed.
 - A failed commit may have reached durable storage. A failed reload is not a
   rollback. The owner remains closed until explicit recovery and source repair.
+
+## Journal acknowledgement mode
+
+`MW_INDEX_PUBLICATION_ACK=journal` (default `commit`). Operator view and limits:
+[Optional consistency trade-off modes](../admin/performance-modes.md#journal-acknowledgement-for-search-index-publication).
+
+- Migration 0116 triggers write an `index_publication_journal` row in the same
+  transaction as every indexed source change. `Email/set` returns after that SQL
+  commit. The owner deletes rows only after a successful index commit; startup
+  replays what is left and a sweeper retries rows no publication covered.
+- Read fence: every index-backed read waits until the account's publications
+  handed off before the read started are applied, for at most
+  `MW_INDEX_READ_FENCE_TIMEOUT_MS`, and is refused (never served stale) on
+  timeout, poison, pending repair, erasure or an unfinished startup replay.
+- Admission: 128 pending jobs in total and 32 per account; an account over its cap
+  waits up to the 30 s admission timeout for its own jobs and then fails before any
+  SQL change. Several accounts at their caps can still fill the global queue.
+- Single process: an exclusive lock on `<database>.index-journal.lock`. Not
+  detected: another path to the same file, and a commit-mode process started
+  before any journal-mode run.
+- Graceful shutdown drains accepted jobs for at most
+  `MW_INDEX_PUBLICATION_DRAIN_SECS`; the rest replay at the next start.
+- PostgreSQL: refused at start-up.
+
+No throughput comparison for journal mode is published yet.
 
 The frozen release comparison below establishes a diagnostic improvement for
 this workload. It does not establish the 40,000-RPS or 10,000-user capacity target.

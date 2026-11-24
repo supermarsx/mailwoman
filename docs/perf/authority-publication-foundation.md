@@ -76,6 +76,9 @@ coverage differs from these epochs. The future cold worker must use direct or
 no-memo existing readers under a before/after vector, not certify old memos by a
 new counter. Immutable published components should share global/domain Arcs with
 bounded per-account budgets. Async outbox delivery alone never permits zero SQL.
+This remains true with `MW_GUARD_SNAPSHOT=off` (the default); `bounded` replaces
+the per-request fence read with a stated staleness bound, see
+[guard snapshot](guard-snapshot.md).
 
 ## Authored verification (not executed)
 
