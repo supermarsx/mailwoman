@@ -10,6 +10,7 @@ import { installTrustedTypesPolicy } from './security/trustedTypes.ts';
 import { installBundleRecovery } from './sw/bundleRecovery.ts';
 import { installClientErrors } from './observability/clientErrors.ts';
 import { installRateLimitNotice } from './state/rateLimitNotice.ts';
+import { startBootstrap } from './api/http.ts';
 import { bootLocale } from './screens/Settings/language.ts';
 import './styles/app.css';
 // After app.css: one size and accent for every checkbox and radio (t32-h12).
@@ -30,6 +31,8 @@ installBundleRecovery();
 // Errors that reach no boundary (window.onerror, rejections, CSP) are reported to
 // the server's observability, scrubbed (docs/admin/observability.md).
 installClientErrors();
+// t52w: the load-time reads in one request; the first GET of each listed route is answered from it (api/bootstrap.ts).
+startBootstrap();
 const stopPolicyTheme=nativeBackgroundStartup()?()=>undefined:installPublicPolicyThemeBridge();
 import.meta.hot?.dispose(stopPolicyTheme);
 // Test builds only (VITE_MW_E2E_HOOKS=1): window.__mwThrow, a deliberate error through a real boundary.

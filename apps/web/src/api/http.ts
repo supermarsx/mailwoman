@@ -50,6 +50,7 @@ import {activeLinkedMailbox,linkedMailboxEpoch,LinkedContextUnsupportedError} fr
 import {linkedRoute,linkedUnsignedResource} from './linkedAccountRouting.ts';
 import { recoverRequest, type RecoveryOptions } from './recovery.ts';
 import { rateAwareSend, type PaceClass } from './rateAware.ts';
+import { adoptBootstrap, takeSeed } from './bootstrap.ts';
 
 export interface MailboxTarget {
   readonly linkId: string | null;
@@ -310,6 +311,22 @@ async function sendApiFetch(input: string, given: RequestInit|undefined, assertA
 }
 
 
+/**
+ * t52w: send `GET /api/bootstrap` (or adopt the one the boot script already
+ * started as `globalThis.__mwBootstrap`) as this page load's seed. A plain
+ * cookie request in the default cache mode, so the browser revalidates its last
+ * answer with `If-None-Match`; never over the WebSocket. Not in a native shell,
+ * whose requests carry a bearer token instead.
+ */
+export function startBootstrap(): void {
+  if (native !== null) return;
+  const started = (globalThis as { __mwBootstrap?: unknown }).__mwBootstrap;
+  delete (globalThis as { __mwBootstrap?: unknown }).__mwBootstrap;
+  if (started instanceof Promise) { adoptBootstrap(started as Promise<Response>); return; }
+  if (typeof fetch !== 'function') return;
+  adoptBootstrap(fetch(`${basePath()}/api/bootstrap`, { credentials: 'same-origin', headers: { accept: 'application/json' } }));
+}
+
 const confirming = new Map<string, Promise<boolean>>();
 
 /** A refusal occurs before the handler mutates state. Confirm once, then retry once. */
@@ -369,7 +386,13 @@ export async function apiFetch(input: string, options?: ApiRequestInit): Promise
   const originalNative = native;
   const originalToken = originalNative === null ? null : await originalNative.token();
   assertAuthority();
-  const dispatch=async():Promise<Response>=>{if(!admin&&ownServer&&account&&(routePath.startsWith('/api/')||routePath.startsWith('/jmap/'))&&!/^\/api\/(?:me|login|logout|twofa|sso)(?:\/|$)/.test(routePath))await verifyOfflineAuthority();return rawApiFetch(input,given,assertAuthority,pace);};
+  // t52w: a primary-context GET with no body may be answered once from this page
+  // load's `/api/bootstrap` seed (see `bootstrap.ts`, which applies the account rules).
+  const seedable=native===null&&!admin&&ownServer&&selected===null&&!mailboxTarget&&mailboxContext===undefined
+    &&(given?.method??'GET').toUpperCase()==='GET'&&given?.body==null&&given?.credentials!=='omit';
+  const dispatch=async():Promise<Response>=>{if(!admin&&ownServer&&account&&(routePath.startsWith('/api/')||routePath.startsWith('/jmap/'))&&!/^\/api\/(?:me|login|logout|twofa|sso)(?:\/|$)/.test(routePath))await verifyOfflineAuthority();
+    if(seedable){const seeded=await takeSeed(`${routePath}${target.search}`,new Headers(given?.headers));if(seeded!==null){assertAuthority();return seeded;}}
+    return rawApiFetch(input,given,assertAuthority,pace);};
   const response = await (!admin&&ownServer?offlineHttpRead(routePath,given,account,()=>offlineBlobRead(input,routePath,given,account,dispatch)):dispatch());
   if(!admin)assertAuthority();
   if(!admin&&ownServer&&response.status===401)await revokeOfflineAuthorization();
