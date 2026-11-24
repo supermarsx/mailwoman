@@ -464,3 +464,33 @@ What happens then:
 
 This suite does not change any of that. With `MW_BULK_BATCH=max` it sends
 5,000 per request, as the advertised limit allows.
+
+## goal-65-35 seed of the native load fixture
+
+`MW_NATIVE_LOAD_WORKLOAD=goal-65-35` seeds exactly as `representative` does,
+plus the folders and terms the goal mix's write and search shapes need:
+- Two extra empty folders: `Trash` (role trash) and `Drafts` (role drafts).
+  Each principal in the handoff carries `trashId` and `draftsId` beside
+  `inboxId` and `archiveId`.
+- Planted terms in the bodies:
+  - `quarterly` where UID % 5 == 0;
+  - `zephyrine` where UID % 2000 == 7.
+
+  UID 1, the sample message, never has a planted term. Per principal the
+  handoff carries `plantedQuarterly` (10 at 50 messages) and `plantedZephyrine`
+  (1 at 50 messages).
+- Flags: `messageIds[2]` (UID 3) starts read and `messageIds[3]` (UID 4) starts
+  flagged. The mark-unread and unflag shapes therefore change state on their
+  first pass; every other message is unread and unflagged.
+
+The fake upstream accepts the extra operations only where they belong. It
+appends only to Drafts and expunges only from Drafts or Trash. Everything else
+keeps the representative profile's behaviour.
+
+The fixture diagnostics carry `upstreamCommands`: process-wide counts of
+fetch, store, move, expunge, append and list commands, with message counts.
+
+`MW_NATIVE_LOAD_DRIVER=goal-mix-smoke` runs
+`scripts/perf/bulk-ops/goal-mix-smoke.mjs`. It makes two validated passes of
+every goal-mix write shape and of candidate shapes for delete-to-trash, draft
+save and search on one principal. It is a smoke, not a measurement.

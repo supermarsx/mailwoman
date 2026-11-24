@@ -3,7 +3,34 @@
 use async_trait::async_trait;
 use mw_engine::backend::*;
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+
+// t60: process-wide upstream command counters, read by the fixture diagnostics.
+static COMMANDS: [AtomicU64; 10] = [const { AtomicU64::new(0) }; 10];
+const FETCH: usize = 0;
+const FETCHED: usize = 1;
+const STORE: usize = 2;
+const STORED: usize = 3;
+const MOVE: usize = 4;
+const MOVED: usize = 5;
+const EXPUNGE: usize = 6;
+const EXPUNGED: usize = 7;
+const APPEND: usize = 8;
+const LIST: usize = 9;
+fn count(command: usize, messages: Option<(usize, usize)>) {
+    COMMANDS[command].fetch_add(1, Ordering::Relaxed);
+    if let Some((slot, n)) = messages {
+        COMMANDS[slot].fetch_add(n as u64, Ordering::Relaxed);
+    }
+}
+/// Cumulative fake-upstream commands of every representative transport.
+pub fn upstream_commands() -> serde_json::Value {
+    let get = |i: usize| COMMANDS[i].load(Ordering::Relaxed);
+    serde_json::json!({"fetch":get(FETCH),"fetchedMessages":get(FETCHED),"store":get(STORE),"storedMessages":get(STORED),
+        "move":get(MOVE),"movedMessages":get(MOVED),"expunge":get(EXPUNGE),"expungedMessages":get(EXPUNGED),"append":get(APPEND),"list":get(LIST),
+        "commands":get(FETCH)+get(STORE)+get(MOVE)+get(EXPUNGE)+get(APPEND)+get(LIST),"scope":"process-wide, every fixture account"})
+}
 
 #[derive(Clone)]
 struct Message {
@@ -59,6 +86,16 @@ impl RepresentativeBackend {
         }
         backend
     }
+    /// t60: add empty folders (the goal mix's Trash and Drafts).
+    pub fn with_folders(self, names: &[&str]) -> Self {
+        {
+            let mut state = self.folders.lock().unwrap();
+            for name in names {
+                state.entry((*name).to_string()).or_insert(Folder { next: 1, messages: BTreeMap::new() });
+            }
+        }
+        self
+    }
     fn coordinates(reference: &MessageRef) -> Result<(&str, u32)> {
         match reference {
             MessageRef::Imap {
@@ -83,6 +120,7 @@ impl AccountBackend for RepresentativeBackend {
         })
     }
     async fn list_mailboxes(&self) -> Result<Vec<RawMailbox>> {
+        count(LIST, None);
         let state = self.folders.lock().unwrap();
         Ok(state
             .iter()
@@ -91,10 +129,11 @@ impl AccountBackend for RepresentativeBackend {
                     name: name.clone(),
                     uidvalidity: 1,
                 },
-                role: if name == "INBOX" {
-                    MailboxRole::Inbox
-                } else {
-                    MailboxRole::Archive
+                role: match name.as_str() {
+                    "INBOX" => MailboxRole::Inbox,
+                    "Trash" => MailboxRole::Trash,
+                    "Drafts" => MailboxRole::Drafts,
+                    _ => MailboxRole::Archive,
                 },
                 parent: None,
                 uidnext: folder.next,
@@ -126,6 +165,7 @@ impl AccountBackend for RepresentativeBackend {
         })
     }
     async fn fetch_raw(&self, refs: &[MessageRef]) -> Result<Vec<RawMessage>> {
+        count(FETCH, Some((FETCHED, refs.len())));
         let state = self.folders.lock().unwrap();
         refs.iter()
             .map(|reference| {
@@ -146,6 +186,7 @@ impl AccountBackend for RepresentativeBackend {
             .collect()
     }
     async fn store_flags(&self, refs: &[MessageRef], add: &[Flag], remove: &[Flag]) -> Result<()> {
+        count(STORE, Some((STORED, refs.len())));
         let coordinates = refs
             .iter()
             .map(Self::coordinates)
@@ -177,6 +218,7 @@ impl AccountBackend for RepresentativeBackend {
         Ok(())
     }
     async fn move_messages(&self, refs: &[MessageRef], to: &RawMailboxRef) -> Result<MoveOutcome> {
+        count(MOVE, Some((MOVED, refs.len())));
         let coordinates = refs
             .iter()
             .map(Self::coordinates)
@@ -224,10 +266,35 @@ impl AccountBackend for RepresentativeBackend {
             uids,
         })
     }
-    async fn append(&self, _: &RawMailboxRef, _: &[u8], _: &[Flag]) -> Result<MessageRef> {
-        Err(EngineError::Unsupported(
-            "representative profile does not benchmark append/send".into(),
-        ))
+    async fn append(&self, mailbox: &RawMailboxRef, raw: &[u8], flags: &[Flag]) -> Result<MessageRef> {
+        // t60: only the goal mix's Drafts folder accepts appends (draft save);
+        // everything else keeps the representative profile's refusal.
+        let mut state = self.folders.lock().unwrap();
+        match state.get_mut(&mailbox.name) {
+            Some(folder) if mailbox.name == "Drafts" => {
+                count(APPEND, None);
+                let uid = folder.next;
+                folder.next += 1;
+                folder.messages.insert(uid, Message { raw: Arc::new(raw.to_vec()), flags: flags.to_vec() });
+                Ok(MessageRef::Imap { mailbox: RawMailboxRef { name: mailbox.name.clone(), uidvalidity: 1 }, uidvalidity: 1, uid })
+            }
+            _ => Err(EngineError::Unsupported("representative profile does not benchmark append/send".into())),
+        }
+    }
+    async fn expunge_messages(&self, refs: &[MessageRef]) -> Result<()> {
+        // t60: permanent removal only from the goal mix's Drafts and Trash.
+        let coordinates = refs.iter().map(Self::coordinates).collect::<Result<Vec<_>>>()?;
+        if coordinates.iter().any(|(folder, _)| !matches!(*folder, "Drafts" | "Trash")) {
+            return Err(EngineError::Unsupported("representative profile expunges only Drafts and Trash".into()));
+        }
+        count(EXPUNGE, Some((EXPUNGED, refs.len())));
+        let mut state = self.folders.lock().unwrap();
+        for (folder, uid) in coordinates {
+            if let Some(folder) = state.get_mut(folder) {
+                folder.messages.remove(&uid);
+            }
+        }
+        Ok(())
     }
     async fn watch(&self, _: ChangeSink) -> Result<WatchHandle> {
         Err(EngineError::Unsupported(

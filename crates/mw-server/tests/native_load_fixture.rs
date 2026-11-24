@@ -319,7 +319,7 @@ impl MailSubmitter for NoSend {
 }
 
 async fn seed(store: &Store, count: usize) -> Vec<Value> {
-    seed_profile(store, count, 2, false, 26, 4, false).await.0
+    seed_profile(store, count, 2, false, 26, 4, false, false).await.0
 }
 // Validation chooses chunks BEFORE a write. A failed write is terminal and is
 // never retried as smaller batches: its commit outcome may be uncertain.
@@ -350,6 +350,7 @@ async fn seed_profile(
     body_sample_bytes: usize,
     attachment_sample_bytes: usize,
     large_mailbox: bool,
+    goal_mix: bool,
 ) -> (
     Vec<Value>,
     std::collections::BTreeMap<String, Arc<representative::RepresentativeBackend>>,
@@ -361,7 +362,7 @@ async fn seed_profile(
     for index in 0..count {
         // t60: the large-mailbox profile sizes each user by cohort.
         let messages = if large_mailbox { large_mailbox_messages(index) } else { messages };
-        let unread = if large_mailbox { (1..=messages).filter(|uid| !large_mailbox_flags(*uid).0).count() as u32 } else { messages };
+        let unread = if large_mailbox { (1..=messages).filter(|uid| !large_mailbox_flags(*uid).0).count() as u32 } else if goal_mix { messages - 1 } else { messages };
         let username = format!("user{index}@native-load.invalid");
         let credentials = Credentials {
             username: username.clone(),
@@ -420,6 +421,18 @@ async fn seed_profile(
         } else {
             None
         };
+        // t60: the goal-65-35 mix also needs a Trash and a Drafts folder (both
+        // empty), for delete-to-trash and draft-save shapes.
+        let mut goal_folders = serde_json::Map::new();
+        if goal_mix {
+            for (name, role) in [("Trash", "trash"), ("Drafts", "drafts")] {
+                let id = store
+                    .upsert_mailbox(&MailboxUpsert { account_id: &account, name, role: Some(role), uidvalidity: 1, uidnext: 1, highestmodseq: 0, total: 0, unread: 0, parent_id: None })
+                    .await
+                    .unwrap();
+                goal_folders.insert(format!("{role}Id"), json!(id));
+            }
+        }
         // One principal only: the transport already retains these exact raw
         // messages. Store batching borrows them, rather than cloning all input
         // rows or allocating the whole campaign in advance.
@@ -428,7 +441,7 @@ async fn seed_profile(
         let mut message_ids = Vec::new();
         for uid in 1..=messages {
             let message_id = format!("<{index}-{uid}@native-load.invalid>");
-            let planted = if large_mailbox { large_mailbox_terms(uid) } else { String::new() };
+            let planted = if large_mailbox || goal_mix { large_mailbox_terms(uid) } else { String::new() };
             let raw = format!(
                 "From: sender@native-load.invalid\r\nTo: {username}\r\nSubject: Native fixture {index}/{uid}\r\nMessage-ID: {message_id}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nIsolated seeded message.\r\n{planted}"
             );
@@ -463,7 +476,10 @@ async fn seed_profile(
             envelopes.push(envelope);
             message_ids.push(message_id);
         }
-        let flag_rows:Vec<Vec<Flag>>=(1..=messages).map(|uid| if large_mailbox {let (seen,flagged)=large_mailbox_flags(uid);[(seen,Flag::Seen),(flagged,Flag::Flagged)].into_iter().filter(|(on,_)|*on).map(|(_,flag)|flag).collect()} else {Vec::new()}).collect();
+        // goal-65-35: messageIds[2] (UID 3) starts read and messageIds[3] (UID 4)
+        // flagged, so mark-unread-and-restore and unflag-and-restore change state
+        // on their first pass too.
+        let flag_rows:Vec<Vec<Flag>>=(1..=messages).map(|uid| if large_mailbox {let (seen,flagged)=large_mailbox_flags(uid);[(seen,Flag::Seen),(flagged,Flag::Flagged)].into_iter().filter(|(on,_)|*on).map(|(_,flag)|flag).collect()} else if goal_mix && uid == 3 {vec![Flag::Seen]} else if goal_mix && uid == 4 {vec![Flag::Flagged]} else {Vec::new()}).collect();
         let flag_json:Vec<String>=flag_rows.iter().map(|flags|serde_json::to_string(flags).unwrap()).collect();
         let inputs:Vec<_>=raws.iter().zip(&envelopes).zip(&message_ids).enumerate().map(|(index,((raw,envelope),message_id))| {
             (MessageUpsert {
@@ -506,12 +522,16 @@ async fn seed_profile(
             .as_ref()
             .map(|part| format!("{}.{}", ids[0], part));
         let cohort = if !large_mailbox { "default" } else { ["big-100000", "big-20000", "ordinary"][large_mailbox_cohort(index)] };
-        principals.push(json!({"cohort":cohort,"messageCount":messages,"unreadCount":unread,"flaggedCount":flag_rows.iter().filter(|f|f.contains(&Flag::Flagged)).count(),"plantedQuarterly":(1..=messages).filter(|uid|uid%5==0).count(),"cookie":format!("mw_session={session}; mw_csrf={csrf}"),"csrfToken":csrf,"accountId":account,"ownerAccountId":account,"messageIds":ids,"inboxId":mailbox,"archiveId":archive,"attachmentBlobId":attachment_blob,"attachmentSampleBytes":attachment_sample_bytes,"bodySampleBytes":body_sample_bytes,"clientAddress":simulated_client(index).to_string()}));
+        principals.push(json!({"cohort":cohort,"messageCount":messages,"unreadCount":unread,"flaggedCount":flag_rows.iter().filter(|f|f.contains(&Flag::Flagged)).count(),"plantedQuarterly":if large_mailbox||goal_mix {(1..=messages).filter(|uid|uid%5==0).count()} else {0},"plantedZephyrine":if large_mailbox||goal_mix {(1..=messages).filter(|uid|uid%2000==7).count()} else {0},"cookie":format!("mw_session={session}; mw_csrf={csrf}"),"csrfToken":csrf,"accountId":account,"ownerAccountId":account,"messageIds":ids,"inboxId":mailbox,"archiveId":archive,"attachmentBlobId":attachment_blob,"attachmentSampleBytes":attachment_sample_bytes,"bodySampleBytes":body_sample_bytes,"clientAddress":simulated_client(index).to_string()}));
+        if let Some(last) = principals.last_mut() {
+            for (key, value) in goal_folders {
+                last[key] = value;
+            }
+        }
         if representative {
-            runtimes.insert(
-                account,
-                Arc::new(representative::RepresentativeBackend::with_flags(raws, flag_rows)),
-            );
+            let backend = representative::RepresentativeBackend::with_flags(raws, flag_rows);
+            let backend = if goal_mix { backend.with_folders(&["Trash", "Drafts"]) } else { backend };
+            runtimes.insert(account, Arc::new(backend));
         }
         if (index + 1) % 1000 == 0 {
             eprintln!("native fixture seeded {} distinct principals", index + 1);
@@ -524,7 +544,7 @@ async fn seed_profile(
 async fn bounded_batch_seed_keeps_distinct_principals_fifty_owned_messages_and_ready_index() {
     let store=Store::open_in_memory(ServerKey::generate()).await.unwrap();
     // Exercise the maximum permitted sample payloads, not a reduced workload.
-    let (principals,runtimes)=seed_profile(&store,2,50,true,16384,262144,false).await;
+    let (principals,runtimes)=seed_profile(&store,2,50,true,16384,262144,false,false).await;
     assert_eq!(principals.len(),2);assert_eq!(runtimes.len(),2);
     let mut passwords=std::collections::HashSet::new();
     let mut owned_ids=std::collections::HashSet::new();
@@ -982,10 +1002,12 @@ async fn run(workers: usize) {
     );
     let workload = std::env::var("MW_NATIVE_LOAD_WORKLOAD").unwrap_or_else(|_| "baseline".into());
     assert!(
-        matches!(workload.as_str(), "baseline" | "representative"),
+        matches!(workload.as_str(), "baseline" | "representative" | "goal-65-35"),
         "choose baseline or representative workload"
     );
-    let representative = workload == "representative";
+    // t60: goal-65-35 seeds as representative does, plus Trash/Drafts and planted terms.
+    let goal_mix = workload == "goal-65-35";
+    let representative = workload == "representative" || goal_mix;
     // t60: separate large-mailbox profile with its own bounds; the default
     // profile keeps 2..100 messages per user and the 500,000 total below.
     let large_mailbox = large_mailbox_profile(std::env::var("MW_NATIVE_LOAD_PROFILE").ok().as_deref())
@@ -1074,6 +1096,7 @@ async fn run(workers: usize) {
         body_sample_bytes,
         attachment_sample_bytes,
         large_mailbox,
+        goal_mix,
     )
     .await;
     let seed_seconds = seeding_started.elapsed().as_secs_f64();
@@ -1243,6 +1266,7 @@ async fn run(workers: usize) {
                 snapshot["t34Modes"] = t34_modes::witness(&engine);
                 snapshot["httpTelemetry"] = mw_server::http_telemetry_snapshot();
                 snapshot["processCpuSeconds"] = json!(process_cpu::process_cpu_seconds());
+                snapshot["upstreamCommands"] = representative::upstream_commands();
                 snapshot["searchIndex"] = json!({
                     "storage":fixture_storage_proof(&engine,index_mode),
                     "writerConfiguration":engine.search().writer_configuration(),
@@ -1468,6 +1492,11 @@ async fn run(workers: usize) {
     data["linkedLoginPolicyProbe"] = linked_login_policy_probe;
     data["workloadProfile"] = json!({"kind":workload,"messagesPerPrincipal":messages,"seededMessages":count as u64*messages as u64,"seedSeconds":seed_seconds,"transport":if representative {"deterministic-read-flag-move"} else {"read-only"},"sendsMeasured":false,"upstreamNetworkMeasured":false});
     data["workloadProfile"]["profile"] = json!(if large_mailbox { "large-mailbox" } else { "default" });
+    if goal_mix {
+        data["workloadProfile"]["goalMixSeed"] = json!({"folders":["INBOX (inbox)","Archive (archive)","Trash (trash, empty)","Drafts (drafts, empty)"],
+            "principalFields":["inboxId","archiveId","trashId","draftsId","plantedQuarterly","plantedZephyrine"],
+            "plantedTerms":{"quarterly":"uid % 5 == 0 (not uid 1, the sample message)","zephyrine":"uid % 2000 == 7"},"flags":"messageIds[2] (UID 3) read, messageIds[3] (UID 4) flagged, every other message unread and unflagged"});
+    }
     if large_mailbox {
         data["workloadProfile"]["messagesPerPrincipal"] = Value::Null;
         data["workloadProfile"]["seededMessages"] = json!(seeded_counts.values().sum::<u64>());
@@ -1493,6 +1522,14 @@ async fn run(workers: usize) {
                 let mut command = tokio::process::Command::new("node");
                 command.arg(root.join("scripts/perf/bulk-ops/large-mailbox-driver.mjs")).arg(&handoff.0)
                     .arg(report.join(format!("native-large-mailbox-{count}.json"))).current_dir(&root).kill_on_drop(true);
+                command
+            }
+            // t60: one pass of each goal-mix write shape (and candidate shapes), validated; a smoke, not a measurement.
+            Ok("goal-mix-smoke") => {
+                assert!(goal_mix, "MW_NATIVE_LOAD_DRIVER=goal-mix-smoke requires MW_NATIVE_LOAD_WORKLOAD=goal-65-35");
+                let mut command = tokio::process::Command::new("node");
+                command.arg(root.join("scripts/perf/bulk-ops/goal-mix-smoke.mjs")).arg(&handoff.0)
+                    .arg(report.join(format!("native-goal-mix-smoke-{count}.json"))).current_dir(&root).kill_on_drop(true);
                 command
             }
             Err(_) | Ok("default") => fixture_runtime::internal_http_driver(&root, &handoff.0, &report.join(format!("native-{count}.json"))),
