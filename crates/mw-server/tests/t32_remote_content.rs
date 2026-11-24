@@ -35,8 +35,10 @@ use common::test_db;
 const KEY_HEX: &str = "2f2e3d4c5b6a79889796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f2";
 const INDEX_HTML: &str = "<!doctype html><title>Mailwoman</title><div id=app>MW</div>";
 
+// A submodule, not a test target: it lives in a directory so cargo does not
+// also build it on its own (its `use super::*` only compiles in here).
 #[cfg(feature = "load-test-fixtures")]
-#[path = "t32_image_proxy_benchmark.rs"]
+#[path = "t32_remote_content/image_proxy_benchmark.rs"]
 mod image_proxy_benchmark;
 
 #[tokio::test]

@@ -52,8 +52,8 @@ test('real Node HTTP transport validates bytes/hash and refuses redirects/oversi
 test('fixture source keeps production route absent and all measured cache proof public',async()=>{
  const root=new URL('../../',import.meta.url);
  const main=await readFile(new URL('crates/mw-server/tests/t32_remote_content.rs',root),'utf8');
- const source=await readFile(new URL('crates/mw-server/tests/t32_image_proxy_benchmark.rs',root),'utf8');
- assert.match(main,/#\[cfg\(feature = "load-test-fixtures"\)\]\s*#\[path = "t32_image_proxy_benchmark.rs"\]/);
+ const source=await readFile(new URL('crates/mw-server/tests/t32_remote_content/image_proxy_benchmark.rs',root),'utf8');
+ assert.match(main,/#\[cfg\(feature = "load-test-fixtures"\)\]\s*#\[path = "t32_remote_content\/image_proxy_benchmark.rs"\]/);
  assert.match(source,/#\[ignore = "private real-image throughput fixture/);
  assert.match(source,/MW_RUN_IMAGE_PROXY_BENCHMARK/);assert.match(source,/enforced::install\(&store\)/);
  assert.match(source,/grant_remote_image/);assert.match(source,/\/api\/rc\/sign/);

@@ -5,7 +5,7 @@ use axum::{body::Body, extract::State, http::{Request, StatusCode}, middleware::
 use std::{sync::atomic::{AtomicU64, Ordering}, time::Duration};
 use tokio::task::JoinHandle;
 
-#[path = "common/native_enforced_policy.rs"]
+#[path = "../common/native_enforced_policy.rs"]
 mod enforced;
 const BROWSER: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 const PEOPLE: usize = 16;
