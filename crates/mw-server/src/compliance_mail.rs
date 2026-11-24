@@ -25,6 +25,10 @@ struct Mail {
     recipient: String,
     subject: String,
     text: String,
+    /// An HTML alternative to `text` (t58: the console address mail). Rows
+    /// queued without one stay plain text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    html: Option<String>,
     attempts: u32,
     error: String,
 }
@@ -79,8 +83,57 @@ pub(crate) async fn enqueue(
     subject: &str,
     text: &str,
 ) -> Result<String, String> {
+    enqueue_with_html(state, event, recipient, subject, text, None).await
+}
+
+/// Why outbound system mail cannot be sent with the saved settings, or `None`
+/// when it is enabled and names a sender and a relay (or a JMAP endpoint).
+/// Checked before queueing a message an administrator is waiting for; delivery
+/// checks the settings again.
+pub(crate) async fn unavailable(state: &AppState) -> Option<&'static str> {
+    let Ok(cfg) = config(state).await else {
+        return Some("settingsUnavailable");
+    };
+    let value = |key: &str| cfg.get(key).and_then(Value::as_str).unwrap_or("").trim();
+    if cfg.get("compliance.mail.enabled") != Some(&json!(true)) {
+        return Some("disabled");
+    }
+    if mw_smtp::validate_mailbox(value("compliance.mail.from")).is_err() {
+        return Some("noSender");
+    }
+    if value("compliance.mail.protocol") == "jmap" {
+        return value("compliance.mail.jmapSessionUrl")
+            .is_empty()
+            .then_some("noRelay");
+    }
+    let host = value("compliance.mail.host");
+    (host.is_empty() || host.contains(['/', ':', '@'])).then_some("noRelay")
+}
+
+/// Run a delivery pass now instead of at the next 30 s tick. Each pass claims a
+/// row with a compare-and-swap before sending it, so a pass running beside the
+/// worker's never sends a row twice.
+pub(crate) fn deliver_soon(state: &AppState) {
+    let state = state.clone();
+    tokio::spawn(async move { pass(&state).await });
+}
+
+/// [`enqueue`] with an optional HTML alternative: the message is then
+/// `multipart/alternative`, plain text first.
+pub(crate) async fn enqueue_with_html(
+    state: &AppState,
+    event: &str,
+    recipient: &str,
+    subject: &str,
+    text: &str,
+    html: Option<&str>,
+) -> Result<String, String> {
     mw_smtp::validate_mailbox(recipient).map_err(|_| "Invalid notification recipient")?;
-    if subject.chars().any(char::is_control) || subject.len() > 512 || text.len() > 32768 {
+    if subject.chars().any(char::is_control)
+        || subject.len() > 512
+        || text.len() > 32768
+        || html.is_some_and(|h| h.len() > 65536)
+    {
         return Err("Notification content exceeds limits".into());
     }
     let cfg = config(state).await?;
@@ -101,6 +154,7 @@ pub(crate) async fn enqueue(
         recipient: recipient.into(),
         subject: subject.into(),
         text: text.into(),
+        html: html.map(str::to_owned),
         attempts: 0,
         error: String::new(),
     };
@@ -173,16 +227,37 @@ fn mime(from: &str, mail: &Mail, id: &str) -> Vec<u8> {
         ));
     }
     let subject = words.join("\r\n ");
-    let body = base64::engine::general_purpose::STANDARD.encode(mail.text.as_bytes());
     let mut raw = format!(
-        "From: {from}\r\nTo: {}\r\nSubject: {subject}\r\nDate: {}\r\nMessage-ID: <{}@mailwoman.invalid>\r\nAuto-Submitted: auto-generated\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n",
+        "From: {from}\r\nTo: {}\r\nSubject: {subject}\r\nDate: {}\r\nMessage-ID: <{}@mailwoman.invalid>\r\nAuto-Submitted: auto-generated\r\nMIME-Version: 1.0\r\n",
         mail.recipient,
         chrono::Utc::now().to_rfc2822(),
         id.replace(':', "-")
     );
-    for chunk in body.as_bytes().chunks(76) {
-        raw.push_str(std::str::from_utf8(chunk).unwrap_or(""));
-        raw.push_str("\r\n");
+    let part = |content_type: &str, body: &str| {
+        let mut out = format!(
+            "Content-Type: {content_type}; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n"
+        );
+        let encoded = base64::engine::general_purpose::STANDARD.encode(body.as_bytes());
+        for chunk in encoded.as_bytes().chunks(76) {
+            out.push_str(std::str::from_utf8(chunk).unwrap_or(""));
+            out.push_str("\r\n");
+        }
+        out
+    };
+    match &mail.html {
+        None => raw.push_str(&part("text/plain", &mail.text)),
+        Some(html) => {
+            // A base64 body never contains `=_`, so it cannot collide with the boundary.
+            let boundary = format!("=_mw_{}", &crate::push_relay::hash_token(id)[..32]);
+            raw.push_str(&format!(
+                "Content-Type: multipart/alternative; boundary=\"{boundary}\"\r\n\r\n"
+            ));
+            for (kind, body) in [("text/plain", mail.text.as_str()), ("text/html", html.as_str())] {
+                raw.push_str(&format!("--{boundary}\r\n"));
+                raw.push_str(&part(kind, body));
+            }
+            raw.push_str(&format!("--{boundary}--\r\n"));
+        }
     }
     raw.into_bytes()
 }
@@ -635,4 +710,65 @@ async fn resolve(
     )
     .await;
     Ok(Json(json!({"status":next.kind.rsplit(':').next()})).into_response())
+}
+
+#[cfg(test)]
+mod mime_tests {
+    use super::*;
+
+    fn mail(html: Option<&str>) -> Mail {
+        Mail {
+            recipient: "ops@example.org".into(),
+            subject: "Subject".into(),
+            text: "plain body".into(),
+            html: html.map(str::to_owned),
+            attempts: 0,
+            error: String::new(),
+        }
+    }
+
+    fn decoded_parts(raw: &str) -> Vec<String> {
+        raw.split("\r\n\r\n")
+            .skip(1)
+            .filter_map(|chunk| {
+                let b64: String = chunk
+                    .lines()
+                    .take_while(|l| !l.starts_with("--"))
+                    .collect();
+                base64::engine::general_purpose::STANDARD
+                    .decode(b64.trim())
+                    .ok()
+                    .and_then(|b| String::from_utf8(b).ok())
+            })
+            .collect()
+    }
+
+    #[test]
+    fn plain_mail_stays_single_part() {
+        let raw = String::from_utf8(mime("from@example.org", &mail(None), "id:1")).unwrap();
+        assert!(raw.contains("Content-Type: text/plain; charset=utf-8"));
+        assert!(!raw.contains("multipart"));
+        assert_eq!(decoded_parts(&raw), vec!["plain body".to_string()]);
+    }
+
+    #[test]
+    fn html_mail_is_multipart_alternative_with_plain_text_first() {
+        let raw = String::from_utf8(mime("from@example.org", &mail(Some("<p>html</p>")), "id:2")).unwrap();
+        assert!(raw.contains("Content-Type: multipart/alternative; boundary=\"=_mw_"));
+        let plain = raw.find("Content-Type: text/plain").unwrap();
+        let html = raw.find("Content-Type: text/html").unwrap();
+        assert!(plain < html);
+        assert!(raw.trim_end().ends_with("--"));
+        let parts = decoded_parts(&raw);
+        assert!(parts.contains(&"plain body".to_string()), "{parts:?}");
+        assert!(parts.contains(&"<p>html</p>".to_string()), "{parts:?}");
+    }
+
+    #[test]
+    fn queued_rows_without_html_still_decode() {
+        let old = r#"{"recipient":"a@example.org","subject":"s","text":"t","attempts":0,"error":""}"#;
+        let m: Mail = serde_json::from_str(old).unwrap();
+        assert!(m.html.is_none());
+        assert!(!serde_json::to_string(&m).unwrap().contains("html"));
+    }
 }
