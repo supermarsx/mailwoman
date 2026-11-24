@@ -39,8 +39,10 @@ export interface RealtimeControllerOptions {
   pushClient?: PushClientImpl;
   /** Invoked with the datatypes that moved for an account after each push. */
   onChanged?: ReconcileHandler;
-  /** Refetch the active account even before a first push frame established state. */
-  onCatchUp?: () => void;
+  /** Refetch the active account even before a first push frame established state.
+   *  `open`: the stream opened without having been down (the page's first connect);
+   *  `resync`: a reconnect, the poll fallback or a wake (t52w). */
+  onCatchUp?: (reason?: 'open' | 'resync') => void;
 }
 
 export function createRealtimeController(
@@ -56,7 +58,7 @@ export function createRealtimeController(
   let wasDown = false;
   let polling: ReturnType<typeof setInterval> | undefined;
   const stopPolling=():void=>{if(polling!==undefined){clearInterval(polling);polling=undefined;}};
-  const catchUp=():void=>{reconciler.resync();opts.onCatchUp?.();};
+  const catchUp=():void=>{reconciler.resync();opts.onCatchUp?.('resync');};
   const push =
     opts.pushClient ??
     createSharedPushClient({
@@ -70,7 +72,7 @@ export function createRealtimeController(
         else if (status === 'open' && wasDown) {
           wasDown = false;
           catchUp();
-        } else if (status === 'open') opts.onCatchUp?.();
+        } else if (status === 'open') opts.onCatchUp?.('open');
         else if (status === 'closed' || status === 'unauthorized') wasDown = false;
       },
     });

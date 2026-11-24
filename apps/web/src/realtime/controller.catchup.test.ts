@@ -19,3 +19,9 @@ it('stops catch-up on logout or an expired session and catches a reconnect witho
  report('reconnecting','ws');report('open','ws');expect(catchUp).toHaveBeenCalledTimes(2);
  report('degraded','poll');controller.stop();const count=catchUp.mock.calls.length;vi.advanceTimersByTime(60000);expect(catchUp).toHaveBeenCalledTimes(count);
 });
+it('names the first open apart from a reconnect (t52w)',()=>{
+ const catchUp=vi.fn();const controller=createRealtimeController({onCatchUp:catchUp});controller.start();
+ report('open','ws');expect(catchUp).toHaveBeenLastCalledWith('open');
+ report('reconnecting','ws');report('open','ws');expect(catchUp).toHaveBeenLastCalledWith('resync');
+ controller.stop();
+});

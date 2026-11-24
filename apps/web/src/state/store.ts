@@ -233,7 +233,7 @@ export function createAppState(client: Client, deps: AppStateDeps = {}): AppStat
   onCleanup(()=>preferenceRefresh.dispose());
   const realtime = createRealtimeSlice(ctx, {
     onMailboxChanged:frame=>{if(frame.changed.Email!==undefined||frame.changed.Mailbox!==undefined)familyIncoming.changed(frame.link,frame.storageAuthority);},
-    onCatchUp:()=>{preferenceRefresh.changed();incoming.changed();familyIncoming.changed();void mail.refreshCurrentMailbox();},
+    onCatchUp:reason=>{preferenceRefresh.caughtUp(reason==='open');incoming.changed();familyIncoming.changed();void mail.refreshCurrentMailbox();},
     onChanged: (accountId, types) => {
       if(types.includes('Settings'))preferenceRefresh.changed();
       if (accountId !== mail.accountId()) return;
