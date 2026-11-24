@@ -6,7 +6,12 @@
 //! `compose.sentFolder.skipCopy` is on; `delete_policy::admit` strips the
 //! `mailwomanPermanent` marker. Both edit the parsed request in place. These
 //! tests assert the effect on what the engine stores (engine mode) and on what
-//! the upstream receives (proxy mode).
+//! the upstream receives (proxy mode, cookie and native bearer sessions). An API
+//! key on `/jmap/api` is admitted only for Sieve-only batches, so a composed
+//! batch sent with one is refused before it reaches the upstream.
+//!
+//! Before the t51 fix, `jmap_api` re-parsed the raw body after the hooks ran and
+//! dispatched that copy, so none of these edits took effect.
 use std::sync::{Arc, Mutex};
 
 use mw_server::{AppConfig, SecurityConfig, ServerMode, build_app};
@@ -102,7 +107,6 @@ fn draft(account: &str, from: &str, mailbox: Option<&str>) -> Value {
 /// Engine mode: the stored draft carries the forced header and the held
 /// submission records "skip the sent copy".
 #[tokio::test]
-#[ignore = "t51: fails until the jmap_api re-parse is fixed"]
 async fn engine_mode_dispatches_the_policy_edited_request() {
     const KEY: &str = "5100112233445566778899aabbccddeeff00112233445566778899aabbccdd51";
     let mail = common::mock_imap::MockImap::start_drafts("alice@example.org", "testpass").await;
@@ -207,106 +211,232 @@ async fn engine_mode_dispatches_the_policy_edited_request() {
     );
 }
 
-/// Proxy mode: the request the upstream receives carries the forced header, the
-/// destroy-after-send rewrite, and no `mailwomanPermanent` marker.
-#[tokio::test]
-#[ignore = "t51: fails until the jmap_api re-parse is fixed"]
-async fn proxy_mode_forwards_the_policy_edited_request() {
-    const KEY: &str = "51aa112233445566778899aabbccddeeff00112233445566778899aabbccdd51";
-    let seen: Arc<Mutex<Vec<Value>>> = Arc::default();
-    let capture = seen.clone();
-    let upstream = serve(mw_mock_jmap::router().layer(axum::middleware::from_fn(
-        move |request: axum::extract::Request, next: axum::middleware::Next| {
-            let capture = capture.clone();
-            async move {
-                let (parts, body) = request.into_parts();
-                let bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();
-                if let Ok(value) = serde_json::from_slice::<Value>(&bytes)
-                    && value.get("methodCalls").is_some()
-                {
-                    capture.lock().unwrap().push(value);
-                }
-                next.run(axum::extract::Request::from_parts(parts, axum::body::Body::from(bytes)))
-                    .await
-            }
-        },
-    )))
-    .await;
-    let db = test_db::unique_dir("t51-policy-edits-proxy")
-        .join("db.sqlite")
-        .to_string_lossy()
-        .into_owned();
-    let store = Store::open(&db, ServerKey::from_hex(KEY).unwrap()).await.unwrap();
-    let base = serve(
-        build_app(AppConfig {
-            db_path: db,
-            server_key_hex: Some(KEY.into()),
-            web_dir: None,
-            cookie_secure: false,
-            mode: ServerMode::Proxy,
-            hardening: Default::default(),
-            security: SecurityConfig {
-                upstream_default: Some(upstream.clone()),
-                jmap_upstreams: Some(vec![upstream]),
-                ..Default::default()
-            },
-        })
-        .await
-        .unwrap(),
-    )
-    .await;
-    let user = client();
-    let login = user
-        .post(format!("{base}/api/login"))
-        .json(&json!({"username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS}))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(login.status().as_u16(), 200);
-    apply_policies(&store).await;
-    let account = mw_mock_jmap::ACCOUNT_ID;
+/// A proxy-mode server over the mock JMAP upstream, recording every JMAP body
+/// the upstream receives.
+struct Proxy {
+    base: String,
+    store: Store,
+    seen: Arc<Mutex<Vec<Value>>>,
+}
 
-    let (status, sent) = post(
-        &user,
-        &base,
-        json!([
+impl Proxy {
+    async fn start(key: &str, label: &str) -> Self {
+        let seen: Arc<Mutex<Vec<Value>>> = Arc::default();
+        let capture = seen.clone();
+        let upstream = serve(mw_mock_jmap::router().layer(axum::middleware::from_fn(
+            move |request: axum::extract::Request, next: axum::middleware::Next| {
+                let capture = capture.clone();
+                async move {
+                    let (parts, body) = request.into_parts();
+                    let bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();
+                    if let Ok(value) = serde_json::from_slice::<Value>(&bytes)
+                        && value.get("methodCalls").is_some()
+                    {
+                        capture.lock().unwrap().push(value);
+                    }
+                    next.run(axum::extract::Request::from_parts(parts, axum::body::Body::from(bytes)))
+                        .await
+                }
+            },
+        )))
+        .await;
+        let db = test_db::unique_dir(label)
+            .join("db.sqlite")
+            .to_string_lossy()
+            .into_owned();
+        let store = Store::open(&db, ServerKey::from_hex(key).unwrap()).await.unwrap();
+        let base = serve(
+            build_app(AppConfig {
+                db_path: db,
+                server_key_hex: Some(key.into()),
+                web_dir: None,
+                cookie_secure: false,
+                mode: ServerMode::Proxy,
+                hardening: Default::default(),
+                security: SecurityConfig {
+                    upstream_default: Some(upstream.clone()),
+                    jmap_upstreams: Some(vec![upstream]),
+                    ..Default::default()
+                },
+            })
+            .await
+            .unwrap(),
+        )
+        .await;
+        Self { base, store, seen }
+    }
+
+    /// The composed batch: a draft, its submission with a sent-copy move, and a
+    /// destroy carrying the server-only `mailwomanPermanent` marker.
+    fn batch() -> Value {
+        let account = mw_mock_jmap::ACCOUNT_ID;
+        json!({"using": USING, "methodCalls": [
             draft(account, mw_mock_jmap::USER, None),
             ["EmailSubmission/set", {"accountId": account,
                 "create": {"send": {"emailId": "#draft"}},
                 "onSuccessUpdateEmail": {"#send": {"keywords/$draft": null}}}, "s"],
             ["Email/set", {"accountId": account, "destroy": ["gone"], "mailwomanPermanent": true}, "d"],
-        ]),
+        ]})
+    }
+
+    fn forwarded(&self) -> Option<Value> {
+        self.seen
+            .lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|r| r.to_string().contains(SUBJECT))
+            .cloned()
+    }
+
+    /// The upstream received the batch with every policy edit applied.
+    fn assert_edited(&self) {
+        let forwarded = self.forwarded().expect("the batch reached the upstream");
+        let calls = forwarded["methodCalls"].as_array().unwrap();
+        assert_eq!(
+            calls[0][1]["create"]["draft"][format!("header:{FORCED_NAME}:asText")],
+            json!(FORCED_VALUE),
+            "compose.headers.forced is written into the forwarded message: {forwarded}"
+        );
+        let submission = &calls[1][1];
+        assert_eq!(
+            submission["onSuccessDestroyEmail"],
+            json!(["#send"]),
+            "compose.sentFolder.skipCopy rewrites the forwarded submission: {forwarded}"
+        );
+        assert!(
+            submission.get("onSuccessUpdateEmail").is_none(),
+            "the sent-copy move is removed under skipCopy: {forwarded}"
+        );
+        assert!(
+            !forwarded.to_string().contains("mailwomanPermanent"),
+            "the internal mailwomanPermanent marker is not forwarded upstream: {forwarded}"
+        );
+    }
+}
+
+/// Proxy mode, cookie session: the request the upstream receives carries the
+/// forced header, the destroy-after-send rewrite, and no `mailwomanPermanent`.
+#[tokio::test]
+async fn proxy_mode_forwards_the_policy_edited_request() {
+    let proxy = Proxy::start(
+        "51aa112233445566778899aabbccddeeff00112233445566778899aabbccdd51",
+        "t51-policy-edits-proxy",
     )
     .await;
-    assert_eq!(status, 200, "{sent}");
+    let user = client();
+    let login = user
+        .post(format!("{}/api/login", proxy.base))
+        .json(&json!({"username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(login.status().as_u16(), 200);
+    apply_policies(&proxy.store).await;
 
-    let forwarded = seen
-        .lock()
+    let response = user
+        .post(format!("{}/jmap/api", proxy.base))
+        .json(&Proxy::batch())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status().as_u16(), 200, "{}", response.text().await.unwrap());
+    proxy.assert_edited();
+}
+
+/// Proxy mode, native bearer session (`Authorization: Bearer`, no cookie): the
+/// same edits reach the upstream.
+#[tokio::test]
+async fn proxy_mode_bearer_session_forwards_the_policy_edited_request() {
+    let proxy = Proxy::start(
+        "51bb112233445566778899aabbccddeeff00112233445566778899aabbccdd51",
+        "t51-policy-edits-bearer",
+    )
+    .await;
+    let bare = reqwest::Client::builder().no_proxy().build().unwrap();
+    let login: Value = bare
+        .post(format!("{}/api/login", proxy.base))
+        .json(&json!({"username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS, "clientType": "native"}))
+        .send()
+        .await
         .unwrap()
-        .iter()
-        .rev()
-        .find(|r| r.to_string().contains(SUBJECT))
-        .cloned()
-        .expect("the batch reached the upstream");
-    let calls = forwarded["methodCalls"].as_array().unwrap();
-    let draft = &calls[0][1]["create"]["draft"];
-    assert_eq!(
-        draft[format!("header:{FORCED_NAME}:asText")],
-        json!(FORCED_VALUE),
-        "compose.headers.forced is written into the forwarded message: {forwarded}"
-    );
-    let submission = &calls[1][1];
-    assert_eq!(
-        submission["onSuccessDestroyEmail"],
-        json!(["#send"]),
-        "compose.sentFolder.skipCopy rewrites the forwarded submission: {forwarded}"
-    );
+        .json()
+        .await
+        .unwrap();
+    let token = login["token"]
+        .as_str()
+        .unwrap_or_else(|| panic!("native login returns a bearer token: {login}"))
+        .to_string();
+    apply_policies(&proxy.store).await;
+
+    let response = bare
+        .post(format!("{}/jmap/api", proxy.base))
+        .bearer_auth(&token)
+        .json(&Proxy::batch())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status().as_u16(), 200, "{}", response.text().await.unwrap());
+    proxy.assert_edited();
+}
+
+/// Proxy mode, API key as the bearer: `/jmap/api` admits a key only for a
+/// Sieve-only batch, so the composed batch is refused and nothing unedited
+/// reaches the upstream.
+#[tokio::test]
+async fn proxy_mode_api_key_cannot_forward_an_unedited_batch() {
+    let proxy = Proxy::start(
+        "51cc112233445566778899aabbccddeeff00112233445566778899aabbccdd51",
+        "t51-policy-edits-key",
+    )
+    .await;
+    let user = client();
+    let login: Value = user
+        .post(format!("{}/api/login", proxy.base))
+        .json(&json!({"username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let account = login["accountId"].as_str().expect("signed in").to_string();
+    common::auth::user_step_up(&user, &proxy.base, mw_mock_jmap::PASS).await;
+    let minted: Value = user
+        .post(format!("{}/api/keys", proxy.base))
+        .json(&json!({"label": "t51", "accountId": account, "scope": {
+            "read": true, "send": true, "delete": true,
+            "accounts": {"subset": [account]}, "folders": "all",
+            "mail": true, "pim": false, "ip_allowlist": [], "expires_at": null,
+            "rate_limit": null, "mcp_tools": [], "unattended_send": true,
+        }}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let key = minted["displayToken"]
+        .as_str()
+        .unwrap_or_else(|| panic!("a shown-once key: {minted}"))
+        .to_string();
+    apply_policies(&proxy.store).await;
+
+    let response = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap()
+        .post(format!("{}/jmap/api", proxy.base))
+        .bearer_auth(&key)
+        .json(&Proxy::batch())
+        .send()
+        .await
+        .unwrap();
+    let status = response.status().as_u16();
     assert!(
-        submission.get("onSuccessUpdateEmail").is_none(),
-        "the sent-copy move is removed under skipCopy: {forwarded}"
+        status == 401 || status == 403,
+        "an API key cannot send a composed JMAP batch: {status} {}",
+        response.text().await.unwrap()
     );
-    assert!(
-        calls[2][1].get("mailwomanPermanent").is_none(),
-        "the server-only marker is not forwarded: {forwarded}"
-    );
+    assert!(proxy.forwarded().is_none(), "nothing reached the upstream");
 }

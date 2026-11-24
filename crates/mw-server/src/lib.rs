@@ -3738,12 +3738,8 @@ async fn jmap_api(
             tracing::warn!("engine account not available: {e}");
             return upstream_error();
         }
-        let request: serde_json::Value = match serde_json::from_slice(&body) {
-            Ok(v) => v,
-            Err(e) => {
-                return (StatusCode::BAD_REQUEST, format!("bad json: {e}")).into_response();
-            }
-        };
+        // Dispatch the request the policy hooks above edited, never a fresh parse
+        // of the raw body (t51).
         let has_sieve = request
             .get("methodCalls")
             .and_then(Value::as_array)
@@ -3812,7 +3808,8 @@ async fn jmap_api(
     }
     let mut deferred_sieve_errors = Vec::new();
     let mut response_order = Vec::new();
-    let body = if let Ok(mut request) = serde_json::from_slice::<Value>(&body) {
+    // Forward the request the policy hooks above edited (t51).
+    let body = {
         let has_sieve = request["methodCalls"].as_array().is_some_and(|calls| {
             calls.iter().any(|c| {
                 c[0].as_str()
@@ -3855,8 +3852,6 @@ async fn jmap_api(
             }
         }
         Bytes::from(serde_json::to_vec(&request).unwrap_or_default())
-    } else {
-        body
     };
     let client = match upstream_client(
         &state.security,
