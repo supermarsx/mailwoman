@@ -172,6 +172,20 @@ jobs:
   # This is the LINUX leg; `rust-crossplatform` below runs the same gate on
   # Windows + macOS.
   # -------------------------------------------------------------------------
+  # format-check: `cargo fmt --all --check` on its own (t61). It used to be the
+  # first step of `rust`, so an unformatted file stopped clippy, the tests and
+  # the build there, and every job with `needs: [rust]` was skipped with them.
+  # A formatting failure is now red here and nowhere else.
+  format-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.1
+        with:
+          components: rustfmt
+      - name: fmt
+        run: cargo fmt --all --check
+
   rust:
     runs-on: ubuntu-latest
     steps:
@@ -196,13 +210,11 @@ jobs:
       # Nothing in the core workspace depends on them, so excluding them here is
       # clean. On Windows (WebView2 present) `cargo build --workspace` builds them
       # directly — see the e0 toolchain probe.
-      - name: fmt
-        run: cargo fmt --all --check
       - name: clippy
         run: cargo clippy --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile --all-targets -- -D warnings
       # The canonical gate is THREE separate invocations, not one combined
       # `cargo test --workspace`:
-      #   1. `cargo fmt --all --check`            (above)
+      #   1. `cargo fmt --all --check`            (the `format-check` job)
       #   2. `--lib --tests -- --test-threads=1`  (below)
       #   3. `--doc`                              (below)
       # Leg 3 is a compile check of doc examples, not a test leg: across the 39
@@ -426,6 +438,9 @@ jobs:
   imap-conformance:
     runs-on: ubuntu-latest
     needs: [rust]
+    # Run, and fail on its own, even when `rust`/`web` are red (t61);
+    # it builds what it needs itself. Only a cancelled run skips it.
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -498,7 +513,7 @@ jobs:
         run: docker compose -f docker-compose.dev.yml down -v
 
   # -------------------------------------------------------------------------
-  # Web: typecheck, lint, unit tests, build. The bundle-size gate is a dedicated
+  # Web: typecheck, unit tests, build (lint is the `web-lint` job). The bundle-size gate is a dedicated
   # job (`bundle-size`) so it is a first-class, named §23 gate.
   # -------------------------------------------------------------------------
   web:
@@ -517,8 +532,6 @@ jobs:
         run: pnpm -C apps/web install --frozen-lockfile
       - name: typecheck
         run: pnpm -C apps/web typecheck
-      - name: lint
-        run: pnpm -C apps/web lint
       - name: test
         run: pnpm -C apps/web test
       # The per-build Tauri config overlay (desktop updater only with both a feed
@@ -538,6 +551,26 @@ jobs:
           name: product-security-frontend
           path: apps/web/dist/software-bom.frontend.json
           if-no-files-found: error
+
+  # web-lint: `pnpm lint` on its own (t61), for the same reason as
+  # `format-check`: a lint error no longer stops the web tests and build, and so
+  # no longer skips every job with `needs: [web]`.
+  web-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: install
+        run: pnpm -C apps/web install --frozen-lockfile
+      - name: lint
+        run: pnpm -C apps/web lint
 
   # -------------------------------------------------------------------------
   # web-crossplatform — the same typecheck / test / build as `web` above, on
@@ -563,8 +596,8 @@ jobs:
   # `e2e-pim`, `e2e-crypto`, `e2e-v6` and `e2e-v7` all declare `needs: [rust,
   # web]` — see the `rust-crossplatform` rationale.
   #
-  # `pnpm lint` is not repeated here: ESLint is host-independent, so the `web`
-  # job stays the single lint gate.
+  # `pnpm lint` is not repeated here: ESLint is host-independent, so the
+  # `web-lint` job stays the single lint gate.
   # -------------------------------------------------------------------------
   web-crossplatform:
     continue-on-error: true
@@ -678,6 +711,9 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     needs: [rust, web]
+    # Run, and fail on its own, even when `rust`/`web` are red (t61);
+    # it builds what it needs itself. Only a cancelled run skips it.
+    if: ${{ !cancelled() }}
     env:
       DOCKER_BUILDKIT: "1"
       COMPOSE_DOCKER_CLI_BUILD: "1"
@@ -731,6 +767,9 @@ jobs:
   search-bench:
     runs-on: ubuntu-latest
     needs: [rust]
+    # Run, and fail on its own, even when `rust`/`web` are red (t61);
+    # it builds what it needs itself. Only a cancelled run skips it.
+    if: ${{ !cancelled() }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98.1
@@ -777,6 +816,9 @@ jobs:
   zap-baseline:
     runs-on: ubuntu-latest
     needs: [rust, web]
+    # Run, and fail on its own, even when `rust`/`web` are red (t61);
+    # it builds what it needs itself. Only a cancelled run skips it.
+    if: ${{ !cancelled() }}
     continue-on-error: true
     env:
       DOCKER_BUILDKIT: "1"
@@ -881,6 +923,9 @@ jobs:
   caldav-carddav-conformance:
     runs-on: ubuntu-latest
     needs: [rust]
+    # Run, and fail on its own, even when `rust`/`web` are red (t61);
+    # it builds what it needs itself. Only a cancelled run skips it.
+    if: ${{ !cancelled() }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98.1
@@ -919,6 +964,9 @@ jobs:
   e2e-engine:
     runs-on: ubuntu-latest
     needs: [rust, web]
+    # Run, and fail on its own, even when `rust`/`web` are red (t61);
+    # it builds what it needs itself. Only a cancelled run skips it.
+    if: ${{ !cancelled() }}
     env:
       DOCKER_BUILDKIT: "1"
       COMPOSE_DOCKER_CLI_BUILD: "1"
@@ -976,6 +1024,9 @@ jobs:
   e2e-pim:
     runs-on: ubuntu-latest
     needs: [rust, web]
+    # Run, and fail on its own, even when `rust`/`web` are red (t61);
+    # it builds what it needs itself. Only a cancelled run skips it.
+    if: ${{ !cancelled() }}
     env:
       DOCKER_BUILDKIT: "1"
       COMPOSE_DOCKER_CLI_BUILD: "1"
@@ -1030,6 +1081,9 @@ jobs:
   e2e-t32:
     runs-on: ubuntu-latest
     needs: [rust, web]
+    # Run, and fail on its own, even when `rust`/`web` are red (t61);
+    # it builds what it needs itself. Only a cancelled run skips it.
+    if: ${{ !cancelled() }}
     env:
       DOCKER_BUILDKIT: "1"
       COMPOSE_DOCKER_CLI_BUILD: "1"
@@ -1111,6 +1165,9 @@ jobs:
   e2e-receipts:
     runs-on: ubuntu-latest
     needs: [rust, web]
+    # Run, and fail on its own, even when `rust`/`web` are red (t61);
+    # it builds what it needs itself. Only a cancelled run skips it.
+    if: ${{ !cancelled() }}
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -1210,6 +1267,9 @@ jobs:
   restyle-report:
     runs-on: ubuntu-latest
     needs: [rust, web]
+    # Run, and fail on its own, even when `rust`/`web` are red (t61);
+    # it builds what it needs itself. Only a cancelled run skips it.
+    if: ${{ !cancelled() }}
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -1417,6 +1477,9 @@ jobs:
   crypto-interop:
     runs-on: ubuntu-latest
     needs: [rust]
+    # Run, and fail on its own, even when `rust`/`web` are red (t61);
+    # it builds what it needs itself. Only a cancelled run skips it.
+    if: ${{ !cancelled() }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98.1
@@ -1466,6 +1529,9 @@ jobs:
   mail-auth-verdicts:
     runs-on: ubuntu-latest
     needs: [rust]
+    # Run, and fail on its own, even when `rust`/`web` are red (t61);
+    # it builds what it needs itself. Only a cancelled run skips it.
+    if: ${{ !cancelled() }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98.1
@@ -1488,6 +1554,9 @@ jobs:
   e2e-crypto:
     runs-on: ubuntu-latest
     needs: [rust, web]
+    # Run, and fail on its own, even when `rust`/`web` are red (t61);
+    # it builds what it needs itself. Only a cancelled run skips it.
+    if: ${{ !cancelled() }}
     env:
       DOCKER_BUILDKIT: "1"
       COMPOSE_DOCKER_CLI_BUILD: "1"
@@ -1942,6 +2011,9 @@ jobs:
   store-dual-backend:
     runs-on: ubuntu-latest
     needs: [rust]
+    # Run, and fail on its own, even when `rust`/`web` are red (t61);
+    # it builds what it needs itself. Only a cancelled run skips it.
+    if: ${{ !cancelled() }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98.1
@@ -2058,6 +2130,9 @@ jobs:
   migrate-store-smoke:
     runs-on: ubuntu-latest
     needs: [rust]
+    # Run, and fail on its own, even when `rust`/`web` are red (t61);
+    # it builds what it needs itself. Only a cancelled run skips it.
+    if: ${{ !cancelled() }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98.1
@@ -2110,6 +2185,9 @@ jobs:
   cache-valkey:
     runs-on: ubuntu-latest
     needs: [rust]
+    # Run, and fail on its own, even when `rust`/`web` are red (t61);
+    # it builds what it needs itself. Only a cancelled run skips it.
+    if: ${{ !cancelled() }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98.1
@@ -2139,6 +2217,9 @@ jobs:
   e2e-v6:
     runs-on: ubuntu-latest
     needs: [rust, web]
+    # Run, and fail on its own, even when `rust`/`web` are red (t61);
+    # it builds what it needs itself. Only a cancelled run skips it.
+    if: ${{ !cancelled() }}
     env:
       DOCKER_BUILDKIT: "1"
       COMPOSE_DOCKER_CLI_BUILD: "1"
@@ -2332,6 +2413,9 @@ jobs:
   wasm-plugin-build:
     runs-on: ubuntu-latest
     needs: [rust]
+    # Run, and fail on its own, even when `rust`/`web` are red (t61);
+    # it builds what it needs itself. Only a cancelled run skips it.
+    if: ${{ !cancelled() }}
     steps:
       - uses: actions/checkout@v4
       # FIRST, before any toolchain or build: the committed artifacts must match
@@ -2596,6 +2680,9 @@ jobs:
   jail:
     runs-on: ubuntu-latest
     needs: [rust]
+    # Run, and fail on its own, even when `rust`/`web` are red (t61);
+    # it builds what it needs itself. Only a cancelled run skips it.
+    if: ${{ !cancelled() }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98.1
@@ -2616,6 +2703,9 @@ jobs:
   directory-vs-openldap:
     runs-on: ubuntu-latest
     needs: [rust]
+    # Run, and fail on its own, even when `rust`/`web` are red (t61);
+    # it builds what it needs itself. Only a cancelled run skips it.
+    if: ${{ !cancelled() }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98.1
@@ -2646,6 +2736,9 @@ jobs:
   assist-mock:
     runs-on: ubuntu-latest
     needs: [rust]
+    # Run, and fail on its own, even when `rust`/`web` are red (t61);
+    # it builds what it needs itself. Only a cancelled run skips it.
+    if: ${{ !cancelled() }}
     env:
       DOCKER_BUILDKIT: "1"
       COMPOSE_DOCKER_CLI_BUILD: "1"
@@ -2689,6 +2782,9 @@ jobs:
   egress-squid:
     runs-on: ubuntu-latest
     needs: [rust]
+    # Run, and fail on its own, even when `rust`/`web` are red (t61);
+    # it builds what it needs itself. Only a cancelled run skips it.
+    if: ${{ !cancelled() }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98.1
@@ -2719,6 +2815,9 @@ jobs:
   bridge-fixtures:
     runs-on: ubuntu-latest
     needs: [rust]
+    # Run, and fail on its own, even when `rust`/`web` are red (t61);
+    # it builds what it needs itself. Only a cancelled run skips it.
+    if: ${{ !cancelled() }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98.1
@@ -2792,6 +2891,9 @@ jobs:
   e2e-v7:
     runs-on: ubuntu-latest
     needs: [rust, web]
+    # Run, and fail on its own, even when `rust`/`web` are red (t61);
+    # it builds what it needs itself. Only a cancelled run skips it.
+    if: ${{ !cancelled() }}
     env:
       DOCKER_BUILDKIT: "1"
       COMPOSE_DOCKER_CLI_BUILD: "1"
