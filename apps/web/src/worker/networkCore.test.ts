@@ -77,3 +77,66 @@ it('does not repopulate shared snapshots with an in-flight read older than a pus
  release(json({sessionState:'old',methodResponses:[]}));await first;
  await core.receive('left',request('after','jmap',{body}));expect(calls).toBe(2);expect(left.at(-1)).toMatchObject({result:{sessionState:'fresh'}});
 });
+
+// t52w: identity and session reuse.
+const mePath=([_base,path]:unknown[])=>String(path).endsWith('/api/me');
+const sessionPath=([_base,path]:unknown[])=>String(path).endsWith('/jmap/session');
+const readBody=(id:string)=>({using:[],methodCalls:[['Email/get',{accountId:'a',ids:[id]},'get']]}) as NonNullable<NetworkRequest['body']>;
+const meCalls=()=>vi.mocked(workerHttp).mock.calls.filter(mePath).length;
+const sessionCalls=()=>vi.mocked(workerHttp).mock.calls.filter(sessionPath).length;
+it('answers reads within 5 s with one identity check and one session document',async()=>{
+ for(const id of ['1','2','3'])await core.receive('left',request(id,'jmap',{body:readBody(id)}));
+ await core.receive('right',request('4','session'));
+ expect(meCalls()).toBe(1);expect(sessionCalls()).toBe(1);
+});
+it('asks again after 5 s, for every write, for the window\'s own me, and for another link',async()=>{
+ const now=vi.spyOn(Date,'now');let clock=1_000_000;now.mockImplementation(()=>clock);
+ try{
+  await core.receive('left',request('1','jmap',{body:readBody('1')}));
+  clock+=5000;await core.receive('left',request('2','jmap',{body:readBody('2')}));expect(meCalls()).toBe(2);
+  await core.receive('left',request('3','jmap',{body:{using:[],methodCalls:[['Email/set',{accountId:'a',update:{}},'set']]}}));expect(meCalls()).toBe(3);
+  await core.receive('left',request('4','me'));expect(meCalls()).toBe(4);
+  await core.receive('left',request('5','jmap',{context:{...context(),linkId:'link-1',owner:undefined} as never,body:readBody('5')}));expect(meCalls()).toBe(5);
+ }finally{now.mockRestore();}
+});
+it('drops the kept identity on reset',async()=>{
+ await core.receive('left',request('1','jmap',{body:readBody('1')}));
+ await core.receive('left',request('reset','reset'));
+ await core.receive('left',request('2','jmap',{body:readBody('2')}));
+ expect(meCalls()).toBe(2);expect(sessionCalls()).toBe(2);
+});
+it('notices a revoked cookie on the next request, not after 5 s',async()=>{
+ await core.receive('left',request('1','jmap',{body:readBody('1')}));
+ const {ApiError}=await import('../api/errors.ts');
+ vi.mocked(workerHttp).mockImplementation(async()=>{throw new ApiError(401,'Session ended');});
+ await core.receive('left',request('2','jmap',{body:readBody('2')}));
+ expect(left.at(-1)).toMatchObject({id:'2',error:{status:401}});
+ const before=meCalls();
+ await core.receive('left',request('3','jmap',{body:readBody('3')}));
+ expect(meCalls()).toBe(before+1);expect(left.at(-1)).toMatchObject({id:'3',error:{status:401}});
+});
+it.each([403,409])('drops the kept identity on a %i from any request',async status=>{
+ await core.receive('left',request('1','jmap',{body:readBody('1')}));
+ const {ApiError}=await import('../api/errors.ts');
+ vi.mocked(workerHttp).mockImplementation(async(_base,path)=>{if(path.endsWith('/jmap/api'))throw new ApiError(status,'Refused');return path.endsWith('/api/me')?json(me):json({apiUrl:'/jmap/api'});});
+ await core.receive('left',request('2','jmap',{body:readBody('2')}));
+ await core.receive('left',request('3','jmap',{body:readBody('3')}));
+ expect(meCalls()).toBe(2);
+});
+it('asks the server before refusing an owner the kept answer does not match',async()=>{
+ await core.receive('left',request('1','jmap',{body:readBody('1')}));
+ const other={accountId:'b',storageAuthority:'other_authority_123456',csrfToken:'c2'};
+ vi.mocked(workerHttp).mockImplementation(async(_base,path)=>path.endsWith('/api/me')?json(other):path.endsWith('/jmap/session')?json({apiUrl:'/jmap/api'}):json({sessionState:'b',methodResponses:[]}));
+ await core.receive('right',request('2','jmap',{context:{...context(),owner:{accountId:'b',storageAuthority:other.storageAuthority}},body:readBody('2')}));
+ expect(right.at(-1)).toMatchObject({id:'2',result:{sessionState:'b'}});expect(meCalls()).toBe(2);
+ // The first window's owner no longer matches the cookie: refused after a fresh check.
+ await core.receive('left',request('3','jmap',{body:readBody('3')}));
+ expect(left.at(-1)).toMatchObject({id:'3',error:{status:409,code:'accountChanged'}});
+});
+it('reads the session document again after a pushed change',async()=>{
+ await core.receive('left',request('push','push.start'));
+ await core.receive('left',request('1','jmap',{body:readBody('1')}));
+ Socket.all[0]!.onmessage?.({data:JSON.stringify({'@type':'StateChange',changed:{a:{Email:'next'}}})});
+ await core.receive('left',request('2','jmap',{body:readBody('2')}));
+ expect(sessionCalls()).toBe(2);
+});
