@@ -12,7 +12,8 @@ it('the admin sidebar resize wrapper is a flex box so its separator spans the fu
   expect(rule).toBeDefined();
   const base = rule!.split(/\n\s*(?:selectors|'@media'):/)[0]!.replace(/\/\/.*$/gm, '');
   expect(base).toMatch(/display:\s*'(?:flex|grid)'/);
-  expect(base).toMatch(/height:\s*'100vh'/);
+  // The full viewport height, divided by the UI zoom factor since the zoom setting.
+  expect(base).toMatch(/height:\s*'(?:100vh|calc\(100vh \/ var\(--mw-ui-zoom, 1\)\))'/);
   const handle = readFileSync(resolve(process.cwd(), 'src/components/ResizeHandle.css.ts'), 'utf8');
   expect(handle).toMatch(/alignSelf:\s*'stretch'/);
 });

@@ -24,9 +24,9 @@ it('applies effective admin settings to formats, size and tool placement',async(
 });
 
 it('keeps server defaults and user/admin registry scopes aligned with the editors',()=>{
- const previews=readFileSync('../../crates/mw-server/src/file_preview_preferences.rs','utf8');
- const presets=readFileSync('../../crates/mw-server/src/snooze_presets.rs','utf8');
- const registry=readFileSync('../../crates/mw-server/src/settings_registry.rs','utf8');
+ const previews=readFileSync('../../crates/mw-settings/src/file_preview_preferences.rs','utf8');
+ const presets=readFileSync('../../crates/mw-settings/src/snooze_presets.rs','utf8');
+ const registry=readFileSync('../../crates/mw-settings/src/settings_registry.rs','utf8');
  expect(JSON.parse(previews.match(/DEFAULT[^=]*=\s*r#"([\s\S]*?)"#/)! [1]!)).toEqual(DEFAULT_FILE_PREVIEWS);
  expect(JSON.parse(presets.match(/DEFAULT[^=]*=\s*r#"([\s\S]*?)"#/)! [1]!)).toEqual(DEFAULT_SNOOZE_PRESETS);
  for(const key of ['reader.filePreviews','mail.followUp.presets','mail.snooze.presets']){

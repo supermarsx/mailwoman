@@ -21,7 +21,7 @@ vi.mock('../api/settings.ts',async original=>({
  settingsLoadStatus:()=> 'ready',
  writeSetting:vi.fn(async(_key:string,value:unknown)=>({value,source:'user',locked:false})),
 }));
-vi.mock('../state/context.ts',()=>({useApp:()=>({accountId:()=>'a',mailboxes:()=>[],openMessage:vi.fn(),archiveMessage:state.archive,trashMessage:vi.fn(),pinMessage:state.pin,markRead:state.read,flagMessage:state.flag,markSpam:vi.fn(),exportMessage:vi.fn()})}));
+vi.mock('../state/context.ts',()=>({useApp:()=>({accountId:()=>'a',onRealtimeChange:()=>()=>{},mailboxes:()=>[],openMessage:vi.fn(),archiveMessage:state.archive,trashMessage:vi.fn(),pinMessage:state.pin,markRead:state.read,flagMessage:state.flag,markSpam:vi.fn(),exportMessage:vi.fn()})}));
 
 afterEach(()=>{suspendAccountPreferences();localStorage.clear();vi.restoreAllMocks();state.flag.mockClear();state.read.mockClear();state.pin.mockClear();state.archive.mockClear();});
 function popup(){const doc=document.implementation.createHTMLDocument('popup');doc.documentElement.setAttribute('data-mailwoman-workspace-popup','1');Object.defineProperty(doc,'readyState',{value:'complete',configurable:true});const events=new EventTarget();const value={document:doc,location:{href:new URL('/workspace-popup.html',location.href).href},closed:false,focus:vi.fn(),close:vi.fn(()=>{value.closed=true;}),addEventListener:events.addEventListener.bind(events),removeEventListener:events.removeEventListener.bind(events),dispatchEvent:events.dispatchEvent.bind(events)};vi.spyOn(window,'open').mockReturnValue(value as unknown as Window);return value;}

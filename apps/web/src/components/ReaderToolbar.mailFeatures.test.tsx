@@ -8,7 +8,7 @@ const state=vi.hoisted(()=>({values:{} as Record<string,{value:unknown}>}));
 vi.mock('../realtime/context.ts',()=>({useRealtime:()=>({subTabs:{tabs:()=>[],activate:vi.fn()}})}));
 vi.mock('../api/transport.ts',()=>({createConfiguredClient:()=>({jmap:vi.fn().mockResolvedValue({methodResponses:[['Thread/get',{accountId:'a',list:[{id:'t1',emailIds:['m1']}],notFound:[]},'thread']]})})}));
 vi.mock('../api/settings.ts',()=>({settings:()=>state.values}));
-vi.mock('../state/context.ts',()=>({useApp:()=>({accountId:()=> 'a',supportsFromDomainSearch:()=>true,searchMessageField:vi.fn(),mailboxes:()=>[],openMessage:vi.fn(),archiveMessage:vi.fn(),trashMessage:vi.fn(),pinMessage:vi.fn(),markRead:vi.fn(),flagMessage:vi.fn(),markSpam:vi.fn(),exportMessage:vi.fn()})}));
+vi.mock('../state/context.ts',()=>({useApp:()=>({accountId:()=> 'a',onRealtimeChange:()=>()=>{},supportsFromDomainSearch:()=>true,searchMessageField:vi.fn(),mailboxes:()=>[],openMessage:vi.fn(),archiveMessage:vi.fn(),trashMessage:vi.fn(),pinMessage:vi.fn(),markRead:vi.fn(),flagMessage:vi.fn(),markSpam:vi.fn(),exportMessage:vi.fn()})}));
 
 const email={id:'m1',threadId:'t1',subject:'Hello',from:[{name:'Ann',email:'ann@example.org'}],keywords:{$seen:true},mailboxIds:{inbox:true}} as unknown as Email;
 const security={value:'full-sanitized' as const,floor:null,onChange:vi.fn()};

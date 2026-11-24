@@ -13,7 +13,7 @@ import {createBrowserPlatform} from './platform/browser.ts';
 
 const hooks=vi.hoisted(()=>({app:null as AppState|null,platform:null as Platform|null,native:false,config:null as NotificationConfig|null,notifications:vi.fn(),incoming:null as ((batch:IncomingMail)=>void)|null}));
 vi.mock('./state/store.ts',()=>({createAppState:()=>hooks.app!}));
-vi.mock('./api/transport.ts',()=>({createConfiguredClient:()=>({})}));
+vi.mock('./api/transport.ts',()=>({transportBase:()=>'',createConfiguredClient:()=>({})}));
 vi.mock('./platform/index.ts',()=>({getPlatform:()=>hooks.platform!,initPlatform:async()=>hooks.platform!,isTauri:()=>false}));
 vi.mock('./platform/capabilities.ts',()=>({capabilityEnabled:(name:string)=>name==='notifications'&&hooks.native}));
 vi.mock('./api/settings.ts',()=>({settings:()=>({}),clearSettings:()=>{},loadSettings:async()=>{}}));

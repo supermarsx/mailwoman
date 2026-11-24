@@ -26,6 +26,8 @@ const hooks = vi.hoisted(() => ({
 }));
 
 vi.mock('./api/transport.ts', () => ({
+  // Same-origin web build: what the real transportBase() returns with no base path.
+  transportBase: () => '',
   createConfiguredClient: () => ({
     login: vi.fn(),
     logout: (...args: unknown[]) => hooks.logout!(...args),
@@ -241,6 +243,7 @@ describe('forced password change holds the account at the change screen', () => 
 
     await waitFor(() => expect(hooks.logout).toHaveBeenCalled());
     await waitFor(() => expect(screen.queryByTestId('forced-password-change')).toBeNull());
-    expect(screen.getByRole('button', { name: 'Sign in' })).toBeTruthy();
+    // The sign-in screen may arrive a tick later (its module is loaded on demand).
+    expect(await screen.findByRole('button', { name: 'Sign in' })).toBeTruthy();
   });
 });

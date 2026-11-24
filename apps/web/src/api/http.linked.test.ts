@@ -43,6 +43,9 @@ describe('linked mailbox transport authority',()=>{
     let release!:(response:Response)=>void;
     const send=vi.fn((_url:string,_init?:RequestInit)=>new Promise<Response>(resolve=>{release=resolve;}));vi.stubGlobal('fetch',send);
     const pending=apiFetch('/api/me');const rejected=expect(pending).rejects.toMatchObject({name:'AbortError'});
+    // apiFetch may reach fetch after an await (transport choice), so wait
+    // for the request to be on the wire before changing the context.
+    await vi.waitFor(()=>expect(send).toHaveBeenCalledTimes(1));
     installLinkedMailbox(null);release(ok());await rejected;
     installLinkedMailbox(child);send.mockResolvedValue(ok());await apiFetch('https://outside.example/api/me');expect(header(send.mock.calls[1]?.[1])).toBeNull();
   });
