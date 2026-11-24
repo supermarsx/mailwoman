@@ -705,7 +705,17 @@ async fn multi_id_email_set_costs_the_same_statements_at_any_id_count() {
 
     // …and the batch forms that replaced them, each exactly once.
     for (sql, what) in [
-        ("SELECT stable_id, account_id", "the batched message read"),
+        // Two batch reads start `SELECT stable_id, account_id, mailbox_id`: the
+        // message read, and (since c3edba561) the in-transaction flag read the
+        // unread counters are computed from. Each is once per batch.
+        (
+            "SELECT stable_id, account_id, mailbox_id, uid",
+            "the batched message read",
+        ),
+        (
+            "SELECT stable_id, account_id, mailbox_id, flags_json",
+            "the in-transaction flag read",
+        ),
         (
             "UPDATE messages SET flags_json = j.f",
             "the batched flag write",
