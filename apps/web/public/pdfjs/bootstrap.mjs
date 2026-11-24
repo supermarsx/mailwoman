@@ -56,7 +56,6 @@ globalThis.trustedTypes?.createPolicy('default', {
   createScriptURL: value => {
     if (value === workerWrapper || new URL(value, location.href).href === worker) return value;
     throw new TypeError('Untrusted PDF worker');
-    return value;
   },
 });
 

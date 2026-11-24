@@ -83,7 +83,7 @@ define(Promise, 'withResolvers', function withResolvers() {
 
 define(RegExp, 'escape', function escape(value) {
   if (typeof value !== 'string') throw new TypeError('RegExp.escape expects a string');
-  return value.replace(/^[A-Za-z0-9]|[\^$\\.*+?()[\]{}|/]|[,\-=<>#&!%:;@~'`"]|[\s﻿]/gu, (char, offset) => {
+  return value.replace(/^[A-Za-z0-9]|[\^$\\.*+?()[\]{}|/]|[,\-=<>#&!%:;@~'`"]|[\s\uFEFF]/gu, (char, offset) => {
     if (/^[A-Za-z0-9]$/.test(char)) return offset === 0 ? `\\x${char.charCodeAt(0).toString(16)}` : char;
     if (/^[\^$\\.*+?()[\]{}|/]$/.test(char)) return `\\${char}`;
     const code = char.charCodeAt(0);

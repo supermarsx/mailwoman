@@ -6,6 +6,7 @@ export const PDF_FRAME_ORIGIN = 'null';
 export const PDF_FRAME_SANDBOX = 'allow-scripts allow-downloads allow-modals';
 export function pdfDownload(data:Record<string,unknown>):{bytes:ArrayBuffer;name:string;mime:string}|null {
   if(!(data['bytes'] instanceof ArrayBuffer)||data['bytes'].byteLength===0||data['bytes'].byteLength>512*1024*1024)return null;
+  // eslint-disable-next-line no-control-regex -- matching control characters is the point of this check
   const name=typeof data['name']==='string'?data['name'].slice(0,255).replace(/[\\/\u0000-\u001f\u007f]/g,'_'):'';
   const mime=typeof data['mime']==='string'&&/^[\w.+-]+\/[\w.+-]+$/.test(data['mime'])?data['mime']:'application/octet-stream';
   return {bytes:data['bytes'],name:name||'document.pdf',mime};

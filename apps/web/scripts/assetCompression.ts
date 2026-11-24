@@ -20,6 +20,10 @@ function unchanged(path:string,bytes:Buffer):boolean {
   return stat.isFile()&&!stat.isSymbolicLink()&&stat.size===bytes.length&&readExact(path,bytes.length).equals(bytes);
  }catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return false;throw error;}
 }
+/** Remove a temporary file that may already have been renamed away. */
+function removeTemporary(path:string):void {
+ try{unlinkSync(path);}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+}
 /** Called AFTER raw SRI/service-worker digests; compressed sidecars are selected
  * at the SAME public URL by the server, never extra SW precache requests. */
 export function writeCompressedAssets(outDir:string):{files:number;sourceBytes:number;gzipBytes:number;brotliBytes:number}{
@@ -48,7 +52,7 @@ export function writeCompressedAssets(outDir:string):{files:number;sourceBytes:n
    if(bytes.length>limit)continue;
    const destination=path+suffix,temporary=destination+'.tmp-'+randomUUID();
    if(!unchanged(destination,bytes)){
-    try{writeFileSync(temporary,bytes,{flag:'wx',mode:0o644});renameSync(temporary,destination);}finally{try{unlinkSync(temporary);}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}}
+    try{writeFileSync(temporary,bytes,{flag:'wx',mode:0o644});renameSync(temporary,destination);}finally{removeTemporary(temporary);}
    }
    if(suffix==='.gz')gzipBytes+=bytes.length;else brotliBytes+=bytes.length;
   }

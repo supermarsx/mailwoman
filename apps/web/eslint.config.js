@@ -121,6 +121,8 @@ export default tseslint.config(
         console: 'readonly',
         process: 'readonly',
         URL: 'readonly',
+        Buffer: 'readonly',
+        structuredClone: 'readonly',
       },
     },
   },
@@ -136,7 +138,30 @@ export default tseslint.config(
         Request: 'readonly',
         Response: 'readonly',
         URL: 'readonly',
+        AbortController: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
       },
     },
+  },
+  {
+    // Hand-authored PDF.js bridge modules (public/pdfjs/*.mjs) run in the
+    // viewer page; the vendored build/ and web/ trees are ignored above.
+    files: ['public/pdfjs/*.mjs'],
+    languageOptions: {
+      globals: {
+        // URL is not listed: bootstrap.mjs declares it in its own
+        // `/* global */` comment, which would then be a redeclaration.
+        Worker: 'readonly',
+        atob: 'readonly',
+        btoa: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+      },
+    },
+  },
+  {
+    files: ['public/pdfjs/polyfills.mjs'],
+    languageOptions: { globals: { URL: 'readonly' } },
   },
 );

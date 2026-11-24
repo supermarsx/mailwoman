@@ -1,7 +1,7 @@
 import {createEffect, createSignal, on, onCleanup, onMount, type Accessor} from 'solid-js';
 /** Scoped to the actual scroll viewport, never wheel events or unrelated panes. */
 export function createMobileScrollChrome(options:{root:()=>HTMLElement|undefined;selector:string;active:Accessor<boolean>;scope:Accessor<unknown>}){
- const [hidden,setHidden]=createSignal(false);let positions=new Map<unknown,number>(),direction=0,distance=0,settlingUntil=0;
+ const [hidden,setHidden]=createSignal(false);const positions=new Map<unknown,number>();let direction=0,distance=0,settlingUntil=0;
  function seedViewports(){const root=options.root();if(!root)return;if(root.matches(options.selector))positions.set(root,root.scrollTop);for(const node of root.querySelectorAll<HTMLElement>(options.selector))positions.set(node,node.scrollTop);}
  function reveal(){direction=0;distance=0;settlingUntil=0;setHidden(false);seedViewports();}
  function reset(){positions.clear();reveal();}

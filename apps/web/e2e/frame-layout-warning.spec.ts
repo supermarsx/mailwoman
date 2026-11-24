@@ -101,7 +101,7 @@ test.describe('reader frame', () => {
         if (event.data?.type === 'mw-reader-displayed') { (window as unknown as {shown: number}).shown = ((window as unknown as {shown?: number}).shown ?? 0) + 1; waiters.get(event.data.revision)?.(); }
       });
       (window as unknown as {sendNext: () => Promise<void>}).sendNext = next;
-      let queue: string[] = [];
+      const queue: string[] = [];
       (window as unknown as {queue: string[]}).queue = queue;
       async function next(): Promise<void> {
         const html = (window as unknown as {queue: string[]}).queue.shift();

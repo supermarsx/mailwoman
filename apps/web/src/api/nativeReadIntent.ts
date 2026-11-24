@@ -5,6 +5,7 @@ import contract from './native-read-intent-contract.json';
 const propertySet = new Set<string>(contract.properties);
 const argumentSet = new Set<string>(contract.arguments);
 const utf8 = new TextEncoder();
+// eslint-disable-next-line no-control-regex -- matching control characters is the point of this check
 const ascii = /^[\u0000-\u007f]*$/;
 const byteLength = (value: string) => ascii.test(value) ? value.length : utf8.encode(value).byteLength;
 const object = (value: unknown): value is Record<string, unknown> =>

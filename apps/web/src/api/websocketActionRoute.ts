@@ -4,6 +4,7 @@ export {contract as actionContract};
 export type ActionActor='webmail'|'admin';
 export interface ActionRoute {actor:ActionActor;path:string;endpoint:string;cookieEndpoint?:string}
 const bytes=(value:string)=>new TextEncoder().encode(value).length;
+// eslint-disable-next-line no-control-regex -- matching control characters is the point of this check
 const controls=/[\u0000-\u0020\u007f-\u009f]/;
 interface Rule {exact?:string;prefix?:string;methods?:string[]}
 function required(rules:readonly Rule[],path:string,method:string):boolean{
@@ -16,6 +17,7 @@ export function validActionPath(value:string):boolean{
  const [path,...query]=value.split('?');
  try{
   const decoded=decodeURIComponent(path!);
+  // eslint-disable-next-line no-control-regex -- matching control characters is the point of this check
   if(decoded.includes('\\')||decoded.includes('%')||/[\u0000-\u001f\u007f-\u009f]/.test(decoded)||/%(?:2f|5c)/i.test(path!))return false;
   if(decoded.split('/').some(part=>part==='.'||part==='..'))return false;
   if(query.length)decodeURIComponent(query.join('?'));
@@ -27,6 +29,7 @@ export function actionHeaders(input:HeadersInit|undefined):Record<string,string>
   const entries: [string,string][]=input instanceof Headers?[...input.entries()]:Array.isArray(input)?input.map(pair=>[pair[0],pair[1]]):Object.entries(input??{});
   if(entries.length>contract.limits.headers)return;
   const result:Record<string,string>={};let length=0;
+  // eslint-disable-next-line no-control-regex -- matching control characters is the point of this check
   for(const [name,value] of entries){const key=name.toLowerCase();if(!contract.requestHeaders.includes(key)||Object.hasOwn(result,key)||/[\r\n\u0000]/.test(value))return;length+=bytes(key)+bytes(value);if(length>contract.limits.headerBytes)return;result[key]=value;}
   return result;
  }catch{return;}

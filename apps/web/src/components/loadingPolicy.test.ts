@@ -34,7 +34,7 @@ describe('loading policy', () => {
   it('has no loading-named element covering its parent with a backdrop or blur', () => {
     const bad = files.filter((f) => /\.css(\.ts)?$/.test(f.rel)).flatMap((f) => {
       const hits: string[] = [];
-      for (const m of f.text.matchAll(/(?:export const|globalStyle\(\s*['"`])\s*([\w.\-_ >\[\]="]*(?:loading|pending|busy)[\w.\-_ >\[\]="]*)[\s\S]{0,400}?\}\)/gi)) {
+      for (const m of f.text.matchAll(/(?:export const|globalStyle\(\s*['"`])\s*([\w.\-_ >[\]="]*(?:loading|pending|busy)[\w.\-_ >[\]="]*)[\s\S]{0,400}?\}\)/gi)) {
         const block = m[0];
         if (/inset:\s*(0|'0')\b/.test(block) && /(backdrop|blur|background)/.test(block) && !/pointerEvents:\s*'none'/.test(block)) hits.push(`${f.rel}: ${m[1]}`);
       }
