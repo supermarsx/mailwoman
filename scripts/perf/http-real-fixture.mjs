@@ -11,11 +11,11 @@ import {dirname} from 'node:path';
 import {markdownReport} from './http-load.mjs';
 import {campaignOptions,runCampaign} from './http-campaign.mjs';
 import {qualifiesHttpTelemetry,fixtureDiagnosticsReport,prepareFixtureClients,startupReadinessReport,fixturePolicyReport,searchWriterReport,linkedLoginPolicyProbeReport,searchStorageReport,qualifiesSearchStorage} from './fixture-clients.mjs';
-import {workloadProfileReport} from './representative-workload.mjs';
+import {workloadProfileReport,isRepresentativeKind,GOAL_MIX_NAME} from './representative-workload.mjs';
 import {jmapFixtureRequest as request,prepareFixtureRequests} from './fixture-requests.mjs';
 import {readPrivate,HANDOFF_LIMIT} from './external-control.mjs';
 import {verifyFixtureIsolation} from './fixture-isolation.mjs';
-import {goalOf,judgedAgainst,withinNetworkBudget,qualificationBlocked} from './http-goal.mjs';
+import {goalOf,judgedAgainst,withinNetworkBudget,qualificationBlocked,goalMixShareOk} from './http-goal.mjs';
 
 try{
  const handoff=JSON.parse((await readPrivate(process.argv[2],HANDOFF_LIMIT)).toString('utf8')),base=new URL(handoff.base);
@@ -51,7 +51,7 @@ try{
  if(new Set(principals.map(p=>p.accountId)).size!==principals.length)throw new Error('Principal accounts must be distinct');
  const native=handoff.engineMode==='native';
  const workloadProfile=workloadProfileReport(handoff.workloadProfile,principals.length);
- const representative=workloadProfile?.kind==='representative';
+ const representative=isRepresentativeKind(workloadProfile?.kind);
  if(representative&&(!native||principals.some(p=>p.messageIds.length!==workloadProfile.messagesPerPrincipal||p.bodySampleBytes!==workloadProfile.bodySampleBytes||p.attachmentSampleBytes!==workloadProfile.attachmentSampleBytes)))throw new Error('Invalid representative workload profile');
  // Prepare bounded request templates outside measured phases, avoiding five
  // JSON serializations per dispatch when exercising 10,000 principals.
@@ -82,7 +82,7 @@ try{
  if(cacheExperiment)report.sqliteCacheExperiment=cacheExperimentEvidence(cacheExperiment,report.stages);
  report.clientModel={workload:clientModel.workload,simulationMode:clientModel.simulationMode,configuredPrincipals:principals.length,configuredSimulatedClients:clientModel.clientCount,distinctPhysicalGeneratorHostsMeasured:false,actualPrincipalCoverage:Math.max(0,...report.stages.map(s=>s.uniquePrincipalsAccepted??0)),actualSimulatedClientCoverage:Math.max(0,...report.stages.map(s=>s.uniqueClientsAccepted??0))};
  report.capacityTarget={successfulRps:goal.successfulRps,simultaneousAuthenticatedUsers:goal.simultaneousAuthenticatedUsers,verifiedUniquePrincipals:Math.max(0,...report.stages.map(s=>s.uniquePrincipalsAccepted??0)),httpRateMet:report.stages.some(s=>s.phase==='offered-rate'&&s.arrivalRate>=goal.successfulRps&&s.acceptedDuringScheduledWindowRps>=goal.successfulRps&&s.errors===0&&s.throttled===0&&s.timeouts===0&&(s.droppedCapacity+s.droppedScheduler)===0&&s.scheduledSeconds>=30)};
- report.capacityTarget.httpMultiUserTargetMet=report.stages.some(s=>['mixed','representative'].includes(s.endpoint)&&s.phase==='offered-rate'&&s.arrivalRate>=goal.successfulRps&&s.acceptedDuringScheduledWindowRps>=goal.successfulRps&&s.uniquePrincipalsAcceptedDuringScheduledWindow>=goal.simultaneousAuthenticatedUsers&&s.uniqueClientsAcceptedDuringScheduledWindow>=goal.simultaneousAuthenticatedUsers&&s.errors===0&&s.throttled===0&&s.timeouts===0&&(s.droppedCapacity+s.droppedScheduler)===0&&s.scheduledSeconds>=30&&withinNetworkBudget(s,goal)&&!qualificationBlocked(goal,{loopback})&&qualifiesHttpTelemetry(s.diagnostics)&&qualifiesIndexPublication(s.diagnostics));
+ report.capacityTarget.httpMultiUserTargetMet=report.stages.some(s=>['mixed','representative',GOAL_MIX_NAME].includes(s.endpoint)&&(s.endpoint!==GOAL_MIX_NAME||goalMixShareOk(s))&&s.phase==='offered-rate'&&s.arrivalRate>=goal.successfulRps&&s.acceptedDuringScheduledWindowRps>=goal.successfulRps&&s.uniquePrincipalsAcceptedDuringScheduledWindow>=goal.simultaneousAuthenticatedUsers&&s.uniqueClientsAcceptedDuringScheduledWindow>=goal.simultaneousAuthenticatedUsers&&s.errors===0&&s.throttled===0&&s.timeouts===0&&(s.droppedCapacity+s.droppedScheduler)===0&&s.scheduledSeconds>=30&&withinNetworkBudget(s,goal)&&!qualificationBlocked(goal,{loopback})&&qualifiesHttpTelemetry(s.diagnostics)&&qualifiesIndexPublication(s.diagnostics));
  report.capacityTarget.productionPolicyQualified=native&&handoff.buildProfile==='release'&&startupReadiness?.verified===true&&policyEvidence.verified&&isolationEvidence.verified;
  report.capacityTarget.productionStorageQualified=qualifiesSearchStorage(searchStorage);
  report.capacityTarget.productionTelemetryQualified=report.stages.length>0&&report.stages.every(stage=>qualifiesHttpTelemetry(stage.diagnostics));

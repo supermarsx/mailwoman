@@ -2,7 +2,7 @@
 // No network, main entrypoint, preflight or reporting side effects.
 import {nativeReadIntentHeaders,nativeReadContract} from './native-read-intent.mjs';
 import {prepareFixtureClients,fixturePrincipalIndex} from './fixture-clients.mjs';
-import {representativeSpecs} from './representative-workload.mjs';
+import {representativeSpecs,goalMixSchedule,goalMixWriteSpecs,GOAL_MIX_NAME,GOAL_MIX_CYCLE} from './representative-workload.mjs';
 import {DEFAULT_HEADER_PROPERTIES,MINIMAL_HEADER_PROPERTIES} from './fixture-properties.mjs';
 
 export function jmapFixtureRequest(p,name,args,{native=false}={}){
@@ -72,6 +72,27 @@ export function prepareFixtureRequests({principals,clientSimulation,engineMode,r
  const groups={...Object.fromEntries(Object.entries(CLIENT_HOT_GROUPS).map(([group,names])=>[group,names.map(name=>hotRequests[name])])),mixed:requests.slice(0,5),identity:[requests[0]],mailboxes:[requests[1]],query:[requests[2]],headers:[requests[3]],refresh:[requests[4]],...(representative?{
   representative:requests,'paged-headers':[requests[5]],reader:[requests[6]],attachment:[requests[7]],'flag-write':[requests[8]],'move-write':[requests[9]],
  }:{})};
+
+ // goal-65-35: 100-slot deterministic schedule of existing validated templates (plus three write shapes built like them).
+ // Every entry is serialised per user, so writes for one user never interleave with each other or with the reads that
+ // assume stable state (the change poll in particular).
+ // Needs four seeded messages per user (three write shapes use distinct messages); smaller fixtures simply have no such group.
+ const goalSlots=representative&&principals.every(p=>p.messageIds.length>=4)?(()=>{
+  const order=goalMixSchedule();
+  const perPrincipal=principals.map((p,index)=>{
+   const byName=new Map([...specs(p),...clientHotSpecs(p),...goalMixWriteSpecs(p)].map(spec=>[spec.name,spec]));
+   return order.map(name=>{
+    const spec=byName.get(name);
+    if(!spec)throw new Error('Goal mix shape has no template: '+name);
+    return {...spec,serializePrincipal:true,headers:{...clientModel.clients[index].headers,...spec.headers}};
+   });
+  });
+  return perPrincipal[0].map((spec,slot)=>({...spec,materialize:(sequence)=>{
+   const principalIndex=fixturePrincipalIndex(sequence,GOAL_MIX_CYCLE,principals.length);
+   return {...perPrincipal[principalIndex][slot],principalIndex,clientIndex:clientModel.clients[principalIndex].clientIndex};
+  }}));
+ })():null;
+ if(goalSlots)groups[GOAL_MIX_NAME]=goalSlots;
  const marked=prepared[0].filter(spec=>spec.headers[nativeReadContract.header]===nativeReadContract.value).map(spec=>spec.name);
  const readIntent={contractSchema:nativeReadContract.schema,header:nativeReadContract.header,value:nativeReadContract.value,markedShapes:marked,totalShapes:prepared[0].length,scope:'actual constructed request headers; eligibility declaration only, not observed guard reuse',observedGuardConsumption:null};
  return {readIntent,requests,groups,headers:clientModel.clients[0].headers,clientModel,firstRequests:prepared[0]};

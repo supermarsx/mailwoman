@@ -1,7 +1,10 @@
 # Layered capacity measurements
 
-The end-to-end target is 40,000 sustained successful authenticated HTTP requests
-per second with 10,000 users and enforced production policies. A result for a
+The end-to-end target is 30,000 sustained successful authenticated HTTP requests
+per second on a balanced mix of about 65% reads and 35% writes (by request count),
+with 10,000 users (standing campaigns run 1,000) and enforced production policies,
+using this machine as the base test hardware. The user revised the goal on
+2026-11-24; earlier text and reports stated 40,000 requests/s. A result for a
 cheap endpoint, a database operation, or an individual JMAP method does not
 establish that target. One HTTP JMAP batch is one HTTP request.
 

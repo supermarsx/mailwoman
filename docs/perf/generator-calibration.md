@@ -131,7 +131,7 @@ closes are counted in `unissuedAtWindowEnd` (and in `droppedScheduler`);
 
 Scheduling lag (slot to actual send) is reported per worker as p50/p99/max in
 `perWorker[]`. A worker or stage whose lag p99 is above 1 ms is marked
-`generatorLimited: true`; such a stage does not satisfy the 40,000 rps target
+`generatorLimited: true`; such a stage does not satisfy the standing rps target
 rule and is named in the Markdown report. Percentiles use 1 ms histogram buckets,
 so p99 above 1 means a lag above 1 ms.
 
@@ -253,18 +253,20 @@ run.
 
 ## Judged target and byte accounting (t53s)
 
-The standing goal is 40,000 successful requests/s with 10,000 simultaneous
-authenticated users. Both are parameters now:
+The standing goal is 30,000 successful requests/s on a balanced mix of about 65%
+reads and 35% writes, with 10,000 simultaneous authenticated users, on this
+machine as the base hardware. The user revised it on 2026-11-24 (it was 40,000
+requests/s). Both numbers are parameters:
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `MW_LOAD_TARGET_RPS` | 40000 | requests/s a stage must offer and have accepted inside its window |
+| `MW_LOAD_TARGET_RPS` | 30000 | requests/s a stage must offer and have accepted inside its window |
 | `MW_LOAD_TARGET_USERS` | 10000 | distinct users and simulated clients a stage must cover (at most 10,000) |
 | `MW_LOAD_NETWORK_GBIT` | unset | declared network budget; when set, every stage's body bytes (response plus request, in Gbit/s) must stay within it |
 | `MW_LOAD_QUALIFICATION_RUN=1` | off | requires `MW_LOAD_NETWORK_GBIT`, and a run whose targets include loopback can never qualify |
 
 Every report starts with `judgedAgainst` (target, users, and the network
-claim), and a report judged against anything but 40,000 / 10,000 says
+claim), and a report judged against anything but 30,000 / 10,000 says
 `NON-DEFAULT TARGET` there and in the first Markdown line. A loopback or
 shared-network-namespace run is labelled as unable to qualify a network claim,
 whatever its numbers.
@@ -280,4 +282,72 @@ otherwise the ratio is reported as not measured. Headers, TLS records and framin
 are not counted, so the budget check understates the wire. This is the same
 decoded-body counting as `http-response-bytes.md`, plus the distribution and
 compression fields; `bytes` (all attempts) is unchanged.
+
+### Local base hardware (`MW_LOAD_QUALIFICATION_HOST=local`)
+
+The user designated this machine as the base test hardware, so a qualifying run
+may use loopback or a shared network namespace. Setting
+`MW_LOAD_QUALIFICATION_HOST=local` (the only defined value) stops the loopback
+label from failing qualification of the throughput claim, and makes
+`MW_LOAD_NETWORK_GBIT` optional for a qualification run. The label stays: the
+report still says a loopback run cannot qualify a network claim, and
+`judgedAgainst.network.qualifies` is false. `judgedAgainst` records host facts:
+logical cores and memory from the operating system, and the Docker VM vCPUs and
+the cpusets of the app, database and generator as declared in
+`MW_LOAD_HOST_DOCKER_VCPUS`, `MW_LOAD_HOST_CPUSET_APP`, `MW_LOAD_HOST_CPUSET_DB`
+and `MW_LOAD_HOST_CPUSET_GENERATOR` (`null` when not declared; Node cannot see
+them). Without the option, a loopback qualification run still cannot qualify.
+
+## The goal mix `goal-65-35` (t53s)
+
+Selected as the campaign endpoint group `goal-65-35` (`MW_LOAD_FIXTURE_ENDPOINTS=goal-65-35`)
+on a representative-seeded fixture (at least four messages per user). The Rust
+fixture's `MW_NATIVE_LOAD_WORKLOAD` still accepts `baseline` and `representative`
+only; the JS side already treats a profile kind `goal-65-35` as representative
+seeding, so that value only needs enabling in the fixture. The existing
+`representative` mix is unchanged.
+
+One entry in the mix is one HTTP request. The mix is 100 slots in a fixed,
+deterministic order (smooth weighted round robin), so any 100 consecutive requests
+hold exactly 65 reads and 35 writes by request count.
+
+| Shape | Kind | Weight | Template |
+| --- | --- | ---: | --- |
+| `authenticated-identity` | read | 6 | `GET /api/me` |
+| `jmap-session` | read | 6 | `GET /jmap/session` |
+| `list-batch` | read | 16 | the web client's list batch: query + header get + unread count |
+| `Email/get` | read | 10 | headers of two messages, default UI properties |
+| `body-and-attachment-metadata` | read | 10 | reader body and attachment metadata |
+| `changes` | read | 9 | `Email/query` + `Email/queryChanges` + `Email/changes` poll |
+| `account-preferences` | read | 4 | `GET /api/account/preferences` |
+| `appearance-customization` | read | 4 | `GET /api/account/appearance/customization` |
+| `mark-read-and-restore` | write | 8 | set `$seen`, read back, clear it, read back |
+| `mark-unread-and-restore` | write | 5 | clear `$seen`, read back, set it, read back |
+| `flag-and-restore` | write | 8 | set `$flagged`, read back, clear it, read back |
+| `unflag-and-restore` | write | 4 | clear `$flagged`, read back, set it, read back |
+| `move-and-restore` | write | 10 | move inbox to archive, read back, move back, read back |
+
+What one write request is: one `POST /jmap/api` carrying four method calls,
+`Email/set`, `Email/get`, `Email/set`, `Email/get`: two message updates (mutations,
+each on one message) and two verifying reads. So the 35% is 35% of HTTP requests,
+which is 0.70 message mutations per request overall. Each write shape verifies
+both updates by its read-backs, and an unverified or lost update is an error that
+taints the stage. Requests for one user are serialised (as in the representative
+mix), including reads, because the change poll assumes a stable state. The
+shapes use distinct messages (`messageIds[0..3]`); a message the seed left in the
+other state ends in the state the shape sets, which is the only drift.
+
+Not in the mix, because no validated template or seeded folder exists: delete to
+trash (no trash folder is seeded), draft save (no drafts folder), search (no
+validated search shape) and the `session-activity` POST (its read/write class is
+unclear). They should be added together with seeding and validators, not as
+unvalidated shapes. The `session-activity` poll stays available in the
+`account-polls` group.
+
+Each stage of this group reports `mix`: attempted and accepted read/write counts and
+shares, read and write requests per second, verified mutations per second (2 per
+accepted write request) and `upstreamCommandsPerSecond`, which is `null`: the
+fixture diagnostics carry no upstream command counter and none is estimated.
+A `goal-65-35` stage qualifies only when its accepted write share is 30-40%;
+`capacityTarget.goalMixMet` is judged on that group alone.
 
