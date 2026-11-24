@@ -57,7 +57,15 @@ export function NewVersionToast(): JSX.Element {
     if (app?.me() != null && notifyNewVersionOn()) notice.start();
     else notice.stop();
   });
-  const stopRealtime=app?.onRealtimeChange?.(change=>{if(Object.values(change.changed).some(state=>state.WebVersion!==undefined))void notice.check(true);});
+  // t52w: the stream's first WebVersion state is only this page's starting point
+  // (the load already asked /api/version): it runs the ordinary check, which the
+  // 30 s gap skips. A state that moves after that forces a check.
+  let webVersion:string|undefined;
+  const stopRealtime=app?.onRealtimeChange?.(change=>{
+    const states=Object.values(change.changed).map(state=>state.WebVersion).filter(value=>value!==undefined);
+    if(!states.length)return;const next=String(states[0]),moved=webVersion!==undefined&&next!==webVersion;webVersion=next;
+    void notice.check(moved);
+  });
   onCleanup(()=>{stopRealtime?.();notice.stop();});
   return <></>;
 }

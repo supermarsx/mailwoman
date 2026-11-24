@@ -49,3 +49,19 @@ it('never asks the server while signed out', async () => {
   expect(hooks.calls).toBe(0);
   expect(screen.queryByText(/new version of Mailwoman/)).toBeNull();
 });
+
+it('the stream’s first WebVersion state does not ask again; a moved one does (t52w)', async () => {
+  let push: ((change: { changed: Record<string, { WebVersion?: string }> }) => void) | undefined;
+  render(() => (
+    <AppContext.Provider value={{ me: () => ({ username: 'me' }), onRealtimeChange: (listener: typeof push) => { push = listener; return () => undefined; } } as unknown as AppState}>
+      <ToastRegion />
+      <NewVersionToast />
+    </AppContext.Provider>
+  ));
+  await waitFor(() => expect(hooks.calls).toBe(1));
+  push?.({ changed: { a: { WebVersion: 'w1' } } });
+  await new Promise((r) => setTimeout(r, 10));
+  expect(hooks.calls).toBe(1);
+  push?.({ changed: { a: { WebVersion: 'w2' } } });
+  await waitFor(() => expect(hooks.calls).toBe(2));
+});

@@ -33,6 +33,14 @@ describe('changedTypes', () => {
 });
 
 describe('createChangeReconciler', () => {
+  it('marks the first state of an account, not later ones (t52w)', () => {
+    const onChanged = vi.fn();
+    const r = createChangeReconciler(onChanged);
+    r.apply(change({ a1: { Settings: 's1' } }));
+    r.apply(change({ a1: { Settings: 's2' } }));
+    expect(onChanged.mock.calls.map((call) => call[2])).toEqual([true, false]);
+  });
+
   it('fires the handler for the moved types on the first change', () => {
     const onChanged = vi.fn();
     const r = createChangeReconciler(onChanged);

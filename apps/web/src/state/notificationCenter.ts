@@ -14,6 +14,13 @@ export const notificationNotices=notices,notificationLoading=loading,notificatio
 export const notificationUnread=()=>notices().filter(n=>n.state==='active'&&!n.read).length;
 let controller:AbortController|undefined,epoch=0,activeOwner:PreferenceAccount|null=null;
 let seeded=false;const announced=new Set<string>();
+// t52w: the page's load reads the list; the stream's first open and its first
+// state frame (which names Notification only because the page had no state
+// yet) used to read it twice more. Each of those is skipped once when a load
+// for this owner finished less than LOAD_FRESH_MS ago; a reconnect, a moved
+// Notification state, focus and wake still refresh.
+const LOAD_FRESH_MS=10_000;let loadedAt=0,firstOnline=true;const notificationStates=new Map<string,string>();
+const loadedRecently=():boolean=>loadedAt>0&&Date.now()-loadedAt<LOAD_FRESH_MS;
 async function request(owner:PreferenceAccount,action?:{id:string;action:CenterAction},signal?:AbortSignal):Promise<unknown>{
  if(!preferenceAccountIsCurrent(owner))throw new DOMException('Account changed','AbortError');
  const response=await apiFetch(withBase('/api/account/notification-center'),{cache:'no-store',headers:{...storageAuthorityHeaders(owner.storageAuthority),'X-Mailwoman-Account':owner.id,...(action?{'content-type':'application/json'}:{})},...(signal?{signal}:{}),...(action?{method:'POST',body:JSON.stringify(action)}:{})});
@@ -27,7 +34,7 @@ export async function refreshNotificationCenter():Promise<void>{
    const event=row.kind.includes('update')?'update':'security';
    notifyEvent(event,t(event==='update'?'settings-alert-new-update':'settings-alert-new-security'),row.severity==='critical'?'warning':'info',`notice:${row.id}`);
  }
- for(const row of next)announced.add(row.id);while(announced.size>2000)announced.delete(announced.values().next().value!);seeded=true;
+ for(const row of next)announced.add(row.id);while(announced.size>2000)announced.delete(announced.values().next().value!);seeded=true;loadedAt=Date.now();
  setNotices(next);setFailed(false);}}
  catch{if(mine===epoch&&!abort.signal.aborted)setFailed(true);}
  finally{if(mine===epoch)setLoading(false);}
@@ -42,9 +49,16 @@ export async function changeCenterNotice(id:string,action:CenterAction):Promise<
 export function publishAvailableUpdate(build:string):void{if(build.length<=240&&preferenceAccount())void changeCenterNotice(`update:${build}`,'publish-update').catch(()=>undefined);}
 export function startNotificationCenter():()=>void{
  void loadCatalog('settings');const realtime=useRealtime();
- const realtimeOff=realtime.onStateChange(change=>{if(activeOwner&&Object.values(change.changed).some(states=>states.Notification!==undefined))void refreshNotificationCenter();});
- const stopConnection=createRoot(dispose=>{let previous=realtime.connection.state();createEffect(()=>{const next=realtime.connection.state();if(next==='online'&&previous!=='online'&&activeOwner)void refreshNotificationCenter();previous=next;});return dispose;});
- const off=observePreferenceAccount(owner=>{controller?.abort();epoch++;activeOwner=owner;seeded=false;announced.clear();setNotices([]);setFailed(false);setLoading(false);if(owner)void refreshNotificationCenter();});
+ const realtimeOff=realtime.onStateChange(change=>{
+  if(!activeOwner)return;let moved=false;
+  for(const [account,states] of Object.entries(change.changed)){
+   const next=states.Notification;if(next===undefined)continue;const previous=notificationStates.get(account);notificationStates.set(account,String(next));
+   if(previous===undefined?!loadedRecently():previous!==String(next))moved=true;
+  }
+  if(moved)void refreshNotificationCenter();
+ });
+ const stopConnection=createRoot(dispose=>{let previous=realtime.connection.state();createEffect(()=>{const next=realtime.connection.state();if(next==='online'&&previous!=='online'&&activeOwner){const skip=firstOnline&&loadedRecently();firstOnline=false;if(!skip)void refreshNotificationCenter();}previous=next;});return dispose;});
+ const off=observePreferenceAccount(owner=>{controller?.abort();epoch++;activeOwner=owner;seeded=false;loadedAt=0;firstOnline=true;notificationStates.clear();announced.clear();setNotices([]);setFailed(false);setLoading(false);if(owner)void refreshNotificationCenter();});
  const refresh=()=>{if(document.visibilityState==='visible'&&activeOwner)void refreshNotificationCenter();};
  const wake=(event:MessageEvent)=>{if(event.data?.type==='mw-push-wake')refresh();};
  window.addEventListener('focus',refresh);window.addEventListener('online',refresh);document.addEventListener('visibilitychange',refresh);navigator.serviceWorker?.addEventListener?.('message',wake);

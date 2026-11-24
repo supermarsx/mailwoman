@@ -49,3 +49,11 @@ it('the default read ends by telling the appearance runtime to read its customiz
   try{sync.changed();await vi.advanceTimersByTimeAsync(80);await vi.advanceTimersByTimeAsync(0);expect(heard).toHaveBeenCalledTimes(1);}
   finally{window.removeEventListener(CUSTOMIZATION_CHANGED_EVENT,heard);sync.dispose();}
 });
+it('skips the first state frame once, beside the first open (t52w)',async()=>{
+  vi.useFakeTimers();activateAccountPreferences('one','authority-one');
+  const work=vi.fn().mockResolvedValue(undefined),sync=createPreferenceRefresh(work);
+  try{
+    sync.caughtUp(true);sync.atLoad('frame');await vi.advanceTimersByTimeAsync(80);expect(work).not.toHaveBeenCalled();
+    sync.atLoad('frame');await vi.advanceTimersByTimeAsync(80);expect(work).toHaveBeenCalledTimes(1);
+  }finally{sync.dispose();}
+});

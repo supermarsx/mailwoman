@@ -36,7 +36,9 @@ export function changedTypes(
 }
 
 /** Called with the datatypes that moved for an account; wired to the per-type `changes` method. */
-export type ReconcileHandler = (accountId: Id, types: ChangedType[]) => void;
+/** `first`: the stream's first state for the account on this page, so every type
+ *  it names counts as changed (t52w lets the load's own reads stand for it). */
+export type ReconcileHandler = (accountId: Id, types: ChangedType[], first?: boolean) => void;
 
 export interface ChangeReconciler {
   /** Feed a pushed `StateChange`; invokes the handler for each moved account. */
@@ -69,10 +71,11 @@ export function createChangeReconciler(onChanged: ReconcileHandler): ChangeRecon
   return {
     apply(change): void {
       for (const accountId of Object.keys(change.changed)) {
+        const first = !known.has(accountId);
         const types = changedTypes(known.get(accountId), change, accountId);
         const states = change.changed[accountId];
         if (states !== undefined) merge(accountId, states);
-        if (types.length > 0) onChanged(accountId, types);
+        if (types.length > 0) onChanged(accountId, types, first);
       }
     },
     seed(accountId, states): void {

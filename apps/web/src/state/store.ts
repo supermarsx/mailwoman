@@ -234,8 +234,8 @@ export function createAppState(client: Client, deps: AppStateDeps = {}): AppStat
   const realtime = createRealtimeSlice(ctx, {
     onMailboxChanged:frame=>{if(frame.changed.Email!==undefined||frame.changed.Mailbox!==undefined)familyIncoming.changed(frame.link,frame.storageAuthority);},
     onCatchUp:reason=>{preferenceRefresh.caughtUp(reason==='open');incoming.changed();familyIncoming.changed();void mail.refreshCurrentMailbox();},
-    onChanged: (accountId, types) => {
-      if(types.includes('Settings'))preferenceRefresh.changed();
+    onChanged: (accountId, types, first) => {
+      if(types.includes('Settings')){if(first)preferenceRefresh.atLoad('frame');else preferenceRefresh.changed();}
       if (accountId !== mail.accountId()) return;
       if(types.includes('Email'))incoming.changed();
       // A Mailbox change may be a folder created, renamed or deleted on another
