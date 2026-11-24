@@ -131,3 +131,81 @@ pub fn available_space(_path: &Path) -> io::Result<u64> {
         "filesystem availability unsupported",
     ))
 }
+/// The identity of the file at `path` (symbolic links and junctions followed):
+/// its volume (device), its index (inode) and its number of hard links.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FileIdentity {
+    pub volume: u64,
+    pub index: u64,
+    pub links: u64,
+}
+#[cfg(unix)]
+pub fn file_identity(path: &Path) -> io::Result<FileIdentity> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = std::fs::metadata(path)?;
+    Ok(FileIdentity { volume: metadata.dev(), index: metadata.ino(), links: metadata.nlink() })
+}
+#[cfg(windows)]
+pub fn file_identity(path: &Path) -> io::Result<FileIdentity> {
+    use std::os::windows::io::AsRawHandle;
+    #[repr(C)]
+    #[derive(Default)]
+    struct Information {
+        attributes: u32,
+        created: [u32; 2],
+        accessed: [u32; 2],
+        written: [u32; 2],
+        volume: u32,
+        size_high: u32,
+        size_low: u32,
+        links: u32,
+        index_high: u32,
+        index_low: u32,
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetFileInformationByHandle(
+            handle: *mut core::ffi::c_void,
+            info: *mut Information,
+        ) -> i32;
+    }
+    let file = OpenOptions::new().read(true).open(path)?;
+    let mut information = Information::default();
+    // SAFETY: this valid owned file handle and writable repr(C) output live for
+    // the call. Stable MetadataExt exposes neither the file index nor the link
+    // count on Windows.
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut information) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(FileIdentity {
+        volume: u64::from(information.volume),
+        index: (u64::from(information.index_high) << 32) | u64::from(information.index_low),
+        links: u64::from(information.links),
+    })
+}
+#[cfg(not(any(unix, windows)))]
+pub fn file_identity(_path: &Path) -> io::Result<FileIdentity> {
+    Err(io::Error::new(io::ErrorKind::Unsupported, "file identity unsupported"))
+}
+#[cfg(test)]
+mod identity_tests {
+    #[test]
+    fn hard_links_share_an_identity_and_count_as_links() {
+        let dir = std::env::temp_dir().join(format!("mw-platform-fs-identity-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let first = dir.join("a");
+        std::fs::write(&first, b"x").unwrap();
+        let one = super::file_identity(&first).unwrap();
+        assert_eq!(one.links, 1);
+        let second = dir.join("b");
+        std::fs::hard_link(&first, &second).unwrap();
+        let (a, b) = (super::file_identity(&first).unwrap(), super::file_identity(&second).unwrap());
+        assert_eq!((a.volume, a.index), (b.volume, b.index));
+        assert_eq!((a.links, b.links), (2, 2));
+        let other = dir.join("c");
+        std::fs::write(&other, b"y").unwrap();
+        assert_ne!(super::file_identity(&other).unwrap().index, a.index);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}

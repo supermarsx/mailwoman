@@ -17,6 +17,11 @@
 //! - `<db>.mw-request-protection.state`: one line, `v1 <joins> <acknowledged>
 //!   <owner>`, read and written only under the admission lock.
 //!
+//! `<db>` is the canonical path of the database file (symbolic links,
+//! junctions, case and short names resolved), so every name of one file finds
+//! the same witness. A file with more than one hard link is never owned (a
+//! check reports `Shared`), because its other names would use other witnesses.
+//!
 //! Ownership check (`Participant::check`): under the admission lock the
 //! participant releases its shared lock and tries an exclusive one on the same
 //! handle. That succeeds only when no other handle, in this or another process,
@@ -76,8 +81,11 @@ impl Paths {
 /// What the database file is, for the witness.
 #[derive(Clone, Debug)]
 pub(crate) enum Location {
-    /// A SQLite file other processes can open.
+    /// A SQLite file other processes can open, by its canonical path.
     File(PathBuf),
+    /// A SQLite file whose canonical path could not be resolved: never owned,
+    /// and its writers cannot join.
+    Unresolved,
     /// An in-memory SQLite database: private to its pool, so no other process
     /// can write it.
     Private,
@@ -190,7 +198,8 @@ pub enum Ownership {
     /// one's previous check (it may have written and left), or the state line was
     /// unreadable; cached subjects must be re-read once.
     Alone { changed: bool },
-    /// Another participant holds the lock file.
+    /// Another participant holds the lock file, the database file has more than
+    /// one hard link, or ownership is impossible for this location.
     Shared,
     /// The admission lock was busy (a join or another check in progress).
     Busy,
@@ -201,7 +210,7 @@ pub enum Ownership {
 
 #[derive(Debug)]
 enum Kind {
-    File { paths: Paths, file: File, token: String, seen_joins: Option<u64> },
+    File { paths: Paths, database: PathBuf, file: File, token: String, seen_joins: Option<u64> },
     Private,
     Shared,
 }
@@ -215,10 +224,13 @@ pub struct ProtectionParticipant {
 
 impl ProtectionParticipant {
     pub(crate) async fn join(location: &Location) -> Result<Self, StoreError> {
-        let paths = match location {
+        let (paths, database) = match location {
             Location::Private => return Ok(Self { kind: Kind::Private }),
             Location::Shared => return Ok(Self { kind: Kind::Shared }),
-            Location::File(logical) => Paths::new(logical),
+            Location::Unresolved => {
+                return Err(StoreError::Invalid("request protection witness: database path unresolved"));
+            }
+            Location::File(canonical) => (Paths::new(canonical), canonical.clone()),
         };
         let admission = Admission::take(&paths).await?;
         let mut file = open_rw(&paths.lock)?;
@@ -255,7 +267,7 @@ impl ProtectionParticipant {
                 }
             }
         }
-        Ok(Self { kind: Kind::File { paths, file, token, seen_joins: Some(mine) } })
+        Ok(Self { kind: Kind::File { paths, database, file, token, seen_joins: Some(mine) } })
     }
 
     /// Caller holds the admission lock and a shared lock on `file`: release it,
@@ -284,10 +296,10 @@ impl ProtectionParticipant {
 
     /// One ownership check (see module docs). No SQL; a few file system calls.
     pub fn check(&mut self) -> Ownership {
-        let (paths, file, token, seen_joins) = match &mut self.kind {
+        let (paths, database, file, token, seen_joins) = match &mut self.kind {
             Kind::Private => return Ownership::Alone { changed: false },
             Kind::Shared => return Ownership::Shared,
-            Kind::File { paths, file, token, seen_joins } => (paths, file, token, seen_joins),
+            Kind::File { paths, database, file, token, seen_joins } => (paths, database, file, token, seen_joins),
         };
         let admission = match Admission::try_take(paths) {
             Ok(Some(admission)) => admission,
@@ -305,6 +317,9 @@ impl ProtectionParticipant {
             Ok(state) => state,
             Err(_) => return Ownership::Lost,
         };
+        // Another name (hard link) of the database file would use another witness.
+        let single = mw_platform_fs::file_identity(database).is_ok_and(|identity| identity.links == 1);
+        let alone = alone && single;
         let changed = state.is_none_or(|state| Some(state.joins) != *seen_joins);
         let mut next = state.unwrap_or_default();
         next.acknowledged = next.joins;
@@ -328,7 +343,11 @@ mod tests {
     use super::*;
 
     fn location(dir: &tempfile::TempDir) -> Location {
-        Location::File(dir.path().join("witness.db"))
+        let database = dir.path().join("witness.db");
+        if !database.exists() {
+            std::fs::write(&database, b"").unwrap();
+        }
+        Location::File(std::fs::canonicalize(database).unwrap())
     }
 
     #[tokio::test]
@@ -366,7 +385,7 @@ mod tests {
         assert_eq!(first.check(), Ownership::Alone { changed: true });
         assert_eq!(first.check(), Ownership::Alone { changed: false });
         // An unreadable state line also counts as a change.
-        std::fs::write(Paths::new(&dir.path().join("witness.db")).state, b"garbage").unwrap();
+        std::fs::write(Paths::new(&std::fs::canonicalize(dir.path().join("witness.db")).unwrap()).state, b"garbage").unwrap();
         assert_eq!(first.check(), Ownership::Alone { changed: true });
         assert_eq!(first.check(), Ownership::Alone { changed: false });
     }
@@ -388,7 +407,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut owner = ProtectionParticipant::join(&location(&dir)).await.unwrap();
         assert_eq!(owner.check(), Ownership::Alone { changed: false });
-        let lock = Paths::new(&dir.path().join("witness.db")).lock;
+        let lock = Paths::new(&std::fs::canonicalize(dir.path().join("witness.db")).unwrap()).lock;
         if std::fs::remove_file(&lock).is_ok() && std::fs::write(&lock, b"").is_ok() {
             assert_eq!(owner.check(), Ownership::Lost);
             // A new participant on the new file is alone and owns.
@@ -415,5 +434,21 @@ mod tests {
         for raw in ["", "v2 1 1 1", "v1 1 1", "v1 1 1 2", "v1 x 1 1", "v1 1 1 1 extra"] {
             assert_eq!(StateLine::parse(raw), None, "{raw}");
         }
+    }
+
+    #[tokio::test]
+    async fn a_hard_linked_database_is_never_owned() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut owner = ProtectionParticipant::join(&location(&dir)).await.unwrap();
+        assert_eq!(owner.check(), Ownership::Alone { changed: false });
+        std::fs::hard_link(dir.path().join("witness.db"), dir.path().join("second-name.db")).unwrap();
+        assert_eq!(owner.check(), Ownership::Shared, "another name could use another witness");
+        std::fs::remove_file(dir.path().join("second-name.db")).unwrap();
+        assert!(matches!(owner.check(), Ownership::Alone { .. }));
+    }
+
+    #[tokio::test]
+    async fn an_unresolved_database_path_cannot_join() {
+        assert!(ProtectionParticipant::join(&Location::Unresolved).await.is_err());
     }
 }

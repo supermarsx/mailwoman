@@ -226,7 +226,7 @@ async fn witness_location_is_private_in_memory_and_a_file_beside_a_database() {
     assert!(matches!(memory.protection_location(),owner::Location::Private));
     let directory=tempfile::tempdir().unwrap();let path=directory.path().join("located.db");
     let file=Store::open(path.to_str().unwrap(),ServerKey::generate()).await.unwrap();
-    assert!(matches!(file.protection_location(),owner::Location::File(at) if at.file_name()==Some(std::ffi::OsStr::new("located.db"))));
+    assert!(matches!(file.protection_location(),owner::Location::File(at) if at==std::fs::canonicalize(&path).unwrap()));
     file.request_protection_join().await.unwrap();
     assert!(directory.path().join("located.db.mw-request-protection.lock").exists());
 }

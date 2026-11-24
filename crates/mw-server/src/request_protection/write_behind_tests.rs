@@ -973,3 +973,58 @@ async fn review_r5_full_queue_answers_by_decision_under_both_settings() {
     // The first full-queue write-through drained the queue; later ones were queued.
     assert!(accounting.status().backpressure_writes >= 1);
 }
+
+/// R2: the same database opened through another name shares one witness, so
+/// two instances never both own: a directory junction (Windows) or symbolic
+/// link (Unix), and another spelling of the file name (case on Windows, a
+/// file symbolic link on Unix). The store resolves only the parent directory;
+/// the witness now resolves the whole path.
+#[tokio::test]
+async fn review_r2_an_aliased_path_shares_the_witness() {
+    let dir = tempfile::tempdir().unwrap();
+    let real = dir.path().join("real");
+    std::fs::create_dir(&real).unwrap();
+    let alias = dir.path().join("alias");
+    #[cfg(windows)]
+    let linked = std::process::Command::new("cmd")
+        .args(["/C", "mklink", "/J"])
+        .arg(&alias)
+        .arg(&real)
+        .output()
+        .is_ok_and(|output| output.status.success());
+    #[cfg(unix)]
+    let linked = std::os::unix::fs::symlink(&real, &alias).is_ok();
+    #[cfg(not(any(windows, unix)))]
+    let linked = false;
+    let key = ServerKey::generate();
+    let direct = Store::open(real.join("aliased.db").to_str().unwrap(), key.clone()).await.unwrap();
+    let mut names = Vec::new();
+    if linked {
+        names.push(alias.join("aliased.db"));
+    } else {
+        eprintln!("[write_behind] no directory alias could be created; that case is not exercised");
+    }
+    #[cfg(windows)]
+    names.push(real.join("ALIASED.db"));
+    #[cfg(unix)]
+    {
+        let file_link = real.join("other-name.db");
+        if std::os::unix::fs::symlink(real.join("aliased.db"), &file_link).is_ok() {
+            names.push(file_link);
+        }
+    }
+    let first = WriteBehind::new(direct, config(250, 4096));
+    first.check_ownership().await;
+    assert!(first.status().owned);
+    for name in names {
+        let through = Store::open(name.to_str().unwrap(), key.clone()).await.unwrap();
+        let second = WriteBehind::new(through, config(250, 4096));
+        second.check_ownership().await;
+        first.check_ownership().await;
+        assert!(!(first.status().owned && second.status().owned), "{}: both own", name.display());
+        assert!(!first.status().owned && !second.status().owned, "{}: two participants, neither owns", name.display());
+        drop(second);
+        first.check_ownership().await;
+        assert!(first.status().owned, "alone again");
+    }
+}

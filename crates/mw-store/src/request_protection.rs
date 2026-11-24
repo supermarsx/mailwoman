@@ -229,6 +229,12 @@ type Writers = std::sync::Mutex<
     std::collections::HashMap<std::path::PathBuf, std::sync::Arc<tokio::sync::OnceCell<ProtectionParticipant>>>,
 >;
 static WRITERS: std::sync::LazyLock<Writers> = std::sync::LazyLock::new(Default::default);
+/// Canonical database paths by logical path, re-resolved after `LOCATION_TTL`.
+type Locations = std::sync::Mutex<
+    std::collections::HashMap<std::path::PathBuf, (std::time::Instant, Option<std::path::PathBuf>)>,
+>;
+static LOCATIONS: std::sync::LazyLock<Locations> = std::sync::LazyLock::new(Default::default);
+const LOCATION_TTL: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// One row of a set-based group.
 struct GroupRow {
@@ -1328,10 +1334,26 @@ impl Store {
                 // sqlx names an in-memory database `file:sqlx-in-memory-<n>`.
                 let memory = text.is_empty() || text.contains(":memory:") || text.starts_with("file:");
                 if memory && !live.is_managed() {
-                    owner::Location::Private
-                } else {
-                    owner::Location::File(path.to_path_buf())
+                    return owner::Location::Private;
                 }
+                // The witness belongs to the file, not to the name it was opened
+                // by: the whole path is resolved (the store resolves only the
+                // parent directory), including a symbolic-link file name and,
+                // on Windows, case and short names.
+                let mut locations = LOCATIONS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let fresh = locations
+                    .get(path)
+                    .filter(|(at, _)| at.elapsed() < LOCATION_TTL)
+                    .map(|(_, canonical)| canonical.clone());
+                let canonical = match fresh {
+                    Some(canonical) => canonical,
+                    None => {
+                        let canonical = std::fs::canonicalize(path).ok();
+                        locations.insert(path.to_path_buf(), (std::time::Instant::now(), canonical.clone()));
+                        canonical
+                    }
+                };
+                canonical.map_or(owner::Location::Unresolved, owner::Location::File)
             }
         }
     }
@@ -1346,7 +1368,13 @@ impl Store {
     /// calls this first, so a write-behind owner elsewhere stops trusting its
     /// cache before the write. PostgreSQL and in-memory databases: no-op.
     pub async fn request_protection_join(&self) -> Result<(), StoreError> {
-        let owner::Location::File(path) = self.protection_location() else { return Ok(()) };
+        let path = match self.protection_location() {
+            owner::Location::Shared | owner::Location::Private => return Ok(()),
+            owner::Location::Unresolved => {
+                return Err(StoreError::Invalid("request protection witness: database path unresolved"));
+            }
+            owner::Location::File(path) => path,
+        };
         let cell = WRITERS
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
