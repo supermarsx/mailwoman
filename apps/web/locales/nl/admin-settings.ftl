@@ -1814,7 +1814,7 @@ admin-settings-key-ratelimit-jmap-per-account-concurrent = Gelijktijdige JMAP-ve
 # -- Machine translation (2026-11): added to match en ---------------------
 admin-settings-help-ratelimit-jmap-per-account-concurrent = JMAP-verzoeken die één ingelogd account tegelijk mag uitvoeren, over al zijn tabbladen en apparaten heen. Dit wordt nooit gedeeld met een ander account of een andere gebruiker achter hetzelfde adres. Bereik 4-64; standaard 8.
 admin-settings-key-ratelimit-jmap-global-concurrent = Gelijktijdige JMAP-verzoeken, alle accounts
-admin-settings-help-ratelimit-jmap-global-concurrent = JMAP-verzoeken die het hele serverproces tegelijk uitvoert, alle accounts samen. Een verzoek daarboven wacht gedurende de wachtrijtijd. Bereik 4-4096; standaard 256.
+admin-settings-help-ratelimit-jmap-global-concurrent = JMAP-verzoeken die één serverproces tegelijk uitvoert, alle accounts samen. Een verzoek daarboven wacht gedurende de wachtrijtijd. Auto: de afgeleide HTTP-verzoeklimiet, minstens 256. Bereik 4-16384. Elk serverproces past deze apart toe.
 admin-settings-key-ratelimit-session-burst = Tijdsrapporten per sessie achter elkaar
 admin-settings-help-ratelimit-session-burst = Tijdsrapporten van de client die één sessie achter elkaar mag sturen. Het endpoint gebruikt de sessie als sleutel, nooit het adres. Bereik 1-1000; standaard 60.
 admin-settings-key-ratelimit-session-per-minute = Tijdsrapporten die per minuut terugkomen

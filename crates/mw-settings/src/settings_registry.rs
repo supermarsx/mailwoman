@@ -5854,13 +5854,21 @@ pub static REGISTRY: &[SettingDef] = &[
         "security",
         "JMAP requests one signed-in account may run at once, across its tabs and devices. It never shares this with another account or another user behind the same address. Not below 4, the value the session resource advertises."
     ),
-    def!(
+    nullable(def!(
         "ratelimit.jmap.globalConcurrent",
-        int(4, 4096),
-        "256",
+        int(4, 16384),
+        "null",
         G,
         "security",
-        "JMAP requests the whole process runs at once, all accounts together. A request over it waits for ratelimit.queueMs."
+        "JMAP requests one server process runs at once, all accounts together; null = Auto (the derived HTTP request limit, at least 256). A request over it waits for ratelimit.queueMs."
+    )),
+    def!(
+        "ratelimit.session.burst",
+        int(1, 1000),
+        "60",
+        GD,
+        "security",
+        "Client timing reports one session may send in a row. The report endpoint is keyed by session, never by address."
     ),
     def!(
         "ratelimit.session.perMinute",

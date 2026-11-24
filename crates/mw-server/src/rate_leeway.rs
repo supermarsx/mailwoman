@@ -92,7 +92,7 @@ impl Default for Knobs {
         Self {
             queue_ms: 3_000,
             jmap_per_account: 8,
-            jmap_global: 256,
+            jmap_global: auto_jmap_global(),
             session_burst: 60,
             session_per_minute: 30,
             anon_burst: 60,
@@ -141,6 +141,23 @@ impl Knobs {
         Duration::from_millis(self.queue_ms)
     }
 }
+
+/// `ratelimit.jmap.globalConcurrent` when it is unset (Auto): the request limit
+/// the HTTP listener derives from the resources (64 per CPU or 16 per database
+/// connection, bounded by memory), never below the earlier fixed 256. Read once per
+/// process, without changing the open-file limit.
+pub(crate) fn auto_jmap_global() -> usize {
+    static AUTO: OnceLock<usize> = OnceLock::new();
+    *AUTO.get_or_init(|| {
+        crate::inbound_http::HttpLimits::derive_without_side_effects()
+            .derivation
+            .auto
+            .map_or(JMAP_GLOBAL_FLOOR, |auto| auto.requests)
+            .max(JMAP_GLOBAL_FLOOR)
+    })
+}
+/// The fixed value before Auto, and the floor of Auto.
+pub(crate) const JMAP_GLOBAL_FLOOR: usize = 256;
 
 const KNOB_TTL: Duration = Duration::from_secs(15);
 const KNOB_DOMAINS: usize = 256;
@@ -465,6 +482,7 @@ pub(crate) fn snapshot() -> Value {
         "classes": classes,
         "recent": list,
         "recentCapacity": RECENT_CAPACITY,
+        "jmapGates": gate_snapshot(),
         "clients": {
             "reports": c.reports.load(Ordering::Relaxed),
             "rateLimited": c.seen.load(Ordering::Relaxed),
@@ -476,10 +494,72 @@ pub(crate) fn snapshot() -> Value {
 
 // ─── the queueing gate ─────────────────────────────────────────────────────────
 
-/// Slots held for one request; both are released on drop.
+/// Slots held for one request; both are released on drop, which also records
+/// the hold time.
 pub(crate) struct Held {
     _key: OwnedSemaphorePermit,
     _global: OwnedSemaphorePermit,
+    class: usize,
+    since: Instant,
+}
+impl Drop for Held {
+    fn drop(&mut self) {
+        let stats = &gate_stats()[self.class];
+        stats.in_use.fetch_sub(1, Ordering::Relaxed);
+        stats.hold[bucket(self.since.elapsed())].fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+/// Upper bounds (ms) of the gate wait and hold buckets; the last is everything above.
+pub(crate) const GATE_BUCKETS_MS: [u64; 9] = [1, 5, 10, 25, 50, 100, 250, 1000, 5000];
+fn bucket(elapsed: Duration) -> usize {
+    let ms = elapsed.as_secs_f64() * 1000.0;
+    GATE_BUCKETS_MS
+        .iter()
+        .position(|&top| ms <= top as f64)
+        .unwrap_or(GATE_BUCKETS_MS.len())
+}
+/// Per gate class: how long slots were waited for and held, and how many are in
+/// use against the process limit last applied.
+#[derive(Default)]
+struct GateStats {
+    wait: [AtomicU64; GATE_BUCKETS_MS.len() + 1],
+    hold: [AtomicU64; GATE_BUCKETS_MS.len() + 1],
+    in_use: std::sync::atomic::AtomicUsize,
+    limit: std::sync::atomic::AtomicUsize,
+}
+fn gate_stats() -> &'static [GateStats; CLASSES.len()] {
+    static S: OnceLock<[GateStats; CLASSES.len()]> = OnceLock::new();
+    S.get_or_init(|| std::array::from_fn(|_| GateStats::default()))
+}
+/// Wait and hold histograms and occupancy of the JMAP gates, for the
+/// request-protection page and the fixture snapshot.
+pub(crate) fn gate_snapshot() -> Value {
+    let buckets = |counts: &[AtomicU64; GATE_BUCKETS_MS.len() + 1]| {
+        let mut out = serde_json::Map::new();
+        for (i, top) in GATE_BUCKETS_MS.iter().enumerate() {
+            out.insert(format!("le{top}ms"), json!(counts[i].load(Ordering::Relaxed)));
+        }
+        out.insert(
+            "over5000ms".into(),
+            json!(counts[GATE_BUCKETS_MS.len()].load(Ordering::Relaxed)),
+        );
+        Value::Object(out)
+    };
+    let mut out = serde_json::Map::new();
+    for class in ["jmap", "jmapUpload", "jmapExport"] {
+        let stats = &gate_stats()[class_index(class)];
+        out.insert(
+            class.into(),
+            json!({
+                "inUse": stats.in_use.load(Ordering::Relaxed),
+                "limit": stats.limit.load(Ordering::Relaxed),
+                "waitBuckets": buckets(&stats.wait),
+                "holdBuckets": buckets(&stats.hold),
+            }),
+        );
+    }
+    json!({"gates": out, "autoGlobalConcurrent": auto_jmap_global()})
 }
 
 /// Why a gate refused.
@@ -570,6 +650,9 @@ impl Gate {
     ) -> Result<Held, Busy> {
         let key_sem = self.key_semaphore(key, per_key);
         let global_sem = self.global_semaphore(global);
+        let class = class_index(self.class);
+        gate_stats()[class].limit.store(global, Ordering::Relaxed);
+        let started = Instant::now();
         let mut queued = false;
         let key_permit = match key_sem.clone().try_acquire_owned() {
             Ok(p) => p,
@@ -605,9 +688,14 @@ impl Gate {
                 Outcome::Allowed
             },
         );
+        let stats = &gate_stats()[class];
+        stats.wait[bucket(started.elapsed())].fetch_add(1, Ordering::Relaxed);
+        stats.in_use.fetch_add(1, Ordering::Relaxed);
         Ok(Held {
             _key: key_permit,
             _global: global_permit,
+            class,
+            since: Instant::now(),
         })
     }
 }
@@ -759,15 +847,63 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn gate_records_wait_hold_and_occupancy() {
+        let gate = Gate::new("jmapExport");
+        let stats = &gate_stats()[class_index("jmapExport")];
+        let sum = |counts: &[AtomicU64; GATE_BUCKETS_MS.len() + 1]| {
+            counts.iter().map(|n| n.load(Ordering::Relaxed)).sum::<u64>()
+        };
+        let (held_before, waited_before) = (sum(&stats.hold), sum(&stats.wait));
+        let a = gate.acquire("acct", 2, 3, Duration::ZERO).await.unwrap();
+        let b = gate.acquire("acct", 2, 3, Duration::ZERO).await.unwrap();
+        assert!(stats.in_use.load(Ordering::Relaxed) >= 2);
+        assert_eq!(stats.limit.load(Ordering::Relaxed), 3);
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        drop((a, b));
+        assert_eq!(sum(&stats.hold) - held_before, 2);
+        assert_eq!(sum(&stats.wait) - waited_before, 2);
+        let snapshot = gate_snapshot();
+        assert!(snapshot["gates"]["jmapExport"]["holdBuckets"].is_object());
+        assert!(snapshot["autoGlobalConcurrent"].as_u64().unwrap() >= 256);
+        assert_eq!(bucket(Duration::from_micros(500)), 0);
+        assert_eq!(bucket(Duration::from_millis(30)), 4);
+        assert_eq!(bucket(Duration::from_secs(9)), GATE_BUCKETS_MS.len());
+    }
+
+    #[test]
+    fn auto_global_concurrency_applies_when_null_and_a_stored_value_wins() {
+        let rows = |value: Value| {
+            vec![settings_registry::Effective {
+                key: JMAP_GLOBAL.into(),
+                value,
+                source: mw_store::settings_policy::SettingSource::Default,
+                locked_by: None,
+                user_may_override: false,
+                user_value: None,
+                inherited: false,
+            }]
+        };
+        assert_eq!(Knobs::from_rows(&rows(Value::Null)).jmap_global, auto_jmap_global());
+        assert_eq!(Knobs::from_rows(&rows(json!(300))).jmap_global, 300);
+        // Per-account stays 8.
+        assert_eq!(Knobs::from_rows(&rows(Value::Null)).jmap_per_account, 8);
+    }
+
     #[test]
     fn defaults_match_the_registry_and_domains_are_parsed() {
         assert_eq!(domain_of("alice@Example.org"), "Example.org");
         assert_eq!(domain_of("alice"), "");
         let d = Knobs::default();
+        // Auto: null in the registry, the derived value (at least 256) here.
+        let global = settings_registry::lookup(JMAP_GLOBAL).expect("registered");
+        assert_eq!(global.default_value(), Value::Null);
+        assert!(global.nullable);
+        assert!(d.jmap_global >= JMAP_GLOBAL_FLOOR);
+        assert_eq!(d.jmap_global, auto_jmap_global());
         for (key, value) in [
             (QUEUE_MS, d.queue_ms),
             (JMAP_PER_ACCOUNT, d.jmap_per_account as u64),
-            (JMAP_GLOBAL, d.jmap_global as u64),
             (SESSION_BURST, u64::from(d.session_burst)),
             (SESSION_PER_MINUTE, u64::from(d.session_per_minute)),
             (ANON_BURST, u64::from(d.anon_burst)),

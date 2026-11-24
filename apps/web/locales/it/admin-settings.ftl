@@ -1814,7 +1814,7 @@ admin-settings-key-ratelimit-jmap-per-account-concurrent = Richieste JMAP simult
 # -- Machine translation (2026-11): added to match en ---------------------
 admin-settings-help-ratelimit-jmap-per-account-concurrent = Richieste JMAP che un account autenticato può eseguire contemporaneamente, tra le sue schede e i suoi dispositivi. Non è mai condiviso con un altro account né con un altro utente dietro lo stesso indirizzo. Intervallo 4-64; predefinito 8.
 admin-settings-key-ratelimit-jmap-global-concurrent = Richieste JMAP simultanee, tutti gli account
-admin-settings-help-ratelimit-jmap-global-concurrent = Richieste JMAP che l'intero processo del server esegue contemporaneamente, tutti gli account insieme. Una richiesta oltre il limite attende per il tempo di coda. Intervallo 4-4096; predefinito 256.
+admin-settings-help-ratelimit-jmap-global-concurrent = Richieste JMAP che un processo del server esegue contemporaneamente, tutti gli account insieme. Una richiesta oltre il limite attende per il tempo di coda. Auto: il limite di richieste HTTP ricavato, almeno 256. Intervallo 4-16384. Ogni processo del server lo applica separatamente.
 admin-settings-key-ratelimit-session-burst = Segnalazioni di tempi consecutive per sessione
 admin-settings-help-ratelimit-session-burst = Segnalazioni di tempi del client che una sessione può inviare consecutivamente. L'endpoint usa come chiave la sessione, mai l'indirizzo. Intervallo 1-1000; predefinito 60.
 admin-settings-key-ratelimit-session-per-minute = Segnalazioni di tempi ripristinate al minuto

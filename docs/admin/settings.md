@@ -2872,7 +2872,7 @@ Concurrency gates are per signed-in account, with a process ceiling behind them,
 
 <a id="ratelimit.jmap.globalConcurrent"></a>
 
-`ratelimit.jmap.globalConcurrent` (default `256`): JMAP requests the process runs at once, all accounts together. Global only.
+`ratelimit.jmap.globalConcurrent` (default Auto): JMAP requests one server process runs at once, all accounts together. Auto is the derived HTTP request limit, at least 256; a stored value (4–16384) wins. Global only.
 
 <a id="ratelimit.session.burst"></a>
 
@@ -5667,7 +5667,7 @@ Every key in the settings registry, generated from the registry and checked agai
 | <a id="ratelimit.diagnosticsperminute"></a>[`rateLimit.diagnosticsPerMinute`](#rateLimit.diagnosticsPerMinute) | integer, 1 to 600 | `10` | server |  | Applied by the server. Written only on its own console page (`/rate-limits`); the general settings route refuses it. |
 | <a id="ratelimit.queuems"></a>[`ratelimit.queueMs`](#ratelimit.queueMs) | integer, 0 to 30,000 | `3000` | server, domain |  | Applied by the server. |
 | <a id="ratelimit.jmap.peraccountconcurrent"></a>[`ratelimit.jmap.perAccountConcurrent`](#ratelimit.jmap.perAccountConcurrent) | integer, 4 to 64 | `8` | server, domain |  | Applied by the server. |
-| <a id="ratelimit.jmap.globalconcurrent"></a>[`ratelimit.jmap.globalConcurrent`](#ratelimit.jmap.globalConcurrent) | integer, 4 to 4096 | `256` | server |  | Applied by the server. |
+| <a id="ratelimit.jmap.globalconcurrent"></a>[`ratelimit.jmap.globalConcurrent`](#ratelimit.jmap.globalConcurrent) | integer, 4 to 16384, or null (Auto) | `null` | server |  | Applied by the server. |
 | [`ratelimit.session.burst`](#ratelimit.session.burst) | integer, 1 to 1000 | `60` | server, domain |  | Applied by the server. |
 | <a id="ratelimit.session.perminute"></a>[`ratelimit.session.perMinute`](#ratelimit.session.perMinute) | integer, 1 to 600 | `30` | server, domain |  | Applied by the server. |
 | [`ratelimit.anon.burst`](#ratelimit.anon.burst) | integer, 1 to 1000 | `60` | server |  | Applied by the server. |
