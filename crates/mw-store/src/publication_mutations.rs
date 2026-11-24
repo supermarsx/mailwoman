@@ -6,7 +6,7 @@ use crate::{
     backend::{Tx, q},
 };
 
-async fn lock_mailboxes(
+pub(crate) async fn lock_mailboxes(
     tx: &mut Tx,
     account: &str,
     source: &str,

@@ -80,6 +80,9 @@ mod keyword_noop_tests;
 #[cfg(test)]
 #[path = "dlp_retry_tests.rs"]
 mod dlp_retry_tests;
+#[cfg(test)]
+#[path = "unread_counter_drift_tests.rs"]
+mod unread_counter_drift_tests;
 
 /// Build the JMAP [`Session`](mw_jmap::Session) resource for a connected account,
 /// advertising core + mail + submission and pointing every URL back at us.

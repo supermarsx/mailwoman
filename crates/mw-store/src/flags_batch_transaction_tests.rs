@@ -49,7 +49,8 @@ async fn flags_batch_concurrent_contract(s: &Store) {
     s.update_mailbox_counts(&mailbox, 2, 0, 1, 1).await.unwrap();
     // Two readers setting the same unread message must not both subtract one.
     // Start from a nonzero residual count so a floor-at-zero cannot hide a double subtraction.
-    s.update_mailbox_counts(&mailbox, 2, 0, 3, 3).await.unwrap();
+    // (Written directly: a STATUS no longer sets the cached counter, t50hp-e26.)
+    q("UPDATE mailboxes SET unread = 3 WHERE id = ?1").bind(&mailbox).execute(s.backend()).await.unwrap();
     let a = vec![(id.clone(), "[\"Seen\"]".into())];
     let (a, b) = tokio::join!(s.set_flags_batch(&a), s.set_flags(&id, "[\"Seen\"]"));
     assert_eq!(a.unwrap(), vec![true]);

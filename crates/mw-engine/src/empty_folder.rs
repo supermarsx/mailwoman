@@ -258,12 +258,8 @@ impl Engine {
             .count_messages_in_mailbox(&mailbox.id)
             .await
             .unwrap_or_else(|_| total.saturating_sub(processed));
-        if processed > 0 {
-            self.recount(&mailbox.id).await;
-            if let Some(trash) = &trash {
-                self.recount(&trash.id).await;
-            }
-        }
+        // No recount: the move and the removal adjusted both folders' cached
+        // counters in their own transactions (t50hp-e26).
         tracing::info!(
             account = account_id,
             mailbox = %mailbox.id,
@@ -279,33 +275,6 @@ impl Engine {
             response["notProcessed"] = Value::Object(not_processed);
         }
         response
-    }
-
-    /// Set a mailbox's cached `total` to the messages the cache now holds
-    /// there, so `Mailbox/get` shows an emptied folder as empty (and Trash
-    /// with what it received) before the next sync's STATUS. Unread is kept
-    /// (the move and the removal already adjusted it), never above the total.
-    async fn recount(&self, mailbox_id: &str) {
-        let (Ok(row), Ok(total)) = (
-            self.store().get_mailbox(mailbox_id).await,
-            self.store().count_messages_in_mailbox(mailbox_id).await,
-        ) else {
-            return;
-        };
-        let total = u32::try_from(total).unwrap_or(u32::MAX);
-        if let Err(error) = self
-            .store()
-            .update_mailbox_counts(
-                mailbox_id,
-                row.uidnext,
-                row.highestmodseq,
-                total,
-                row.unread.min(total),
-            )
-            .await
-        {
-            tracing::warn!("recounting mailbox {mailbox_id} after Mailbox/empty failed: {error}");
-        }
     }
 
     /// `forbidden` when the mail server says this user may not remove messages

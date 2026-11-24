@@ -146,8 +146,9 @@ async fn contract(store: &Store) {
         store.list_message_ids(&mailbox, 10, 0).await.unwrap().len(),
         1
     );
-    // Remote mailbox counts are updated by sync, not inferred by cache upsert.
-    assert_eq!(store.get_mailbox(&mailbox).await.unwrap().total, 0);
+    // The cached-row counter follows the rows: the re-keyed identity is still
+    // one cached message (t50hp-e26; the server's figure is upstream_total).
+    assert_eq!(store.get_mailbox(&mailbox).await.unwrap().total, 1);
     store
         .register_refetchable_cached_body(&account, &first.stable_id)
         .await

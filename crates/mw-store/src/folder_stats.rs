@@ -34,6 +34,9 @@ pub struct FolderStats {
     /// Messages whose body is held locally.
     pub bodies_cached: u64,
     pub largest: Vec<LargeMessage>,
+    /// The server's own MESSAGES figure from the last STATUS (0122), `0`
+    /// when no sync has reported one. Not a count of cached rows.
+    pub upstream_total: u64,
 }
 
 impl Store {
@@ -81,6 +84,7 @@ impl Store {
                 size: row.get_i64("size").max(0) as u64,
             })
             .collect();
+        let upstream_total = count("SELECT upstream_total FROM mailboxes WHERE id = ?1").await?;
         let n = |v: i64| v.max(0) as u64;
         Ok(FolderStats {
             cached: n(cached),
@@ -92,6 +96,7 @@ impl Store {
             unread: n(unread),
             bodies_cached: n(bodies_cached),
             largest,
+            upstream_total: n(upstream_total),
         })
     }
 }

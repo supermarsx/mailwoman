@@ -51,7 +51,10 @@ impl Engine {
             Err(error) => return server_fail(&crate::backend::EngineError::Store(error)),
         };
         let delimiter = self.hierarchy_delimiter(rt).await;
-        let total = u64::from(mailbox.total);
+        // The server's figure, so a partly cached folder says "N of M cached"
+        // (t50hp-e26: `mailbox.total` counts cached rows only). A folder no
+        // STATUS has reported falls back to what is cached.
+        let total = stats.upstream_total.max(u64::from(mailbox.total));
         json!({
             "accountId": account_id,
             "mailboxId": mailbox_id,

@@ -116,6 +116,10 @@ pub struct MailboxUpsert<'a> {
     pub uidvalidity: u32,
     pub uidnext: u32,
     pub highestmodseq: u64,
+    /// The server's own MESSAGES / UNSEEN figures (STATUS), stored as
+    /// `upstream_total` / `upstream_unseen`. They never write
+    /// [`Mailbox::total`] / [`Mailbox::unread`], which count cached rows and
+    /// are maintained only by the row writes themselves (t50hp-e26).
     pub total: u32,
     pub unread: u32,
     pub parent_id: Option<&'a str>,
@@ -131,6 +135,10 @@ pub struct Mailbox {
     pub uidvalidity: u32,
     pub uidnext: u32,
     pub highestmodseq: u64,
+    /// Messages cached in this folder, and how many of them are unread
+    /// (flags without `Seen`, see `flags_json_is_unread`). Exact: every write
+    /// that inserts, deletes, moves or re-flags a row adjusts them in the same
+    /// transaction, and a sync's STATUS never overwrites them (t50hp-e26).
     pub total: u32,
     pub unread: u32,
     pub parent_id: Option<String>,
@@ -265,6 +273,33 @@ pub(crate) fn flags_json_is_unread(flags_json: &str) -> bool {
     !serde_json::from_str::<Vec<serde_json::Value>>(flags_json)
         .map(|flags| flags.iter().any(|f| f.as_str() == Some("Seen")))
         .unwrap_or(false)
+}
+
+/// Move one mailbox's cached-row counters by `total` and `unread`, inside the
+/// caller's transaction (t50hp-e26). No statement when both are zero. The
+/// clamp at zero only keeps a `u32` read from wrapping; with every row write
+/// maintaining the counters it is never reached.
+pub(crate) async fn shift_counters_tx(
+    tx: &mut crate::backend::Tx,
+    account_id: &str,
+    mailbox_id: &str,
+    total: i64,
+    unread: i64,
+) -> Result<(), StoreError> {
+    if total == 0 && unread == 0 {
+        return Ok(());
+    }
+    q("UPDATE mailboxes SET
+         total = CASE WHEN total + ?3 < 0 THEN 0 ELSE total + ?3 END,
+         unread = CASE WHEN unread + ?4 < 0 THEN 0 ELSE unread + ?4 END
+       WHERE id = ?1 AND account_id = ?2")
+        .bind(mailbox_id)
+        .bind(account_id)
+        .bind(total)
+        .bind(unread)
+        .execute_tx(tx)
+        .await?;
+    Ok(())
 }
 
 // Small casts: SQLite stores signed 64-bit integers; UIDs/counts are u32 and
@@ -598,20 +633,24 @@ impl Store {
     // ---- mailboxes ------------------------------------------------------
 
     /// Upsert a mailbox by `(account, name, uidvalidity)`, returning its stable
-    /// opaque id. Counts/uidnext/highestmodseq/role/parent are refreshed on
-    /// conflict; the id is preserved.
+    /// opaque id. Upstream counts/uidnext/highestmodseq/role/parent are
+    /// refreshed on conflict; the id is preserved.
+    ///
+    /// The cached-row counters `total`/`unread` start at zero and are left
+    /// alone on conflict (t50hp-e26). Writing the server's UNSEEN here and then
+    /// applying the same upstream change again as a row delta counted it twice.
     pub async fn upsert_mailbox(&self, m: &MailboxUpsert<'_>) -> Result<String, StoreError> {
         let id = seal::random_token();
         let row = q(
             "INSERT INTO mailboxes
-                 (id, account_id, name, role, uidvalidity, uidnext, highestmodseq, total, unread, parent_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                 (id, account_id, name, role, uidvalidity, uidnext, highestmodseq, total, unread, upstream_total, upstream_unseen, parent_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 0, ?8, ?9, ?10)
              ON CONFLICT(account_id, name, uidvalidity) DO UPDATE SET
                  role = excluded.role,
                  uidnext = excluded.uidnext,
                  highestmodseq = excluded.highestmodseq,
-                 total = excluded.total,
-                 unread = excluded.unread,
+                 upstream_total = excluded.upstream_total,
+                 upstream_unseen = excluded.upstream_unseen,
                  parent_id = excluded.parent_id
              RETURNING id",
         )
@@ -683,23 +722,24 @@ impl Store {
         Ok(Self::mailbox_from_row(&row))
     }
 
-    /// Refresh a mailbox's counters after a sync.
+    /// Refresh a mailbox's upstream position and the server's own MESSAGES /
+    /// UNSEEN figures. The cached-row counters are not written (t50hp-e26).
     pub async fn update_mailbox_counts(
         &self,
         id: &str,
         uidnext: u32,
         highestmodseq: u64,
-        total: u32,
-        unread: u32,
+        upstream_total: u32,
+        upstream_unseen: u32,
     ) -> Result<(), StoreError> {
         q(
-            "UPDATE mailboxes SET uidnext = ?2, highestmodseq = ?3, total = ?4, unread = ?5 WHERE id = ?1",
+            "UPDATE mailboxes SET uidnext = ?2, highestmodseq = ?3, upstream_total = ?4, upstream_unseen = ?5 WHERE id = ?1",
         )
         .bind(id)
         .bind(uidnext as i64)
         .bind(to_i64(highestmodseq))
-        .bind(total as i64)
-        .bind(unread as i64)
+        .bind(upstream_total as i64)
+        .bind(upstream_unseen as i64)
         .execute(&self.backend)
         .await?;
         Ok(())
@@ -924,42 +964,49 @@ impl Store {
         {
             return Err(StoreError::NotFound);
         }
-        // (1) exact UID coordinates.
-        let existing: Option<String> = q("SELECT stable_id FROM messages
+        // (1) exact UID coordinates. The row's flags come with it: they are the
+        // "before" side of this mailbox's counter delta, read under the
+        // mailbox lock taken above (t50hp-e26).
+        let existing = q("SELECT stable_id, flags_json FROM messages
              WHERE account_id = ?1 AND mailbox_id = ?2 AND uidvalidity = ?3 AND uid = ?4")
         .bind(m.account_id)
         .bind(m.mailbox_id)
         .bind(m.uidvalidity as i64)
         .bind(m.uid as i64)
-        .fetch_opt_scalar_string_tx(tx)
-        .await?;
+        .fetch_all_tx(tx)
+        .await?
+        .into_iter()
+        .next();
 
         // (2) identity match across a UIDVALIDITY change.
-        let (stable_id, existed) = match existing {
-            Some(id) => (id, true),
-            None => {
-                let identity: Option<String> = match (m.message_id, m.internaldate) {
-                    (Some(mid), Some(date)) => {
-                        q("SELECT stable_id FROM messages
+        let existing = match existing {
+            Some(row) => Some(row),
+            None => match (m.message_id, m.internaldate) {
+                (Some(mid), Some(date)) => q("SELECT stable_id, flags_json FROM messages
                          WHERE account_id = ?1 AND mailbox_id = ?2 AND message_id = ?3
                            AND internaldate = ?4 AND size = ?5 AND uidvalidity != ?6
                          LIMIT 1")
-                        .bind(m.account_id)
-                        .bind(m.mailbox_id)
-                        .bind(mid)
-                        .bind(date)
-                        .bind(to_i64(m.size))
-                        .bind(m.uidvalidity as i64)
-                        .fetch_opt_scalar_string_tx(tx)
-                        .await?
-                    }
-                    _ => None,
-                };
-                match identity {
-                    Some(id) => (id, true),
-                    None => (seal::random_token(), false),
-                }
-            }
+                    .bind(m.account_id)
+                    .bind(m.mailbox_id)
+                    .bind(mid)
+                    .bind(date)
+                    .bind(to_i64(m.size))
+                    .bind(m.uidvalidity as i64)
+                    .fetch_all_tx(tx)
+                    .await?
+                    .into_iter()
+                    .next(),
+                _ => None,
+            },
+        };
+        // Both lookups are confined to `m.mailbox_id`, so an existing row stays
+        // in this mailbox and only its read state can move the counters.
+        let previous_unread = existing
+            .as_ref()
+            .map(|row| flags_json_is_unread(&row.get_string("flags_json")));
+        let (stable_id, existed) = match existing {
+            Some(row) => (row.get_string("stable_id"), true),
+            None => (seal::random_token(), false),
         };
 
         if existed && skip_unchanged {
@@ -1027,6 +1074,10 @@ impl Store {
         .bind(m.blob_ref)
         .execute_tx(tx)
         .await?;
+        let now_unread = flags_json_is_unread(m.flags_json);
+        let total_delta = i64::from(previous_unread.is_none());
+        let unread_delta = i64::from(now_unread) - i64::from(previous_unread.unwrap_or(false));
+        shift_counters_tx(tx, m.account_id, m.mailbox_id, total_delta, unread_delta).await?;
 
         if skip_unchanged {
             crate::header_envelope::refresh_tx(tx,&self.key,m.account_id,&stable_id,m.envelope).await?;
@@ -1759,39 +1810,6 @@ impl Store {
             .collect())
     }
 
-    /// One message left a mailbox's unread population (read, moved out, deleted).
-    ///
-    /// The `unread > 0` guard is the invariant that matters more than the
-    /// arithmetic: `unread` is read back as a `u32`, so a counter driven below
-    /// zero by drift would wrap to ~4 billion in `Mailbox/get` rather than
-    /// showing a small error.
-    async fn decrement_unread(&self, mailbox_id: &str) -> Result<(), StoreError> {
-        q("UPDATE mailboxes SET unread = unread - 1 WHERE id = ?1 AND unread > 0")
-            .bind(mailbox_id)
-            .execute(&self.backend)
-            .await?;
-        Ok(())
-    }
-
-    /// Move a mailbox's `total` by one, never below zero (it is read back as a `u32`).
-    async fn shift_total(&self, mailbox_id: &str, delta: i64) -> Result<(), StoreError> {
-        q("UPDATE mailboxes SET total = CASE WHEN total + ?2 < 0 THEN 0 ELSE total + ?2 END WHERE id = ?1")
-            .bind(mailbox_id)
-            .bind(delta)
-            .execute(&self.backend)
-            .await?;
-        Ok(())
-    }
-
-    /// One message joined a mailbox's unread population (marked unread, moved in).
-    async fn increment_unread(&self, mailbox_id: &str) -> Result<(), StoreError> {
-        q("UPDATE mailboxes SET unread = unread + 1 WHERE id = ?1")
-            .bind(mailbox_id)
-            .execute(&self.backend)
-            .await?;
-        Ok(())
-    }
-
     /// Assign a message to a thread.
     pub async fn set_thread(&self, stable_id: &str, thread_id: &str) -> Result<(), StoreError> {
         q("UPDATE messages SET thread_id = ?2 WHERE stable_id = ?1")
@@ -1819,30 +1837,43 @@ impl Store {
     /// retention defect this call exists to close. In this order a failure leaves the
     /// message intact and the caller retries; there is no state where the vector
     /// outlives the message.
-    /// **Unread counter (26.20 t22-e1).** Deleting an unread message removes it
-    /// from its mailbox's unread population, so the stored counter follows. The
-    /// `DELETE` returns the row it removed (`RETURNING`, which both backends
-    /// support and this module already relies on for `upsert_mailbox`), so the
-    /// mailbox and the message's read state are known **from the delete itself**
-    /// — no separate read to race with, and nothing is decremented unless a row
-    /// really went. See [`Store::set_flags`] for why the counter is maintained in
-    /// the write path at all.
+    /// **Counters (26.20 t22-e1, t39, t50hp-e26).** The row leaves its
+    /// mailbox's `total`, and its `unread` when it was unread, in the same
+    /// transaction as the delete, decided by the flags the `DELETE` returns.
     pub async fn delete_message(&self, stable_id: &str) -> Result<(), StoreError> {
-        self.delete_message_embedding(stable_id).await?;
-        let deleted = q("DELETE FROM messages WHERE stable_id = ?1
-             RETURNING mailbox_id, flags_json")
+        // One transaction (t50hp-e26): the embedding, the row and its counter
+        // shift commit together, so neither the vector nor a counter can
+        // outlive the row. The owning mailbox is locked before the row, the
+        // order every ingest and flag write uses.
+        let mut tx = self.backend.begin().await?;
+        let Some(owner) = q("SELECT account_id, mailbox_id FROM messages WHERE stable_id = ?1")
+            .bind(stable_id)
+            .fetch_all_tx(&mut tx)
+            .await?
+            .into_iter()
+            .next()
+        else {
+            // Deleting a message that is not there stays a no-op, not an error.
+            tx.commit().await?;
+            return Ok(());
+        };
+        let (account, mailbox) = (owner.get_string("account_id"), owner.get_string("mailbox_id"));
+        crate::publication_mutations::lock_mailboxes(&mut tx, &account, &mailbox, &mailbox).await?;
+        q("DELETE FROM message_embeddings WHERE stable_id = ?1")
+            .bind(stable_id)
+            .execute_tx(&mut tx)
+            .await?;
+        let deleted = q("DELETE FROM messages WHERE stable_id = ?1 AND mailbox_id = ?2
+             RETURNING flags_json")
         .bind(stable_id)
-        .fetch_optional(&self.backend)
+        .bind(&mailbox)
+        .fetch_all_tx(&mut tx)
         .await?;
-        // Deleting a message that is not there stays a no-op, not an error.
-        if let Some(row) = deleted {
-            let mailbox = row.get_string("mailbox_id");
-            // It leaves the mailbox's total too (t39), not only its unread count.
-            self.shift_total(&mailbox, -1).await?;
-            if flags_json_is_unread(&row.get_string("flags_json")) {
-                self.decrement_unread(&mailbox).await?;
-            }
+        if let Some(row) = deleted.first() {
+            let unread = i64::from(flags_json_is_unread(&row.get_string("flags_json")));
+            shift_counters_tx(&mut tx, &account, &mailbox, -1, -unread).await?;
         }
+        tx.commit().await?;
         Ok(())
     }
 
@@ -1901,21 +1932,10 @@ impl Store {
     /// index's stored `mailboxId` separately). Returns [`StoreError::NotFound`]
     /// if no row carries `stable_id`.
     ///
-    /// **Unread counter (26.20 t22-e1).** A move carries the message's unread
-    /// contribution with it: an unread message leaving INBOX for Archive
-    /// decrements INBOX and increments Archive, in that order, and a message that
-    /// is already read moves no counter at all. Both counter statements run
-    /// **before** the row is re-keyed, because afterwards the source mailbox is
-    /// no longer recoverable from the row. If the re-key then finds nothing —
-    /// the message was destroyed concurrently — the counters are put back rather
-    /// than left leaning, since this method's contract is that a `NotFound`
-    /// changed nothing. See [`Store::set_flags`] for why the invariant lives in
-    /// the write path.
-    ///
-    /// **Total counter (t39).** The same holds for `total`: every move between
-    /// two mailboxes takes one from the source and adds one to the destination.
-    /// Without it a JMAP move left the message counted in INBOX (and missing
-    /// from the destination) until the next upstream resync recounted both.
+    /// **Counters (26.20 t22-e1, t39, t50hp-e26).** A move between two
+    /// mailboxes takes one from the source's `total` and adds one to the
+    /// destination's, and an unread message carries its unread count with it,
+    /// in the same transaction as the re-key. `NotFound` changes nothing.
     pub async fn relocate_message(
         &self,
         stable_id: &str,
@@ -1923,56 +1943,49 @@ impl Store {
         new_uid: u32,
         new_uidvalidity: u32,
     ) -> Result<(), StoreError> {
-        let current = q("SELECT mailbox_id, flags_json FROM messages WHERE stable_id = ?1")
+        // One transaction (t50hp-e26): both mailboxes are locked before the row
+        // is re-keyed, and the counters move with the flags the UPDATE itself
+        // returns, so a concurrent flag write or move cannot be counted on the
+        // wrong side. A row that moved between the read and the lock is
+        // retried against its new source.
+        for _ in 0..4 {
+            let mut tx = self.backend.begin().await?;
+            let Some(current) = q("SELECT account_id, mailbox_id FROM messages WHERE stable_id = ?1")
+                .bind(stable_id)
+                .fetch_all_tx(&mut tx)
+                .await?
+                .into_iter()
+                .next()
+            else {
+                tx.commit().await?;
+                return Err(StoreError::NotFound);
+            };
+            let (account, from) = (current.get_string("account_id"), current.get_string("mailbox_id"));
+            crate::publication_mutations::lock_mailboxes(&mut tx, &account, &from, new_mailbox_id).await?;
+            let moved = q(
+                "UPDATE messages SET mailbox_id = ?2, uid = ?3, uidvalidity = ?4
+                 WHERE stable_id = ?1 AND mailbox_id = ?5 RETURNING flags_json",
+            )
             .bind(stable_id)
-            .fetch_optional(&self.backend)
+            .bind(new_mailbox_id)
+            .bind(new_uid as i64)
+            .bind(new_uidvalidity as i64)
+            .bind(&from)
+            .fetch_all_tx(&mut tx)
             .await?;
-        let carries_unread = match &current {
-            Some(row) => {
-                let from = row.get_string("mailbox_id");
-                from != new_mailbox_id && flags_json_is_unread(&row.get_string("flags_json"))
+            let Some(row) = moved.first() else {
+                tx.commit().await?;
+                continue;
+            };
+            if from != new_mailbox_id {
+                let unread = i64::from(flags_json_is_unread(&row.get_string("flags_json")));
+                shift_counters_tx(&mut tx, &account, &from, -1, -unread).await?;
+                shift_counters_tx(&mut tx, &account, new_mailbox_id, 1, unread).await?;
             }
-            // No row: fall through to the UPDATE, which reports NotFound.
-            None => false,
-        };
-        let from_mailbox = current.map(|row| row.get_string("mailbox_id"));
-        let carries_total = from_mailbox
-            .as_deref()
-            .is_some_and(|from| from != new_mailbox_id);
-        if carries_unread {
-            let from = from_mailbox.as_deref().expect("set with carries_unread");
-            self.decrement_unread(from).await?;
-            self.increment_unread(new_mailbox_id).await?;
+            tx.commit().await?;
+            return Ok(());
         }
-        if carries_total {
-            let from = from_mailbox.as_deref().expect("set with carries_total");
-            self.shift_total(from, -1).await?;
-            self.shift_total(new_mailbox_id, 1).await?;
-        }
-
-        let n = q(
-            "UPDATE messages SET mailbox_id = ?2, uid = ?3, uidvalidity = ?4 WHERE stable_id = ?1",
-        )
-        .bind(stable_id)
-        .bind(new_mailbox_id)
-        .bind(new_uid as i64)
-        .bind(new_uidvalidity as i64)
-        .execute(&self.backend)
-        .await?;
-        if n == 0 {
-            if carries_unread {
-                let from = from_mailbox.as_deref().expect("set with carries_unread");
-                self.decrement_unread(new_mailbox_id).await?;
-                self.increment_unread(from).await?;
-            }
-            if carries_total {
-                let from = from_mailbox.as_deref().expect("set with carries_total");
-                self.shift_total(new_mailbox_id, -1).await?;
-                self.shift_total(from, 1).await?;
-            }
-            return Err(StoreError::NotFound);
-        }
-        Ok(())
+        Err(StoreError::NotFound)
     }
 
     fn message_from_row(row: &Row) -> Message {
@@ -2330,6 +2343,7 @@ impl Store {
 mod tests {
     include!("flags_batch_transaction_tests.rs");
     include!("message_body_batch_tests.rs");
+    include!("mailbox_counter_tests.rs");
     use super::*;
     use crate::{Credentials, ServerKey, Store};
 
@@ -2488,7 +2502,8 @@ mod tests {
         let account_id = seed_account(&s).await;
         let id1 = seed_mailbox(&s, &account_id, "INBOX", 100).await;
 
-        // Same (account, name, uidvalidity) → same id, refreshed counts.
+        // Same (account, name, uidvalidity) → same id, refreshed upstream
+        // figures; the cached-row counters stay with the rows (t50hp-e26).
         let id2 = s
             .upsert_mailbox(&MailboxUpsert {
                 account_id: &account_id,
@@ -2508,15 +2523,16 @@ mod tests {
         let mb = s.get_mailbox(&id1).await.unwrap();
         assert_eq!(mb.uidnext, 42);
         assert_eq!(mb.highestmodseq, 9);
-        assert_eq!(mb.total, 5);
-        assert_eq!(mb.unread, 2);
+        assert_eq!((mb.total, mb.unread), (0, 0), "no cached rows");
+        assert_eq!(s.folder_stats(&id1).await.unwrap().upstream_total, 5);
 
         s.update_mailbox_counts(&id1, 50, 12, 6, 1).await.unwrap();
         let mb = s.get_mailbox(&id1).await.unwrap();
         assert_eq!(
             (mb.uidnext, mb.highestmodseq, mb.total, mb.unread),
-            (50, 12, 6, 1)
+            (50, 12, 0, 0)
         );
+        assert_eq!(s.folder_stats(&id1).await.unwrap().upstream_total, 6);
 
         s.set_mailbox_role(&id1, None).await.unwrap();
         assert_eq!(s.get_mailbox(&id1).await.unwrap().role, None);
@@ -2990,8 +3006,8 @@ mod tests {
             m.flags_json = "[]";
             ids.push(s.upsert_message(&m).await.unwrap());
         }
-        // The counter starts where a sync left it: three unread messages.
-        s.update_mailbox_counts(&inbox, 4, 0, 3, 3).await.unwrap();
+        // The ingests counted three unread messages; a STATUS does not move it.
+        s.update_mailbox_counts(&inbox, 4, 0, 30, 30).await.unwrap();
         assert_eq!(unread(s, &inbox).await, 3);
 
         // ---- flag write -----------------------------------------------------

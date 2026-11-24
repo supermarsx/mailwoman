@@ -787,8 +787,9 @@ const TABLES: &[TableSpec] = &[
     },
     TableSpec {
         name: "mailboxes",
-        select: "SELECT id, account_id, name, role, uidvalidity, uidnext, highestmodseq, total, unread, parent_id FROM mailboxes",
-        insert: "INSERT INTO mailboxes (id, account_id, name, role, uidvalidity, uidnext, highestmodseq, total, unread, parent_id) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+        // 0122: the server's STATUS figures travel next to the cached counters.
+        select: "SELECT id, account_id, name, role, uidvalidity, uidnext, highestmodseq, total, unread, upstream_total, upstream_unseen, parent_id FROM mailboxes",
+        insert: "INSERT INTO mailboxes (id, account_id, name, role, uidvalidity, uidnext, highestmodseq, total, unread, upstream_total, upstream_unseen, parent_id) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
         map: |r| {
             vec![
                 t(r, "id"),
@@ -800,6 +801,8 @@ const TABLES: &[TableSpec] = &[
                 i(r, "highestmodseq"),
                 i(r, "total"),
                 i(r, "unread"),
+                i(r, "upstream_total"),
+                i(r, "upstream_unseen"),
                 ot(r, "parent_id"),
             ]
         },
