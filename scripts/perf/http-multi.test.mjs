@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {fork} from 'node:child_process';
 import {mkdtemp,writeFile,readFile,unlink,rmdir,access} from 'node:fs/promises';
+import {readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {EventEmitter} from 'node:events';
@@ -136,4 +137,60 @@ test('two actual subprocesses obey barrier, exact allocation and global proof wi
  let launched=false;
  await assert.rejects(runMultiCampaign({handoff:handoff(),workers:2,options,launch:()=>{launched=true;throw new Error('unexpected launch');},startLeadMs:500,isolationProbe:async()=>({verified:false,status:'failed',requests:2})}),/account isolation/);
  assert.equal(launched,false,'failed isolation must stop before launching traffic workers');
+});
+
+const DIAG={path:'/__fixture-diagnostic-0123abcd',token:'run-control-token-0123456789'};
+const privateHandoff=(targets,extra={})=>({...handoff(),base:targets[0],targets,diagnostics:DIAG,...extra});
+const gated=async(url,init)=>{const ok=init.headers?.['x-fixture-token']===DIAG.token;return {status:ok?200:401,ok,json:async()=>({}),body:{cancel:async()=>{}}};};
+test('assignment accepts several private targets only when allow-listed, and refuses public or non-owned ones',()=>{
+ const allowed=['10.0.0.5:8080','10.0.0.6:8080'],two=privateHandoff(['http://10.0.0.5:8080','http://10.0.0.6:8080']);
+ assert.deepEqual(validateAssignment(two,2,allowed).targets.map(t=>t.origin),['http://10.0.0.5:8080','http://10.0.0.6:8080']);
+ assert.equal(validateAssignment(two,2,allowed).base,'http://10.0.0.5:8080');
+ assert.throws(()=>validateAssignment(two,2),/allow-listed private/);
+ assert.throws(()=>validateAssignment(two,2,['10.0.0.5:8080']),/allow-listed private/);
+ for(const url of ['http://8.8.8.8:80','http://203.0.113.9:8080','http://169.254.169.254:80','http://example.com:80'])assert.throws(()=>validateAssignment(privateHandoff([url]),2,[url.replace('http://','')]),/allow-listed private|private rig/,url);
+ assert.throws(()=>validateAssignment({...privateHandoff(['http://10.0.0.5:8080']),base:'http://10.0.0.9:8080'},2,['10.0.0.5:8080']),/first target/);
+ // the single-host default is unchanged: literal loopback only
+ assert.throws(()=>validateAssignment({...handoff(),base:'http://10.0.0.5:8080'},2,['10.0.0.5:8080']),/literal-loopback/);
+ assert.equal(validateAssignment(handoff(),2).targets[0].kind,'loopback');
+});
+test('a non-owned private address stops the run before any worker launches',async()=>{
+ const options={mode:'smoke',concurrency:[2],rates:[100],seconds:1,timeoutMs:1000,endpoints:['query'],warmupSeconds:0,deadlineSeconds:10,maxErrorRate:0,maxThrottleRate:0,maxP99Ms:100,allowOverload:false,adaptive:true};
+ let launched=false;const launch=()=>{launched=true;throw new Error('unexpected launch');};
+ const input={workers:2,options,launch,startLeadMs:500,allowedTargets:['10.0.0.5:8080']};
+ // allow-listed but the target does not accept this run's token
+ await assert.rejects(runMultiCampaign({...input,handoff:privateHandoff(['http://10.0.0.5:8080']),targetFetch:async()=>({status:401,json:async()=>({}),body:{cancel:async()=>{}}})}),/control token/);
+ // public address, even if the operator listed it
+ await assert.rejects(runMultiCampaign({...input,allowedTargets:['8.8.8.8:80'],handoff:privateHandoff(['http://8.8.8.8:80']),targetFetch:async()=>{throw new Error('must not be contacted');}}),/allow-listed private|private rig/);
+ // private but not listed: no request is made to it
+ let contacted=0;await assert.rejects(runMultiCampaign({...input,handoff:privateHandoff(['http://10.0.0.7:8080']),targetFetch:async()=>{contacted++;return gated(...arguments);}}),/allow-listed private/);
+ assert.equal(contacted,0);assert.equal(launched,false);
+});
+test('an owned, allow-listed private target list reaches every worker and the report',async()=>{
+ const options={mode:'smoke',concurrency:[2],rates:[100],seconds:1,timeoutMs:1000,endpoints:['query'],warmupSeconds:0,deadlineSeconds:10,maxErrorRate:0,maxThrottleRate:0,maxP99Ms:100,allowOverload:false,adaptive:true};
+ const seen=[];
+ const launch=(_script,args,opts)=>{seen.push(JSON.parse(readFileSync(args[0],'utf8')));return fork(resolve('scripts/perf/test-fixtures/http-multi-protocol-child.mjs'),args,opts);};
+ const report=await runMultiCampaign({handoff:privateHandoff(['http://10.0.0.5:8080','http://10.0.0.6:8080']),workers:2,options,launch,startLeadMs:500,allowedTargets:['10.0.0.5:8080','10.0.0.6:8080'],targetFetch:gated,scannerProbe:async()=>403,isolationProbe:async()=>({verified:true,status:'verified',requests:2,directions:2})});
+ assert.equal(seen.length,2);for(const file of seen){assert.deepEqual(file.targets,['http://10.0.0.5:8080','http://10.0.0.6:8080']);assert.deepEqual(file.allowedTargets,['http://10.0.0.5:8080','http://10.0.0.6:8080']);}
+ assert.deepEqual(report.targets.map(t=>t.origin),['http://10.0.0.5:8080','http://10.0.0.6:8080']);assert.match(report.targetRotation,/client-side/);
+ assert.ok(!JSON.stringify(report).includes(DIAG.token));
+});
+test('the worker re-checks its targets and refuses anything outside loopback or its allow-list',async()=>{
+ const {runWorker}=await import('./http-multi-worker.mjs');
+ const dir=await mkdtemp(join(tmpdir(),'mw-targets-'));
+ try{
+  const write=async data=>{const path=join(dir,'w.private.json');await writeFile(path,JSON.stringify({schema:1,workerIndex:0,engineMode:'native',principals:[{}],...data}),{mode:0o600});return path;};
+  const never={prepare:()=>{throw new Error('reached');},send(){},onMessage(){}};
+  for(const data of [{base:'http://8.8.8.8:80'},{base:'http://10.0.0.5:8080'},{base:'http://10.0.0.5:8080',targets:['http://10.0.0.5:8080']},{base:'http://x',targets:['http://8.8.8.8:80'],allowedTargets:['8.8.8.8:80']}]){
+   await assert.rejects(runWorker(await write(data),never),/Invalid worker target/,JSON.stringify(data));
+   await unlink(join(dir,'w.private.json'));
+  }
+ }finally{await rmdir(dir,{recursive:true}).catch(()=>{});}
+});
+test('launch passes the allow-list only to the multiprocess controller',()=>{
+ const input={directory:'/owned',ready:{handoffFile:'h.json',outputFile:'o.json'}};
+ const launch=httpGeneratorLaunch({...input,workers:4,allowTargets:'10.0.0.5:8080,[fd00::2]:8080'});
+ assert.equal(launch.args.at(-1),'--allow-targets=10.0.0.5:8080,[fd00::2]:8080');
+ assert.throws(()=>httpGeneratorLaunch({...input,workers:1,allowTargets:'10.0.0.5:8080'}));
+ assert.throws(()=>httpGeneratorLaunch({...input,workers:4,allowTargets:'8.8.8.8:80'}));
 });

@@ -4,6 +4,7 @@ import {writeFile,mkdir} from 'node:fs/promises';
 import {dirname,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {setTimeout as sleep} from 'node:timers/promises';
+import {MAX_TARGETS} from './http-targets.mjs';
 
 // Fetch exposes decoded body chunks, never TLS/header/on-wire byte counts.
 // Generator scale limits (t53s). Defaults of every caller are unchanged; only the ceilings moved.
@@ -108,10 +109,11 @@ export function mergeLatencyBreakdowns(snapshots,counts,dispatches){
  return timingReport(merged,total);
 }
 
-export async function measure({base,requests,concurrency,seconds,timeoutMs=10000,headers={},arrivalRate,commonStartAtMs,includeRawMeasurements=false,latePolicy='drop'}){
+export async function measure({base,requests,concurrency,seconds,timeoutMs=10000,headers={},arrivalRate,commonStartAtMs,includeRawMeasurements=false,latePolicy='drop',bases}){
   const aggregate=new Measurements(),byRequest=new Map(requests.map(request=>[request.name,new Measurements()]));
   if(!Number.isInteger(concurrency)||concurrency<1||concurrency>MAX_OUTSTANDING||!Number.isFinite(seconds)||seconds<=0||seconds>MAX_STAGE_SECONDS||!requests.length||requests.length>100||!Number.isFinite(timeoutMs)||timeoutMs<1||timeoutMs>120000)throw new Error('Invalid bounded measurement parameters');
   if(typeof includeRawMeasurements!=='boolean')throw new Error('Invalid raw measurement option');
+  if(bases!==undefined&&(!Array.isArray(bases)||!bases.length||bases.length>MAX_TARGETS||bases.some(value=>typeof value!=='string')))throw new Error('Invalid target rotation list');
   if(!['drop','dispatch'].includes(latePolicy)||latePolicy==='dispatch'&&arrivalRate===undefined)throw new Error('Late policy must be drop or dispatch, and dispatch needs an arrival rate');
   const lateDispatch=latePolicy==='dispatch',acceptedPerSecond=new Array(Math.ceil(seconds)).fill(0);let lateSlotsDispatched=0;
   const wallOrigin=Date.now(),monotonicOrigin=performance.now();
@@ -152,7 +154,7 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
         }
         if(mutationStateTainted){status='campaign-aborted';blockedAfterMutationTaint++;throw new Error('Mutation outcome is unknown; fixture state cannot be reused');}
         dispatched=true;httpDispatchAttempts++;dispatchAt=performance.now();
-        const response=await fetch(new URL(spec.path,base),{method:spec.method??'GET',headers:{...headers,...spec.headers},...(spec.body!==undefined?{body:spec.body}:{}),signal,redirect:'error'});
+        const response=await fetch(new URL(spec.path,bases?bases[index%bases.length]:base),{method:spec.method??'GET',headers:{...headers,...spec.headers},...(spec.body!==undefined?{body:spec.body}:{}),signal,redirect:'error'});
         status=String(response.status);const chunks=[];let errorBody=status==='503'?Buffer.allocUnsafe(4096):null;const reader=response.body?.getReader();
         if(reader)for(;;){const part=await reader.read();if(part.done)break;bytes+=part.value.length;if(errorBody){if(bytes<=4096)errorBody.set(part.value,bytes-part.value.length);else errorBody=null;}if(bytes>8*1024*1024){await reader.cancel();throw new Error('response too large');}if(spec.validate||spec.validateBytes){if(bytes>(spec.validate?65536:1024*1024)){await reader.cancel();throw new Error('validation response too large');}chunks.push(part.value);}}
         if(status==='503')reason503=classifyHttp503(errorBody?errorBody.subarray(0,bytes):null,true);

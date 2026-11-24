@@ -20,17 +20,26 @@ import {qualifiesHttpTelemetry,fixtureDiagnosticsReport,prepareFixtureClients,st
 import {workloadProfileReport} from './representative-workload.mjs';
 import {partitionPrincipals,validateStage,aggregateWorkers} from './http-multi-protocol.mjs';
 import {verifyFixtureIsolation} from './fixture-isolation.mjs';
+import {validateTargets,proveOwnership,parseAllowList} from './http-targets.mjs';
 
-export function validateAssignment(handoff,workers){
+export function validateAssignment(handoff,workers,allowedTargets=[]){
  if(handoff?.engineMode!=='native'||!Number.isInteger(workers)||workers<1||workers>MAX_WORKERS_PER_HOST)throw new Error(`Explicit native fixture and 1–${MAX_WORKERS_PER_HOST} workers required`);
- const base=new URL(handoff.base);
- if(base.protocol!=='http:'||base.hostname!=='127.0.0.1'||!base.port||base.pathname!=='/'||base.search||base.hash||base.username||base.password)throw new Error('Only an owned literal-loopback fixture is supported');
+ // Default: one owned literal-loopback fixture. Several private rig targets only when the operator allow-listed each address.
+ let targets;
+ if(handoff.targets===undefined){
+  const base=new URL(handoff.base);
+  if(base.protocol!=='http:'||base.hostname!=='127.0.0.1'||!base.port||base.pathname!=='/'||base.search||base.hash||base.username||base.password)throw new Error('Only an owned literal-loopback fixture is supported');
+  targets=validateTargets([base.origin]);
+ }else{
+  try{targets=validateTargets(handoff.targets,allowedTargets);}catch(error){throw new Error('Target is not an owned loopback or allow-listed private rig address: '+error.message);}
+  if(handoff.base!==undefined&&handoff.base!==targets[0].origin&&handoff.base!==targets[0].origin+'/')throw new Error('Handoff base must equal the first target');
+ }
  const clientModel=prepareFixtureClients(handoff.principals,handoff.clientSimulation);
  if(clientModel.clientCount!==handoff.principals.length||handoff.uniquePrincipalCount!==handoff.principals.length)throw new Error('Independent seeded identities and simulated clients required');
  const startupReadiness=startupReadinessReport(handoff.startupReadiness,{required:true}),policyEvidence=fixturePolicyReport(handoff.policyEvidence),workloadProfile=workloadProfileReport(handoff.workloadProfile,handoff.principals.length);
  if(!workloadProfile||startupReadiness.seededMessages!==workloadProfile.seededMessages||handoff.principals.some(p=>!Array.isArray(p.messageIds)||p.messageIds.length!==workloadProfile.messagesPerPrincipal||new Set(p.messageIds).size!==p.messageIds.length))throw new Error('Global seed proof and assigned message counts differ');
  if(!['release','debug','fast','unknown'].includes(handoff.buildProfile)||!['sqlite','postgres'].includes(handoff.backend))throw new Error('Invalid fixture build metadata');
- return {enforcedPolicy:enforcedPolicyReport(handoff.enforcedPolicy),base:base.origin,partitions:partitionPrincipals(handoff.principals,workers),startupReadiness,policyEvidence,workloadProfile,clientModel,searchWriter:searchWriterReport(handoff.searchWriter),searchStorage:searchStorageReport(handoff.searchStorage),linkedLoginPolicyProbe:linkedLoginPolicyProbeReport(handoff.linkedLoginPolicyProbe)};
+ return {enforcedPolicy:enforcedPolicyReport(handoff.enforcedPolicy),base:targets[0].origin,targets,partitions:partitionPrincipals(handoff.principals,workers),startupReadiness,policyEvidence,workloadProfile,clientModel,searchWriter:searchWriterReport(handoff.searchWriter),searchStorage:searchStorageReport(handoff.searchStorage),linkedLoginPolicyProbe:linkedLoginPolicyProbeReport(handoff.linkedLoginPolicyProbe)};
 }
 
 function childChannel(child,index){
@@ -80,8 +89,9 @@ export function qualifiesHttpTarget(campaign,qualified){
  return qualified&&!campaign.mutationStateTainted&&campaign.stages.some(stage=>['mixed','representative'].includes(stage.endpoint)&&stage.phase==='offered-rate'&&stage.arrivalRate>=40000&&stage.acceptedDuringScheduledWindowRps>=40000&&stage.uniquePrincipalsAcceptedDuringScheduledWindow>=10000&&stage.uniqueClientsAcceptedDuringScheduledWindow>=10000&&stage.coordination.valid&&!stage.mutationStateTainted&&stage.scheduledSeconds>=30&&stage.errors===0&&stage.timeouts===0&&stage.throttled===0&&stage.droppedCapacity===0&&stage.droppedScheduler===0&&stage.generatorLimited!==true&&qualifiesHttpTelemetry(stage.diagnostics)&&qualifiesIndexPublication(stage.diagnostics));
 }
 
-export async function runMultiCampaign({handoff,workers,options,launch=fork,startLeadMs=2000,maxStartLagMs=50,scannerProbe,isolationProbe}){
- const verified=validateAssignment(handoff,workers);
+export async function runMultiCampaign({handoff,workers,options,launch=fork,startLeadMs=2000,maxStartLagMs=50,scannerProbe,isolationProbe,allowedTargets=[],targetFetch=fetch}){
+ const verified=validateAssignment(handoff,workers,allowedTargets);
+ const provenTargets=await proveOwnership(verified.targets,{path:handoff.diagnostics?.path,token:handoff.diagnostics?.token,fetchImpl:targetFetch});
  const preparedMailExperiment=preparedMailExperimentReport(handoff.preparedMailExperiment);
  const readIntent=prepareFixtureRequests({principals:handoff.principals.slice(0,1),clientSimulation:{mode:'fixture-loopback-trusted-proxy',clientCount:1},engineMode:'native',representative:verified.workloadProfile?.kind==='representative',workloadProfile:verified.workloadProfile}).readIntent;
  const cacheExperiment=campaignCacheExperiment(handoff,options);
@@ -99,7 +109,7 @@ export async function runMultiCampaign({handoff,workers,options,launch=fork,star
  try{
   for(const part of verified.partitions){
    const path=join(directory,`worker-${part.index}.private.json`);files.push(path);
-   await writeFile(path,JSON.stringify({schema:1,workerIndex:part.index,engineMode:'native',base:verified.base,principals:part.principals,clientSimulation:{mode:'fixture-loopback-trusted-proxy',clientCount:part.count},representative:verified.workloadProfile?.kind==='representative',workloadProfile:verified.workloadProfile}),{mode:0o600,flag:'wx'});
+   await writeFile(path,JSON.stringify({schema:1,workerIndex:part.index,engineMode:'native',base:verified.base,principals:part.principals,...(verified.targets.length>1||verified.targets[0].kind!=='loopback'?{targets:provenTargets,allowedTargets:parseAllowList(allowedTargets)}:{}),clientSimulation:{mode:'fixture-loopback-trusted-proxy',clientCount:part.count},representative:verified.workloadProfile?.kind==='representative',workloadProfile:verified.workloadProfile}),{mode:0o600,flag:'wx'});
    // Inherit only OS runtime essentials, never server/DSN/token environment.
    const env=Object.fromEntries(['SystemRoot','WINDIR','TEMP','TMP','TZ'].filter(key=>process.env[key]!==undefined).map(key=>[key,process.env[key]]));
    const child=launch(join(dirname(fileURLToPath(import.meta.url)),'http-multi-worker.mjs'),[path],{env,stdio:['ignore','ignore','ignore','ipc'],execArgv:[]});children.push(childChannel(child,part.index));
@@ -110,8 +120,8 @@ export async function runMultiCampaign({handoff,workers,options,launch=fork,star
    if(!handoff.diagnostics)return null;
    const path=handoff.diagnostics.path;if(typeof path!=='string'||!/^\/__fixture-diagnostic-[a-f0-9-]+$/.test(path))throw new Error('Invalid diagnostic control path');
    const init={headers:{'x-fixture-token':handoff.diagnostics.token},redirect:'error',signal:AbortSignal.timeout(5000)};
-   if(phase==='before'){const reset=await fetch(new URL(path,verified.base),{...init,method:'POST'});if(!reset.ok)throw new Error('Diagnostic reset failed');await reset.body?.cancel();}
-   const response=await fetch(new URL(path,verified.base),init);if(!response.ok)await throwDiagnosticSnapshotFailure(response);const snapshot=fixtureDiagnosticsReport(await response.json());if(cacheExperiment)assertSqliteCacheWitness(snapshot,cacheExperiment);assertEnforcedPolicySnapshot(snapshot,verified.enforcedPolicy);return snapshot;
+   if(phase==='before'){const reset=await targetFetch(new URL(path,verified.base),{...init,method:'POST'});if(!reset.ok)throw new Error('Diagnostic reset failed');await reset.body?.cancel();}
+   const response=await targetFetch(new URL(path,verified.base),init);if(!response.ok)await throwDiagnosticSnapshotFailure(response);const snapshot=fixtureDiagnosticsReport(await response.json());if(cacheExperiment)assertSqliteCacheWitness(snapshot,cacheExperiment);assertEnforcedPolicySnapshot(snapshot,verified.enforcedPolicy);return snapshot;
   };
   const run=async requestedStage=>{
    // runCampaign warms at one outstanding request. A partitioned warmup needs
@@ -146,7 +156,7 @@ export async function runMultiCampaign({handoff,workers,options,launch=fork,star
   const telemetryQualified=campaign.stages.length>0&&campaign.stages.every(stage=>qualifiesHttpTelemetry(stage.diagnostics));
   const qualified=policyQualified&&storageQualified;
   const met=qualifiesHttpTarget(campaign,qualified);
-  return {enforcedPolicy:verified.enforcedPolicy,readIntent,ordinaryRequestInputs:requestInputsEvidence(handoff.ordinaryRequestInputs,campaign.stages,options.requestInputsExpected,{backend:handoff.backend}),t34Modes:t34ModesEvidence(handoff.t34Modes,campaign.stages,{requestInputsEvidence:requestInputsEvidence(handoff.ordinaryRequestInputs,campaign.stages,options.requestInputsExpected,{backend:handoff.backend})}),preparedMailExperiment:preparedMailEvidence(preparedMailExperiment,campaign.stages),...(cacheExperiment?{sqliteCacheExperiment:cacheExperimentEvidence(cacheExperiment,campaign.stages)}:{}),schema:1,kind:'coordinated-native-http-fixture',generatedAt:new Date().toISOString(),target:'ephemeral loopback Mailwoman router + seeded native engine',scenario:'real authenticated middleware/HTTP/native-engine with '+handoff.backend+'; fixture data; no TLS/reverse proxy',runtime:process.version,model:'bounded coordinated processes with disjoint users and a shared measurement window; no capacity claim',protection:verified.policyEvidence.verified?'administrator defaults plus verified locked access.protocols policy':'administrator defaults; loaded policy not verified',uniqueAuthenticatedPrincipals:handoff.principals.length,principalCountMeaning:'configured distinct seeded principals; actual successful HTTP coverage is reported per stage',backend:handoff.backend,buildProfile:handoff.buildProfile,workers,configuredGlobalPrincipals:handoff.principals.length,scannerProbeStatus,isolationEvidence,partitionSizes:verified.partitions.map(part=>part.count),startupReadiness:verified.startupReadiness,searchWriter:verified.searchWriter,searchStorage:verified.searchStorage,linkedLoginPolicyProbe:verified.linkedLoginPolicyProbe,policyEvidence:verified.policyEvidence,workloadProfile:verified.workloadProfile,...campaign,controller:{cpuUserMs:cpu.user/1000,cpuSystemMs:cpu.system/1000,elapsedSeconds,rssBeforeBytes,rssAfterBytes:process.memoryUsage().rss},capacityTarget:{successfulRps:40000,simultaneousAuthenticatedUsers:10000,httpMultiUserTargetMet:met,productionPolicyQualified:policyQualified,productionStorageQualified:storageQualified,productionTelemetryQualified:telemetryQualified,productionIndexPublicationQualified:campaign.stages.length>0&&campaign.stages.every(stage=>qualifiesIndexPublication(stage.diagnostics)),persistentWebSocketSessionsMeasured:false,met:false},distinctPhysicalGeneratorHostsMeasured:false};
+  return {enforcedPolicy:verified.enforcedPolicy,readIntent,ordinaryRequestInputs:requestInputsEvidence(handoff.ordinaryRequestInputs,campaign.stages,options.requestInputsExpected,{backend:handoff.backend}),t34Modes:t34ModesEvidence(handoff.t34Modes,campaign.stages,{requestInputsEvidence:requestInputsEvidence(handoff.ordinaryRequestInputs,campaign.stages,options.requestInputsExpected,{backend:handoff.backend})}),preparedMailExperiment:preparedMailEvidence(preparedMailExperiment,campaign.stages),...(cacheExperiment?{sqliteCacheExperiment:cacheExperimentEvidence(cacheExperiment,campaign.stages)}:{}),schema:1,kind:'coordinated-native-http-fixture',generatedAt:new Date().toISOString(),target:'ephemeral loopback Mailwoman router + seeded native engine',scenario:'real authenticated middleware/HTTP/native-engine with '+handoff.backend+'; fixture data; no TLS/reverse proxy',runtime:process.version,model:'bounded coordinated processes with disjoint users and a shared measurement window; no capacity claim',protection:verified.policyEvidence.verified?'administrator defaults plus verified locked access.protocols policy':'administrator defaults; loaded policy not verified',uniqueAuthenticatedPrincipals:handoff.principals.length,principalCountMeaning:'configured distinct seeded principals; actual successful HTTP coverage is reported per stage',backend:handoff.backend,buildProfile:handoff.buildProfile,workers,configuredGlobalPrincipals:handoff.principals.length,scannerProbeStatus,isolationEvidence,partitionSizes:verified.partitions.map(part=>part.count),startupReadiness:verified.startupReadiness,searchWriter:verified.searchWriter,searchStorage:verified.searchStorage,linkedLoginPolicyProbe:verified.linkedLoginPolicyProbe,policyEvidence:verified.policyEvidence,workloadProfile:verified.workloadProfile,...campaign,targets:verified.targets.map(target=>({origin:target.origin,kind:target.kind,ownershipProof:target.kind==='loopback'?'own loopback fixture':'control token accepted and token gate confirmed'})),targetRotation:verified.targets.length>1?'client-side, one target per request in order':'single target',controller:{cpuUserMs:cpu.user/1000,cpuSystemMs:cpu.system/1000,elapsedSeconds,rssBeforeBytes,rssAfterBytes:process.memoryUsage().rss},capacityTarget:{successfulRps:40000,simultaneousAuthenticatedUsers:10000,httpMultiUserTargetMet:met,productionPolicyQualified:policyQualified,productionStorageQualified:storageQualified,productionTelemetryQualified:telemetryQualified,productionIndexPublicationQualified:campaign.stages.length>0&&campaign.stages.every(stage=>qualifiesIndexPublication(stage.diagnostics)),persistentWebSocketSessionsMeasured:false,met:false},distinctPhysicalGeneratorHostsMeasured:false};
   }catch(error){throw postRunFailure(error,campaign);}
  }finally{
   const stopped=await Promise.allSettled(children.map(child=>child.stop()));
@@ -166,11 +176,11 @@ export async function writeMultiArtifacts(output,report){
 
 async function main(){
  const args=Object.fromEntries(process.argv.slice(2).map(arg=>{const at=arg.indexOf('=');if(at<0)throw new Error();return [arg.slice(2,at),arg.slice(at+1)];}));
- if(Object.keys(args).some(key=>!['handoff','output','workers'].includes(key))||!args.handoff||!args.output)throw new Error('Explicit private handoff and output required');
+ if(Object.keys(args).some(key=>!['handoff','output','workers','allow-targets'].includes(key))||!args.handoff||!args.output)throw new Error('Explicit private handoff and output required');
  await mkdir(dirname(resolve(args.output)),{recursive:true});
  const workers=Number(args.workers??4),options=campaignOptions({...process.env,MW_LOAD_FIXTURE_CONCURRENCY:process.env.MW_LOAD_FIXTURE_CONCURRENCY??String(workers)});
  try{
-  const report=await runMultiCampaign({handoff:JSON.parse(await readPrivate(args.handoff,HANDOFF_LIMIT)),workers,options});
+  const report=await runMultiCampaign({handoff:JSON.parse(await readPrivate(args.handoff,HANDOFF_LIMIT)),workers,options,allowedTargets:parseAllowList(args['allow-targets']??'')});
   await writeMultiArtifacts(args.output,report);
   if(report.mutationStateTainted||!report.stages.some(stage=>stage.accepted>0))process.exitCode=1;
  }catch(error){
