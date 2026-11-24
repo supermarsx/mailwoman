@@ -246,6 +246,11 @@ pub fn hold_for_shutdown() -> bool {
     some
 }
 
+/// The store held for shutdown, for start-up readers such as the HTTP limits.
+pub(crate) fn held_store() -> Option<mw_store::Store> {
+    HELD.lock().ok()?.as_ref().map(|held| held.store.clone())
+}
+
 /// Budget for saving each metric recorder at shutdown.
 const RECORDER_SAVE_BUDGET: Duration = Duration::from_secs(5);
 

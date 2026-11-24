@@ -16,6 +16,8 @@ pub enum Source {
     Explicit,
     /// Derived from the resources at start-up.
     Auto,
+    /// Set in the admin console (applies when the variable is unset).
+    Console,
 }
 impl Source {
     pub fn as_str(self) -> &'static str {
@@ -23,6 +25,7 @@ impl Source {
             Self::Default => "default",
             Self::Explicit => "explicit",
             Self::Auto => "auto",
+            Self::Console => "console",
         }
     }
 }
@@ -42,6 +45,8 @@ pub struct Derivation {
     pub requests: Source,
     pub http2_streams: Source,
     pub queue_max: Source,
+    pub queue_wait: Source,
+    pub adaptive: Source,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -138,6 +143,23 @@ impl HttpLimits {
             None => stored_raise.unwrap_or(true),
         } && env("MW_HTTP_MAX_CONNECTIONS").is_none();
         Self::read(env, Some(Resources::probe(raise)))
+    }
+
+    /// [`Self::from_env`] with the console's open-file choice read from the store
+    /// held for this process (`server.http.raiseOpenFileLimit`), when there is one.
+    pub async fn resolve() -> io::Result<Self> {
+        let stored = match crate::t34_modes::held_store() {
+            Some(store) => super::live::stored_raise(&store).await,
+            None => None,
+        };
+        Self::from_env_with(stored)
+    }
+
+    /// The environment plus the values derived from the resources, read without
+    /// raising the open-file limit; the fixed defaults when the environment is
+    /// invalid (start-up refuses that case separately).
+    pub fn derive_without_side_effects() -> Self {
+        Self::read(|key| std::env::var(key).ok(), Some(Resources::probe(false))).unwrap_or_default()
     }
 
     /// The configured values with fixed defaults for unset ones (no system reading).
@@ -271,6 +293,16 @@ impl HttpLimits {
         derivation.requests = requests_source;
         derivation.http2_streams = streams_source;
         derivation.queue_max = queue_source;
+        derivation.queue_wait = if queue_wait.is_some() {
+            Source::Explicit
+        } else {
+            Source::Default
+        };
+        derivation.adaptive = if get(ADAPTIVE_VAR).is_some() {
+            Source::Explicit
+        } else {
+            Source::Default
+        };
         Ok(Self {
             connections: connections as usize,
             requests: requests as usize,

@@ -2104,6 +2104,72 @@ pub static REGISTRY: &[SettingDef] = &[
         "maintenance",
         "How long a stopping server lets in-flight requests finish before it closes connections"
     ),
+    // t57: listener limits. null = Auto (derived at start from the resources);
+    // a set environment variable pins the key. Each process applies them itself.
+    nullable(pin(def!(
+        "server.http.maxConnections",
+        int(16, 65536),
+        "null",
+        G,
+        "maintenance",
+        "Open HTTP connections one server process accepts, WebSockets included; null = Auto (from the open-file limit and memory, at least 1024). Applies to new connections; held to the open-file safety bound."
+    ), "MW_HTTP_MAX_CONNECTIONS")),
+    nullable(pin(def!(
+        "server.http.maxRequests",
+        int(1, 16384),
+        "null",
+        G,
+        "maintenance",
+        "Requests one server process runs at once, each until its response is sent; null = Auto (64 per CPU or 16 per database connection, 256 to 16384, bounded by memory). Raising applies at once, lowering as requests finish."
+    ), "MW_HTTP_MAX_REQUESTS")),
+    nullable(pin(def!(
+        "server.http.http2MaxStreams",
+        int(1, 128),
+        "null",
+        G,
+        "maintenance",
+        "HTTP/2 requests one connection may run at once; null = Auto (an eighth of the request limit, 32 to 100). Applies to new connections."
+    ), "MW_HTTP2_MAX_STREAMS")),
+    pin(def!(
+        "server.http.requestQueueMs",
+        int(0, 2000),
+        "200",
+        G,
+        "maintenance",
+        "How long a request waits for a free slot at the request limit before 503 with Retry-After, in milliseconds; 0 refuses at once. Applies at once."
+    ), "MW_HTTP_REQUEST_QUEUE_MS"),
+    nullable(pin(def!(
+        "server.http.requestQueueMax",
+        int(1, 65536),
+        "null",
+        G,
+        "maintenance",
+        "Requests that may wait for a slot at once; more are refused at once. null = Auto (the request limit). Applies at once."
+    ), "MW_HTTP_REQUEST_QUEUE_MAX")),
+    def!(
+        "server.http.adaptiveConcurrency",
+        Kind::Bool,
+        "false",
+        G,
+        "maintenance",
+        "Lower the request limit while requests slow down and raise it again as they recover, never above the request limit. Applies at once. MW_HTTP_ADAPTIVE_CONCURRENCY wins when set."
+    ),
+    nullable(def!(
+        "server.http.adaptiveFloor",
+        int(1, 16384),
+        "null",
+        G,
+        "maintenance",
+        "Lowest request limit the adaptive mode may set; null = Auto (256 or 16 per CPU, whichever is higher). Never above the request limit."
+    )),
+    def!(
+        "server.http.raiseOpenFileLimit",
+        Kind::Bool,
+        "true",
+        G,
+        "maintenance",
+        "At start, raise the soft open-file limit to the hard limit (at most 1048576) when the connection limit is Auto; the hard limit is never changed. Restart required. MW_HTTP_RAISE_OPEN_FILES wins when set."
+    ),
     def!(
         "twofa.rememberDays",
         int(0, 90),
@@ -5795,14 +5861,6 @@ pub static REGISTRY: &[SettingDef] = &[
         G,
         "security",
         "JMAP requests the whole process runs at once, all accounts together. A request over it waits for ratelimit.queueMs."
-    ),
-    def!(
-        "ratelimit.session.burst",
-        int(1, 1000),
-        "60",
-        GD,
-        "security",
-        "Client timing reports one session may send in a row. The report endpoint is keyed by session, never by address."
     ),
     def!(
         "ratelimit.session.perMinute",

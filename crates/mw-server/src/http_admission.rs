@@ -1,6 +1,6 @@
-//! Request admission for the built-in listener: the request pool with its bounded
-//! FIFO wait, the event-stream pool, the probe pool, the counters, and the
-//! optional adaptive limit.
+//! Request admission for the built-in listener: the connection pool, the request
+//! pool with its bounded FIFO wait, the event-stream, probe and admin pools, the
+//! counters, the optional adaptive limit, and the live console values.
 //!
 //! * Request pool: `requests` permits. A request that finds none waits in FIFO
 //!   order (tokio's semaphore is fair: a freed permit goes to the oldest waiter, and
@@ -8,18 +8,29 @@
 //!   `queue_max` waiting; past either it gets 503 + `Retry-After: 1`. A client that
 //!   disconnects while waiting drops its wait, which frees its queue slot and its
 //!   place in the semaphore's queue.
-//! * Event streams (`/jmap/eventsource`): their own pool, no wait (unchanged).
+//! * Event streams (`/jmap/eventsource`): their own pool, the size of the
+//!   connection limit, no wait.
 //! * Health probes (`/healthz`, `/readyz`): their own pool of [`PROBE_PERMITS`], no
 //!   wait, so a full request pool or queue never delays them.
+//! * Admin console (paths under the admin path): a request takes a request permit
+//!   when one is free, else one of [`ADMIN_PERMITS`] reserved slots, and waits like
+//!   any request only when both are taken. So a console save of the smallest
+//!   values can still be undone from the console.
 //! * WebSocket upgrades take a request permit only until the `101` response; the
 //!   socket afterwards holds its connection permit and nothing in this module.
+//!
+//! Console values (`server.http.*`) are re-read when the settings revision
+//! changes; the revision is checked at most once a second, prompted by arriving
+//! requests (no timer). Sizes change without cutting off work in progress
+//! (`live::Resizable`).
 use super::adaptive::Limiter;
 use super::limits::HttpLimits;
+use super::live::{self, Console, Live, Resizable, Sources};
 use serde_json::{Value, json};
 use std::{
     sync::{
-        Arc, Mutex, Weak,
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        Arc, Mutex, OnceLock, Weak,
+        atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -27,26 +38,39 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 /// Concurrent health and readiness probes.
 pub const PROBE_PERMITS: usize = 8;
+/// Admin-console requests admitted beyond a full request pool.
+pub const ADMIN_PERMITS: usize = 8;
 /// Upper bounds (ms) of the wait-time buckets; the last bucket is everything above.
 pub const WAIT_BUCKETS_MS: [u64; 8] = [10, 25, 50, 100, 250, 500, 1000, 2000];
+/// Least time between two settings-revision checks.
+pub const REFRESH_EVERY: Duration = Duration::from_secs(1);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pool {
     Requests,
     Streams,
     Probes,
+    /// The admin console: request pool first, then its reserve.
+    Admin,
 }
 
 /// Which pool a path uses, and whether its in-server time feeds the adaptive
 /// limiter. Not sampled: transfers whose time follows their size or a remote party
 /// rather than server load (downloads, uploads, exports, imports, previews, the
-/// image proxy, DAV feeds, mail refresh), upgrades and streams, and probes.
-pub fn classify(path: &str) -> (Pool, bool) {
+/// image proxy, DAV feeds, mail refresh), upgrades and streams, probes and the
+/// admin console. `admin` is the admin path (`mw_admin::config::admin_path`).
+pub fn classify(path: &str, admin: &str) -> (Pool, bool) {
     if path.ends_with("/jmap/eventsource") {
         return (Pool::Streams, false);
     }
     if path == "/healthz" || path == "/readyz" {
         return (Pool::Probes, false);
+    }
+    if !admin.is_empty()
+        && path.starts_with(admin)
+        && matches!(path.as_bytes().get(admin.len()), None | Some(b'/'))
+    {
+        return (Pool::Admin, false);
     }
     const UNSAMPLED: [&str; 11] = [
         "/jmap/download/",
@@ -82,6 +106,7 @@ pub enum Refusal {
 struct Counters {
     immediate: AtomicU64,
     after_wait: AtomicU64,
+    admin_reserve: AtomicU64,
     wait_buckets: [AtomicU64; WAIT_BUCKETS_MS.len() + 1],
     refused_deadline: AtomicU64,
     refused_queue_full: AtomicU64,
@@ -90,35 +115,48 @@ struct Counters {
     connections_refused: AtomicU64,
 }
 
-struct Adaptive {
-    limiter: Limiter,
-    /// Permits taken out of the pool to enforce the limit.
-    withheld: usize,
-    /// Permits still to take out, as admitted requests finish.
-    debt: usize,
-}
-
 pub struct Admission {
-    requests: Arc<Semaphore>,
-    streams: Arc<Semaphore>,
+    limits: HttpLimits,
+    connections: Arc<Resizable>,
+    requests: Arc<Resizable>,
+    streams: Arc<Resizable>,
     probes: Arc<Semaphore>,
-    queue_wait: Duration,
-    queue_max: usize,
+    admin: Arc<Semaphore>,
+    admin_path: String,
+    queue_wait_ms: AtomicU64,
+    queue_max: AtomicUsize,
+    http2_streams: AtomicU32,
     waiting: AtomicUsize,
     inflight: AtomicUsize,
     counters: Counters,
-    adaptive: Option<Mutex<Adaptive>>,
+    /// The values in force and where they came from.
+    live: Mutex<(Live, Sources, Console)>,
+    /// The adaptive limiter while the adaptive mode is on.
+    adaptive: Mutex<Option<Limiter>>,
+    adaptive_on: AtomicBool,
+    store: OnceLock<mw_store::Store>,
+    started: Instant,
+    next_check_ms: AtomicU64,
+    checking: AtomicBool,
+    /// The settings revision the console values were read at (`i64::MIN` = never).
+    revision: Mutex<Option<Option<i64>>>,
 }
 
 /// A held admission; the slot frees when this drops (with the response body).
 pub struct Lease {
     permit: Option<OwnedSemaphorePermit>,
+    /// An event-stream slot.
+    _stream: Option<live::Held>,
     admission: Arc<Admission>,
-    pool: Pool,
+    /// The permit came from the resizable request pool.
+    from_requests: bool,
     admitted: Instant,
     inflight: usize,
     sampled: bool,
 }
+
+/// A held connection slot.
+pub type ConnectionLease = live::Held;
 
 fn metric(outcome: &'static str) {
     metrics::counter!("mw_http_admission_total", "outcome" => outcome).increment(1);
@@ -126,34 +164,131 @@ fn metric(outcome: &'static str) {
 
 impl Admission {
     pub fn new(limits: &HttpLimits) -> Arc<Self> {
-        let adaptive = limits.adaptive.then(|| {
-            Mutex::new(Adaptive {
-                limiter: Limiter::new(
-                    super::resources::adaptive_floor(
-                        limits.derivation.resources.cpus,
-                        limits.requests,
-                    ),
-                    limits.requests,
-                ),
-                withheld: 0,
-                debt: 0,
-            })
-        });
-        Arc::new(Self {
-            requests: Arc::new(Semaphore::new(limits.requests)),
+        Self::with_admin_path(limits, mw_admin::config::admin_path())
+    }
+
+    pub fn with_admin_path(limits: &HttpLimits, admin_path: String) -> Arc<Self> {
+        let (live, sources) = live::resolve(limits, &Console::default());
+        let admission = Arc::new(Self {
+            limits: *limits,
+            connections: Resizable::new(live.connections),
+            requests: Resizable::new(live.requests),
             // A push stream holds its permit for as long as the client stays
             // connected; counted with ordinary requests, a few hundred open tabs
             // would leave no capacity for the requests those tabs make, so streams
             // have their own pool, as large as the connection limit.
-            streams: Arc::new(Semaphore::new(limits.connections)),
+            streams: Resizable::new(live.connections),
             probes: Arc::new(Semaphore::new(PROBE_PERMITS)),
-            queue_wait: limits.queue_wait,
-            queue_max: limits.queue_max,
+            admin: Arc::new(Semaphore::new(ADMIN_PERMITS)),
+            admin_path,
+            queue_wait_ms: AtomicU64::new(live.queue_wait_ms),
+            queue_max: AtomicUsize::new(live.queue_max),
+            http2_streams: AtomicU32::new(live.http2_streams),
             waiting: AtomicUsize::new(0),
             inflight: AtomicUsize::new(0),
             counters: Counters::default(),
-            adaptive,
-        })
+            live: Mutex::new((live, sources, Console::default())),
+            adaptive: Mutex::new(None),
+            adaptive_on: AtomicBool::new(false),
+            store: OnceLock::new(),
+            started: Instant::now(),
+            next_check_ms: AtomicU64::new(0),
+            checking: AtomicBool::new(false),
+            revision: Mutex::new(None),
+        });
+        admission.apply(Console::default());
+        admission
+    }
+
+    /// The store whose `server.http.*` keys this listener follows.
+    pub fn attach_store(&self, store: mw_store::Store) {
+        let _ = self.store.set(store);
+    }
+
+    /// Apply console values: resize the pools, set the queue and stream values,
+    /// switch the adaptive limiter. Work in progress is never cut off.
+    pub fn apply(&self, console: Console) {
+        let (live, sources) = live::resolve(&self.limits, &console);
+        self.queue_wait_ms
+            .store(live.queue_wait_ms, Ordering::Relaxed);
+        self.queue_max.store(live.queue_max, Ordering::Relaxed);
+        self.http2_streams
+            .store(live.http2_streams, Ordering::Relaxed);
+        self.connections.set(live.connections);
+        self.streams.set(live.connections);
+        let mut adaptive = self.adaptive.lock().unwrap_or_else(|p| p.into_inner());
+        if live.adaptive {
+            match adaptive.as_mut() {
+                Some(limiter) => limiter.set_bounds(live.adaptive_floor, live.requests),
+                None => *adaptive = Some(Limiter::new(live.adaptive_floor, live.requests)),
+            }
+        } else {
+            *adaptive = None;
+        }
+        self.adaptive_on.store(live.adaptive, Ordering::Relaxed);
+        let target = adaptive
+            .as_ref()
+            .map_or(live.requests, |limiter| limiter.limit().min(live.requests));
+        self.requests.set(target);
+        drop(adaptive);
+        *self.live.lock().unwrap_or_else(|p| p.into_inner()) = (live, sources, console);
+    }
+
+    /// Re-read the console values now (start-up), whatever the revision.
+    pub async fn refresh_now(&self) {
+        let Some(store) = self.store.get() else {
+            return;
+        };
+        if let Some((revision, console)) = live::read_console(store).await {
+            self.apply(console);
+            *self.revision.lock().unwrap_or_else(|p| p.into_inner()) = Some(revision);
+        }
+    }
+
+    /// Check the settings revision at most once per [`REFRESH_EVERY`], in a
+    /// spawned task, and re-read the keys only when it changed.
+    fn maybe_refresh(self: &Arc<Self>) {
+        if self.store.get().is_none() {
+            return;
+        }
+        let now = self.started.elapsed().as_millis() as u64;
+        let next = self.next_check_ms.load(Ordering::Relaxed);
+        if now < next || self.checking.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        self.next_check_ms
+            .store(now + REFRESH_EVERY.as_millis() as u64, Ordering::Relaxed);
+        let me = self.clone();
+        tokio::spawn(async move {
+            if let Some(store) = me.store.get() {
+                let current = live::revision(store).await;
+                let seen = *me.revision.lock().unwrap_or_else(|p| p.into_inner());
+                // An unknown revision (None) is re-read every check.
+                if current.is_some() && (seen != current || current == Some(None)) {
+                    me.refresh_now().await;
+                }
+            }
+            me.checking.store(false, Ordering::Release);
+        });
+    }
+
+    /// HTTP/2 streams per connection for a connection accepted now.
+    pub fn http2_streams(&self) -> u32 {
+        self.http2_streams.load(Ordering::Relaxed)
+    }
+
+    /// A connection slot, or `None` when the connection limit is reached.
+    pub fn try_connection(&self) -> Option<ConnectionLease> {
+        match self.connections.try_acquire() {
+            Some(permit) => Some(live::Held::new(permit, self.connections.clone())),
+            None => {
+                self.counters
+                    .connections_refused
+                    .fetch_add(1, Ordering::Relaxed);
+                metric("connection_refused");
+                None
+            }
+        }
     }
 
     /// A connection was refused because the connection limit was reached.
@@ -169,49 +304,86 @@ impl Admission {
         self.waiting.load(Ordering::Relaxed)
     }
 
-    /// Admit a request to `pool`, waiting if the request pool is full.
-    pub async fn admit(self: &Arc<Self>, pool: Pool, sampled: bool) -> Result<Lease, Refusal> {
-        let lease = |permit, inflight| Lease {
+    /// The admin path this listener reserves slots for.
+    pub fn admin_path(&self) -> &str {
+        &self.admin_path
+    }
+
+    fn lease(
+        self: &Arc<Self>,
+        permit: OwnedSemaphorePermit,
+        from_requests: bool,
+        sampled: bool,
+    ) -> Lease {
+        let inflight = if from_requests {
+            self.inflight.fetch_add(1, Ordering::Relaxed) + 1
+        } else {
+            0
+        };
+        Lease {
             permit: Some(permit),
+            _stream: None,
             admission: self.clone(),
-            pool,
+            from_requests,
             admitted: Instant::now(),
             inflight,
-            sampled,
-        };
-        let semaphore = match pool {
-            Pool::Streams => &self.streams,
-            Pool::Probes => &self.probes,
-            Pool::Requests => &self.requests,
-        };
-        if let Ok(permit) = semaphore.clone().try_acquire_owned() {
-            if pool != Pool::Requests {
-                return Ok(lease(permit, 0));
-            }
-            self.counters.immediate.fetch_add(1, Ordering::Relaxed);
-            metric("immediate");
-            let inflight = self.inflight.fetch_add(1, Ordering::Relaxed) + 1;
-            return Ok(lease(permit, inflight));
+            sampled: sampled && from_requests,
         }
+    }
+
+    /// Admit a request to `pool`, waiting if the request pool is full.
+    pub async fn admit(self: &Arc<Self>, pool: Pool, sampled: bool) -> Result<Lease, Refusal> {
+        self.maybe_refresh();
         match pool {
             Pool::Streams => {
-                self.counters
-                    .refused_streams
-                    .fetch_add(1, Ordering::Relaxed);
-                metric("refused_streams");
-                return Err(Refusal::Streams);
+                return match self.streams.try_acquire() {
+                    Some(permit) => Ok(Lease {
+                        permit: None,
+                        _stream: Some(live::Held::new(permit, self.streams.clone())),
+                        admission: self.clone(),
+                        from_requests: false,
+                        admitted: Instant::now(),
+                        inflight: 0,
+                        sampled: false,
+                    }),
+                    None => {
+                        self.counters
+                            .refused_streams
+                            .fetch_add(1, Ordering::Relaxed);
+                        metric("refused_streams");
+                        Err(Refusal::Streams)
+                    }
+                };
             }
             Pool::Probes => {
-                self.counters.refused_probes.fetch_add(1, Ordering::Relaxed);
-                metric("refused_probes");
-                return Err(Refusal::Probes);
+                return match self.probes.clone().try_acquire_owned() {
+                    Ok(permit) => Ok(self.lease(permit, false, false)),
+                    Err(_) => {
+                        self.counters.refused_probes.fetch_add(1, Ordering::Relaxed);
+                        metric("refused_probes");
+                        Err(Refusal::Probes)
+                    }
+                };
             }
-            Pool::Requests => {}
+            Pool::Requests | Pool::Admin => {}
         }
-        if self.queue_wait.is_zero() {
+        if let Some(permit) = self.requests.try_acquire() {
+            self.counters.immediate.fetch_add(1, Ordering::Relaxed);
+            metric("immediate");
+            return Ok(self.lease(permit, true, sampled));
+        }
+        if pool == Pool::Admin
+            && let Ok(permit) = self.admin.clone().try_acquire_owned()
+        {
+            self.counters.admin_reserve.fetch_add(1, Ordering::Relaxed);
+            metric("admin_reserve");
+            return Ok(self.lease(permit, false, false));
+        }
+        let queue_wait = Duration::from_millis(self.queue_wait_ms.load(Ordering::Relaxed));
+        if queue_wait.is_zero() {
             return Err(self.refuse_deadline());
         }
-        if self.waiting.fetch_add(1, Ordering::AcqRel) >= self.queue_max {
+        if self.waiting.fetch_add(1, Ordering::AcqRel) >= self.queue_max.load(Ordering::Relaxed) {
             self.waiting.fetch_sub(1, Ordering::AcqRel);
             self.counters
                 .refused_queue_full
@@ -228,7 +400,7 @@ impl Admission {
         }
         let _slot = Waiting(&self.waiting);
         let started = Instant::now();
-        match tokio::time::timeout(self.queue_wait, self.requests.clone().acquire_owned()).await {
+        match tokio::time::timeout(queue_wait, self.requests.acquire()).await {
             Ok(Ok(permit)) => {
                 let waited = started.elapsed();
                 self.counters.after_wait.fetch_add(1, Ordering::Relaxed);
@@ -239,8 +411,7 @@ impl Admission {
                     .position(|&top| ms <= top)
                     .unwrap_or(WAIT_BUCKETS_MS.len());
                 self.counters.wait_buckets[bucket].fetch_add(1, Ordering::Relaxed);
-                let inflight = self.inflight.fetch_add(1, Ordering::Relaxed) + 1;
-                Ok(lease(permit, inflight))
+                Ok(self.lease(permit, true, sampled))
             }
             // A closed semaphore cannot happen (it is never closed); treat as refused.
             Ok(Err(_)) | Err(_) => Err(self.refuse_deadline()),
@@ -255,36 +426,13 @@ impl Admission {
         Refusal::Deadline
     }
 
-    /// Move the pool to `target` permits by withholding or returning permits.
-    /// Never returns more than were withheld, so the pool never exceeds its
-    /// configured size.
-    fn retarget(&self, state: &mut Adaptive, target: usize) {
-        let ceiling = state.limiter.ceiling();
-        let want_withheld = ceiling.saturating_sub(target);
-        let planned = state.withheld + state.debt;
-        if want_withheld > planned {
-            state.debt += want_withheld - planned;
-            // Take idle permits now; the rest as requests finish.
-            while state.debt > 0 {
-                let Ok(permit) = self.requests.try_acquire() else {
-                    break;
-                };
-                permit.forget();
-                state.debt -= 1;
-                state.withheld += 1;
-            }
-        } else {
-            let mut give = planned - want_withheld;
-            let cancel = give.min(state.debt);
-            state.debt -= cancel;
-            give -= cancel;
-            let give = give.min(state.withheld);
-            state.withheld -= give;
-            self.requests.add_permits(give);
-        }
+    /// The values in force and their sources.
+    pub fn live(&self) -> (Live, Sources) {
+        let guard = self.live.lock().unwrap_or_else(|p| p.into_inner());
+        (guard.0, guard.1)
     }
 
-    /// Effective counters and adaptive state, for diagnostics.
+    /// Effective values, counters and adaptive state, for diagnostics.
     pub fn snapshot(&self) -> Value {
         let c = &self.counters;
         let load = |n: &AtomicU64| n.load(Ordering::Relaxed);
@@ -296,20 +444,32 @@ impl Admission {
             "over2000ms".into(),
             json!(load(&c.wait_buckets[WAIT_BUCKETS_MS.len()])),
         );
-        let adaptive = self.adaptive.as_ref().and_then(|state| {
-            let state = state.lock().ok()?;
-            Some(json!({
-                "limit": state.limiter.limit(),
-                "floor": state.limiter.floor(),
-                "ceiling": state.limiter.ceiling(),
-                "baselineUs": state.limiter.baseline().map(|d| d.as_micros() as u64),
-                "decreases": state.limiter.decreases(),
-                "increases": state.limiter.increases(),
-            }))
-        });
+        let adaptive = self
+            .adaptive
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+            .map(|limiter| {
+                json!({
+                    "limit": limiter.limit(),
+                    "floor": limiter.floor(),
+                    "ceiling": limiter.ceiling(),
+                    "baselineUs": limiter.baseline().map(|d| d.as_micros() as u64),
+                    "decreases": limiter.decreases(),
+                    "increases": limiter.increases(),
+                })
+            });
+        let (live, sources) = self.live();
         json!({
+            "effective": live::describe(&live, &sources),
+            "safetyBounds": {
+                "connections": live::connections_cap(&self.limits),
+                "requests": live::requests_cap(&self.limits),
+            },
+            "inputs": self.limits.inputs(),
             "admittedImmediately": load(&c.immediate),
             "admittedAfterWait": load(&c.after_wait),
+            "admittedFromAdminReserve": load(&c.admin_reserve),
             "waitBuckets": buckets,
             "refusedOnDeadline": load(&c.refused_deadline),
             "refusedOnFullQueue": load(&c.refused_queue_full),
@@ -318,54 +478,55 @@ impl Admission {
             "connectionsRefused": load(&c.connections_refused),
             "waitingNow": self.waiting(),
             "inFlight": self.inflight.load(Ordering::Relaxed),
+            "requestPermits": self.requests.size(),
+            "connectionPermits": self.connections.size(),
             "adaptive": adaptive,
         })
     }
 
     /// The adaptive limit now, when the limiter is on.
     pub fn adaptive_limit(&self) -> Option<usize> {
-        let state = self.adaptive.as_ref()?.lock().ok()?;
-        Some(state.limiter.limit())
+        self.adaptive
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+            .map(Limiter::limit)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn request_pool(&self) -> &Resizable {
+        &self.requests
     }
 }
 
 impl Lease {
     /// The response headers are ready: feed the in-server time to the limiter.
     pub fn headers_ready(&mut self) {
-        if !std::mem::take(&mut self.sampled) || self.pool != Pool::Requests {
+        if !std::mem::take(&mut self.sampled) || !self.admission.adaptive_on.load(Ordering::Relaxed)
+        {
             return;
         }
-        let Some(adaptive) = &self.admission.adaptive else {
-            return;
-        };
         let latency = self.admitted.elapsed();
-        if let Ok(mut state) = adaptive.lock()
-            && let Some(target) = state.limiter.sample(latency, self.inflight)
+        let admission = &self.admission;
+        let mut adaptive = admission.adaptive.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(limiter) = adaptive.as_mut()
+            && let Some(target) = limiter.sample(latency, self.inflight)
         {
-            self.admission.retarget(&mut state, target);
+            let ceiling = admission.live().0.requests;
+            admission.requests.set(target.min(ceiling));
         }
     }
 }
 
 impl Drop for Lease {
     fn drop(&mut self) {
-        if self.pool != Pool::Requests {
-            return;
-        }
-        self.admission.inflight.fetch_sub(1, Ordering::Relaxed);
         let Some(permit) = self.permit.take() else {
             return;
         };
-        if let Some(adaptive) = &self.admission.adaptive
-            && let Ok(mut state) = adaptive.lock()
-            && state.debt > 0
-        {
-            state.debt -= 1;
-            state.withheld += 1;
-            permit.forget();
-            return;
+        if self.from_requests {
+            self.admission.inflight.fetch_sub(1, Ordering::Relaxed);
+            self.admission.requests.release(permit);
         }
-        drop(permit);
     }
 }
 
@@ -382,10 +543,15 @@ pub fn register(limits: HttpLimits, admission: &Arc<Admission>) {
 
 /// The effective limits and counters of the running listener, if one is serving.
 pub fn current() -> Option<(HttpLimits, Value)> {
+    let admission = current_admission()?;
+    let limits = admission.limits;
+    Some((limits, admission.snapshot()))
+}
+
+/// The running listener's admission, if one is serving.
+pub fn current_admission() -> Option<Arc<Admission>> {
     let slot = CURRENT.lock().ok()?;
-    let (limits, admission) = slot.as_ref()?;
-    let admission = admission.upgrade()?;
-    Some((*limits, admission.snapshot()))
+    slot.as_ref()?.1.upgrade()
 }
 
 #[cfg(test)]

@@ -9,7 +9,9 @@ only to Mailwoman's own listener; a reverse proxy in front has its own.
 ## Before you start
 
 - Every variable on this page is read once at start-up. Restart the server after a
-  change; they cannot be changed from the admin console.
+  change. The connection, request, HTTP/2 stream, wait and adaptive values can also
+  be set in the admin console (see [In the admin console](#in-the-admin-console));
+  a set variable wins over the console value.
 - An unset variable uses its default. An empty, non-numeric or out-of-range value
   stops the server from starting, with an error naming the variable and its range.
 - To see the values in force, open the admin console. The **Effective
@@ -155,6 +157,32 @@ These limits do not protect against floods of malformed packets or distributed
 denial of service. Keep the operating system's and the front proxy's own connection
 limits in place.
 :::
+
+## In the admin console
+
+**Settings → Maintenance** has the `server.http.*` keys: maximum connections,
+maximum requests at once, HTTP/2 streams per connection, the wait for a free slot,
+the requests that may wait, the adaptive request limit and its floor, and whether
+to raise the open-file limit. Above them, **HTTP limits in force** shows what each
+value resolved to on this server process, whether it is Auto, set in the console
+or set by the environment, and the readings Auto used.
+
+- **Precedence.** A set environment variable, then the console value, then Auto.
+  A key whose variable is set cannot be saved in the console.
+- **When a change applies.** Within about a second, without a restart: the request
+  limit grows at once and shrinks as requests finish (none is cut off); the wait and
+  queue values apply to the next request; the connection and HTTP/2 stream limits
+  apply to new connections. Raising the open-file limit happens only at start.
+- **Safety bounds.** A console value above what this machine allows is held to it:
+  connections to (F − R) / 2 (at least 1024) when the open-file limit is known,
+  requests to M / 4 MiB (256 to 16384) when memory is known. The readout says when
+  that happened. An out-of-range value is refused with the field named.
+- **The console stays reachable.** Requests under the admin path take a free request
+  slot, else one of 8 slots kept for the console, before they wait. `/healthz` and
+  `/readyz` have their own 8. So a save of the smallest values can be undone from
+  the console.
+- **Several processes.** Each server process applies the values on its own; with N
+  processes behind a balancer the deployment admits up to N times the value.
 
 ## Related
 

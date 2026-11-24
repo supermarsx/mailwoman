@@ -810,7 +810,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         None
     };
 
-    let mut http_limits = mw_server::inbound_http::HttpLimits::from_env()?;
+    let mut http_limits = mw_server::inbound_http::HttpLimits::resolve().await?;
     if std::env::var_os("MW_HTTP_SHUTDOWN_TIMEOUT_MS").is_none()
         && let Some(grace) = mw_server::shutdown_grace()
     {

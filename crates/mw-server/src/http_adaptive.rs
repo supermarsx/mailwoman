@@ -60,6 +60,12 @@ impl Limiter {
             increases: 0,
         }
     }
+    /// New bounds (a console change); the limit is kept inside them.
+    pub fn set_bounds(&mut self, floor: usize, ceiling: usize) {
+        self.ceiling = ceiling.max(1);
+        self.floor = floor.clamp(1, self.ceiling);
+        self.limit = self.limit.clamp(self.floor, self.ceiling);
+    }
     pub fn limit(&self) -> usize {
         self.limit
     }

@@ -37,7 +37,7 @@ use std::{
 };
 use tokio::{
     io::{AsyncRead, AsyncWrite, ReadBuf},
-    sync::{OwnedSemaphorePermit, Semaphore, oneshot},
+    sync::oneshot,
     task::JoinSet,
     time::Sleep,
 };
@@ -47,6 +47,8 @@ pub mod adaptive;
 pub mod admission;
 #[path = "http_limits.rs"]
 pub mod limits;
+#[path = "http_live.rs"]
+pub mod live;
 #[path = "http_resources.rs"]
 pub mod resources;
 use admission::Admission;
@@ -66,11 +68,22 @@ where
     F: Future<Output = ()> + Send,
 {
     limits.validate()?;
-    let connections = Arc::new(Semaphore::new(limits.connections));
-    // Request, event-stream and probe pools, the bounded wait and the counters.
+    // Connection, request, event-stream, probe and admin pools, the bounded wait,
+    // the counters and the console values (`server.http.*`).
     let admission = Admission::new(&limits);
+    if let Some(store) = crate::t34_modes::held_store() {
+        admission.attach_store(store);
+        admission.refresh_now().await;
+    }
     admission::register(limits, &admission);
     tracing::info!("{}", limits.summary());
+    let (live_values, live_sources) = admission.live();
+    if live_sources != live::resolve(&limits, &live::Console::default()).1 {
+        tracing::info!(
+            "HTTP limits from the admin console: {}",
+            live::describe(&live_values, &live_sources)
+        );
+    }
     for warning in limits.warnings() {
         tracing::warn!("{warning}");
     }
@@ -92,11 +105,11 @@ where
         };
         // Keep polling the listener even when HTTP capacity is full, so pending
         // TLS deadlines remain live. Refuse the excess socket before any handler.
-        let Ok(permit) = connections.clone().try_acquire_owned() else {
-            admission.connection_refused();
+        let Some(permit) = admission.try_connection() else {
             drop(io);
             continue;
         };
+        let http2_streams = admission.http2_streams();
         let first_request = Arc::new(AtomicBool::new(false));
         let io = ConnectionIo {
             inner: io,
@@ -137,7 +150,8 @@ where
                     // At the request limit this waits (bounded, FIFO) for a slot;
                     // a client that goes away while waiting drops this future and
                     // with it its place in the queue.
-                    let (pool, sampled) = admission::classify(request.uri().path());
+                    let (pool, sampled) =
+                        admission::classify(request.uri().path(), admission.admin_path());
                     let mut permit = match admission.admit(pool, sampled).await {
                         Ok(permit) => permit,
                         // Deadline, full queue, or a full stream or probe pool.
@@ -209,7 +223,7 @@ where
             builder
                 .http2()
                 .timer(TokioTimer::new())
-                .max_concurrent_streams(limits.http2_streams)
+                .max_concurrent_streams(http2_streams)
                 .max_header_list_size(limits.header_bytes as u32)
                 .adaptive_window(false)
                 .initial_stream_window_size(65535)
@@ -243,7 +257,7 @@ fn refusal(status: StatusCode, message: &'static str, version: Version) -> Respo
 
 struct ConnectionIo<I> {
     inner: I,
-    _permit: OwnedSemaphorePermit,
+    _permit: admission::ConnectionLease,
     cancel_read: Cancellation,
     cancel_write: Cancellation,
     first_request: Arc<AtomicBool>,

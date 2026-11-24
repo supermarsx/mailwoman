@@ -55,7 +55,7 @@ async fn a_newcomer_cannot_take_a_permit_freed_for_a_waiter() {
     }
     drop(held);
     // The freed permit belongs to the waiter; a try at this instant finds none.
-    assert!(admission.requests.clone().try_acquire_owned().is_err());
+    assert!(admission.request_pool().try_acquire().is_none());
     waiter.await.unwrap().unwrap();
 }
 
@@ -164,11 +164,14 @@ async fn probes_and_streams_are_not_starved_by_a_full_request_pool() {
 
 #[test]
 fn classification() {
-    assert_eq!(classify("/jmap/eventsource"), (Pool::Streams, false));
-    assert_eq!(classify("/healthz"), (Pool::Probes, false));
-    assert_eq!(classify("/readyz"), (Pool::Probes, false));
-    assert_eq!(classify("/x/healthz"), (Pool::Requests, true));
-    assert_eq!(classify("/jmap/api"), (Pool::Requests, true));
+    assert_eq!(
+        classify("/jmap/eventsource", "/admin"),
+        (Pool::Streams, false)
+    );
+    assert_eq!(classify("/healthz", "/admin"), (Pool::Probes, false));
+    assert_eq!(classify("/readyz", "/admin"), (Pool::Probes, false));
+    assert_eq!(classify("/x/healthz", "/admin"), (Pool::Requests, true));
+    assert_eq!(classify("/jmap/api", "/admin"), (Pool::Requests, true));
     for slow in [
         "/jmap/download/a/b/c",
         "/jmap/upload/a",
@@ -182,60 +185,96 @@ fn classification() {
         "/dav/calendars/a/b",
         "/api/privacy/requests/7/download",
     ] {
-        assert_eq!(classify(slow), (Pool::Requests, false), "{slow}");
+        assert_eq!(classify(slow, "/admin"), (Pool::Requests, false), "{slow}");
     }
 }
 
+#[test]
+fn admin_paths_are_classified_by_the_admin_path() {
+    assert_eq!(classify("/admin", "/admin"), (Pool::Admin, false));
+    assert_eq!(
+        classify("/admin/api/settings", "/admin"),
+        (Pool::Admin, false)
+    );
+    assert_eq!(classify("/administrator", "/admin"), (Pool::Requests, true));
+    assert_eq!(classify("/ops-7f/x", "/ops-7f"), (Pool::Admin, false));
+    assert_eq!(classify("/admin/x", ""), (Pool::Requests, true));
+}
+
 #[tokio::test]
-async fn the_adaptive_limit_withholds_permits_and_never_exceeds_the_ceiling() {
-    let admission = Admission::new(&HttpLimits {
-        requests: 10,
-        adaptive: true,
-        ..HttpLimits::default()
-    });
-    {
-        let mut state = admission.adaptive.as_ref().unwrap().lock().unwrap();
-        admission.retarget(&mut state, 4);
-        assert_eq!((state.withheld, state.debt), (6, 0));
-    }
-    assert_eq!(admission.requests.available_permits(), 4);
-    // Lower with every permit in use: the debt is paid as requests finish.
-    let leases: Vec<_> =
+async fn admin_requests_are_admitted_from_the_reserve_when_the_pool_is_full() {
+    let admission = admission(1, 0, 1);
+    let _held = admission.admit(Pool::Requests, true).await.unwrap();
+    assert_eq!(
+        admission.admit(Pool::Requests, true).await.err(),
+        Some(Refusal::Deadline)
+    );
+    let admins: Vec<_> = futures_util::future::join_all(
+        (0..ADMIN_PERMITS).map(|_| admission.admit(Pool::Admin, false)),
+    )
+    .await;
+    assert!(admins.iter().all(Result::is_ok));
+    assert_eq!(
+        count(&admission, "admittedFromAdminReserve"),
+        ADMIN_PERMITS as u64
+    );
+    // The reserve is bounded too.
+    assert!(admission.admit(Pool::Admin, false).await.is_err());
+}
+
+#[tokio::test]
+async fn console_values_resize_the_pool_without_cutting_off_requests() {
+    let admission = admission(4, 0, 4);
+    let held: Vec<_> =
         futures_util::future::join_all((0..4).map(|_| admission.admit(Pool::Requests, false)))
             .await
             .into_iter()
             .map(Result::unwrap)
             .collect();
-    {
-        let mut state = admission.adaptive.as_ref().unwrap().lock().unwrap();
-        admission.retarget(&mut state, 2);
-        assert_eq!((state.withheld, state.debt), (6, 2));
-    }
-    drop(leases);
-    assert_eq!(admission.requests.available_permits(), 2);
-    // Raising past the ceiling returns only what was withheld.
-    {
-        let mut state = admission.adaptive.as_ref().unwrap().lock().unwrap();
-        admission.retarget(&mut state, 1000);
-        assert_eq!((state.withheld, state.debt), (0, 0));
-    }
-    assert_eq!(admission.requests.available_permits(), 10);
-    // Lower then raise before the debt is paid: the debt is cancelled first.
-    let leases: Vec<_> =
-        futures_util::future::join_all((0..10).map(|_| admission.admit(Pool::Requests, false)))
-            .await
-            .into_iter()
-            .map(Result::unwrap)
-            .collect();
-    {
-        let mut state = admission.adaptive.as_ref().unwrap().lock().unwrap();
-        admission.retarget(&mut state, 5);
-        assert_eq!((state.withheld, state.debt), (0, 5));
-        admission.retarget(&mut state, 8);
-        assert_eq!((state.withheld, state.debt), (0, 2));
-    }
-    drop(leases);
-    assert_eq!(admission.requests.available_permits(), 8);
+    admission.apply(Console {
+        requests: Some(2),
+        ..Console::default()
+    });
+    assert_eq!(admission.live().0.requests, 2);
+    assert_eq!(admission.request_pool().size(), 2);
+    // The four in progress keep their slots; two come back as permits.
+    drop(held);
+    assert_eq!(admission.request_pool().available(), 2);
+    admission.apply(Console {
+        requests: Some(6),
+        queue_wait_ms: Some(0),
+        ..Console::default()
+    });
+    assert_eq!(admission.request_pool().available(), 6);
+    assert_eq!(
+        admission.live().1.requests,
+        super::super::limits::Source::Console
+    );
+}
+
+#[tokio::test]
+async fn the_adaptive_mode_switches_at_runtime_and_stays_under_the_request_limit() {
+    let admission = admission(10, 0, 10);
+    assert!(admission.adaptive_limit().is_none());
+    admission.apply(Console {
+        adaptive: Some(true),
+        adaptive_floor: Some(3),
+        ..Console::default()
+    });
+    assert_eq!(admission.adaptive_limit(), Some(10));
+    assert_eq!(admission.snapshot()["adaptive"]["floor"], 3);
+    // A lower request limit lowers the adaptive ceiling with it.
+    admission.apply(Console {
+        adaptive: Some(true),
+        adaptive_floor: Some(3),
+        requests: Some(5),
+        ..Console::default()
+    });
+    assert_eq!(admission.adaptive_limit(), Some(5));
+    assert_eq!(admission.request_pool().size(), 5);
+    admission.apply(Console::default());
+    assert!(admission.adaptive_limit().is_none());
+    assert_eq!(admission.request_pool().size(), 10);
 }
 
 #[tokio::test]

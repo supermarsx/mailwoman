@@ -1510,6 +1510,38 @@ session's last-seen time is written. It does not change the idle or absolute lim
 <a id="server.shutdownGraceSeconds"></a>
 `server.shutdownGraceSeconds` is 1–120 seconds (default 30): how long a stopping
 server lets in-flight requests finish. `MW_HTTP_SHUTDOWN_TIMEOUT_MS` overrides it.
+<a id="server.http.maxConnections"></a>
+`server.http.maxConnections` is 16–65536 or Auto (default): open HTTP connections
+one server process accepts, WebSockets included. Auto is derived at start from the
+open-file limit and memory (see [Connection limits](../deploy/connection-limits.md)).
+A change applies to new connections. A value above the open-file safety bound of the
+machine is held to it. `MW_HTTP_MAX_CONNECTIONS` wins when set.
+<a id="server.http.maxRequests"></a>
+`server.http.maxRequests` is 1–16384 or Auto (default): requests in progress at once.
+Raising applies at once, lowering as requests finish. A value above the memory safety
+bound is held to it. `MW_HTTP_MAX_REQUESTS` wins when set.
+<a id="server.http.http2MaxStreams"></a>
+`server.http.http2MaxStreams` is 1–128 or Auto (default, an eighth of the request
+limit, 32 to 100): HTTP/2 streams per connection, for new connections.
+`MW_HTTP2_MAX_STREAMS` wins when set.
+<a id="server.http.requestQueueMs"></a>
+`server.http.requestQueueMs` is 0–2000 milliseconds (default 200): how long a request
+waits for a slot at the request limit before `503`. 0 refuses at once.
+`MW_HTTP_REQUEST_QUEUE_MS` wins when set.
+<a id="server.http.requestQueueMax"></a>
+`server.http.requestQueueMax` is 1–65536 or Auto (default, the request limit):
+requests that may wait at once. `MW_HTTP_REQUEST_QUEUE_MAX` wins when set.
+<a id="server.http.adaptiveConcurrency"></a>
+`server.http.adaptiveConcurrency` (default false): lower the request limit while
+requests slow down, never above the request limit. `MW_HTTP_ADAPTIVE_CONCURRENCY` wins
+when set.
+<a id="server.http.adaptiveFloor"></a>
+`server.http.adaptiveFloor` is 1–16384 or Auto (default, 256 or 16 per CPU): the
+lowest limit the adaptive mode sets.
+<a id="server.http.raiseOpenFileLimit"></a>
+`server.http.raiseOpenFileLimit` (default true): at start, raise the soft open-file
+limit to the hard limit when the connection limit is Auto. Restart required.
+`MW_HTTP_RAISE_OPEN_FILES` wins when set.
 <a id="twofa.rememberDays"></a>
 `twofa.rememberDays` is 0–90 days (default 0, disabled).
 <a id="twofa.passkeysEnabled"></a>
@@ -5292,6 +5324,14 @@ Every key in the settings registry, generated from the registry and checked agai
 | Key | Type | Default | Set at | Environment | Effect |
 |---|---|---|---|---|---|
 | <a id="server.shutdowngraceseconds"></a>[`server.shutdownGraceSeconds`](#server.shutdownGraceSeconds) | integer, 1 to 120 | `30` | server |  | Applied by the server. |
+| <a id="server.http.maxconnections"></a>[`server.http.maxConnections`](#server.http.maxConnections) | integer, 16 to 65536, or null (Auto) | `null` | server | `MW_HTTP_MAX_CONNECTIONS` | Applied by the server. |
+| <a id="server.http.maxrequests"></a>[`server.http.maxRequests`](#server.http.maxRequests) | integer, 1 to 16384, or null (Auto) | `null` | server | `MW_HTTP_MAX_REQUESTS` | Applied by the server. |
+| <a id="server.http.http2maxstreams"></a>[`server.http.http2MaxStreams`](#server.http.http2MaxStreams) | integer, 1 to 128, or null (Auto) | `null` | server | `MW_HTTP2_MAX_STREAMS` | Applied by the server. |
+| <a id="server.http.requestqueuems"></a>[`server.http.requestQueueMs`](#server.http.requestQueueMs) | integer, 0 to 2000 | `200` | server | `MW_HTTP_REQUEST_QUEUE_MS` | Applied by the server. |
+| <a id="server.http.requestqueuemax"></a>[`server.http.requestQueueMax`](#server.http.requestQueueMax) | integer, 1 to 65536, or null (Auto) | `null` | server | `MW_HTTP_REQUEST_QUEUE_MAX` | Applied by the server. |
+| <a id="server.http.adaptiveconcurrency"></a>[`server.http.adaptiveConcurrency`](#server.http.adaptiveConcurrency) | boolean | `false` | server | `MW_HTTP_ADAPTIVE_CONCURRENCY` | Applied by the server. |
+| <a id="server.http.adaptivefloor"></a>[`server.http.adaptiveFloor`](#server.http.adaptiveFloor) | integer, 1 to 16384, or null (Auto) | `null` | server |  | Applied by the server. |
+| <a id="server.http.raiseopenfilelimit"></a>[`server.http.raiseOpenFileLimit`](#server.http.raiseOpenFileLimit) | boolean | `true` | server | `MW_HTTP_RAISE_OPEN_FILES` | Applied by the server. |
 | <a id="performance.preparedmail"></a>[`performance.preparedMail`](#performance.preparedMail) | object (see Prepared mail metadata cache) | `{"enabled":false,"budgetMiB":64,"maxEntries":256,"maxAccounts":128,"idleSeconds":30}` | server |  | Applied by the server. |
 
 ### Sieve keys
