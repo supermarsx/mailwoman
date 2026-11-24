@@ -6,9 +6,8 @@ const SQLITE_SQL: &str = concat!(
     // t34 (review N1): the settings-revision triggers. The bounded guard
     // snapshot reuses settings-derived values (session-watch preferences) while
     // the revision is unchanged, so a dropped one must disqualify published
-    // inputs instead of leaving those values silently stale. SQLite only: the
-    // snapshot is inert on PostgreSQL, whose 0078 statement-level triggers and
-    // unpinned function do not fit this validator.
+    // inputs instead of leaving those values silently stale. PG_SQL requires
+    // the PostgreSQL 0078 triggers as well (t49pg).
     include_str!("../migrations/0078_settings_revision.sql"),
     "\n",
     include_str!("../migrations/0111_authority_publication.sql"),
@@ -18,11 +17,20 @@ const SQLITE_SQL: &str = concat!(
     include_str!("../migrations/0115_authority_change_log.sql")
 );
 const PG_SQL: &str = concat!(
+    // t49pg (review N1, decision D12): the 0078 statement-level triggers. 0120
+    // pins the search_path of their function, so they fit the validator.
+    include_str!("../migrations_pg/0078_settings_revision.sql"),
+    "\n",
     include_str!("../migrations_pg/0111_authority_publication.sql"),
     "\n",
-    include_str!("../migrations_pg/0112_authority_subject_anchor.sql")
-    // No 0115 here: 0118 drops the change-log triggers on PostgreSQL (t34 S2).
+    include_str!("../migrations_pg/0112_authority_subject_anchor.sql"),
+    "\n",
+    // No 0115 here: 0118 drops its triggers, including the per-insert prune
+    // (t34 S2). 0120 re-creates the two change-log triggers without a prune.
+    include_str!("../migrations_pg/0120_authority_change_log_xid.sql")
 );
+/// Largest required-trigger set the validator accepts, per dialect.
+const MAX_REQUIRED: usize = 192;
 const TABLES: &[&str] = &[
     "accounts",
     "sessions",
@@ -114,17 +122,23 @@ fn triggers_from(source: &str, pg: bool) -> Vec<Trigger> {
             continue;
         };
         let sql = format!("CREATE TRIGGER {}", &chunk[..=end]);
-        let words = chunk.split_whitespace().collect::<Vec<_>>();
+        let words = chunk[..=end].split_whitespace().collect::<Vec<_>>();
         let Some(on) = words.iter().position(|w| *w == "ON") else {
             continue;
         };
-        let mut kind = 1i64;
+        // pg_trigger.tgtype bits: ROW 1, BEFORE 2, INSERT 4, DELETE 8, UPDATE 16,
+        // TRUNCATE 32. `FOR EACH STATEMENT` (0078 on PostgreSQL) leaves ROW unset.
+        let statement = words[on..]
+            .windows(3)
+            .any(|w| w == ["FOR", "EACH", "STATEMENT"]);
+        let mut kind = i64::from(!statement);
         for token in &words[1..on] {
             kind |= match *token {
                 "BEFORE" => 2,
                 "INSERT" => 4,
                 "DELETE" => 8,
                 "UPDATE" => 16,
+                "TRUNCATE" => 32,
                 _ => 0,
             };
         }
@@ -154,10 +168,12 @@ fn functions_from(source: &str) -> Vec<Function> {
         .filter_map(|chunk| {
             let (name, tail) = chunk.split_once('(')?;
             let args = tail.split_once(')')?.0;
+            // The body ends at the closing `$$`, whether `;` follows (0111) or
+            // `LANGUAGE plpgsql;` does (0078).
             let body = chunk
                 .split_once("AS $$")?
                 .1
-                .split_once("$$;")?
+                .split_once("$$")?
                 .0
                 .trim()
                 .replace("\r\n", "\n");
@@ -211,7 +227,7 @@ impl Store {
             Dialect::Sqlite => {
                 let mut required = triggers(false);
                 required.extend(triggers_from(sqlite_extra, false));
-                if required.is_empty() || required.len() > 128 {
+                if required.is_empty() || required.len() > MAX_REQUIRED {
                     return Ok(false);
                 }
                 let names =
@@ -237,13 +253,13 @@ impl Store {
                 required.extend(triggers_from(postgres_extra, true));
                 let mut functions = functions();
                 functions.extend(functions_from(postgres_extra));
-                if required.is_empty() || required.len() > 128 || functions.len() > 64 {
+                if required.is_empty() || required.len() > MAX_REQUIRED || functions.len() > 64 {
                     return Ok(false);
                 }
                 let names =
                     serde_json::to_string(&required.iter().map(|r| &r.name).collect::<Vec<_>>())
                         .map_err(|_| invalid("schema names encoding"))?;
-                let rows=q("SELECT w.value AS name,c.relname AS table_name,p.proname AS function_name,CAST(t.tgtype AS BIGINT) AS kind,CAST(CASE WHEN t.tgenabled='O' AND NOT t.tgisinternal AND t.tgqual IS NULL AND t.tgnargs=0 AND t.tgattr::text='' AND t.tgconstraint=0 AND NOT t.tgdeferrable AND NOT t.tginitdeferred AND t.tgoldtable IS NULL AND t.tgnewtable IS NULL AND pn.nspname=current_schema() THEN 1 ELSE 0 END AS BIGINT) AS enabled FROM json_array_elements_text(?1::json) w LEFT JOIN pg_catalog.pg_trigger t ON t.tgname=w.value AND t.tgrelid IN(SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=current_schema()) LEFT JOIN pg_catalog.pg_class c ON c.oid=t.tgrelid LEFT JOIN pg_catalog.pg_proc p ON p.oid=t.tgfoid LEFT JOIN pg_catalog.pg_namespace pn ON pn.oid=p.pronamespace ORDER BY w.value LIMIT 129").bind(names).fetch_all(&self.backend).await?;
+                let rows=q("SELECT w.value AS name,c.relname AS table_name,p.proname AS function_name,CAST(t.tgtype AS BIGINT) AS kind,CAST(CASE WHEN t.tgenabled='O' AND NOT t.tgisinternal AND t.tgqual IS NULL AND t.tgnargs=0 AND t.tgattr::text='' AND t.tgconstraint=0 AND NOT t.tgdeferrable AND NOT t.tginitdeferred AND t.tgoldtable IS NULL AND t.tgnewtable IS NULL AND pn.nspname=current_schema() THEN 1 ELSE 0 END AS BIGINT) AS enabled FROM json_array_elements_text(?1::json) w LEFT JOIN pg_catalog.pg_trigger t ON t.tgname=w.value AND t.tgrelid IN(SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=current_schema()) LEFT JOIN pg_catalog.pg_class c ON c.oid=t.tgrelid LEFT JOIN pg_catalog.pg_proc p ON p.oid=t.tgfoid LEFT JOIN pg_catalog.pg_namespace pn ON pn.oid=p.pronamespace ORDER BY w.value LIMIT 193").bind(names).fetch_all(&self.backend).await?;
                 if rows.len() != required.len()
                     || rows.iter().any(|r| {
                         let (Ok(Some(name)), Ok(Some(table)), Ok(Some(function))) = (
@@ -316,4 +332,81 @@ pub(super) fn fixture_restore_trigger(dialect: Dialect) -> &'static str {
                 .sql,
         ]
     })[usize::from(dialect == Dialect::Postgres)]
+}
+
+/// `(trigger, table)` of every required trigger of one dialect, without extras.
+#[cfg(test)]
+pub(super) fn required_triggers(pg: bool) -> Vec<(String, String)> {
+    triggers(pg).into_iter().map(|t| (t.name, t.table)).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_required_trigger_table_is_stamped() {
+        for pg in [false, true] {
+            for trigger in triggers(pg) {
+                assert!(
+                    TABLES.contains(&trigger.table.as_str()),
+                    "{} on {} (pg={pg}) is not in the stamp table list",
+                    trigger.name,
+                    trigger.table
+                );
+            }
+        }
+        // 0111/0112/0114 sources, 0078 tables and the mirror's own tables.
+        for extra in [
+            include_str!("../migrations_pg/0114_guard_input_publication.sql"),
+            include_str!("../migrations/0114_guard_input_publication.sql"),
+        ] {
+            for trigger in triggers_from(extra, true) {
+                assert!(TABLES.contains(&trigger.table.as_str()), "{}", trigger.table);
+            }
+        }
+        for table in ["authority_epoch", "settings_revision", "authority_change_log"] {
+            assert!(TABLES.contains(&table));
+        }
+    }
+
+    #[test]
+    fn postgres_required_set_has_statement_level_and_change_log_triggers() {
+        let pg = triggers(true);
+        assert!(pg.len() <= MAX_REQUIRED && triggers(false).len() <= MAX_REQUIRED);
+        let kind = |name: &str| pg.iter().find(|t| t.name == name).map(|t| t.kind);
+        // 0078: AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ... FOR EACH STATEMENT.
+        assert_eq!(kind("settings_revision_setting_policy"), Some(4 | 8 | 16 | 32));
+        assert_eq!(
+            pg.iter()
+                .filter(|t| t.name.starts_with("settings_revision_"))
+                .count(),
+            11
+        );
+        // 0120: row-level, no prune trigger.
+        assert_eq!(kind("authority_change_log_epoch"), Some(1 | 4 | 8 | 16));
+        assert_eq!(kind("authority_change_log_revision"), Some(1 | 4 | 8 | 16));
+        assert_eq!(kind("authority_change_log_prune"), None);
+        assert_eq!(kind("authority_epoch_monotonic"), Some(1 | 2 | 16));
+        let functions = functions();
+        let body = |name: &str| {
+            functions
+                .iter()
+                .find(|f| f.name == name)
+                .map(|f| canonical_sql(&f.body))
+        };
+        assert_eq!(
+            body("settings_revision_bump").as_deref(),
+            Some("BEGIN\n UPDATE settings_revision SET n=n+1 WHERE id=1;\n RETURN NULL;\nEND")
+        );
+        assert!(body("mw_authority_change_log_epoch").is_some());
+        assert!(body("mw_authority_change_log_prune").is_none());
+        assert!(functions.iter().all(|f| !f.body.contains("$$")));
+    }
+}
+
+/// The tables the publication schema stamp covers.
+#[cfg(test)]
+pub(super) fn stamped_tables() -> &'static [&'static str] {
+    TABLES
 }
