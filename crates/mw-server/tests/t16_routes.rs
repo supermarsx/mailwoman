@@ -215,6 +215,7 @@ fn attachment_text_is_full_text_searchable() {
         attachment_text: "netsuite purchaseorder 4471 grandtotal".into(),
         calendar: None,
         list_signal: None,
+        source_content_ref: None,
     };
     idx.upsert(&doc).expect("index");
 
