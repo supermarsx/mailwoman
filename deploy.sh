@@ -1194,15 +1194,24 @@ verify() {
     cid=$(compose "$ACTIVE" ps -q mailwoman)
     [[ -n $cid ]] || die "App container is missing"
     MSYS_NO_PATHCONV=1 docker exec "$cid" /usr/local/bin/mailwoman healthcheck --url http://127.0.0.1:8080/healthz || die "App health check failed"
-    log "Verifying $url/healthz and the web UI (up to ${wait}s)"
+    log "Verifying $url/healthz and $url/api/public-config (up to ${wait}s)"
     # /healthz answers only to internal client addresses; a deployment behind a
     # trusted proxy sees this host as a public one, so send MW_HEALTH_TOKEN when
     # app.env sets it.
+    #
+    # The second request proves that the public URL routes application paths,
+    # not only the health route, to this app (with valid TLS for https). It is
+    # /api/public-config, the configuration the web UI loads first, and not
+    # `/`: by default the server refuses an anonymous automation user-agent
+    # such as curl's on its first request to `/` (429, Retry-After), so `/` from
+    # this script fails on a healthy install. /api/public-config is exempt from
+    # that rule by design, like /healthz. Neither request fetches the web UI's
+    # own files.
     local health_token
     health_token=$(sed -n 's/^MW_HEALTH_TOKEN=//p' "$STATE/app.env" 2>/dev/null | tail -n 1)
     while ((SECONDS < deadline)); do
         if curl --fail --silent --show-error --connect-timeout 3 --max-time 5 -H "X-Health-Token: $health_token" "$url/healthz" -o /dev/null 2>/dev/null &&
-           curl --fail --silent --show-error --connect-timeout 3 --max-time 5 "$url/" -o /dev/null 2>/dev/null; then
+           curl --fail --silent --show-error --connect-timeout 3 --max-time 5 "$url/api/public-config" -o /dev/null 2>/dev/null; then
             log "Healthy: $url (admin credentials: $STATE/app.env)"
             local admin_path
             admin_path=$(sed -n 's/^MW_ADMIN_PATH=//p' "$STATE/app.env" | tail -n 1)

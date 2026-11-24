@@ -50,6 +50,11 @@
 # container (case 1). A failed case keeps its files under .deploy-test-*.local.
 set -Eeuo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# This test's own requests to the app send a browser user-agent: by default the
+# server refuses an anonymous automation user-agent such as curl's on its first
+# request (security.protection.userAgentBlockBots, 429), and these cases are about
+# the proxies, not about that rule. deploy.sh's own checks still use bare curl.
+BROWSER_UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
 SELF="$ROOT/scripts/test-deploy-proxy.sh"
 # Sends the kill from the host PID namespace in case 1.
 TOOL_IMAGE=busybox:1.37-glibc@sha256:42a9ff19af33811ee466b24c66384461d37c32dcc28d1d27d49b8aca816bd5ee
@@ -208,7 +213,7 @@ read_admin_credentials() {
 
 case_restart() {
     local port=${DEPLOY_PROXY_TEST_PORT:-18090} pid new_pid before after since started code
-    CURL=(curl) JAR="$STATE/admin.cookies" JAR_CAT=(cat "$STATE/admin.cookies")
+    CURL=(curl --user-agent "$BROWSER_UA") JAR="$STATE/admin.cookies" JAR_CAT=(cat "$STATE/admin.cookies")
     BASE="http://localhost:$port" BAN_IP=203.0.113.251
     run init --project "$PROJECT" --port "$port" || fail "deploy.sh init failed: $(tail -n 5 "$STATE/deploy.log")"
     run deploy --image "$IMAGE" --timeout 120 || fail "deploy.sh deploy failed: $(tail -n 5 "$STATE/deploy.log")"
@@ -320,7 +325,7 @@ case_npm() {
     [[ $out == *'"allow_websocket_upgrade":true'* && $out == *"\"certificate_id\":$cert_id"* ]] \
         || fail "unexpected proxy host: $out"
 
-    CURL=(env MSYS_NO_PATHCONV=1 docker exec "$CLIENT" curl --resolve "$domain:443:$NPM_IP" --cacert /w/ca.pem)
+    CURL=(env MSYS_NO_PATHCONV=1 docker exec "$CLIENT" curl --user-agent "$BROWSER_UA" --resolve "$domain:443:$NPM_IP" --cacert /w/ca.pem)
     JAR=/w/cookies JAR_CAT=(cx cat /w/cookies) BASE="https://$domain" BAN_IP=203.0.113.252
     wait_for 60 '/healthz through the proxy' proxied_health
 
@@ -412,7 +417,7 @@ JSON
     docker cp "$CLIENT:/w/pebble-root.pem" "$STATE/pebble-root.pem"
     grep -q 'BEGIN CERTIFICATE' "$STATE/pebble-root.pem" || fail "Pebble's /roots/0 returned no certificate"
 
-    # deploy.sh checks https://<domain>/ from the host with curl. This curl config,
+    # deploy.sh checks https://<domain>/healthz and /api/public-config from the host with curl. This curl config,
     # read through CURL_HOME, sends the domain to 127.0.0.1 and trusts Pebble's root.
     mkdir "$STATE/curl-home"
     curl_ca=$STATE/pebble-root.pem
@@ -439,7 +444,7 @@ JSON
     read_admin_credentials
     docker network connect --ip "$subnet.12" "$project_net" "$CLIENT"
 
-    CURL=(env MSYS_NO_PATHCONV=1 docker exec "$CLIENT" curl --resolve "$domain:443:$subnet.2" --cacert /w/pebble-root.pem)
+    CURL=(env MSYS_NO_PATHCONV=1 docker exec "$CLIENT" curl --user-agent "$BROWSER_UA" --resolve "$domain:443:$subnet.2" --cacert /w/pebble-root.pem)
     JAR=/w/cookies JAR_CAT=(cx cat /w/cookies) BASE="https://$domain" BAN_IP=203.0.113.253
     wait_for 30 '/healthz through Caddy' proxied_health
 

@@ -181,6 +181,10 @@ EOF
 }
 
 t_probe() {
+  # The probes send a browser user-agent: by default the server refuses an anonymous
+  # automation user-agent such as curl's on its first request (429), and these
+  # checks are about the unit's sandbox, not about that rule. /healthz is exempt.
+  local ua='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
   local password="$1" b=http://127.0.0.1:8080 out status pid name value resp
   local adm csrf ses ses_csrf
 
@@ -223,12 +227,12 @@ t_probe() {
 
   # Plugin: admin sign-in, then register, approve, enable and grant spam-rspamd. The grant is
   # where wasmtime compiles the component (Component::new, which needs executable memory).
-  out="$(curl -sS -D - -o /dev/null -H 'content-type: application/json' \
+  out="$(curl -sS -A "$ua" -D - -o /dev/null -H 'content-type: application/json' \
     -d "{\"username\":\"root\",\"password\":\"$password\"}" "$b/admin/login")"
   adm="$(sed -n 's/^[Ss]et-[Cc]ookie: mw_admin_session=\([^;]*\);.*/\1/p' <<<"$out" | tr -d '\r')"
   csrf="$(sed -n 's/^[Ss]et-[Cc]ookie: mw_csrf=\([^;]*\);.*/\1/p' <<<"$out" | tr -d '\r')"
   [[ -n "$adm" && -n "$csrf" ]] || t_fail "admin sign-in set no session: $(sed -n 1p <<<"$out")"
-  local -a admin=(-H "Cookie: mw_admin_session=$adm; mw_csrf=$csrf" -H "X-CSRF-Token: $csrf"
+  local -a admin=(-A "$ua" -H "Cookie: mw_admin_session=$adm; mw_csrf=$csrf" -H "X-CSRF-Token: $csrf"
     -H 'content-type: application/json')
   curl -sS -f "${admin[@]}" -d '{"id":"spam-rspamd"}' "$b/admin/plugins" >/dev/null ||
     t_fail "register spam-rspamd refused"
@@ -263,7 +267,7 @@ t_probe() {
   # Sign-ins are paced per client address (signin.retryCooldownSecs, 3 s by default): a
   # 429 carries Retry-After, so wait that long and sign in again.
   for try in 1 2 3 4 5; do
-    out="$(curl -sS -D - -o /dev/null -H 'X-Remote-User: probe@example.org' \
+    out="$(curl -sS -A "$ua" -D - -o /dev/null -H 'X-Remote-User: probe@example.org' \
       -H 'content-type: application/json' -d '{"username":"","password":""}' \
       "$b/api/login")"
     [[ "$(sed -n 1p <<<"$out")" == *' 429'* ]] || break
@@ -274,7 +278,7 @@ t_probe() {
   ses="$(sed -n 's/^[Ss]et-[Cc]ookie: mw_session=\([^;]*\);.*/\1/p' <<<"$out" | tr -d '\r')"
   ses_csrf="$(sed -n 's/^[Ss]et-[Cc]ookie: mw_csrf=\([^;]*\);.*/\1/p' <<<"$out" | tr -d '\r')"
   [[ -n "$ses" && -n "$ses_csrf" ]] || t_fail "mailbox sign-in set no session: $(sed -n 1p <<<"$out")"
-  resp="$(curl -sS -w '\n%{http_code}' -H "Cookie: mw_session=$ses; mw_csrf=$ses_csrf" \
+  resp="$(curl -sS -A "$ua" -w '\n%{http_code}' -H "Cookie: mw_session=$ses; mw_csrf=$ses_csrf" \
     -H "X-CSRF-Token: $ses_csrf" -H 'content-type: application/json' \
     -d '{"html":"<p onclick=x>hi</p><script>alert(1)</script>"}' "$b/api/sanitize")"
   printf '[systemd-unit] sanitize: %s\n' "$(tr '\n' ' ' <<<"$resp")"

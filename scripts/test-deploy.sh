@@ -18,6 +18,14 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 IMAGE=${1:?Pass a built Mailwoman runtime image}
 DEPLOY=${DEPLOY_TEST_SCRIPT:-$ROOT/deploy.sh}
 WEB="$ROOT/apps/web"
+# This test's own requests to the app send a browser user-agent: by default the
+# server refuses an anonymous automation user-agent such as curl's on its first
+# request (security.protection.userAgentBlockBots), and these checks are about
+# the web UI and the admin console, not about that rule (/healthz, /metrics and
+# /api/public-config answer bare curl and stay that way). The
+# rule itself is checked once below, and deploy.sh's own checks use bare curl,
+# so a deploy that depends on a refused path still fails here.
+BROWSER_UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
 # Decide first whether the browser step can run, so DEPLOY_TEST_REQUIRE=all fails
@@ -314,8 +322,15 @@ app_env "$CID" | grep -E '^MW_IMAGE_DIGEST=([^@]+@)?sha256:[0-9a-f]{64}$' >/dev/
 [[ $(docker inspect --format '{{.Config.User}}' "$CID") == 65532:65532 ]] || fail 'not nonroot'
 [[ $(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$CID") == true ]] || fail 'root writable'
 app_env "$CID" | grep -Fx 'DEPLOY_LITERAL_TEST=dollar$sign with spaces and "quotes"' >/dev/null || fail 'raw environment was expanded'
-curl --fail --silent "http://localhost:$PORT/" -o "$STATE/index.html"
+curl --fail --silent --user-agent "$BROWSER_UA" "http://localhost:$PORT/" -o "$STATE/index.html"
 grep -qi '<!doctype html' "$STATE/index.html" || fail 'missing embedded SPA'
+# The default user-agent rule: curl's own user-agent gets 429 on its first
+# request to the web UI; deploy succeeded above because its checks use
+# /healthz and /api/public-config, which the rule exempts.
+CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' "http://localhost:$PORT/")
+[[ $CODE == 429 ]] || fail "bare curl on / answered $CODE, expected 429 from the default user-agent rule"
+CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' "http://localhost:$PORT/api/public-config")
+[[ $CODE == 200 ]] || fail "bare curl on /api/public-config answered $CODE, expected 200 (exempt)"
 # init generated a metrics token: /metrics answers 200 with it and 401 without,
 # and status says metrics are enabled.
 METRICS_TOKEN=$(awk -F= '$1 == "MW_METRICS_TOKEN" {print $2}' "$STATE/app.env")
@@ -346,12 +361,12 @@ ADMIN_PASSWORD=$(awk -F= '$1 == "MW_ADMIN_PASSWORD" {print $2}' "$STATE/app.env"
 # t76: deploy.sh init generates the console path and writes it to app.env.
 ADMIN_PATH=$(awk -F= '$1 == "MW_ADMIN_PATH" {print $2}' "$STATE/app.env")
 [[ $ADMIN_PATH =~ ^/[a-z2-9]{20}$ ]] || fail "deploy.sh init wrote no generated MW_ADMIN_PATH: '$ADMIN_PATH'"
-CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' "http://localhost:$PORT/admin/session")
+CODE=$(curl --user-agent "$BROWSER_UA" --silent --output /dev/null --write-out '%{http_code}' "http://localhost:$PORT/admin/session")
 [[ $CODE == 404 ]] || fail "/admin answered $CODE on a new installation, expected 404"
 ADMIN_URL="http://localhost:$PORT$ADMIN_PATH"
 JAR="$STATE/admin.cookies"
 BAN='{"ip":"203.0.113.250","reason":"deploy test"}'
-admin() { curl --silent --output "$STATE/admin.body" --write-out '%{http_code}' --cookie "$JAR" --cookie-jar "$JAR" "$@"; }
+admin() { curl --user-agent "$BROWSER_UA" --silent --output "$STATE/admin.body" --write-out '%{http_code}' --cookie "$JAR" --cookie-jar "$JAR" "$@"; }
 admin_json() { admin --header 'content-type: application/json' "$@"; }
 CODE=$(admin_json --data "{\"username\":\"$ADMIN_USER\",\"password\":\"not-$ADMIN_PASSWORD\"}" "$ADMIN_URL/login")
 [[ $CODE == 401 ]] || fail "a wrong admin password answered $CODE, expected 401"
@@ -779,7 +794,7 @@ moved() {
 }
 local_port_only() {
     [[ $(docker port "$CID") == "8080/tcp -> 127.0.0.1:$PORT" ]] || fail "$1 does not publish exactly 127.0.0.1:$PORT: $(docker port "$CID")"
-    curl --fail --silent "http://localhost:$PORT/" -o "$STATE/index.html" || fail "$1: http://localhost:$PORT/ does not answer"
+    curl --user-agent "$BROWSER_UA" --fail --silent "http://localhost:$PORT/" -o "$STATE/index.html" || fail "$1: http://localhost:$PORT/ does not answer"
     grep -qi '<!doctype html' "$STATE/index.html" || fail "$1: http://localhost:$PORT/ is not the web UI"
 }
 mkdir "$STATE/proxybin"

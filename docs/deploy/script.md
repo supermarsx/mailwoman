@@ -106,7 +106,7 @@ Snapshots report each stage (stopping the app, copying `/data`, dumping PostgreS
 
 ### Health checks and automatic rollback
 
-Before replacing a running app, `deploy` builds or pulls the image (a failure there causes no outage), then snapshots the installation, which stops the app briefly. It then starts the new release, waits for the container's health check and requests `/healthz` and `/` at the public URL, with valid TLS where the URL is HTTPS. `--timeout SECS` (10 to 3600, default 180) sets how long each wait may take. These checks show that the app answers over HTTP; they do not test mailbox sign-in, SMTP delivery or reachability from outside the host.
+Before replacing a running app, `deploy` builds or pulls the image (a failure there causes no outage), then snapshots the installation, which stops the app briefly. It then starts the new release, waits for the container's health check and requests `/healthz` and `/api/public-config` at the public URL, with valid TLS where the URL is HTTPS. `--timeout SECS` (10 to 3600, default 180) sets how long each wait may take. These checks show that the app answers over HTTP; they do not test mailbox sign-in, SMTP delivery or reachability from outside the host.
 
 When the health wait or the public check fails, the script rolls back:
 

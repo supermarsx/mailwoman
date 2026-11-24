@@ -72,7 +72,11 @@ set -eu
 umask 077
 printf "%s\n" "$MW_CA_PEM" > /tmp/ca.pem
 BASE="https://$MW_HOST:8443"
-CURL="curl -sS --cacert /tmp/ca.pem --max-time 20"
+# A browser user-agent, from a curl config because $CURL is word-split: by default
+# the server refuses an anonymous automation user-agent such as the curl one on its
+# first request (429); this check is about HTTP/2 and HTTP/3 through the proxy.
+printf "%s\n" "user-agent = \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36\"" > /tmp/curlrc
+CURL="curl -K /tmp/curlrc -sS --cacert /tmp/ca.pem --max-time 20"
 # This curl (quiche backend) does not apply --cacert to QUIC connections, so the
 # HTTP/3 requests skip verification. The TCP requests verify the same leaf, and
 # certificate checking is not what this script tests.
