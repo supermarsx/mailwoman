@@ -11,6 +11,45 @@ import {createH2Client} from './http-h2-client.mjs';
 // Generator scale limits (t53s). Defaults of every caller are unchanged; only the ceilings moved.
 export const SCHEDULING_LAG_LIMIT_MS=1;
 export const MAX_WORKERS_PER_HOST=64,MAX_WORKERS_TOTAL=256,MAX_OUTSTANDING=20000,MAX_STAGE_SECONDS=3600;
+// Byte accounting beyond the decoded-body counters: response size distribution (5% buckets), request body
+// bytes, and compression as far as the wire size is known (HTTP/2 always; HTTP/1.1 only from Content-Length).
+const SIZE_STEP=Math.log(1.05);
+export function newBytesProfile(){return {sizes:new Map(),count:0,sum:0,requestBodyBytes:0,responses:0,compressed:0,encodings:{},measured:0,wireBytes:0,decodedBytes:0};}
+export function addResponseSize(profile,bytes){
+ const bucket=bytes<=0?0:Math.ceil(Math.log(bytes)/SIZE_STEP)+1;
+ profile.sizes.set(bucket,(profile.sizes.get(bucket)??0)+1);profile.count++;profile.sum+=bytes;
+}
+export function addCompression(profile,{encoding,wire,decoded}){
+ profile.responses++;
+ const coded=encoding&&encoding!=='identity';
+ if(coded){profile.compressed++;const name=String(encoding).toLowerCase().slice(0,20).replace(/[^a-z0-9,-]/g,'');profile.encodings[name]=(profile.encodings[name]??0)+1;}
+ if(coded&&Number.isFinite(wire)&&wire>=0){profile.measured++;profile.wireBytes+=wire;profile.decodedBytes+=decoded;}
+}
+export function bytesSnapshot(profile){return {schema:1,sizes:[...profile.sizes].sort((a,b)=>a[0]-b[0]),count:profile.count,sum:profile.sum,requestBodyBytes:profile.requestBodyBytes,responses:profile.responses,compressed:profile.compressed,encodings:{...profile.encodings},measured:profile.measured,wireBytes:profile.wireBytes,decodedBytes:profile.decodedBytes};}
+export function mergeBytesSnapshots(snapshots){
+ const total=newBytesProfile();
+ for(const value of snapshots){
+  if(!value||value.schema!==1||!Array.isArray(value.sizes))throw new Error('Invalid byte profile');
+  for(const key of ['count','sum','requestBodyBytes','responses','compressed','measured','wireBytes','decodedBytes'])if(!Number.isSafeInteger(value[key])||value[key]<0)throw new Error('Invalid byte profile');
+  let samples=0;for(const [bucket,count] of value.sizes){if(!Number.isInteger(bucket)||bucket<0||bucket>400||!Number.isSafeInteger(count)||count<1)throw new Error('Invalid byte profile');samples+=count;total.sizes.set(bucket,(total.sizes.get(bucket)??0)+count);}
+  if(samples!==value.count||value.measured>value.compressed||value.compressed>value.responses)throw new Error('Invalid byte profile');
+  for(const key of ['count','sum','requestBodyBytes','responses','compressed','measured','wireBytes','decodedBytes'])total[key]+=value[key];
+  for(const [name,count] of Object.entries(value.encodings))total.encodings[name]=(total.encodings[name]??0)+count;
+ }
+ return total;
+}
+export function bytesReport(profile,{seconds,windowDecodedBytes}){
+ let n=0;const target=Math.ceil(profile.count*.99);let p99=0;
+ for(const [bucket,count] of [...profile.sizes].sort((a,b)=>a[0]-b[0])){n+=count;if(n>=target){p99=bucket===0?0:Math.ceil(Math.exp((bucket-1)*SIZE_STEP));break;}}
+ const responseBytesPerSecond=windowDecodedBytes/seconds,requestBodyBytesPerSecond=profile.requestBodyBytes/seconds;
+ return {schema:1,method:'decoded response body bytes consumed by the generator and request body bytes sent; headers, TLS and framing are not counted, so the wire carries more',
+  responseBytesPerSecond,responseBytesPerSecondBasis:'accepted responses completed inside the scheduled window',requestBodyBytesPerSecond,
+  networkGbitBodyBytes:(responseBytesPerSecond+requestBodyBytesPerSecond)*8/1e9,
+  responseSize:{samples:profile.count,mean:profile.count?profile.sum/profile.count:0,p99UpperBound:p99,resolution:'5% size buckets; p99 is the bucket upper bound'},
+  compression:{responses:profile.responses,compressedResponses:profile.compressed,encodings:profile.encodings,compressed:profile.compressed>0,
+   ratioMeasuredResponses:profile.measured,compressedToUncompressedRatio:profile.measured&&profile.decodedBytes?profile.wireBytes/profile.decodedBytes:null,
+   ratioBasis:profile.compressed&&!profile.measured?'wire size unknown (no Content-Length through fetch); not measured':'compressed responses with a known wire size'}};
+}
 export function acceptedInScheduledWindow(status,ok,completed,deadline){
  return Boolean(ok&&Number(status)>=200&&Number(status)<300&&completed<=deadline);
 }
@@ -120,6 +159,7 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
   // HTTP/2 is an alternative transport behind the same templates, validators and counters; absent h2 = HTTP/1.1.
   const client=h2?createH2Client(h2):null;
   if(client)await client.warm([...new Set((bases??[base]).map(value=>new URL(value).origin))]);
+  const profile=newBytesProfile();
   const wallOrigin=Date.now(),monotonicOrigin=performance.now();
   if(commonStartAtMs!==undefined&&(!Number.isSafeInteger(commonStartAtMs)||Math.abs(commonStartAtMs-wallOrigin)>60000))throw new Error('Common fixture start must be within sixty seconds');
   const start=commonStartAtMs===undefined?monotonicOrigin:monotonicOrigin+(commonStartAtMs-wallOrigin),deadline=start+seconds*1000;
@@ -143,7 +183,7 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
       const lagBase=Math.max(0,began-planned);if(!client)scheduling.add(lagBase,'scheduled',0,true);if(lateDispatch&&began-planned>100)lateSlotsDispatched++;
       let status='network',bytes=0,ok=false,timedOut=false;
       const signal=AbortSignal.timeout(timeoutMs);
-      let slot=null,lagRecorded=!client,unlock=null,dispatched=false,dispatchAt=null,queueMs=0,validationMs=null,reason503='other503';
+      let encoding=null,wire=null,slot=null,lagRecorded=!client,unlock=null,dispatched=false,dispatchAt=null,queueMs=0,validationMs=null,reason503='other503';
       try{
         if(spec.serializePrincipal){
           if(!boundedIndex(spec.principalIndex))throw new Error('Serialized fixture requests require a bounded principal');
@@ -161,10 +201,12 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
         // A full stream limit queues here, in the generator; the wait is scheduling lag, never a drop.
         if(client){slot=await client.acquire(url.origin,spec.clientIndex,signal);scheduling.add(lagBase+slot.queuedMs,'scheduled',0,true);lagRecorded=true;}
         dispatched=true;httpDispatchAttempts++;dispatchAt=performance.now();
+        if(spec.body!==undefined)profile.requestBodyBytes+=Buffer.byteLength(spec.body);
         const init={method:spec.method??'GET',headers:{...headers,...spec.headers},...(spec.body!==undefined?{body:spec.body}:{}),signal,redirect:'error'};
         const response=await(client?client.request(slot,url,init):fetch(url,init));
-        status=String(response.status);const chunks=[];let errorBody=status==='503'?Buffer.allocUnsafe(4096):null;const reader=response.body?.getReader();
+        status=String(response.status);encoding=response.headers?.get?.('content-encoding')??null;const chunks=[];let errorBody=status==='503'?Buffer.allocUnsafe(4096):null;const reader=response.body?.getReader();
         if(reader)for(;;){const part=await reader.read();if(part.done)break;bytes+=part.value.length;if(errorBody){if(bytes<=4096)errorBody.set(part.value,bytes-part.value.length);else errorBody=null;}if(bytes>8*1024*1024){await reader.cancel();throw new Error('response too large');}if(spec.validate||spec.validateBytes){if(bytes>(spec.validate?65536:1024*1024)){await reader.cancel();throw new Error('validation response too large');}chunks.push(part.value);}}
+        {const length=Number(response.headers?.get?.('content-length'));wire=typeof response.wireBytes==='function'?response.wireBytes():(encoding&&encoding!=='identity'?(Number.isFinite(length)?length:null):bytes);}
         if(status==='503')reason503=classifyHttp503(errorBody?errorBody.subarray(0,bytes):null,true);
         ok=(spec.statuses??[200]).includes(response.status);
         if(ok&&response.status!==429&&(spec.validate||spec.validateBytes)){
@@ -188,6 +230,7 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
         if(validationMs!==null)value.validation.add(validationMs,'scheduled',0,true);
       }
       if(ok&&Number(status)>=200&&Number(status)<300){
+        addResponseSize(profile,bytes);addCompression(profile,{encoding,wire,decoded:bytes});
         increment(principals.accepted,spec.principalIndex);increment(clients.accepted,spec.clientIndex);
         if(inWindow){acceptedWithinWindow++;acceptedPerSecond[Math.min(acceptedPerSecond.length-1,Math.max(0,Math.floor((completed-start)/1000)))]++;if(boundedIndex(spec.principalIndex))principals.withinWindow.add(spec.principalIndex);if(boundedIndex(spec.clientIndex))clients.withinWindow.add(spec.clientIndex);}
       }
@@ -232,11 +275,22 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
   const hooks={
     ...(commonStartAtMs===undefined?{}:{window:{requestedStartAtMs:commonStartAtMs,scheduledStartAtMs:commonStartAtMs,scheduledEndAtMs:commonStartAtMs+seconds*1000,actualStartAtMs:Math.round(wallOrigin+actualStart-monotonicOrigin),completedAtMs:Math.round(wallOrigin+completedAt-monotonicOrigin),startLagMs:Math.max(0,actualStart-start)}}),
     latencyBreakdown:timingReport(latency,aggregate.count),http503Reasons:error503,
-    ...(includeRawMeasurements?{rawMeasurements:{schema:1,aggregate:aggregate.snapshot(),byRequest:Object.fromEntries([...byRequest].map(([name,measurements])=>[name,measurements.snapshot()])),scheduling:scheduling.snapshot(),arrivalLatency:arrivalLatency.snapshot(),http503Reasons:{schema:1,aggregate:error503,byRequest:Object.fromEntries(error503ByRequest)},latencyBreakdown:{schema:1,aggregate:timingSnapshot(latency),byRequest:Object.fromEntries([...latencyByRequest].map(([name,value])=>[name,timingSnapshot(value)]))}}}:{}),
+    ...(includeRawMeasurements?{rawMeasurements:{schema:1,aggregate:aggregate.snapshot(),byRequest:Object.fromEntries([...byRequest].map(([name,measurements])=>[name,measurements.snapshot()])),scheduling:scheduling.snapshot(),arrivalLatency:arrivalLatency.snapshot(),bytesProfile:bytesSnapshot(profile),http503Reasons:{schema:1,aggregate:error503,byRequest:Object.fromEntries(error503ByRequest)},latencyBreakdown:{schema:1,aggregate:timingSnapshot(latency),byRequest:Object.fromEntries([...latencyByRequest].map(([name,value])=>[name,timingSnapshot(value)]))}}}:{}),
   };
-  return {...hooks,protocol:http2?http2.protocol:'http/1.1',...(http2?{http2}:{}),mutationStateTainted,unknownMutationOutcomes,taintedPrincipals:taintedPrincipals.size,httpDispatchAttempts,blockedAfterMutationTaint,abortedUnscheduled,uniquePrincipalsAccepted:principals.accepted.size,uniquePrincipalsAttempted:principals.attempted.size,uniquePrincipalsAcceptedDuringScheduledWindow:principals.withinWindow.size,uniqueClientsAttempted:clients.attempted.size,uniqueClientsAccepted:clients.accepted.size,uniqueClientsAcceptedDuringScheduledWindow:clients.withinWindow.size,participantDistribution:{principals:{attempted:distribution(principals.attempted),accepted:distribution(principals.accepted)},simulatedClients:{attempted:distribution(clients.attempted),accepted:distribution(clients.accepted)}},peakOutstanding,acceptedDuringScheduledWindow:acceptedWithinWindow,acceptedDuringScheduledWindowRps:acceptedWithinWindow/seconds,acceptedPerSecond,generator:{cpuUserMs:cpu.user/1000,cpuSystemMs:cpu.system/1000,cpuLogicalCores:(cpu.user+cpu.system)/(cpuElapsed*1000000),rssBeforeBytes:memoryStart.rss,rssAfterBytes:memoryEnd.rss,heapAfterBytes:memoryEnd.heapUsed},concurrency,scheduledSeconds:seconds,elapsedSeconds:elapsed,...(arrivalRate===undefined?{}:{arrivalRate,offered,attempted:aggregate.count,attemptedRequestsPerSecond:aggregate.count/seconds,achievedRequestsPerSecond:aggregate.count/elapsed,droppedCapacity,droppedScheduler,peakOutstanding,latePolicy,lateSlotsDispatched,droppedLateSlots,unissuedAtWindowEnd:droppedScheduler-droppedLateSlots,latencyBasis:lateDispatch?'scheduled-slot':'send',generatorLimited:scheduling.percentile(.99)>SCHEDULING_LAG_LIMIT_MS,schedulingLagLimitMs:SCHEDULING_LAG_LIMIT_MS,schedulingLagMs:scheduling.report(elapsed).latencyMs,plannedArrivalLatencyMs:arrivalLatency.report(elapsed).latencyMs}),...aggregate.report(elapsed),byRequest:Object.fromEntries([...byRequest].map(([key,value])=>[key,{...value.report(elapsed),latencyBreakdown:timingReport(latencyByRequest.get(key),value.count),http503Reasons:error503ByRequest.get(key)}]))};
+  return {...hooks,transfer:bytesReport(profile,{seconds,windowDecodedBytes:aggregate.acceptedDuringScheduledWindowDecodedBytes}),protocol:http2?http2.protocol:'http/1.1',...(http2?{http2}:{}),mutationStateTainted,unknownMutationOutcomes,taintedPrincipals:taintedPrincipals.size,httpDispatchAttempts,blockedAfterMutationTaint,abortedUnscheduled,uniquePrincipalsAccepted:principals.accepted.size,uniquePrincipalsAttempted:principals.attempted.size,uniquePrincipalsAcceptedDuringScheduledWindow:principals.withinWindow.size,uniqueClientsAttempted:clients.attempted.size,uniqueClientsAccepted:clients.accepted.size,uniqueClientsAcceptedDuringScheduledWindow:clients.withinWindow.size,participantDistribution:{principals:{attempted:distribution(principals.attempted),accepted:distribution(principals.accepted)},simulatedClients:{attempted:distribution(clients.attempted),accepted:distribution(clients.accepted)}},peakOutstanding,acceptedDuringScheduledWindow:acceptedWithinWindow,acceptedDuringScheduledWindowRps:acceptedWithinWindow/seconds,acceptedPerSecond,generator:{cpuUserMs:cpu.user/1000,cpuSystemMs:cpu.system/1000,cpuLogicalCores:(cpu.user+cpu.system)/(cpuElapsed*1000000),rssBeforeBytes:memoryStart.rss,rssAfterBytes:memoryEnd.rss,heapAfterBytes:memoryEnd.heapUsed},concurrency,scheduledSeconds:seconds,elapsedSeconds:elapsed,...(arrivalRate===undefined?{}:{arrivalRate,offered,attempted:aggregate.count,attemptedRequestsPerSecond:aggregate.count/seconds,achievedRequestsPerSecond:aggregate.count/elapsed,droppedCapacity,droppedScheduler,peakOutstanding,latePolicy,lateSlotsDispatched,droppedLateSlots,unissuedAtWindowEnd:droppedScheduler-droppedLateSlots,latencyBasis:lateDispatch?'scheduled-slot':'send',generatorLimited:scheduling.percentile(.99)>SCHEDULING_LAG_LIMIT_MS,schedulingLagLimitMs:SCHEDULING_LAG_LIMIT_MS,schedulingLagMs:scheduling.report(elapsed).latencyMs,plannedArrivalLatencyMs:arrivalLatency.report(elapsed).latencyMs}),...aggregate.report(elapsed),byRequest:Object.fromEntries([...byRequest].map(([key,value])=>[key,{...value.report(elapsed),latencyBreakdown:timingReport(latencyByRequest.get(key),value.count),http503Reasons:error503ByRequest.get(key)}]))};
 }
 
+function transferNote(report){
+ const rows=report.stages.filter(stage=>stage.transfer);
+ if(!rows.length)return '';
+ const mb=value=>(value/1e6).toFixed(2);
+ const header='\nTransfer per stage (decoded response body bytes inside the scheduled window; request body bytes; headers, TLS and framing not counted):\n\n| Phase / endpoint | Response MB/s | Request MB/s | Body Gbit/s | Response mean / p99 bound bytes | Compressed responses | Compressed/uncompressed |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n';
+ const line=stage=>{
+  const t=stage.transfer,c=t.compression,ratio=c.compressedToUncompressedRatio===null?(c.compressedResponses?'not measured':'n/a'):c.compressedToUncompressedRatio.toFixed(3);
+  return `| ${stage.phase??'smoke'} / ${stage.endpoint??'mixed'} | ${mb(t.responseBytesPerSecond)} | ${mb(t.requestBodyBytesPerSecond)} | ${t.networkGbitBodyBytes.toFixed(4)} | ${Math.round(t.responseSize.mean)} / ${t.responseSize.p99UpperBound} | ${c.compressedResponses} of ${c.responses} | ${ratio} |`;
+ };
+ return header+rows.map(line).join('\n')+'\n';
+}
 function protocolNote(report){
  const rows=report.stages.filter(stage=>stage.http2);
  return rows.length?`
@@ -255,7 +309,8 @@ export function markdownReport(report){
   const value=stage.latencyBreakdown,cell=part=>part.samples===0?'not measured':`${part.mean.toFixed(2)} / ${part.p50} / ${part.p95} / ${part.p99}`;
   return `| ${stage.phase??'smoke'} / ${stage.endpoint??'mixed'} | ${value?cell(value.principalQueue):'not measured'} | ${value?cell(value.httpAndValidation):'not measured'} | ${value?cell(value.validation):'not measured'} | ${value?`${value.httpAndValidation.samples} / ${value.validation.samples}`:'not measured'} |`;
  }).join('\n')+'\n\nLegacy latencyMs above includes principal serialization wait. HTTP + validation starts immediately before Fetch and includes decoded body reads; validation is nested inside it. These intervals are client wall time, not isolated Rust CPU or DB time. Percentiles cannot be subtracted or added to attribute server layers. Historical reports without phase proof remain unreported.\n';
- return `# HTTP load report\n\nTarget: ${report.target}\n\nScenario: ${report.scenario}; runtime: ${report.runtime}. ${report.model}.${report.protection?' Protection: '+report.protection+'.':''}\n\n${startup}\n\n| Phase / endpoint / outstanding requests | Fixture protection | Offered RPS | Attempted | Accepted | Completed RPS | Accepted RPS | p50/p95/p99 ms | Errors | 429 | Timeouts | Capacity/scheduler drops | Lag p99 ms |\n| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- | ---: |\n`+report.stages.map(s=>`| ${s.phase??'smoke'} / ${s.endpoint??'mixed'} / ${s.concurrency} | ${s.fixtureProtection===undefined?'see scenario':s.fixtureProtection?'on (simulated)':'off (simulated)'} | ${s.arrivalRate??'closed-loop'} | ${s.requests} | ${s.accepted} | ${s.requestsPerSecond.toFixed(1)} | ${s.acceptedRequestsPerSecond.toFixed(1)} | ${s.latencyMs.p50}/${s.latencyMs.p95}/${s.latencyMs.p99} | ${s.errors} | ${s.throttled} | ${s.timeouts} | ${s.droppedCapacity??0}/${s.droppedScheduler??0} | ${s.schedulingLagMs?.p99??0} |`).join('\n')+'\n\n| Phase / endpoint | Distinct users attempted / accepted | Simulated clients attempted / accepted | Accepted requests per user min / max |\n| --- | ---: | ---: | ---: |\n'+report.stages.map(s=>`| ${s.phase??'smoke'} / ${s.endpoint??'mixed'} | ${s.uniquePrincipalsAttempted??0} / ${s.uniquePrincipalsAccepted??0} | ${s.uniqueClientsAttempted??0} / ${s.uniqueClientsAccepted??0} | ${perUserRange(s)} |`).join('\n')+'\n\nSimulated client addresses are a fixture proxy model, not separate physical generator hosts. Zero tracked identities is not evidence of multi-user load. Dropped arrivals have no response latency and must be evaluated alongside percentiles. This report alone is not a production capacity claim.\n'+limitedNote(report)+protocolNote(report)+layerTable;
+ const judged=report.judgedAgainst,heading=judged&&judged.default===false?`# HTTP load report - NON-DEFAULT TARGET: ${judged.successfulRps} requests/s, ${judged.simultaneousAuthenticatedUsers} users`:'# HTTP load report';
+ return `${heading}\n\nTarget: ${report.target}\n\nScenario: ${report.scenario}; runtime: ${report.runtime}. ${report.model}.${report.protection?' Protection: '+report.protection+'.':''}\n\n${startup}\n\n| Phase / endpoint / outstanding requests | Fixture protection | Offered RPS | Attempted | Accepted | Completed RPS | Accepted RPS | p50/p95/p99 ms | Errors | 429 | Timeouts | Capacity/scheduler drops | Lag p99 ms |\n| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- | ---: |\n`+report.stages.map(s=>`| ${s.phase??'smoke'} / ${s.endpoint??'mixed'} / ${s.concurrency} | ${s.fixtureProtection===undefined?'see scenario':s.fixtureProtection?'on (simulated)':'off (simulated)'} | ${s.arrivalRate??'closed-loop'} | ${s.requests} | ${s.accepted} | ${s.requestsPerSecond.toFixed(1)} | ${s.acceptedRequestsPerSecond.toFixed(1)} | ${s.latencyMs.p50}/${s.latencyMs.p95}/${s.latencyMs.p99} | ${s.errors} | ${s.throttled} | ${s.timeouts} | ${s.droppedCapacity??0}/${s.droppedScheduler??0} | ${s.schedulingLagMs?.p99??0} |`).join('\n')+'\n\n| Phase / endpoint | Distinct users attempted / accepted | Simulated clients attempted / accepted | Accepted requests per user min / max |\n| --- | ---: | ---: | ---: |\n'+report.stages.map(s=>`| ${s.phase??'smoke'} / ${s.endpoint??'mixed'} | ${s.uniquePrincipalsAttempted??0} / ${s.uniquePrincipalsAccepted??0} | ${s.uniqueClientsAttempted??0} / ${s.uniqueClientsAccepted??0} | ${perUserRange(s)} |`).join('\n')+'\n\nSimulated client addresses are a fixture proxy model, not separate physical generator hosts. Zero tracked identities is not evidence of multi-user load. Dropped arrivals have no response latency and must be evaluated alongside percentiles. This report alone is not a production capacity claim.\n'+limitedNote(report)+protocolNote(report)+transferNote(report)+layerTable;
 }
 
 async function main(){

@@ -251,3 +251,33 @@ plain listener confirmed prior-knowledge h2c, the 32-stream limit and a 64-GET
 burst on one connection; TLS against a real TLS-terminating proxy has not been
 run.
 
+## Judged target and byte accounting (t53s)
+
+The standing goal is 40,000 successful requests/s with 10,000 simultaneous
+authenticated users. Both are parameters now:
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `MW_LOAD_TARGET_RPS` | 40000 | requests/s a stage must offer and have accepted inside its window |
+| `MW_LOAD_TARGET_USERS` | 10000 | distinct users and simulated clients a stage must cover (at most 10,000) |
+| `MW_LOAD_NETWORK_GBIT` | unset | declared network budget; when set, every stage's body bytes (response plus request, in Gbit/s) must stay within it |
+| `MW_LOAD_QUALIFICATION_RUN=1` | off | requires `MW_LOAD_NETWORK_GBIT`, and a run whose targets include loopback can never qualify |
+
+Every report starts with `judgedAgainst` (target, users, and the network
+claim), and a report judged against anything but 40,000 / 10,000 says
+`NON-DEFAULT TARGET` there and in the first Markdown line. A loopback or
+shared-network-namespace run is labelled as unable to qualify a network claim,
+whatever its numbers.
+
+Each stage carries `transfer`: accepted response bytes per second inside the
+scheduled window (decoded body bytes the generator consumed), request body bytes
+per second, the sum in Gbit/s, response size mean and a p99 upper bound (5% size
+buckets), and compression: how many responses were encoded, which encodings, and
+the compressed/uncompressed ratio over the responses whose encoded size is known.
+HTTP/2 always knows it (the client advertises gzip/deflate like fetch and decodes
+before validation); HTTP/1.1 through fetch only knows it from `Content-Length`,
+otherwise the ratio is reported as not measured. Headers, TLS records and framing
+are not counted, so the budget check understates the wire. This is the same
+decoded-body counting as `http-response-bytes.md`, plus the distribution and
+compression fields; `bytes` (all attempts) is unchanged.
+

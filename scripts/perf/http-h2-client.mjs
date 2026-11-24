@@ -11,6 +11,8 @@
 // `rigOnlyInsecureTlsNoVerify` flag.
 import http2 from 'node:http2';
 import {readFileSync} from 'node:fs';
+import {Readable} from 'node:stream';
+import zlib from 'node:zlib';
 import {performance} from 'node:perf_hooks';
 
 const {NGHTTP2_REFUSED_STREAM,NGHTTP2_CANCEL}=http2.constants;
@@ -59,10 +61,16 @@ export function h2FromEnv(env){
 }
 
 const FORBIDDEN=new Set(['host','connection','keep-alive','transfer-encoding','upgrade','proxy-connection']);
+const DECODERS={gzip:()=>zlib.createGunzip(),'x-gzip':()=>zlib.createGunzip(),deflate:()=>zlib.createInflate(),br:()=>zlib.createBrotliDecompress()};
 function makeResponse(headers,stream){
  const status=Number(headers[':status']);
+ const encoding=String(headers['content-encoding']??'').toLowerCase();
+ let wire=0;
+ // Like fetch, the body handed to validators is decoded; the generator also sees the encoded size, which fetch hides.
+ async function* counted(){for await(const chunk of stream){wire+=chunk.length;yield chunk;}}
+ const source=()=>DECODERS[encoding]?Readable.from(counted()).pipe(DECODERS[encoding]()):counted();
  const reader=()=>{
-  const iterator=stream[Symbol.asyncIterator]();
+  const iterator=source()[Symbol.asyncIterator]();
   return {
    async read(){const next=await iterator.next();return next.done?{done:true,value:undefined}:{done:false,value:next.value};},
    async cancel(){stream.__local=true;if(!stream.closed)stream.close(NGHTTP2_CANCEL);},
@@ -72,7 +80,7 @@ function makeResponse(headers,stream){
  const text=async()=>{const parts=[],r=reader();for(;;){const next=await r.read();if(next.done)break;parts.push(next.value);}return Buffer.concat(parts).toString('utf8');};
  return {status,ok:status>=200&&status<300,headers:{get:name=>headers[String(name).toLowerCase()]??null},
   body:{getReader:reader,async cancel(){stream.__local=true;if(!stream.closed)stream.close(NGHTTP2_CANCEL);}},
-  text,json:async()=>JSON.parse(await text())};
+  wireBytes:()=>wire,text,json:async()=>JSON.parse(await text())};
 }
 
 export function createH2Client(input,{now=performance.now.bind(performance)}={}){
@@ -160,6 +168,8 @@ export function createH2Client(input,{now=performance.now.bind(performance)}={})
    return new Promise((resolve,reject)=>{
     const target=new URL(url),headers={':method':init.method??'GET',':path':target.pathname+target.search,':scheme':target.protocol.slice(0,-1),':authority':target.host};
     for(const [key,value] of Object.entries(init.headers??{})){const name=key.toLowerCase();if(!FORBIDDEN.has(name))headers[name]=String(value);}
+    // fetch advertises gzip and deflate on its own; the h2 path does the same so both protocols see the same server behaviour.
+    if(headers['accept-encoding']===undefined)headers['accept-encoding']='gzip, deflate';
     let stream;
     try{stream=slot.s.session.request(headers,{endStream:init.body===undefined});}catch(error){reject(error);return;}
     stream.on('close',()=>{
