@@ -699,7 +699,7 @@ fn ua_protected(path: &str) -> bool {
     // and liveness checks must remain available without this extra dimension.
     if path.starts_with("/api/")
         || path.starts_with("/oidc/")
-        || matches!(path, "/health" | "/healthz" | "/ready" | "/readyz")
+        || matches!(path, "/health" | "/healthz" | "/ready" | "/readyz" | "/metrics")
         || path.starts_with("/assets/")
         || path.starts_with("/static/")
     {
@@ -944,6 +944,9 @@ fn bot_protected(path: &str) -> bool {
             | "/healthz"
             | "/ready"
             | "/readyz"
+            // Prometheus scrapers send curl/Go/Python user agents. Only the
+            // user-agent rules skip it; its bearer token and the rest stay.
+            | "/metrics"
             | "/api/logout"
             | "/api/sso/logout"
             | "/api/public-config"

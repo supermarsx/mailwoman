@@ -1019,6 +1019,40 @@ async fn user_agent_scope_excludes_verified_sessions_unless_all_is_selected() {
 }
 
 #[tokio::test]
+async fn metrics_scrapers_skip_only_the_user_agent_rules() {
+    // The settings of the default-block test below: the user-agent rule blocks
+    // curl on its first request.
+    let (base, _store) = fixture(&[
+        ("security.protection.probePathMode", json!("off")),
+        ("security.protection.blockSecs", json!(120)),
+        ("security.protection.userAgentAdaptive", json!(false)),
+        ("security.protection.userAgentMaxAction", json!("throttle")),
+    ])
+    .await;
+    mw_server::observability::set_metrics_token(Some("t32-metrics-token".into()));
+    let scraper = client(90);
+    let get = |path: &str, token: Option<&str>| {
+        let mut request = scraper.get(format!("{base}{path}")).header("user-agent", "curl/8.0");
+        if let Some(token) = token {
+            request = request.bearer_auth(token);
+        }
+        request.send()
+    };
+    // The endpoint's own bearer check still refuses; the user-agent rule does not.
+    assert_eq!(get("/metrics", None).await.unwrap().status(), 401);
+    assert_eq!(get("/metrics", Some("wrong")).await.unwrap().status(), 401);
+    assert_eq!(get("/metrics", Some("t32-metrics-token")).await.unwrap().status(), 200);
+    // The same client on an ordinary path is still blocked by the rule...
+    let other = get("/api/me", None).await.unwrap();
+    assert_eq!(other.status(), 429);
+    assert_eq!(other.json::<Value>().await.unwrap()["code"], "requestProtectionLimited");
+    // ...and that block does not reach the scrape endpoint.
+    assert_eq!(get("/metrics", Some("t32-metrics-token")).await.unwrap().status(), 200);
+    assert_eq!(get("/metrics", None).await.unwrap().status(), 401);
+    mw_server::observability::set_metrics_token(None);
+}
+
+#[tokio::test]
 async fn bot_user_agents_are_blocked_on_the_first_request_by_default_even_for_files() {
     let (base, store) = fixture(&[
         // Isolate category-only UA blocks; combined scanner/UA source blocks

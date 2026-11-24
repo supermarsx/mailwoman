@@ -34,7 +34,7 @@ For requests without a session (and sign-in requests):
 | Missing header, uncommon client | allowed up to 600 requests per address per 60 seconds | `429` above that |
 | Browsers and mail clients | no user-agent rule | |
 
-The first-request block applies to that class from that address only: a browser on the same address is still served. `/healthz`, `/readyz` and sign-out are not covered; static assets are covered by the refusals and blocks but not by the budgets.
+The first-request block applies to that class from that address only: a browser on the same address is still served. `/healthz`, `/readyz`, `/metrics` and sign-out are not covered; static assets are covered by the refusals and blocks but not by the budgets. `/metrics` is exempt so that a Prometheus scraper sending `curl`, `Go-http-client` or `python-requests` is not blocked: it still needs its bearer token (`MW_METRICS_TOKEN`), and an active scan-path block of its address still applies. Only the user-agent rules skip it.
 
 Requests with a valid mailbox or console session are not refused for their user-agent class, and by default are not counted against a user-agent budget either.
 
