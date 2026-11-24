@@ -23,7 +23,11 @@
 //!   is evicted (bounded, below), or something invalidates it. A warm request then reads
 //!   nothing. Ownership is checked again at every tick and lapses by itself two flush
 //!   intervals after the instant taken before the last successful check (so a stall
-//!   of this process after its check never extends it). Whenever it is gained (again) or ends,
+//!   of this process after its check never extends it). Each check also reads the
+//!   database marker of writes made outside the witness (one indexed read per tick,
+//!   never on a request); a change re-reads every cached subject, so such a write (its
+//!   writer could not join, or was not acknowledged in time) is seen within one
+//!   interval. Whenever it is gained (again) or ends,
 //!   or the check reports that another writer joined since the previous check, every
 //!   cached subject without pending observations is re-read once on its next use.
 //! - Re-read rule, without ownership (another participant exists, PostgreSQL never
@@ -221,6 +225,8 @@ pub(crate) struct WriteBehindStatus {
     pub owned: bool,
     pub ownership_gained: u64,
     pub ownership_lost: u64,
+    /// Changes of the database marker of writes outside the witness seen by checks.
+    pub unjoined_writes_seen: u64,
     /// Observations written through because the queue was full.
     pub backpressure_writes: u64,
 }
@@ -238,6 +244,7 @@ struct Counters {
     storage_failures: AtomicU64,
     ownership_gained: AtomicU64,
     ownership_lost: AtomicU64,
+    unjoined_writes_seen: AtomicU64,
     backpressure_writes: AtomicU64,
 }
 fn bump(counter: &AtomicU64, by: u64) {
@@ -349,6 +356,8 @@ pub(crate) struct WriteBehind {
     epoch: Instant,
     /// Two flush intervals: how long one successful check is trusted.
     window: Duration,
+    /// The writers marker as of the previous check (`None`: no check yet).
+    marker: Mutex<Option<Option<String>>>,
     /// Test hook: a delay between a check and storing its deadline.
     #[cfg(test)]
     stall_after_check: Mutex<Option<Duration>>,
@@ -373,6 +382,7 @@ impl WriteBehind {
             epoch: Instant::now(),
             window: mw_store::request_protection::ownership_window(config.flush_every)
                 .unwrap_or(config.flush_every * 2),
+            marker: Mutex::new(None),
             #[cfg(test)]
             stall_after_check: Mutex::new(None),
             wake: Arc::new(tokio::sync::Notify::new()),
@@ -470,8 +480,22 @@ impl WriteBehind {
         let checked = participant.check(self.window);
         match checked.ownership {
             Ownership::Alone { changed } => {
+                // Writes made outside the witness carry the database marker.
+                let Ok(marker) = self.store.request_protection_writers_marker().await else {
+                    self.lose_ownership();
+                    return;
+                };
+                let marker_changed = {
+                    let mut seen = lock(&self.marker);
+                    let changed = seen.as_ref() != Some(&marker);
+                    if changed && seen.is_some() {
+                        bump(&self.counters.unjoined_writes_seen, 1);
+                    }
+                    *seen = Some(marker);
+                    changed
+                };
                 let was_owned = self.owned();
-                if changed || !was_owned {
+                if changed || marker_changed || !was_owned {
                     // Before ownership is (re)asserted: anything cached may predate
                     // another writer's rows.
                     self.mark_all_stale();
@@ -916,6 +940,7 @@ impl WriteBehind {
             owned: self.owned(),
             ownership_gained: counter(&self.counters.ownership_gained),
             ownership_lost: counter(&self.counters.ownership_lost),
+            unjoined_writes_seen: counter(&self.counters.unjoined_writes_seen),
             backpressure_writes: counter(&self.counters.backpressure_writes),
         }
     }
@@ -940,6 +965,11 @@ pub fn fixture_snapshot() -> serde_json::Value {
     if let Some(object) = value.as_object_mut() {
         object.insert("supported".into(), true.into());
         object.insert("accounting".into(), accounting.into());
+        object.insert(
+            "writerJoins".into(),
+            serde_json::to_value(mw_store::request_protection::request_protection_witness_status())
+                .expect("witness status serializes"),
+        );
     }
     value
 }

@@ -41,8 +41,9 @@
 //! waits `window + max(window, 2 s)` ([`join_wait`]). A stall of the owner
 //! anywhere after `started` only shortens its trust. When the wait ends without
 //! an acknowledgement the participant is *unacknowledged* (it still holds its
-//! lock, so the owner's next check sees it). A joiner that finds itself alone
-//! does not wait.
+//! lock, so the owner's next check sees it), and every write it makes also
+//! bumps the database marker described in `request_protection.rs`, which
+//! owners read on every check. A joiner that finds itself alone does not wait.
 //!
 //! Not covered: a writer that does not use this crate's request-protection
 //! functions (direct SQL on the file, an older binary), and deleting these files

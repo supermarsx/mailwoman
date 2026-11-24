@@ -1066,3 +1066,51 @@ async fn review_r3_a_stalled_check_cannot_extend_ownership_past_the_joiners_wait
     let next = owner.record("client", "192.0.2.82", &p, 1001, None, NONE).await;
     assert!(next.decision.enforced, "{:?}", owner.status());
 }
+
+fn set_read_only(path: &str, read_only: bool) {
+    let mut permissions = std::fs::metadata(path).unwrap().permissions();
+    permissions.set_readonly(read_only);
+    std::fs::set_permissions(path, permissions).unwrap();
+}
+
+/// R1: a synchronous writer that cannot join the witness (here: the lock file is
+/// not writable for it) still writes, and the owner must not keep serving the
+/// subject from its cache: the write carries the database marker, the owner's
+/// next check sees it, and the block is enforced within one flush interval.
+/// (Failed before the fix: the block was ignored for the row's lifetime.)
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn review_r1_a_writer_that_cannot_join_is_still_seen_by_the_owner() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = file_store_path(&dir);
+    let key = ServerKey::generate();
+    let store = Store::open(&path, key.clone()).await.unwrap();
+    let accounting = WriteBehind::start(store.clone(), config(50, 4096));
+    settle_ownership(&accounting, true).await;
+    let mut p = policy();
+    p.rate_limit = 1000;
+    assert!(!accounting.record("client", "192.0.2.80", &p, 1000, None, NONE).await.decision.enforced);
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    let canonical = std::fs::canonicalize(&path).unwrap();
+    let lock = format!("{}.mw-request-protection.lock", canonical.display());
+    set_read_only(&lock, true);
+    let other = Store::open(&path, key).await.unwrap();
+    let blocked = other
+        .request_protection("client", "192.0.2.80", &p, 1001, Some(Signal::ProbePath))
+        .await;
+    set_read_only(&lock, false);
+    assert!(blocked.unwrap().decision.enforced);
+    // One flush interval (and a margin) later the owner answers from the row.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let next = accounting.record("client", "192.0.2.80", &p, 1001, None, NONE).await;
+    assert!(next.decision.enforced, "the unjoined writer's block must be seen: {:?}", accounting.status());
+    assert!(accounting.status().unjoined_writes_seen >= 1);
+}
+
+/// R1: the join counters are in the load-fixture snapshot (and the admin status).
+#[tokio::test]
+async fn review_r1_witness_status_is_reported() {
+    let snapshot = fixture_snapshot();
+    for field in ["joins", "joinFailures", "transientFailures", "unjoinedWrites"] {
+        assert!(snapshot["writerJoins"][field].is_u64(), "{field}: {snapshot}");
+    }
+}

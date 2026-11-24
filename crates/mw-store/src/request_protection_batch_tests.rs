@@ -230,3 +230,26 @@ async fn witness_location_is_private_in_memory_and_a_file_beside_a_database() {
     file.request_protection_join().await.unwrap();
     assert!(directory.path().join("located.db.mw-request-protection.lock").exists());
 }
+#[tokio::test]
+async fn a_writer_that_cannot_join_marks_its_write_and_retries_later() {
+    let directory=tempfile::tempdir().unwrap();let path=directory.path().join("unjoined.db");
+    let store=Store::open(path.to_str().unwrap(),ServerKey::generate()).await.unwrap();
+    // A lock file this writer cannot open for writing (another user's file, say).
+    let canonical=std::fs::canonicalize(&path).unwrap();
+    let lock=std::path::PathBuf::from(format!("{}.mw-request-protection.lock",canonical.display()));
+    std::fs::write(&lock,b"").unwrap();
+    let mut permissions=std::fs::metadata(&lock).unwrap().permissions();permissions.set_readonly(true);
+    std::fs::set_permissions(&lock,permissions.clone()).unwrap();
+    let before=request_protection_witness_status();
+    assert_eq!(store.request_protection_writers_marker().await.unwrap(),None);
+    let p=policy();
+    store.request_protection("account","marked",&p,1000,None).await.unwrap();
+    assert_eq!(store.request_protection_writers_marker().await.unwrap().as_deref(),Some("1"),"the write carries the marker");
+    store.request_protection("account","marked",&p,1000,None).await.unwrap();
+    assert_eq!(store.request_protection_writers_marker().await.unwrap().as_deref(),Some("2"));
+    let after=request_protection_witness_status();
+    assert!(after.join_failures>before.join_failures&&after.unjoined_writes>=before.unjoined_writes+2,"{after:?}");
+    assert!(after.last_failure.is_some());
+    assert!(store.request_protection_join().await.is_err(),"start-up join reports the failure");
+    permissions.set_readonly(false);std::fs::set_permissions(&lock,permissions).unwrap();
+}

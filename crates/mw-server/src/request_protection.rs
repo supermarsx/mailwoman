@@ -82,9 +82,9 @@ impl Runtime {
             // serves a request (its first write would join anyway).
             let joining = store.clone();
             tokio::spawn(async move {
-                if joining.request_protection_join().await.is_err() {
-                    warning();
-                }
+                // A failure is counted and logged by the store; this process's
+                // writes then carry the database marker until a join succeeds.
+                let _ = joining.request_protection_join().await;
             });
         }
         let weak = Arc::downgrade(&runtime);

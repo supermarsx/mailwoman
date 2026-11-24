@@ -56,8 +56,12 @@ async fn status(State(state): State<AppState>, ctx: AdminCtx) -> Result<Response
         .await
         .map_err(|_| super::unavailable())?;
     let protocol_guard = crate::protocol_guard::summary(&state).await;
+    // Write-behind accounting (counts only) and this process's witness joins: a
+    // nonzero `unjoinedWrites` means writes were made outside the witness.
+    let accounting = state.request_protection.accounting_status();
+    let witness = mw_store::request_protection::request_protection_witness_status();
     Ok(private(
-        json!({"protocolGuard":protocol_guard,"policy":config.summary(),"subjectCapacity":mw_store::request_protection::SUBJECT_CAPACITY,"eventCapacity":mw_store::request_protection::EVENT_CAPACITY,"eventRetentionSecs":mw_store::request_protection::EVENT_RETENTION_SECS,"propagationSecs":30,"coverage":"router-requests-verified-session-key-and-signed-content","preRouterHeadersObserved":false,"limiters":crate::rate_leeway::snapshot()}),
+        json!({"accounting":accounting,"witness":witness,"protocolGuard":protocol_guard,"policy":config.summary(),"subjectCapacity":mw_store::request_protection::SUBJECT_CAPACITY,"eventCapacity":mw_store::request_protection::EVENT_CAPACITY,"eventRetentionSecs":mw_store::request_protection::EVENT_RETENTION_SECS,"propagationSecs":30,"coverage":"router-requests-verified-session-key-and-signed-content","preRouterHeadersObserved":false,"limiters":crate::rate_leeway::snapshot()}),
     ))
 }
 #[derive(Deserialize)]

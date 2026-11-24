@@ -225,10 +225,88 @@ impl SubjectKeyer {
 }
 
 /// Synchronous writers of one SQLite file in this process share one participant.
-type Writers = std::sync::Mutex<
-    std::collections::HashMap<std::path::PathBuf, std::sync::Arc<tokio::sync::OnceCell<ProtectionParticipant>>>,
->;
+#[derive(Default)]
+struct Writer {
+    participant: tokio::sync::OnceCell<ProtectionParticipant>,
+    /// One join attempt at a time.
+    joining: tokio::sync::Mutex<()>,
+    /// After a failed join, writes are marked until this instant, then a join is tried again.
+    retry_after: std::sync::Mutex<Option<std::time::Instant>>,
+}
+type Writers = std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, std::sync::Arc<Writer>>>;
 static WRITERS: std::sync::LazyLock<Writers> = std::sync::LazyLock::new(Default::default);
+/// Delay before the next join attempt: after a busy admission lock, and after any other failure.
+const RETRY_TRANSIENT: std::time::Duration = std::time::Duration::from_secs(1);
+const RETRY_PERMANENT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// The database marker of writes made outside the witness (t50hp-e15a R1). A
+/// writer that is not an acknowledged participant (its join failed, or no
+/// owner acknowledged it in time) bumps it inside its own write transaction.
+/// Every owner reads it on every ownership check (one indexed read per flush
+/// tick, none on a request); a change makes it re-read every cached subject,
+/// so such a write is seen within one flush interval. Key filtered by no
+/// settings trigger.
+pub const WRITERS_MARKER: &str = "request-protection:unjoined-writes";
+async fn bump_writers_marker(tx: &mut Tx) -> Result<(), StoreError> {
+    q("INSERT INTO settings(key,value) VALUES('request-protection:unjoined-writes','1') ON CONFLICT(key) DO UPDATE SET value=CAST(CAST(settings.value AS INTEGER)+1 AS TEXT)")
+        .execute_tx(tx)
+        .await?;
+    WITNESS.unjoined_writes.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    Ok(())
+}
+
+/// Process-wide counters of the synchronous writers' witness joins.
+#[derive(Default)]
+struct WitnessCounters {
+    joins: std::sync::atomic::AtomicU64,
+    join_failures: std::sync::atomic::AtomicU64,
+    transient_failures: std::sync::atomic::AtomicU64,
+    unjoined_writes: std::sync::atomic::AtomicU64,
+    last_warning: std::sync::atomic::AtomicI64,
+    last_failure: std::sync::Mutex<Option<String>>,
+}
+static WITNESS: std::sync::LazyLock<WitnessCounters> = std::sync::LazyLock::new(Default::default);
+/// For the status views: joins and failures of this process's synchronous
+/// writers, and writes made outside the witness (each bumped the marker).
+#[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WitnessStatus {
+    pub joins: u64,
+    pub join_failures: u64,
+    pub transient_failures: u64,
+    pub unjoined_writes: u64,
+    pub last_failure: Option<String>,
+}
+pub fn request_protection_witness_status() -> WitnessStatus {
+    use std::sync::atomic::Ordering::Relaxed;
+    WitnessStatus {
+        joins: WITNESS.joins.load(Relaxed),
+        join_failures: WITNESS.join_failures.load(Relaxed),
+        transient_failures: WITNESS.transient_failures.load(Relaxed),
+        unjoined_writes: WITNESS.unjoined_writes.load(Relaxed),
+        last_failure: WITNESS.last_failure.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone(),
+    }
+}
+fn note_join_failure(error: &StoreError, transient: bool) {
+    use std::sync::atomic::Ordering::Relaxed;
+    WITNESS.join_failures.fetch_add(1, Relaxed);
+    if transient {
+        WITNESS.transient_failures.fetch_add(1, Relaxed);
+    }
+    *WITNESS.last_failure.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(error.to_string());
+    // Repeated, at most once a minute, with the running counts.
+    let now = chrono::Utc::now().timestamp();
+    let previous = WITNESS.last_warning.load(Relaxed);
+    if now.saturating_sub(previous) >= 60
+        && WITNESS.last_warning.compare_exchange(previous, now, Relaxed, Relaxed).is_ok()
+    {
+        eprintln!(
+            "[mw-store] request protection witness join failed ({error}); writes carry the database marker for owners ({} failures, {} marked writes so far)",
+            WITNESS.join_failures.load(Relaxed),
+            WITNESS.unjoined_writes.load(Relaxed)
+        );
+    }
+}
 /// Canonical database paths by logical path, re-resolved after `LOCATION_TTL`.
 type Locations = std::sync::Mutex<
     std::collections::HashMap<std::path::PathBuf, (std::time::Instant, Option<std::path::PathBuf>)>,
@@ -1364,36 +1442,80 @@ impl Store {
         ProtectionParticipant::join(&self.protection_location()).await
     }
     /// Join as a synchronous writer of this database file, once per process.
-    /// Every request-protection write that is not made through a participant
-    /// calls this first, so a write-behind owner elsewhere stops trusting its
-    /// cache before the write. PostgreSQL and in-memory databases: no-op.
+    /// `Ok` only when joined and acknowledged by any owner (or nothing to join:
+    /// PostgreSQL, in-memory). Used at start-up; writes use the same join and
+    /// mark themselves when it does not succeed.
     pub async fn request_protection_join(&self) -> Result<(), StoreError> {
+        match self.writer_marks().await {
+            false => Ok(()),
+            true => Err(StoreError::Invalid("request protection witness: not joined")),
+        }
+    }
+    /// Whether a synchronous write must bump [`WRITERS_MARKER`] in its own
+    /// transaction: true unless this process holds an acknowledged participant
+    /// for the file. A failed join is retried (once at once for a busy
+    /// admission lock, then after a delay); while it fails, writes are marked,
+    /// never unseen. PostgreSQL and in-memory databases: never.
+    async fn writer_marks(&self) -> bool {
         let path = match self.protection_location() {
-            owner::Location::Shared | owner::Location::Private => return Ok(()),
+            owner::Location::Shared | owner::Location::Private => return false,
             owner::Location::Unresolved => {
-                return Err(StoreError::Invalid("request protection witness: database path unresolved"));
+                note_join_failure(&StoreError::Invalid("request protection witness: database path unresolved"), false);
+                return true;
             }
             owner::Location::File(path) => path,
         };
-        let cell = WRITERS
+        let writer = WRITERS
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .entry(path)
+            .entry(path.clone())
             .or_default()
             .clone();
-        cell.get_or_try_init(|| self.request_protection_participant()).await.map(|_| ())
-    }
-    /// `request_protection_join` for the synchronous paths. A witness that cannot
-    /// be created (for example a read-only directory) must not take request
-    /// protection down in the default mode: the write proceeds and a warning is
-    /// logged once; a write-behind owner then cannot see this writer.
-    async fn joined_or_warned(&self) {
-        if let Err(error) = self.request_protection_join().await {
-            static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-            if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                eprintln!("[mw-store] request protection witness unavailable ({error}); writing without it");
+        if let Some(participant) = writer.participant.get() {
+            return !participant.acknowledged();
+        }
+        let _joining = writer.joining.lock().await;
+        if let Some(participant) = writer.participant.get() {
+            return !participant.acknowledged();
+        }
+        let waiting = writer
+            .retry_after
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_some_and(|until| std::time::Instant::now() < until);
+        if waiting {
+            return true;
+        }
+        let location = owner::Location::File(path);
+        let mut attempt = ProtectionParticipant::join(&location).await;
+        if attempt.as_ref().err().is_some_and(owner::transient) {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            attempt = ProtectionParticipant::join(&location).await;
+        }
+        match attempt {
+            Ok(participant) => {
+                WITNESS.joins.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let marks = !participant.acknowledged();
+                let _ = writer.participant.set(participant);
+                *writer.retry_after.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+                marks
+            }
+            Err(error) => {
+                let transient = owner::transient(&error);
+                note_join_failure(&error, transient);
+                *writer.retry_after.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                    Some(std::time::Instant::now() + if transient { RETRY_TRANSIENT } else { RETRY_PERMANENT });
+                true
             }
         }
+    }
+    /// The writers marker (see [`WRITERS_MARKER`]); `None` when never bumped.
+    /// One indexed read; owners call it on their ownership check, never on a request.
+    pub async fn request_protection_writers_marker(&self) -> Result<Option<String>, StoreError> {
+        let rows = q("SELECT value FROM settings WHERE key='request-protection:unjoined-writes'")
+            .fetch_all(&self.backend)
+            .await?;
+        Ok(rows.first().map(|row| row.get_string("value")))
     }
     /// Read only an existing high-confidence source action before authentication.
     /// This performs one indexed lookup, never admission, expiry cleanup, audit,
@@ -1469,10 +1591,11 @@ impl Store {
     ) -> Result<ProtectionOutcome, StoreError> {
         let Some(prepared) = self.prepare_request_protection(kind, value, policy, now, signal, source)?
         else { return Ok(empty_protection_outcome()); };
-        if self.uses_sqlite() {
-            self.joined_or_warned().await;
-        }
+        let marks = self.uses_sqlite() && self.writer_marks().await;
         let mut tx = self.backend.begin().await?;
+        if marks {
+            bump_writers_marker(&mut tx).await?;
+        }
         let outcome = self.apply_request_protection(&mut tx, kind, policy, now, signal, source, prepared).await?;
         tx.commit().await?;
         Ok(outcome)
@@ -1498,15 +1621,15 @@ impl Store {
         &self, requests: &[ProtectionObservation<'_>],
     ) -> Result<Vec<(ProtectionOutcome, Option<StoredProtection>)>, StoreError> {
         if !self.uses_sqlite() || requests.len() > 64 { return Err(corrupt()); }
-        self.joined_or_warned().await;
-        self.sqlite_batch(requests).await
+        let marks = self.writer_marks().await;
+        self.sqlite_batch(requests, marks).await
     }
     /// `request_protection_sqlite_batch_with_state` for a write-behind
     /// participant, which joined when it was created.
     pub async fn request_protection_sqlite_batch_as(
-        &self, _writer: &ProtectionParticipant, requests: &[ProtectionObservation<'_>],
+        &self, writer: &ProtectionParticipant, requests: &[ProtectionObservation<'_>],
     ) -> Result<Vec<(ProtectionOutcome, Option<StoredProtection>)>, StoreError> {
-        self.sqlite_batch(requests).await
+        self.sqlite_batch(requests, !writer.acknowledged()).await
     }
 
     /// When every subject of the group has a row, the group is applied set-based:
@@ -1517,7 +1640,7 @@ impl Store {
     /// lock and capacity check. Decisions, rows and audit events are the same
     /// either way.
     async fn sqlite_batch(
-        &self, requests: &[ProtectionObservation<'_>],
+        &self, requests: &[ProtectionObservation<'_>], marks: bool,
     ) -> Result<Vec<(ProtectionOutcome, Option<StoredProtection>)>, StoreError> {
         if !self.uses_sqlite() || requests.len() > 64 { return Err(corrupt()); }
         let keyer = self.request_protection_keyer();
@@ -1528,6 +1651,9 @@ impl Store {
             return Ok(requests.iter().map(|_| (empty_protection_outcome(), None)).collect());
         }
         let mut tx = self.backend.begin().await?;
+        if marks {
+            bump_writers_marker(&mut tx).await?;
+        }
         let outcomes = match set_based_batch(&mut tx, requests, &prepared).await? {
             Some(outcomes) => outcomes,
             None => {
@@ -1728,28 +1854,30 @@ impl Store {
         expected: &str,
         now: i64,
     ) -> Result<bool, StoreError> {
-        if self.uses_sqlite() {
-            self.joined_or_warned().await;
-        }
-        self.clear_unjoined(key, expected, now).await
+        let marks = self.uses_sqlite() && self.writer_marks().await;
+        self.clear_unjoined(key, expected, now, marks).await
     }
     /// `clear_request_protection` for a write-behind participant.
     pub async fn clear_request_protection_as(
         &self,
-        _writer: &ProtectionParticipant,
+        writer: &ProtectionParticipant,
         key: &str,
         expected: &str,
         now: i64,
     ) -> Result<bool, StoreError> {
-        self.clear_unjoined(key, expected, now).await
+        self.clear_unjoined(key, expected, now, !writer.acknowledged()).await
     }
     async fn clear_unjoined(
         &self,
         key: &str,
         expected: &str,
         now: i64,
+        marks: bool,
     ) -> Result<bool, StoreError> {
         let mut tx = self.backend.begin().await?;
+        if marks {
+            bump_writers_marker(&mut tx).await?;
+        }
         q("UPDATE request_protection_subject SET revision=revision WHERE subject_key=?1")
             .bind(key)
             .execute_tx(&mut tx)
