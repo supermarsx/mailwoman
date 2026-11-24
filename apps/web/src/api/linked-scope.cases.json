@@ -1,6 +1,8 @@
 {
  "$comment": "Hand-written expectations for linked-scope.json (t87). Both linkedAccountRouting.test.ts and crates/mw-server/src/linked_accounts/scope.rs assert their own matcher against THIS list, so the two cannot drift apart and neither can drift from what was reviewed. Do not generate this file from linked-scope.json.",
  "mailbox": [
+  "/api/retention/rules",
+  "/api/retention/settings",
   "/api/me",
   "/api/policy",
   "/api/rc/policy",

@@ -68,7 +68,7 @@ describe('folder Properties dialog',()=>{
   expect(dialog).toHaveAttribute('aria-modal','true');
   expect(dialog.getAttribute('aria-label')??dialog.textContent).toMatch(/Properties: .?Archive/);
   expect(dialog.getAttribute('aria-labelledby')).toBeTruthy();
-  expect(screen.getAllByRole('tab').map(item=>item.textContent)).toEqual(['General','Appearance','Remote location','Size and storage','Offline cache','Folder view','Display','Notes','Actions']);
+  expect(screen.getAllByRole('tab').map(item=>item.textContent)).toEqual(['General','Appearance','Remote location','Size and storage','Offline cache','Folder view','Auto-archive','Display','Notes','Actions']);
   expect(screen.getByRole('tabpanel')).toBeInTheDocument();
   expect(dialog).toHaveClass(css.phone);
   expect(within(dialog).getByTestId('props-general')).toHaveTextContent('Type');

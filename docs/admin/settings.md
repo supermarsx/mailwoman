@@ -5864,4 +5864,4 @@ Every key in the settings registry, generated from the registry and checked agai
 <a id="mail.messageListColumnWidth.importance"></a>
 `mail.messageListColumnWidth.importance` supports global, domain and user defaults and administrator locks.
 
-Remove `view` from `properties.folder.overrides.allowed` to disable folder-specific view overrides. Existing saved values are retained but ignored. Preview counts are bounded to 0–5; column widths to 64–800 pixels; font sizes to 11–24 pixels.
+Remove `view` from `properties.folder.overrides.allowed` to disable folder-specific view overrides. Existing saved values are retained but ignored. Preview counts are bounded to 0–5; column widths to 64–800 pixels; font sizes to 11–24 pixels. Automatic archiving uses the existing `retention.user.*` policy and scheduled job, with account retention settings and per-folder archive defaults.

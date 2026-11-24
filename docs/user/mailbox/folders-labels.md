@@ -149,3 +149,14 @@ account’s preview setting and respect administrator locks.
 
 **Settings → Folders and sidebar** also controls whether the User folders section
 can collapse. Turning its control off keeps the section expanded.
+
+## Automatic archiving
+
+**Properties → Auto-archive** sets an age in days, an Archive or other destination
+folder, and whether flagged and unread messages are kept. If account retention is off, explicitly select **Run my retention rules** to
+enable its existing scheduled rules as well as this archive default. The rule covers the folder and its
+subfolders, runs on the configured retention schedule, and works with the browser
+closed. Turning it off removes this folder’s archive default. Other retention
+rules, protected folders and legal holds still apply. The administrator’s
+retention policy can disable the feature; job history is available in retention
+settings. Saved searches are views and cannot have an archive rule of their own.
