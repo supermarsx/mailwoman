@@ -183,7 +183,7 @@ bucket by bucket; per-host or per-worker percentiles are never averaged.
 
 One process and an in-process constant-response server, 512 outstanding, 5,000
 offered requests/s for three seconds: the `drop` policy dropped 8,266 of 15,000
-slots (581 late, the rest at the cap) and reported p99 scheduling lag 100 ms; the
+slots (581 scheduler drops, 7,685 at the cap) and reported p99 scheduling lag 100 ms; the
 `dispatch` policy dropped none for lateness or capacity, left 4,552 slots unissued
 at the window end, and reported scheduling lag p50 578 ms. Both were marked
 generator-limited. This only demonstrates that the policies and fields behave as
