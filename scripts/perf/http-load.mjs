@@ -6,6 +6,8 @@ import {pathToFileURL} from 'node:url';
 import {setTimeout as sleep} from 'node:timers/promises';
 
 // Fetch exposes decoded body chunks, never TLS/header/on-wire byte counts.
+// Generator scale limits (t53s). Defaults of every caller are unchanged; only the ceilings moved.
+export const MAX_WORKERS_PER_HOST=64,MAX_WORKERS_TOTAL=256,MAX_OUTSTANDING=20000,MAX_STAGE_SECONDS=3600;
 export function acceptedInScheduledWindow(status,ok,completed,deadline){
  return Boolean(ok&&Number(status)>=200&&Number(status)<300&&completed<=deadline);
 }
@@ -50,7 +52,7 @@ export class Measurements {
 }
 
 export function mergeMeasurements(snapshots,seconds){
-  if(!Array.isArray(snapshots)||!snapshots.length||snapshots.length>16||!Number.isFinite(seconds)||seconds<=0||seconds>600)throw new Error('Invalid bounded measurement merge');
+  if(!Array.isArray(snapshots)||!snapshots.length||snapshots.length>MAX_WORKERS_TOTAL||!Number.isFinite(seconds)||seconds<=0||seconds>MAX_STAGE_SECONDS)throw new Error('Invalid bounded measurement merge');
   const merged=new Measurements();for(const snapshot of snapshots)merged.merge(snapshot);return merged.report(seconds);
 }
 
@@ -67,7 +69,7 @@ export function classifyHttp503(body,complete){
  }catch{return 'other503';}
 }
 export function mergeHttp503Reasons(values,statusCounts){
- if(!Array.isArray(values)||!values.length||values.length>16||!Array.isArray(statusCounts)||statusCounts.length!==values.length)throw Error('Invalid HTTP503 reason proof');
+ if(!Array.isArray(values)||!values.length||values.length>MAX_WORKERS_TOTAL||!Array.isArray(statusCounts)||statusCounts.length!==values.length)throw Error('Invalid HTTP503 reason proof');
  if(values.every(value=>value===undefined))return null;
  const result=reasons503();
  for(let index=0;index<values.length;index++){
@@ -90,7 +92,7 @@ function timingReport(value,count){return {schema:1,...Object.fromEntries(timing
  const report=value[name].report(1);return [name,{samples:report.requests,...report.latencyMs}];
 })),undispatched:count-value.httpAndValidation.count,scope:'client monotonic wall time; HTTP includes Fetch, decoded body read and validation; validation is a nested subset; queue includes zero-wait samples; not server CPU or isolated DB time'};}
 export function mergeLatencyBreakdowns(snapshots,counts,dispatches){
- if(!Array.isArray(snapshots)||!snapshots.length||snapshots.length>16||snapshots.length!==counts.length||dispatches&&dispatches.length!==counts.length)throw Error('Invalid latency breakdown');
+ if(!Array.isArray(snapshots)||!snapshots.length||snapshots.length>MAX_WORKERS_TOTAL||snapshots.length!==counts.length||dispatches&&dispatches.length!==counts.length)throw Error('Invalid latency breakdown');
  if(snapshots.every(value=>value===undefined))return null;
  const merged=timings();let total=0;
  for(let index=0;index<snapshots.length;index++){
@@ -107,7 +109,7 @@ export function mergeLatencyBreakdowns(snapshots,counts,dispatches){
 
 export async function measure({base,requests,concurrency,seconds,timeoutMs=10000,headers={},arrivalRate,commonStartAtMs,includeRawMeasurements=false}){
   const aggregate=new Measurements(),byRequest=new Map(requests.map(request=>[request.name,new Measurements()]));
-  if(!Number.isInteger(concurrency)||concurrency<1||concurrency>4096||!Number.isFinite(seconds)||seconds<=0||seconds>600||!requests.length||requests.length>100||!Number.isFinite(timeoutMs)||timeoutMs<1||timeoutMs>120000)throw new Error('Invalid bounded measurement parameters');
+  if(!Number.isInteger(concurrency)||concurrency<1||concurrency>MAX_OUTSTANDING||!Number.isFinite(seconds)||seconds<=0||seconds>MAX_STAGE_SECONDS||!requests.length||requests.length>100||!Number.isFinite(timeoutMs)||timeoutMs<1||timeoutMs>120000)throw new Error('Invalid bounded measurement parameters');
   if(typeof includeRawMeasurements!=='boolean')throw new Error('Invalid raw measurement option');
   const wallOrigin=Date.now(),monotonicOrigin=performance.now();
   if(commonStartAtMs!==undefined&&(!Number.isSafeInteger(commonStartAtMs)||Math.abs(commonStartAtMs-wallOrigin)>60000))throw new Error('Common fixture start must be within sixty seconds');

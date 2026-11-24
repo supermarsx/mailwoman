@@ -8,7 +8,7 @@ test('long runs require explicit opt-in and bounded configuration',()=>{
  assert.throws(()=>campaignOptions({MW_LOAD_FIXTURE_SECONDS:'30'}),/Smoke/);
  const o=campaignOptions({MW_LOAD_FIXTURE_MODE:'capacity',MW_LOAD_FIXTURE_LONG:'1'});
  assert.equal(o.seconds,30);assert.ok(o.rates.includes(40000));assert.equal(o.warmupSeconds,10);
- assert.throws(()=>campaignOptions({MW_LOAD_FIXTURE_MODE:'ramp',MW_LOAD_FIXTURE_LONG:'1',MW_LOAD_FIXTURE_CONCURRENCY:'10000'}),/CONCURRENCY/);
+ assert.throws(()=>campaignOptions({MW_LOAD_FIXTURE_MODE:'ramp',MW_LOAD_FIXTURE_LONG:'1',MW_LOAD_FIXTURE_CONCURRENCY:'20001'}),/CONCURRENCY/);
 });
 test('ramp warms each endpoint, records plateau, and never jumps blindly to40k',async()=>{
  const options={...campaignOptions({MW_LOAD_FIXTURE_MODE:'capacity',MW_LOAD_FIXTURE_LONG:'1'}),concurrency:[1,4,16,64],warmupSeconds:1};

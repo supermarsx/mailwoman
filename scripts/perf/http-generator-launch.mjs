@@ -1,9 +1,10 @@
 import {join,dirname} from 'node:path';
+import {MAX_WORKERS_PER_HOST} from './http-load.mjs';
 import {fileURLToPath} from 'node:url';
 
 export function generatorWorkers(value=1){
  const workers=Number(value);
- if(!Number.isInteger(workers)||workers<1||workers>16)throw new Error('HTTP generator workers must be 1–16');
+ if(!Number.isInteger(workers)||workers<1||workers>MAX_WORKERS_PER_HOST)throw new Error(`HTTP generator workers must be 1–${MAX_WORKERS_PER_HOST}`);
  return workers;
 }
 // Only private handoff/report file paths become arguments, never credentials.

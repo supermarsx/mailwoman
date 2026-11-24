@@ -14,7 +14,7 @@ import {dirname,join,resolve} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 import {readPrivate,HANDOFF_LIMIT} from './external-control.mjs';
-import {markdownReport} from './http-load.mjs';
+import {markdownReport,MAX_WORKERS_PER_HOST} from './http-load.mjs';
 import {campaignOptions,runCampaign} from './http-campaign.mjs';
 import {qualifiesHttpTelemetry,fixtureDiagnosticsReport,prepareFixtureClients,startupReadinessReport,fixturePolicyReport,searchWriterReport,linkedLoginPolicyProbeReport,searchStorageReport,qualifiesSearchStorage} from './fixture-clients.mjs';
 import {workloadProfileReport} from './representative-workload.mjs';
@@ -22,7 +22,7 @@ import {partitionPrincipals,validateStage,aggregateWorkers} from './http-multi-p
 import {verifyFixtureIsolation} from './fixture-isolation.mjs';
 
 export function validateAssignment(handoff,workers){
- if(handoff?.engineMode!=='native'||!Number.isInteger(workers)||workers<1||workers>16)throw new Error('Explicit native fixture and 1–16 workers required');
+ if(handoff?.engineMode!=='native'||!Number.isInteger(workers)||workers<1||workers>MAX_WORKERS_PER_HOST)throw new Error(`Explicit native fixture and 1–${MAX_WORKERS_PER_HOST} workers required`);
  const base=new URL(handoff.base);
  if(base.protocol!=='http:'||base.hostname!=='127.0.0.1'||!base.port||base.pathname!=='/'||base.search||base.hash||base.username||base.password)throw new Error('Only an owned literal-loopback fixture is supported');
  const clientModel=prepareFixtureClients(handoff.principals,handoff.clientSimulation);

@@ -1,7 +1,7 @@
 import {requestInputsExpected} from './request-inputs-experiment.mjs';
 import {cacheExperimentFromEnv} from './sqlite-page-cache-witness.mjs';
 // Bounded plans for an explicitly opted-in, isolated application fixture.
-import {measure} from './http-load.mjs';
+import {measure,MAX_OUTSTANDING,MAX_STAGE_SECONDS} from './http-load.mjs';
 
 function number(env,key,fallback,min,max){
  const value=Number(env[key]??fallback);
@@ -17,10 +17,10 @@ export function campaignOptions(env=process.env){
  const mode=env.MW_LOAD_FIXTURE_MODE??'smoke';
  if(!['smoke','ramp','capacity'].includes(mode))throw new Error('Invalid MW_LOAD_FIXTURE_MODE');
  if(mode!=='smoke'&&env.MW_LOAD_FIXTURE_LONG!=='1')throw new Error('Long campaigns require MW_LOAD_FIXTURE_LONG=1');
- const seconds=number(env,'MW_LOAD_FIXTURE_SECONDS',mode==='smoke'?1:30,.1,60);
+ const seconds=number(env,'MW_LOAD_FIXTURE_SECONDS',mode==='smoke'?1:30,.1,MAX_STAGE_SECONDS);
  const warmupSeconds=number(env,'MW_LOAD_FIXTURE_WARMUP_SECONDS',mode==='smoke'?0:10,0,60);
- const deadlineSeconds=number(env,'MW_LOAD_FIXTURE_DEADLINE_SECONDS',mode==='smoke'?90:mode==='capacity'?600:300,10,1800);
- const concurrency=numbers(env,'MW_LOAD_FIXTURE_CONCURRENCY',mode==='smoke'?'32':'1,4,16,64,256',1,4096);
+ const deadlineSeconds=number(env,'MW_LOAD_FIXTURE_DEADLINE_SECONDS',mode==='smoke'?90:mode==='capacity'?600:300,10,14400);
+ const concurrency=numbers(env,'MW_LOAD_FIXTURE_CONCURRENCY',mode==='smoke'?'32':'1,4,16,64,256',1,MAX_OUTSTANDING);
  const endpoints=String(env.MW_LOAD_FIXTURE_ENDPOINTS??'mixed').split(',');
  if(!endpoints.length||endpoints.length>16||endpoints.some(v=>!['mixed','identity','mailboxes','query','headers','refresh','representative','paged-headers','reader','attachment','flag-write','move-write','jmap-session','list-batch','changes','account-polls'].includes(v)))throw new Error('Invalid MW_LOAD_FIXTURE_ENDPOINTS');
  const rates=mode==='ramp'&&!env.MW_LOAD_FIXTURE_RATES?[]:numbers(env,'MW_LOAD_FIXTURE_RATES',mode==='capacity'?'1000,5000,10000,20000,40000,42000':'100,500,1000',1,100000);

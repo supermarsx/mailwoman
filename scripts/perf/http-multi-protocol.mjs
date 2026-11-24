@@ -1,11 +1,11 @@
 // Aggregate only: credentials and principal identifiers never enter this format.
-import {mergeMeasurements,mergeLatencyBreakdowns,mergeHttp503Reasons} from './http-load.mjs';
+import {mergeMeasurements,mergeLatencyBreakdowns,mergeHttp503Reasons,MAX_WORKERS_TOTAL,MAX_OUTSTANDING,MAX_STAGE_SECONDS} from './http-load.mjs';
 export const MULTI_SCHEMA=1;
 export const ENDPOINT_LABELS=['authenticated-identity','Mailbox/get','Email/query','Email/get','concurrent-refresh-handler','paged-query-and-headers','body-and-attachment-metadata','attachment-download','mark-read-and-restore','move-and-restore','jmap-session','list-batch','changes','account-preferences','appearance-customization','session-activity'];
 const number=(value)=>typeof value==='number'&&Number.isFinite(value)&&value>=0;
 const integer=value=>Number.isSafeInteger(value)&&value>=0;
 export function splitBudget(total,count){
- if(!Number.isInteger(count)||count<1||count>16||!Number.isInteger(total)||total<count||total>100000)throw new Error('Invalid exact worker budget');
+ if(!Number.isInteger(count)||count<1||count>MAX_WORKERS_TOTAL||!Number.isInteger(total)||total<count||total>100000)throw new Error('Invalid exact worker budget');
  return Array.from({length:count},(_,index)=>Math.floor(total/count)+(index<total%count?1:0));
 }
 export function partitionPrincipals(principals,workers){
@@ -16,7 +16,7 @@ export function partitionPrincipals(principals,workers){
  });
 }
 export function validateStage({workers,concurrency,seconds,arrivalRate,timeoutMs}){
- if(!Number.isInteger(workers)||workers<1||workers>16||!Number.isInteger(concurrency)||concurrency<workers||concurrency>4096||!Number.isInteger(seconds)||seconds<1||seconds>60||!Number.isInteger(timeoutMs)||timeoutMs<100||timeoutMs>30000||arrivalRate!==undefined&&(!Number.isInteger(arrivalRate)||arrivalRate<workers||arrivalRate>100000))throw new Error('Invalid coordinated stage');
+ if(!Number.isInteger(workers)||workers<1||workers>MAX_WORKERS_TOTAL||!Number.isInteger(concurrency)||concurrency<workers||concurrency>MAX_OUTSTANDING||!Number.isInteger(seconds)||seconds<1||seconds>MAX_STAGE_SECONDS||!Number.isInteger(timeoutMs)||timeoutMs<100||timeoutMs>30000||arrivalRate!==undefined&&(!Number.isInteger(arrivalRate)||arrivalRate<workers||arrivalRate>100000))throw new Error('Invalid coordinated stage');
  return {concurrency:splitBudget(concurrency,workers),...(arrivalRate===undefined?{}:{rates:splitBudget(arrivalRate,workers)})};
 }
 // Reuse the generator's exact bounded histogram/counter validator.

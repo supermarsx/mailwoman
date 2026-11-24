@@ -26,7 +26,7 @@ test('workers get disjoint complete bounded partitions and exact global budgets'
  assert.equal(parts.reduce((n,p)=>n+p.count,0),10000);assert.equal(new Set(parts.flatMap(p=>p.principals)).size,10000);
  assert.deepEqual(splitBudget(100,3),[34,33,33]);assert.equal(splitBudget(4096,16).reduce((a,b)=>a+b),4096);
  assert.deepEqual(validateStage({workers:3,concurrency:10,seconds:30,timeoutMs:1000,arrivalRate:40000}),{concurrency:[4,3,3],rates:[13334,13333,13333]});
- for(const patch of [{workers:17},{concurrency:1},{concurrency:4097},{seconds:.5},{seconds:61},{arrivalRate:1},{arrivalRate:100001}])assert.throws(()=>validateStage({...stage,workers:2,...patch}));
+ for(const patch of [{workers:257},{concurrency:1},{concurrency:20001},{seconds:.5},{seconds:3601},{arrivalRate:1},{arrivalRate:100001}])assert.throws(()=>validateStage({...stage,workers:2,...patch}));
 });
 test('optional launch integration preserves the original single driver and bounds multiprocess selection',()=>{
  const input={directory:'/owned/private',ready:{handoffFile:'handoff.private.json',outputFile:'report.json'}};
@@ -34,7 +34,7 @@ test('optional launch integration preserves the original single driver and bound
  assert.ok(single.script.endsWith('http-real-fixture.mjs'));assert.equal(single.args.length,2);assert.equal(single.workers,1);
  assert.ok(multi.script.endsWith('http-multi-controller.mjs'));assert.equal(multi.args.length,3);assert.equal(multi.args[2],'--workers=4');
  assert.ok(multi.args[0].startsWith('--handoff='));assert.ok(multi.args[1].startsWith('--output='));
- for(const invalid of [0,17,1.5,'bad',''])assert.throws(()=>generatorWorkers(invalid));
+ for(const invalid of [0,65,1.5,'bad',''])assert.throws(()=>generatorWorkers(invalid));
 });
 test('weighted histograms and shared window counts merge without percentile averaging or leaking identities',()=>{
  const merged=aggregateWorkers({results:[result(1),result(0)],partitions:partitions.map(p=>({...p,privateCookie:'do-not-publish'})),stage,startAtMs});

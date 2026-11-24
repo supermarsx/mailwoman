@@ -2,12 +2,12 @@
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {readPrivate,HANDOFF_LIMIT} from './external-control.mjs';
-import {measure} from './http-load.mjs';
+import {measure,MAX_WORKERS_TOTAL} from './http-load.mjs';
 import {validateStage} from './http-multi-protocol.mjs';
 
 export async function runWorker(path,{prepare,send=message=>process.send(message),onMessage=handler=>process.on('message',handler)}={}){
  const data=JSON.parse(await readPrivate(path,HANDOFF_LIMIT));
- if(data?.schema!==1||data.engineMode!=='native'||!Number.isInteger(data.workerIndex)||data.workerIndex<0||data.workerIndex>=16||!Array.isArray(data.principals)||!data.principals.length||data.principals.length>10000)throw new Error('Invalid worker assignment');
+ if(data?.schema!==1||data.engineMode!=='native'||!Number.isInteger(data.workerIndex)||data.workerIndex<0||data.workerIndex>=MAX_WORKERS_TOTAL||!Array.isArray(data.principals)||!data.principals.length||data.principals.length>10000)throw new Error('Invalid worker assignment');
  const base=new URL(data.base);
  if(base.protocol!=='http:'||base.hostname!=='127.0.0.1'||!base.port||base.pathname!=='/'||base.search||base.hash||base.username||base.password)throw new Error('Invalid worker target');
  if(!prepare){const factory=await import('./fixture-requests.mjs');prepare=factory.prepareFixtureRequests;}
