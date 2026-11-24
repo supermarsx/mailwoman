@@ -114,6 +114,8 @@ pub(crate) fn validate_from(
         ));
     }
 
+    crate::inbound_http::HttpLimits::validate_env(&var)?; // t57: HTTP limits and request queue
+
     // Same rule as mw-store's `sqlite_startup::budget`: when set, an integer
     // from 1 to 86400 (an empty value is not the default there either).
     if !postgres

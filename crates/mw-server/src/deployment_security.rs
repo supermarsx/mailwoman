@@ -79,8 +79,17 @@ pub(crate) async fn checks(
     );
     let limits = crate::tls::inbound_limits::InboundLimits::from_env()
         .map_err(|_| AdminApiError::internal("invalid startup connection limits"))?;
-    let http = crate::inbound_http::HttpLimits::from_env()
-        .map_err(|_| AdminApiError::internal("invalid startup HTTP limits"))?;
+    // The running listener's effective limits and counters; without one (tests,
+    // tools) the configured values with the fixed defaults.
+    let (http, admission) = match crate::inbound_http::admission::current() {
+        Some(current) => current,
+        None => (
+            crate::inbound_http::HttpLimits::from_env_without_probe()
+                .map_err(|_| AdminApiError::internal("invalid startup HTTP limits"))?,
+            serde_json::Value::Null,
+        ),
+    };
+    let derivation = &http.derivation;
     let enc = crate::encryption_status::snapshot(state).await;
     let enc_warnings = enc["warnings"].as_array().map_or(0, Vec::len);
     let enc_enabled = value(state, "encryption.warnings.enabled")
@@ -97,7 +106,17 @@ pub(crate) async fn checks(
                 "headerBytes":http.header_bytes,"headers":http.headers,
                 "headerTimeoutMs":http.header_timeout.as_millis(),"bodyTimeoutMs":http.body_timeout.as_millis(),
                 "http2Streams":http.http2_streams,"shutdownTimeoutMs":http.shutdown_timeout.as_millis(),
+                "queueWaitMs":http.queue_wait.as_millis(),"queueMax":http.queue_max,
                 "requiresRestart":true,"adaptive":false,
+                "derivedFrom":{
+                    "connections":derivation.connections.as_str(),"requests":derivation.requests.as_str(),
+                    "http2Streams":derivation.http2_streams.as_str(),"queueMax":derivation.queue_max.as_str(),
+                    "cpus":derivation.resources.cpus,"memoryBytes":derivation.resources.memory_bytes,
+                    "openFiles":derivation.resources.open_files,"databasePool":derivation.db_pool,
+                    "handshakeSlots":derivation.handshakes,"fdReserve":derivation.fd_reserve,
+                    "openFilesShort":derivation.fd_short,
+                },
+                "admission":admission,
                 "source":"built-in-listener-startup-configuration",
             }),
             &[],

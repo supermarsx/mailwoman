@@ -1,9 +1,10 @@
 # Connection and HTTP request limits
 
-Mailwoman's built-in listener has fixed limits on TLS handshakes, PROXY protocol
-headers, connections, requests and request headers. This page lists them, their
-defaults and accepted ranges, and what happens when a limit is reached. The limits
-apply only to Mailwoman's own listener; a reverse proxy in front has its own.
+Mailwoman's built-in listener has limits on TLS handshakes, PROXY protocol headers,
+connections, requests and request headers. This page lists them, their defaults and
+accepted ranges, how the connection, request and HTTP/2 stream limits are derived
+when you do not set them, and what happens when a limit is reached. The limits apply
+only to Mailwoman's own listener; a reverse proxy in front has its own.
 
 ## Before you start
 
@@ -43,22 +44,75 @@ These apply to HTTP/1.1 and HTTP/2, with or without TLS.
 
 | Variable | What it limits | Default | Range |
 |---|---|---:|---:|
-| `MW_HTTP_MAX_CONNECTIONS` | Open connections, including upgraded WebSockets | 1024 | 16–8192 |
-| `MW_HTTP_MAX_REQUESTS` | Requests in progress at once, each counted until its response body is sent | 256 | 1–4096 |
+| `MW_HTTP_MAX_CONNECTIONS` | Open connections, including upgraded WebSockets | derived, at least 1024 | 16–65536 |
+| `MW_HTTP_MAX_REQUESTS` | Requests in progress at once, each counted until its response body is sent | derived, at least 256 | 1–16384 |
 | `MW_HTTP_MAX_HEADER_BYTES` | Total size of a request's headers | 32768 | 8192–65536 |
 | `MW_HTTP_MAX_HEADERS` | Number of request headers | 100 | 16–256 |
 | `MW_HTTP_HEADER_TIMEOUT_MS` | Time to open the connection and send each HTTP/1 request's headers | 10000 | 1000–60000 |
 | `MW_HTTP_BODY_TIMEOUT_MS` | Time to receive a request body | 60000 | 1000–300000 |
-| `MW_HTTP2_MAX_STREAMS` | Concurrent HTTP/2 streams on one connection | 32 | 1–128 |
+| `MW_HTTP2_MAX_STREAMS` | Concurrent HTTP/2 streams on one connection | derived, 32–100 | 1–128 |
 | `MW_HTTP_SHUTDOWN_TIMEOUT_MS` | Time requests in progress get to finish when the server stops | 30000 | 1000–120000 |
+| `MW_HTTP_REQUEST_QUEUE_MS` | How long a request at the request limit waits for a slot; `0` refuses at once | 200 | 0–2000 |
+| `MW_HTTP_REQUEST_QUEUE_MAX` | Requests that may wait for a slot at once | the request limit | 1–65536 |
+
+### Derived limits
+
+When `MW_HTTP_MAX_CONNECTIONS`, `MW_HTTP_MAX_REQUESTS` or `MW_HTTP2_MAX_STREAMS` is
+unset, the server derives it at start-up from what the process may use. A derived
+value is never lower than the fixed value of earlier releases (1024, 256, 32).
+
+| Reading | Source |
+|---|---|
+| CPUs (C) | CPUs the process may run on; on Linux this applies the container's CPU quota |
+| Memory (M) | Linux only: the lower of the cgroup memory limit and physical memory |
+| Open files (F) | Unix only: the soft `RLIMIT_NOFILE`. When `MW_HTTP_MAX_CONNECTIONS` is unset, the server first raises the soft limit to the hard limit, at most 1,048,576 |
+| Database pool (P) | The `MW_DB_POOL` maximum, else the store's default (PostgreSQL 4 per CPU, 4–64; SQLite 2 per CPU, 2–8). A maximum set only in the stored `database.pool` setting is not seen |
+| Handshake slots (H) | `MW_TLS_MAX_HANDSHAKES` + `MW_PROXY_MAX_HANDSHAKES` |
+
+- **Connections** = max(1024, min((F − R) / 2, M / 1 MiB, 65536)), with a
+  descriptor reserve R = 512 + P + H. Half of the descriptors left after the reserve
+  go to client connections; the other half stay for upstream IMAP and SMTP
+  connections, outbound HTTP and files.
+- **Requests** = max(64 × C, 16 × P), at least 256, at most the lower of 16384 and
+  M / 4 MiB.
+- **HTTP/2 streams per connection** = an eighth of the request limit, from 32 to 100.
+  One connection can then hold at most an eighth of the request slots.
+- **Queue size** = the request limit.
+
+A reading the platform does not provide (for example memory and open files on
+Windows) is left out of the formula; with no readings the fixed values apply. If the
+open-file limit is too low for 1024 connections, the server keeps 1024 and logs a
+warning; raise the limit (`ulimit -n`, `LimitNOFILE=` in systemd) or set
+`MW_HTTP_MAX_CONNECTIONS` lower.
+
+At start-up the server logs one line, `HTTP limits: …`, with each effective value,
+whether it was set, derived or fixed, and the readings used. The **HTTP admission and
+request limits** check in the admin console shows the same values and the admission
+counters.
+
+To keep the values of earlier releases, set them explicitly:
+
+```sh
+MW_HTTP_MAX_CONNECTIONS=1024
+MW_HTTP_MAX_REQUESTS=256
+MW_HTTP2_MAX_STREAMS=32
+MW_HTTP_REQUEST_QUEUE_MS=0
+```
 
 What happens at each limit:
 
 - **Too many connections.** A connection beyond `MW_HTTP_MAX_CONNECTIONS` is closed
   before any request on it is read. A WebSocket counts until its connection closes.
-- **Too many requests.** A request beyond `MW_HTTP_MAX_REQUESTS` is answered `503`
-  with `Retry-After: 1`. Event streams on `/jmap/eventsource` do not count here; they
-  share a separate pool the size of `MW_HTTP_MAX_CONNECTIONS`. Nothing is queued.
+- **Too many requests.** A request beyond `MW_HTTP_MAX_REQUESTS` waits, in order of
+  arrival, for up to `MW_HTTP_REQUEST_QUEUE_MS` for a slot. It is answered `503` with
+  `Retry-After: 1` when the wait ends without a slot, or at once when
+  `MW_HTTP_REQUEST_QUEUE_MAX` requests are already waiting. A client that disconnects
+  while waiting gives up its place. The wait does not count towards
+  `MW_HTTP_BODY_TIMEOUT_MS`. Event streams on `/jmap/eventsource` do not count here;
+  they share a separate pool the size of `MW_HTTP_MAX_CONNECTIONS` and do not wait.
+  `/healthz` and `/readyz` have their own pool of 8 and do not wait, so a full request
+  pool does not delay them. A WebSocket counts as a request only until its `101`
+  response.
 - **Headers too large or too many.** The request is answered `431` before it reaches
   the application.
 - **Slow request body.** A body that does not arrive within

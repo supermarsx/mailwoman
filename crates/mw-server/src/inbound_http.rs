@@ -1,4 +1,6 @@
 //! Bounded HTTP admission and ingress deadlines; response streams have no idle deadline.
+//! A request at the concurrency limit waits briefly in a bounded FIFO queue
+//! (`admission`) before it is refused.
 use axum::{
     Router,
     body::Body,
@@ -39,8 +41,13 @@ use tokio::{
     task::JoinSet,
     time::Sleep,
 };
+#[path = "http_admission.rs"]
+pub mod admission;
 #[path = "http_limits.rs"]
 pub mod limits;
+#[path = "http_resources.rs"]
+pub mod resources;
+use admission::Admission;
 pub use limits::HttpLimits;
 type Cancellation = Shared<BoxFuture<'static, ()>>;
 
@@ -58,12 +65,20 @@ where
 {
     limits.validate()?;
     let connections = Arc::new(Semaphore::new(limits.connections));
-    let requests = Arc::new(Semaphore::new(limits.requests));
-    // A push stream (`/jmap/eventsource`) holds its permit for as long as the
-    // client stays connected. Counted with ordinary requests, a few hundred open
-    // tabs would leave no capacity for the requests those tabs make, so streams
-    // have their own pool, as large as the connection limit that already bounds them.
-    let streams = Arc::new(Semaphore::new(limits.connections));
+    // Request, event-stream and probe pools, the bounded wait and the counters.
+    let admission = Admission::new(&limits);
+    admission::register(limits, &admission);
+    tracing::info!("{}", limits.summary());
+    if limits.derivation.fd_short {
+        tracing::warn!(
+            "the open-file limit ({}) leaves room for fewer than {} connections after a reserve of {}; \
+             MW_HTTP_MAX_CONNECTIONS stays at {} — raise the limit (ulimit -n, LimitNOFILE) or set it lower",
+            limits.derivation.resources.open_files.unwrap_or(0),
+            limits.connections,
+            limits.derivation.fd_reserve.unwrap_or(0),
+            limits.connections,
+        );
+    }
     let graceful = GracefulShutdown::new();
     let mut tasks = JoinSet::new();
     let (_cancel_tx, cancel_rx) = oneshot::channel::<()>();
@@ -83,6 +98,7 @@ where
         // Keep polling the listener even when HTTP capacity is full, so pending
         // TLS deadlines remain live. Refuse the excess socket before any handler.
         let Ok(permit) = connections.clone().try_acquire_owned() else {
+            admission.connection_refused();
             drop(io);
             continue;
         };
@@ -98,14 +114,12 @@ where
             lingered: 0,
         };
         let app = router.clone();
-        let requests = requests.clone();
-        let streams = streams.clone();
+        let admission = admission.clone();
         let watcher = graceful.watcher();
         tasks.spawn(async move {
             let service = service_fn(move |request: Request<Incoming>| {
                 let app = app.clone();
-                let requests = requests.clone();
-                let streams = streams.clone();
+                let admission = admission.clone();
                 let first_request = first_request.clone();
                 async move {
                     first_request.store(true, Ordering::Release);
@@ -125,21 +139,24 @@ where
                             version,
                         ));
                     }
-                    let pool = if request.uri().path().ends_with("/jmap/eventsource") {
-                        streams
-                    } else {
-                        requests
-                    };
-                    let Ok(permit) = pool.try_acquire_owned() else {
-                        let mut response = refusal(
-                            StatusCode::SERVICE_UNAVAILABLE,
-                            "Server request capacity reached",
-                            version,
-                        );
-                        response
-                            .headers_mut()
-                            .insert(header::RETRY_AFTER, header::HeaderValue::from_static("1"));
-                        return Ok(response);
+                    // At the request limit this waits (bounded, FIFO) for a slot;
+                    // a client that goes away while waiting drops this future and
+                    // with it its place in the queue.
+                    let pool = admission::classify(request.uri().path());
+                    let permit = match admission.admit(pool).await {
+                        Ok(permit) => permit,
+                        // Deadline, full queue, or a full stream or probe pool.
+                        Err(_) => {
+                            let mut response = refusal(
+                                StatusCode::SERVICE_UNAVAILABLE,
+                                "Server request capacity reached",
+                                version,
+                            );
+                            response
+                                .headers_mut()
+                                .insert(header::RETRY_AFTER, header::HeaderValue::from_static("1"));
+                            return Ok(response);
+                        }
                     };
                     let (mut parts, body) = request.into_parts();
                     parts.extensions.insert(ConnectInfo(peer));
@@ -407,7 +424,7 @@ impl HttpBody for IngressBody {
 }
 struct ResponseLease {
     inner: Body,
-    _permit: OwnedSemaphorePermit,
+    _permit: admission::Lease,
 }
 impl HttpBody for ResponseLease {
     type Data = Bytes;
