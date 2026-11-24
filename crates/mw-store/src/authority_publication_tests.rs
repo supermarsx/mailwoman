@@ -379,10 +379,12 @@ async fn fence_contract(s: Store) {
         policy_before,
         "logins must not invalidate every published policy scope"
     );
-    assert_ne!(
+    // 0123: a login no longer moves the settings revision either (the 0078
+    // identity triggers are gone); identity lives in the authority epochs.
+    assert_eq!(
         s.settings_revision().await.unwrap(),
         legacy_before,
-        "legacy counter remains independent"
+        "logins must not move the global settings revision"
     );
     let domains = ["authority.test".into()];
     let (read, queries) =

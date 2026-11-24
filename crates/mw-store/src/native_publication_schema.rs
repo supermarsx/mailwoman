@@ -14,8 +14,29 @@ const SQLITE_SQL: &str = concat!(
     "\n",
     include_str!("../migrations/0112_authority_subject_anchor.sql"),
     "\n",
-    include_str!("../migrations/0115_authority_change_log.sql")
+    include_str!("../migrations/0115_authority_change_log.sql"),
+    "\n",
+    // 0123: the guard-key settings triggers join; the 0078 identity triggers it
+    // drops are filtered out below (RETIRED).
+    include_str!("../migrations/0123_settings_revision_scope.sql")
 );
+/// Triggers created by an included migration and dropped by a later one.
+const RETIRED: &[&str] = &[
+    // 0123: identity writes no longer move the settings revision.
+    "settings_revision_identity_principal_insert",
+    "settings_revision_identity_principal_update",
+    "settings_revision_identity_principal_delete",
+    "settings_revision_identity_binding_insert",
+    "settings_revision_identity_binding_update",
+    "settings_revision_identity_binding_delete",
+    "settings_revision_session_principal_insert",
+    "settings_revision_session_principal_update",
+    "settings_revision_session_principal_delete",
+    // The same three on PostgreSQL (statement-level, one per table).
+    "settings_revision_identity_principal",
+    "settings_revision_identity_binding",
+    "settings_revision_session_principal",
+];
 const PG_SQL: &str = concat!(
     // t49pg (review N1, decision D12): the 0078 statement-level triggers. 0120
     // pins the search_path of their function, so they fit the validator.
@@ -27,7 +48,11 @@ const PG_SQL: &str = concat!(
     "\n",
     // No 0115 here: 0118 drops its triggers, including the per-insert prune
     // (t34 S2). 0120 re-creates the two change-log triggers without a prune.
-    include_str!("../migrations_pg/0120_authority_change_log_xid.sql")
+    include_str!("../migrations_pg/0120_authority_change_log_xid.sql"),
+    "\n",
+    // 0123: the guard-key settings triggers and their function; the 0078
+    // identity triggers it drops are filtered out (RETIRED).
+    include_str!("../migrations_pg/0123_settings_revision_scope.sql")
 );
 /// Largest required-trigger set the validator accepts, per dialect.
 const MAX_REQUIRED: usize = 192;
@@ -108,7 +133,9 @@ struct Function {
 }
 fn triggers(pg: bool) -> Vec<Trigger> {
     let source = if pg { PG_SQL } else { SQLITE_SQL };
-    triggers_from(source, pg)
+    let mut required = triggers_from(source, pg);
+    required.retain(|t| !RETIRED.contains(&t.name.as_str()));
+    required
 }
 fn triggers_from(source: &str, pg: bool) -> Vec<Trigger> {
     let mut out = Vec::new();
@@ -377,12 +404,19 @@ mod tests {
         let kind = |name: &str| pg.iter().find(|t| t.name == name).map(|t| t.kind);
         // 0078: AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ... FOR EACH STATEMENT.
         assert_eq!(kind("settings_revision_setting_policy"), Some(4 | 8 | 16 | 32));
+        // 0078's eleven minus its three identity triggers (retired by 0123),
+        // plus 0123's guard-key row trigger and its TRUNCATE statement trigger.
         assert_eq!(
             pg.iter()
                 .filter(|t| t.name.starts_with("settings_revision_"))
                 .count(),
-            11
+            10
         );
+        for retired in ["settings_revision_identity_principal", "settings_revision_identity_binding", "settings_revision_session_principal"] {
+            assert!(pg.iter().all(|t| t.name != retired), "{retired} is retired by 0123");
+        }
+        assert_eq!(kind("settings_revision_guard_keys"), Some(1 | 4 | 8 | 16));
+        assert_eq!(kind("settings_revision_guard_keys_truncate"), Some(32));
         // 0120: row-level, no prune trigger.
         assert_eq!(kind("authority_change_log_epoch"), Some(1 | 4 | 8 | 16));
         assert_eq!(kind("authority_change_log_revision"), Some(1 | 4 | 8 | 16));

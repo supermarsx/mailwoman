@@ -113,12 +113,15 @@ async fn maximum(state: &AppState) -> Result<usize, Response> {
 async fn require_enabled(state: &AppState, session: &mw_store::Session) -> Result<(), Response> {
     // t87/t99: a linked request checks this up to four times (parent and source,
     // in `resolve` and again in `enforce_context`). A session that passed under
-    // the current settings revision (migration 0078) passes again without
-    // resolving. Only a pass is kept, so a refusal is always fresh, and any
-    // write to a settings table ends every pass.
+    // the current witness passes again without resolving: the settings revision
+    // (any settings-table write) plus this session's own identity epochs (0111:
+    // its session_principal row, its principal and bindings), read in one
+    // statement. Since 0123 the revision no longer moves on identity writes, so
+    // no other session's sign-in or sign-out ends this pass. Only a pass is
+    // kept, so a refusal is always fresh.
     let key = memo::Key::of(state, session);
-    let revision = state.store.settings_revision().await.map_err(unavailable)?;
-    if revision.is_some_and(|revision| memo::passed(&key, revision)) {
+    let witness = state.store.session_identity_witness(&session.id).await.map_err(unavailable)?;
+    if witness.as_ref().is_some_and(|witness| memo::passed(&key, witness)) {
         return Ok(());
     }
     memo::note_resolution();
@@ -126,8 +129,8 @@ async fn require_enabled(state: &AppState, session: &mw_store::Session) -> Resul
         return Err(failure(StatusCode::CONFLICT, "linkedBackendUnsupported"));
     }
     if enabled(state, session).await? {
-        if let Some(revision) = revision {
-            memo::remember(key, revision);
+        if let Some(witness) = witness {
+            memo::remember(key, witness);
         }
         Ok(())
     } else {
@@ -136,11 +139,13 @@ async fn require_enabled(state: &AppState, session: &mw_store::Session) -> Resul
 }
 
 /// The per-session memo of a passed linking-policy check (t87, from t99's
-/// profile). An entry holds only while the store's settings revision is the
-/// one it was resolved under (migration 0078 bumps it in the same transaction
-/// as any settings write, from any process), so an admin change applies to the
-/// next request, including changes to its verified principal binding;
-/// [`memo::TTL`] also bounds retention.
+/// profile). An entry holds only while the session's witness is the one it was
+/// resolved under: the settings revision (bumped in the same transaction as
+/// any settings write, from any process) and the session's own 0111 identity
+/// epochs (bumped in the same transaction as any write to its
+/// session_principal row, its principal or its bindings),
+/// so an admin change or a change to its verified principal binding applies to
+/// the next request; [`memo::TTL`] also bounds retention.
 pub(crate) mod memo {
     use std::collections::HashMap;
     use std::sync::Mutex;
@@ -169,23 +174,27 @@ pub(crate) mod memo {
         }
     }
 
+    /// `(settings revision, session identity epochs)`, see
+    /// `Store::session_identity_witness`.
+    pub(crate) type Witness = (i64, String);
+
     struct Entry {
-        revision: i64,
+        witness: Witness,
         at: Instant,
     }
     static PASSED: Mutex<Option<HashMap<Key, Entry>>> = Mutex::new(None);
     static RESOLUTIONS: AtomicU64 = AtomicU64::new(0);
 
-    fn fresh(entry: &Entry, revision: i64, now: Instant) -> bool {
-        entry.revision == revision && now.duration_since(entry.at) < TTL
+    fn fresh(entry: &Entry, witness: &Witness, now: Instant) -> bool {
+        entry.witness == *witness && now.duration_since(entry.at) < TTL
     }
 
-    pub(crate) fn passed(key: &Key, revision: i64) -> bool {
+    pub(crate) fn passed(key: &Key, witness: &Witness) -> bool {
         let now = Instant::now();
         let mut guard = PASSED.lock().unwrap_or_else(|e| e.into_inner());
         let map = guard.get_or_insert_with(HashMap::new);
         match map.get(key) {
-            Some(entry) if fresh(entry, revision, now) => true,
+            Some(entry) if fresh(entry, witness, now) => true,
             Some(_) => {
                 map.remove(key);
                 false
@@ -194,19 +203,19 @@ pub(crate) mod memo {
         }
     }
 
-    /// Keep a pass resolved under `revision` (read BEFORE resolving, so a
+    /// Keep a pass resolved under `witness` (read BEFORE resolving, so a
     /// write that raced the resolution leaves the entry already stale).
-    pub(crate) fn remember(key: Key, revision: i64) {
+    pub(crate) fn remember(key: Key, witness: Witness) {
         let now = Instant::now();
         let mut guard = PASSED.lock().unwrap_or_else(|e| e.into_inner());
         let map = guard.get_or_insert_with(HashMap::new);
         if map.len() >= CAPACITY {
-            map.retain(|_, entry| fresh(entry, revision, now));
+            map.retain(|_, entry| fresh(entry, &witness, now));
             if map.len() >= CAPACITY {
                 map.clear();
             }
         }
-        map.insert(key, Entry { revision, at: now });
+        map.insert(key, Entry { witness, at: now });
     }
 
     /// Count a real resolution: here and as the Prometheus counter
@@ -237,28 +246,31 @@ pub(crate) mod memo {
         }
 
         #[test]
-        fn a_pass_is_kept_until_a_settings_write_or_the_ttl() {
-            let revision = 7;
-            remember(key("memo-a"), revision);
-            assert!(passed(&key("memo-a"), revision));
-            assert!(!passed(&key("memo-other"), revision));
+        fn a_pass_is_kept_until_a_settings_write_an_identity_change_or_the_ttl() {
+            let witness = (7, "session-epoch-1".to_owned());
+            remember(key("memo-a"), witness.clone());
+            assert!(passed(&key("memo-a"), &witness));
+            assert!(!passed(&key("memo-other"), &witness));
             // A settings write moved the revision.
-            assert!(!passed(&key("memo-a"), revision + 1));
-            remember(key("memo-a"), revision);
+            assert!(!passed(&key("memo-a"), &(8, witness.1.clone())));
+            remember(key("memo-a"), witness.clone());
+            // This session's identity epoch moved (0111), the revision did not.
+            assert!(!passed(&key("memo-a"), &(7, "session-epoch-2".to_owned())));
+            remember(key("memo-a"), witness.clone());
             // Another URL pair is another key (a domain refresh changed it).
             let mut moved = key("memo-a");
             moved.jmap_url = "https://jmap.example".into();
-            assert!(!passed(&moved, revision));
+            assert!(!passed(&moved, &witness));
             // Another store is another key.
             let mut elsewhere = key("memo-a");
             elsewhere.store = uuid::Uuid::from_u128(2);
-            assert!(!passed(&elsewhere, revision));
+            assert!(!passed(&elsewhere, &witness));
             // The TTL.
             let old = Entry {
-                revision,
+                witness: witness.clone(),
                 at: Instant::now() - TTL - Duration::from_millis(1),
             };
-            assert!(!fresh(&old, revision, Instant::now()));
+            assert!(!fresh(&old, &witness, Instant::now()));
         }
     }
 }

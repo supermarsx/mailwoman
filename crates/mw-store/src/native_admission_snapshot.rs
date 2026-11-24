@@ -271,7 +271,8 @@ impl NativeAdmissionSnapshot {
         let Some(account)=self.account()? else {return Ok(false);};
         let id=text(row,"id")?;let owner=text(row,"account_id")?;let username=text(row,"username")?;
         let jmap=text(row,"jmap_url")?;let api=text(row,"api_url")?;
-        let witness=store.primary_policy_witness_from_parts([&id,&owner,&username,&jmap,&api],&row.get_blob("sealed_creds"),Some(account.kind.as_str()),self.revision(store)?.number());
+        let identity=self.principal()?;
+        let witness=store.primary_policy_witness_from_parts([&id,&owner,&username,&jmap,&api],&row.get_blob("sealed_creds"),Some(account.kind.as_str()),identity.as_ref(),self.revision(store)?.number());
         Ok(expected.matches(&witness))
     }
     pub fn revision(&self, store: &Store) -> Result<SettingsReadRevision, StoreError> {

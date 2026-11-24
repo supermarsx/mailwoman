@@ -279,38 +279,41 @@ async fn geography_write_is_seen_by_the_next_request(fixture: &Fixture) {
     assert_eq!(status, StatusCode::OK, "{}: {body}", fixture.label);
 }
 
-/// The four key-value guard inputs do not bump `settings_revision`, so they
-/// are NOT memoised by it: each request still reads them, and a write through
-/// the second handle is seen by the very next request.
-async fn key_value_guard_inputs_do_not_bump_the_revision(fixture: &Fixture) {
+/// Migration 0123: the four key-value guard inputs bump `settings_revision`
+/// when their value changes (an unchanged rewrite does not), so they can be
+/// memoised by it; a write through the second handle is seen by the very next
+/// request.
+async fn key_value_guard_inputs_bump_the_revision(fixture: &Fixture) {
     let (status, body, _) = fixture.send(fixture.me()).await;
     assert_eq!(status, StatusCode::OK, "{}: {body}", fixture.label);
-    let before = fixture.writer.settings_revision().await.unwrap();
-    // Rewrites of the current (or empty) values: no behaviour change.
     for (key, empty) in [
         ("security.inbound-allowlist.v1", None),
         ("security.clientAccess.v1", None),
         ("v6:admin:bans", Some("[]")),
     ] {
-        let current = fixture.writer.get_setting(key).await.unwrap();
-        let Some(value) = current.as_deref().or(empty) else { continue };
-        fixture.writer.set_setting(key, value).await.unwrap();
-        assert_eq!(
-            fixture.writer.settings_revision().await.unwrap(),
-            before,
-            "{}: a {key} write now bumps settings_revision; it could then be memoised",
-            fixture.label
-        );
+        // Rewrite of the current value: no behaviour change, no bump.
+        if let Some(current) = fixture.writer.get_setting(key).await.unwrap() {
+            let before = fixture.writer.settings_revision().await.unwrap();
+            fixture.writer.set_setting(key, &current).await.unwrap();
+            assert_eq!(fixture.writer.settings_revision().await.unwrap(), before,
+                "{}: an unchanged {key} rewrite bumped settings_revision", fixture.label);
+        } else if let Some(empty) = empty {
+            // First write of an empty value: an insert, which bumps.
+            let before = fixture.writer.settings_revision().await.unwrap().unwrap();
+            fixture.writer.set_setting(key, empty).await.unwrap();
+            assert_eq!(fixture.writer.settings_revision().await.unwrap(), Some(before + 1),
+                "{}: a {key} insert must bump settings_revision", fixture.label);
+        }
     }
+    let before = fixture.writer.settings_revision().await.unwrap().unwrap();
     fixture
         .writer
         .set_setting("maintenance.mode.v1", r#"{"enabled":true,"message":"","retryAfterSecs":60}"#)
         .await
         .unwrap();
-    assert_eq!(
-        fixture.writer.settings_revision().await.unwrap(),
-        before,
-        "{}: a maintenance.mode.v1 write now bumps settings_revision",
+    assert!(
+        fixture.writer.settings_revision().await.unwrap().unwrap() > before,
+        "{}: a maintenance.mode.v1 change must bump settings_revision",
         fixture.label
     );
     let (status, body, _) = fixture.send(fixture.me()).await;
@@ -363,7 +366,7 @@ fn sqlite_revision_preconditions_for_shared_guard_reads() {
         let db = sqlite_db();
         let fixture = Fixture::new(db.clone(), "sqlite-off").await;
         geography_write_is_seen_by_the_next_request(&fixture).await;
-        key_value_guard_inputs_do_not_bump_the_revision(&fixture).await;
+        key_value_guard_inputs_bump_the_revision(&fixture).await;
         let reader = Store::open(&db, ServerKey::generate()).await.unwrap();
         trust_policy_follows_the_request_revision(&reader, &fixture.writer, "sqlite").await;
     });
@@ -378,7 +381,7 @@ fn postgres_revision_preconditions_for_shared_guard_reads() {
     run_fixture(move || async move {
         let fixture = Fixture::new(url.clone(), "postgres").await;
         geography_write_is_seen_by_the_next_request(&fixture).await;
-        key_value_guard_inputs_do_not_bump_the_revision(&fixture).await;
+        key_value_guard_inputs_bump_the_revision(&fixture).await;
         let reader = Store::open(&url, ServerKey::generate()).await.unwrap();
         trust_policy_follows_the_request_revision(&reader, &fixture.writer, "postgres").await;
     });

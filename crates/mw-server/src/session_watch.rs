@@ -182,7 +182,8 @@ fn from_values(b:&sec_cfg::Values,t:&sec_cfg::Values,a:&sec_cfg::Values)->Config
 // `EpochMirror::globals_unchanged(G)` holds, `G` stamped strictly before the
 // reads. Those rows sit behind the settings revision (0078 triggers on
 // setting_policy / setting_value / personal_setting_value / user_group* /
-// feature_profile* / domain_alias / identity tables), which the 0115 change log
+// feature_profile* / domain_alias; 0123 the four guard keys of the key-value
+// settings table, and no longer the identity tables), which the 0115 change log
 // carries to the mirror; a local write through HTTP expedites the mirror
 // (request layer). The 0078 triggers are required definitions of published
 // inputs on SQLite, so a dropped one disqualifies published inputs and with it

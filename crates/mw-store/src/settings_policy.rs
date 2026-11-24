@@ -1934,29 +1934,29 @@ mod t87_read_memo {
     }
 
     #[tokio::test]
-    async fn revision_tracks_identity_changes_and_only_committed_writes() {
+    async fn revision_tracks_only_committed_settings_writes_not_identity_changes() {
         let s = Store::open_in_memory(ServerKey::generate()).await.unwrap();
         let initial = s.settings_revision().await.unwrap().unwrap();
-        let mut tx = s.backend.begin().await.unwrap();
+        // 0123: identity writes (sign-in, sign-out, principal state) no longer
+        // move the revision; see settings_revision_scope_tests.
         q("INSERT INTO identity_principal(id,state,created_at) VALUES('memo-identity','active',1)")
-            .execute_tx(&mut tx)
+            .execute(&s.backend)
             .await
             .unwrap();
-        tx.commit().await.unwrap();
-        assert!(s.settings_revision().await.unwrap().unwrap() > initial);
-        let committed = s.settings_revision().await.unwrap();
-        let mut tx = s.backend.begin().await.unwrap();
-        q("UPDATE identity_principal SET state='disabled' WHERE id='memo-identity'")
-            .execute_tx(&mut tx)
-            .await
-            .unwrap();
-        drop(tx);
-        assert_eq!(s.settings_revision().await.unwrap(), committed);
         q("UPDATE identity_principal SET state='disabled' WHERE id='memo-identity'")
             .execute(&s.backend)
             .await
             .unwrap();
-        assert!(s.settings_revision().await.unwrap() > committed);
+        assert_eq!(s.settings_revision().await.unwrap().unwrap(), initial);
+        let insert = "INSERT INTO setting_policy(key,global_value,allow_user_override,global_locked,updated_by,updated_at) VALUES('memo.revision','1',0,0,'t',1)";
+        let mut tx = s.backend.begin().await.unwrap();
+        q(insert).execute_tx(&mut tx).await.unwrap();
+        drop(tx);
+        assert_eq!(s.settings_revision().await.unwrap().unwrap(), initial, "rolled back");
+        let mut tx = s.backend.begin().await.unwrap();
+        q(insert).execute_tx(&mut tx).await.unwrap();
+        tx.commit().await.unwrap();
+        assert!(s.settings_revision().await.unwrap().unwrap() > initial, "committed");
     }
 
     #[tokio::test]
@@ -2041,3 +2041,7 @@ mod native_admission_warm_policy;
 
 #[path = "settings_publication.rs"]
 mod publication;
+
+#[cfg(test)]
+#[path = "settings_revision_scope_tests.rs"]
+mod settings_revision_scope_tests;

@@ -1024,6 +1024,51 @@ async fn the_linking_policy_is_resolved_once_and_a_settings_change_applies_at_on
     assert!(spent <= 5, "{spent} resolutions for 5 linked requests");
     assert_eq!(spent, 0, "a warm linked request resolves nothing");
 
+    // 0123: another session of the same user is created, bound to a verified
+    // principal and deleted again (what sign-in and sign-out do to the identity
+    // tables), through a second Store handle: neither the global settings
+    // revision nor this session's pass moves. (An HTTP sign-in from a new
+    // device also stores sign-in notices as personal settings, which do move
+    // the revision; that is settings data, not the identity half.)
+    let revision = || async { store(&f.db).await.settings_revision().await.unwrap() };
+    let start = revision().await;
+    let writer = store(&f.db).await;
+    let credentials = mw_store::Credentials { username: "parent@example.org".into(), password: PARENT_PASS.into() };
+    let other = writer.create_session(&f.parent_account, "parent@example.org", "engine", "engine", &credentials).await.unwrap();
+    writer.set_session_authentication(&other, "password").await.unwrap();
+    writer
+        .bind_verified_primary(
+            &other,
+            mw_store::identity_principal::VerifiedPrimary { account_id: &f.parent_account, kind: "mailbox", authority: "t87-other-device", subject: &f.parent_account },
+            chrono::Utc::now().timestamp(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    writer.delete_session(&other).await.unwrap();
+    assert_eq!(revision().await, start, "session churn moved the settings revision");
+    let before = resolutions();
+    json_of(me().send().await.unwrap(), 200).await;
+    assert_eq!(resolutions() - before, 0, "another session's churn ended this pass");
+
+    // A change to THIS user's verified identity, written through a second
+    // Store handle (no settings write, revision unchanged): the very next
+    // linked request resolves the policy again.
+    let changed = sqlx::query("UPDATE session_principal SET auth_time=auth_time+1 WHERE primary_account_id=?1")
+        .bind(&f.parent_account)
+        .execute(&sqlx::sqlite::SqlitePoolOptions::new().max_connections(1)
+            .connect_with(mw_store::encryption::connect_options(std::path::Path::new(&f.db),
+                mw_store::encryption::global().unwrap().key_for_open(std::path::Path::new(&f.db)).unwrap(), false))
+            .await.unwrap())
+        .await
+        .unwrap()
+        .rows_affected();
+    assert!(changed >= 1, "the parent's session is bound");
+    assert_eq!(writer.settings_revision().await.unwrap(), start, "identity write moved the revision");
+    let before = resolutions();
+    json_of(me().send().await.unwrap(), 200).await;
+    assert!(resolutions() - before >= 1, "an identity change of this session must end its pass");
+
     // An admin turns linking off: the very next linked request is refused.
     policy(&f.db, "accounts.linkingEnabled", "false").await;
     let (status, body) = status_and_body(me()).await;

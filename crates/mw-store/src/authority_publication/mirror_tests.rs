@@ -913,7 +913,7 @@ async fn pg_disabled_dropped_or_replaced_required_definitions_change_the_stamp()
     assert!(
         required
             .iter()
-            .any(|(name, _)| name == "settings_revision_session_principal")
+            .any(|(name, _)| name == "settings_revision_setting_policy")
     );
     assert!(
         required
@@ -952,7 +952,8 @@ async fn pg_disabled_dropped_or_replaced_required_definitions_change_the_stamp()
     // DROP of a 0120 trigger and of a 0078 trigger.
     for (name, table) in [
         ("authority_change_log_epoch", "authority_epoch"),
-        ("settings_revision_session_principal", "session_principal"),
+        // 0123 retired the identity-table ones; a remaining 0078 trigger.
+        ("settings_revision_setting_policy", "setting_policy"),
     ] {
         let base = pg.stamp().await;
         pg.exec(&format!("DROP TRIGGER {name} ON {table}")).await;

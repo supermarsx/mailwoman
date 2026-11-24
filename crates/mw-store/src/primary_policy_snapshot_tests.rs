@@ -87,7 +87,7 @@ async fn independent_writer_changes_all_policy_namespaces_without_changing_sessi
         .await
         .unwrap();
     let id = seed(&writer).await;
-    // Every statement writes a real dependency covered by migration0078.
+    // Every statement writes a real dependency covered by migration 0078.
     let mutations = [
         "INSERT INTO setting_policy(key,global_value,allow_user_override,global_locked,updated_by,updated_at) VALUES('access.protocols','[\"imap\"]',0,1,'test',1)",
         "INSERT INTO user_group(id,name,domain,source,created_at) VALUES('g','group','example.test','manual',1)",
@@ -95,8 +95,6 @@ async fn independent_writer_changes_all_policy_namespaces_without_changing_sessi
         "INSERT INTO feature_profile(id,name,values_json,builtin,updated_at) VALUES('fp','profile','{}',0,1)",
         "INSERT INTO feature_profile_assignment(scope_kind,scope_id,profile_id,priority) VALUES('user','account-one','fp',1)",
         "INSERT INTO domain_alias(alias,domain) VALUES('alias.test','example.test')",
-        "INSERT INTO identity_principal(id,state,created_at) VALUES('principal','active',1)",
-        "INSERT INTO identity_binding(id,principal_id,kind,authority,subject,created_at) VALUES('binding','principal','mailbox','fixture','one',1)",
     ];
     for (index, sql) in mutations.into_iter().enumerate() {
         let before = reader.primary_session_policy_snapshot(&id).await.unwrap();
@@ -109,12 +107,26 @@ async fn independent_writer_changes_all_policy_namespaces_without_changing_sessi
         assert_eq!(before.session.username, after.session.username);
         assert_eq!(before.session.credentials, after.session.credentials);
     }
+    // 0123: identity writes no longer move the settings revision. A principal
+    // and binding that this session is not bound to leave its witness alone.
+    for sql in [
+        "INSERT INTO identity_principal(id,state,created_at) VALUES('principal','active',1)",
+        "INSERT INTO identity_binding(id,principal_id,kind,authority,subject,created_at) VALUES('binding','principal','mailbox','fixture','one',1)",
+    ] {
+        let before = reader.primary_session_policy_snapshot(&id).await.unwrap();
+        q(sql).execute(&writer.backend).await.unwrap();
+        let after = reader.primary_session_policy_snapshot(&id).await.unwrap();
+        assert!(before.witness.matches(&after.witness), "{sql}");
+    }
+    // Binding THIS session, and every later change to its identity row, does.
     let before = reader.primary_session_policy_snapshot(&id).await.unwrap();
     q("INSERT INTO session_principal(session_id,principal_id,binding_id,primary_account_id,auth_time,authentication_method) VALUES(?1,'principal','binding','account-one',1,'password')").bind(&id).execute(&writer.backend).await.unwrap();
     let after = reader.primary_session_policy_snapshot(&id).await.unwrap();
     assert!(!before.witness.matches(&after.witness));
     for sql in [
         "UPDATE session_principal SET auth_time=2",
+        "UPDATE session_principal SET authentication_method='passkey'",
+        "UPDATE identity_binding SET kind='sso'",
         "UPDATE identity_binding SET retired_at=2",
         "UPDATE identity_principal SET state='disabled'",
     ] {

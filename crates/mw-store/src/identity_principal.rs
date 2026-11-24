@@ -194,6 +194,41 @@ impl Store {
         }))
     }
 
+    /// Validator for a per-session memo of a check that reads settings and this
+    /// session's verified identity (the linked-accounts pass memo), in ONE
+    /// statement: the settings revision (settings tables, 0078/0123) and the
+    /// 0111 authority epochs of the session (its session_principal row and the
+    /// session's own columns) and of its principal (identity_principal state and
+    /// every identity_binding of it). Since 0123 identity writes no longer move
+    /// the revision; these epochs carry them instead. Not the account epoch:
+    /// sessions bump it on every sign-in of the same user, and the check only
+    /// needs the account to exist, which an account delete ends through the
+    /// session cascade (session epoch).
+    /// `None` when the revision row is missing (memos stay off).
+    pub async fn session_identity_witness(
+        &self,
+        session: &str,
+    ) -> Result<Option<(i64, String)>, StoreError> {
+        let row = q("SELECT r.n AS revision,COALESCE(es.incarnation||':'||CAST(es.version AS TEXT),'-') AS session_epoch,COALESCE(sp.principal_id,'') AS principal_id,COALESCE(ep.incarnation||':'||CAST(ep.version AS TEXT),'-') AS principal_epoch FROM (SELECT 1) seed LEFT JOIN settings_revision r ON r.id=1 LEFT JOIN session_principal sp ON sp.session_id=?1 LEFT JOIN authority_epoch es ON es.scope_kind='session' AND es.scope_id=?1 LEFT JOIN authority_epoch ep ON ep.scope_kind='principal' AND ep.scope_id=sp.principal_id")
+            .bind(session)
+            .fetch_one(&self.backend)
+            .await?;
+        let Some(revision) = row.get_opt_i64("revision") else {
+            return Ok(None);
+        };
+        let part = |key: &str| row.get_opt_string(key).unwrap_or_default();
+        let witness = [
+            part("session_epoch"),
+            part("principal_id"),
+            part("principal_epoch"),
+        ]
+        .iter()
+        .map(|value| format!("{}:{value}", value.len()))
+        .collect::<Vec<_>>()
+        .join("|");
+        Ok(Some((revision, witness)))
+    }
+
     /// Only native engine/background callers with authoritative account access
     /// may use this adapter. Session routes must use session_personal_subject.
     pub async fn native_personal_subject(
