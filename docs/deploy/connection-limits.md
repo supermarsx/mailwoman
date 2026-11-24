@@ -119,6 +119,15 @@ What happens at each limit:
   `/healthz` and `/readyz` have their own pool of 8 and do not wait, so a full request
   pool does not delay them. A WebSocket counts as a request only until its `101`
   response.
+- **One client and the wait queue.** When trusted forwarding is configured
+  (`MW_FORWARDED_MODE` with `MW_TRUSTED_PROXIES`, or `MW_PROXY_PROTOCOL` `accept` or
+  `require` with trusted peers), one client address may hold at most
+  max(4, `MW_HTTP_REQUEST_QUEUE_MAX` / 16) places in the wait queue; a further
+  request from it is answered `503` at once while other clients can still wait. The
+  address is the one the server resolves for the request (the forwarded client
+  behind a trusted proxy). Without trusted forwarding the cap is off, because every
+  client behind a balancer would then share the balancer's address. Refusals are
+  counted as `refusedPerSource` in the HTTP admission check.
 - **Adaptive concurrency (off by default).** With
   `MW_HTTP_ADAPTIVE_CONCURRENCY=on`, the server measures how long each request
   takes until its response headers are ready. When the slowest tenth of the last 64

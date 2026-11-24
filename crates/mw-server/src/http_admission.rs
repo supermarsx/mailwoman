@@ -19,6 +19,14 @@
 //! * WebSocket upgrades take a request permit only until the `101` response; the
 //!   socket afterwards holds its connection permit and nothing in this module.
 //!
+//! * Per source: when trusted forwarding is configured (a forwarded-header mode
+//!   with trusted proxies, or the PROXY protocol with trusted peers), one client
+//!   address may hold at most max(4, queue / 16) places in the wait queue, so one
+//!   client cannot fill it. Without trusted forwarding every client behind a
+//!   balancer would share the balancer's address, so the cap is off then. The
+//!   address is resolved as `proxy::client_ip` does (`scope_mw::proxy::resolve` with the
+//!   same configuration).
+//!
 //! Console values (`server.http.*`) are re-read when the settings revision
 //! changes; the revision is checked at most once a second, prompted by arriving
 //! requests (no timer). Sizes change without cutting off work in progress
@@ -101,6 +109,8 @@ pub enum Refusal {
     Streams,
     /// The probe pool was full.
     Probes,
+    /// This client address already holds its share of the wait queue.
+    PerSource,
 }
 
 #[derive(Default)]
@@ -113,6 +123,7 @@ struct Counters {
     refused_queue_full: AtomicU64,
     refused_streams: AtomicU64,
     refused_probes: AtomicU64,
+    refused_per_source: AtomicU64,
     connections_refused: AtomicU64,
 }
 
@@ -142,6 +153,30 @@ pub struct Admission {
     checking: AtomicBool,
     /// The settings revision the console values were read at (`i64::MIN` = never).
     revision: Mutex<Option<Option<i64>>>,
+    /// Trusted forwarding, when configured: the per-source wait cap is on.
+    forwarding: Option<crate::scope_mw::proxy::ProxyConfig>,
+    /// Places each client address holds in the wait queue (only addresses with at
+    /// least one; at most `queue_max` entries).
+    per_source: Mutex<std::collections::HashMap<std::net::IpAddr, usize>>,
+}
+
+/// Trusted forwarding from the environment: a forwarded-header mode with trusted
+/// proxies, or the PROXY protocol (`accept`/`require`) with trusted peers.
+pub fn trusted_forwarding() -> Option<crate::scope_mw::proxy::ProxyConfig> {
+    let config = crate::scope_mw::proxy::ProxyConfig::from_env();
+    let proxy_protocol = std::env::var("MW_PROXY_PROTOCOL").is_ok_and(|mode| {
+        matches!(
+            mode.trim().to_ascii_lowercase().as_str(),
+            "accept" | "require"
+        )
+    });
+    let forwarded = config.mode != crate::scope_mw::proxy::ForwardedMode::Off;
+    ((forwarded || proxy_protocol) && !config.trusted.is_empty()).then_some(config)
+}
+
+/// The per-source share of a wait queue of `queue_max`: max(4, queue_max / 16).
+pub fn per_source_cap(queue_max: usize) -> usize {
+    (queue_max / 16).max(4)
 }
 
 /// A held admission; the slot frees when this drops (with the response body).
@@ -166,15 +201,28 @@ fn metric(outcome: &'static str) {
 
 impl Admission {
     pub fn new(limits: &HttpLimits) -> Arc<Self> {
-        Self::build(limits, None)
+        Self::build(limits, None, trusted_forwarding())
+    }
+
+    /// With fixed trusted-forwarding settings (tests).
+    pub fn with_forwarding(
+        limits: &HttpLimits,
+        admin_path: String,
+        forwarding: Option<crate::scope_mw::proxy::ProxyConfig>,
+    ) -> Arc<Self> {
+        Self::build(limits, Some(admin_path), forwarding)
     }
 
     /// With a fixed admin path (tests).
     pub fn with_admin_path(limits: &HttpLimits, admin_path: String) -> Arc<Self> {
-        Self::build(limits, Some(admin_path))
+        Self::build(limits, Some(admin_path), None)
     }
 
-    fn build(limits: &HttpLimits, admin_path: Option<String>) -> Arc<Self> {
+    fn build(
+        limits: &HttpLimits,
+        admin_path: Option<String>,
+        forwarding: Option<crate::scope_mw::proxy::ProxyConfig>,
+    ) -> Arc<Self> {
         let (live, sources) = live::resolve(limits, &Console::default());
         let admission = Arc::new(Self {
             limits: *limits,
@@ -202,6 +250,8 @@ impl Admission {
             next_check_ms: AtomicU64::new(0),
             checking: AtomicBool::new(false),
             revision: Mutex::new(None),
+            forwarding,
+            per_source: Mutex::new(std::collections::HashMap::new()),
         });
         admission.apply(Console::default());
         admission
@@ -358,6 +408,30 @@ impl Admission {
         sampled: bool,
         path: &str,
     ) -> Result<Lease, Refusal> {
+        self.admit_from(pool, sampled, path, None, &axum::http::HeaderMap::new())
+            .await
+    }
+
+    /// The client address a request is charged to in the wait queue, when the
+    /// per-source cap is on: `proxy::resolve` with the trusted-forwarding settings.
+    pub fn source_of(
+        &self,
+        peer: Option<std::net::IpAddr>,
+        headers: &axum::http::HeaderMap,
+    ) -> Option<std::net::IpAddr> {
+        let config = self.forwarding.as_ref()?;
+        Some(crate::scope_mw::proxy::resolve(config, peer?.to_canonical(), headers))
+    }
+
+    /// [`Self::admit`] for a request from `peer` with `headers`.
+    pub async fn admit_from(
+        self: &Arc<Self>,
+        pool: Pool,
+        sampled: bool,
+        path: &str,
+        peer: Option<std::net::IpAddr>,
+        headers: &axum::http::HeaderMap,
+    ) -> Result<Lease, Refusal> {
         self.maybe_refresh();
         match pool {
             Pool::Streams => {
@@ -424,6 +498,41 @@ impl Admission {
             }
         }
         let _slot = Waiting(&self.waiting);
+        // One client address may hold only its share of the queue.
+        struct Share<'a>(
+            &'a Mutex<std::collections::HashMap<std::net::IpAddr, usize>>,
+            std::net::IpAddr,
+        );
+        impl Drop for Share<'_> {
+            fn drop(&mut self) {
+                let mut map = self.0.lock().unwrap_or_else(|p| p.into_inner());
+                if let Some(n) = map.get_mut(&self.1) {
+                    *n -= 1;
+                    if *n == 0 {
+                        map.remove(&self.1);
+                    }
+                }
+            }
+        }
+        let _share = match self.source_of(peer, headers) {
+            Some(source) => {
+                let cap = per_source_cap(self.queue_max.load(Ordering::Relaxed));
+                let mut map = self.per_source.lock().unwrap_or_else(|p| p.into_inner());
+                let held = map.entry(source).or_insert(0);
+                if *held >= cap {
+                    drop(map);
+                    self.counters
+                        .refused_per_source
+                        .fetch_add(1, Ordering::Relaxed);
+                    metric("refused_per_source");
+                    return Err(Refusal::PerSource);
+                }
+                *held += 1;
+                drop(map);
+                Some(Share(&self.per_source, source))
+            }
+            None => None,
+        };
         let started = Instant::now();
         match tokio::time::timeout(queue_wait, self.requests.acquire()).await {
             Ok(Ok(permit)) => {
@@ -501,6 +610,8 @@ impl Admission {
             "refusedOnFullQueue": load(&c.refused_queue_full),
             "refusedStreams": load(&c.refused_streams),
             "refusedProbes": load(&c.refused_probes),
+            "refusedPerSource": load(&c.refused_per_source),
+            "perSourceCap": self.forwarding.as_ref().map(|_| per_source_cap(self.queue_max.load(Ordering::Relaxed))),
             "connectionsRefused": load(&c.connections_refused),
             "waitingNow": self.waiting(),
             "inFlight": self.inflight.load(Ordering::Relaxed),

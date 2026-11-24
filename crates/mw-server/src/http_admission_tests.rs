@@ -297,3 +297,118 @@ async fn adaptive_off_has_no_state_and_samples_nothing() {
     assert!(admission.adaptive_limit().is_none());
     assert!(admission.snapshot()["adaptive"].is_null());
 }
+
+#[tokio::test]
+async fn with_trusted_forwarding_one_client_holds_at_most_its_share_of_the_queue() {
+    let forwarding = crate::scope_mw::proxy::ProxyConfig::new(crate::scope_mw::proxy::ForwardedMode::Xff, "10.0.0.0/8");
+    let admission = Admission::with_forwarding(
+        &HttpLimits {
+            requests: 1,
+            queue_wait: Duration::from_secs(2),
+            queue_max: 64,
+            ..HttpLimits::default()
+        },
+        "/ops-7f".into(),
+        Some(forwarding),
+    );
+    assert_eq!(per_source_cap(64), 4);
+    let held = admission.admit(Pool::Requests, true, "/x").await.unwrap();
+    let proxy: std::net::IpAddr = "10.0.0.5".parse().unwrap();
+    let from = |client: &str| {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("x-forwarded-for", client.parse().unwrap());
+        headers
+    };
+    let mut waiters = Vec::new();
+    for _ in 0..4 {
+        let admission = admission.clone();
+        let headers = from("203.0.113.7");
+        waiters.push(tokio::spawn(async move {
+            admission
+                .admit_from(Pool::Requests, true, "/x", Some(proxy), &headers)
+                .await
+                .map(drop)
+        }));
+    }
+    while admission.waiting() < 4 {
+        tokio::task::yield_now().await;
+    }
+    // The fifth from the same client is refused at once ...
+    assert_eq!(
+        admission
+            .admit_from(
+                Pool::Requests,
+                true,
+                "/x",
+                Some(proxy),
+                &from("203.0.113.7")
+            )
+            .await
+            .err(),
+        Some(Refusal::PerSource)
+    );
+    assert_eq!(count(&admission, "refusedPerSource"), 1);
+    // ... while another client still gets a place, and is served in turn.
+    let other = {
+        let admission = admission.clone();
+        let headers = from("198.51.100.9");
+        tokio::spawn(async move {
+            admission
+                .admit_from(Pool::Requests, true, "/x", Some(proxy), &headers)
+                .await
+                .map(drop)
+        })
+    };
+    while admission.waiting() < 5 {
+        tokio::task::yield_now().await;
+    }
+    drop(held);
+    for waiter in waiters {
+        waiter.await.unwrap().unwrap();
+    }
+    other.await.unwrap().unwrap();
+    assert!(
+        admission.per_source.lock().unwrap().is_empty(),
+        "entries leave with their waiters"
+    );
+}
+
+#[tokio::test]
+async fn without_trusted_forwarding_there_is_no_per_source_cap() {
+    let admission = Admission::with_forwarding(
+        &HttpLimits {
+            requests: 1,
+            queue_wait: Duration::from_secs(2),
+            queue_max: 64,
+            ..HttpLimits::default()
+        },
+        "/ops-7f".into(),
+        None,
+    );
+    let held = admission.admit(Pool::Requests, true, "/x").await.unwrap();
+    let peer: std::net::IpAddr = "203.0.113.7".parse().unwrap();
+    let mut waiters = Vec::new();
+    for _ in 0..6 {
+        let admission = admission.clone();
+        waiters.push(tokio::spawn(async move {
+            admission
+                .admit_from(
+                    Pool::Requests,
+                    true,
+                    "/x",
+                    Some(peer),
+                    &axum::http::HeaderMap::new(),
+                )
+                .await
+                .map(drop)
+        }));
+    }
+    while admission.waiting() < 6 {
+        tokio::task::yield_now().await;
+    }
+    assert!(admission.snapshot()["perSourceCap"].is_null());
+    drop(held);
+    for waiter in waiters {
+        waiter.await.unwrap().unwrap();
+    }
+}
