@@ -137,9 +137,11 @@ async fn journal_email_set_returns_before_index_commit_and_fenced_query_waits_fo
     entered(&hold).await;
     assert!(!doc_keywords(&f).contains(&"$seen".to_owned()), "index not yet published: the ack really was early");
     assert!(f.engine.index_publication_journal_rows().await.unwrap() >= 1, "the SQL commit wrote the durable journal row");
-    // A read that starts now must wait for the pending publication.
+    // A read of the index that starts now must wait for the pending
+    // publication. (A metadata-only query is answered from SQL since
+    // t50hp-e31 and needs no fence; the text term makes this one index-backed.)
     let engine = &f.engine;
-    let read = jmap(engine, &f.account, json!([query_call(json!({"hasKeyword": "$seen"}))]));
+    let read = jmap(engine, &f.account, json!([query_call(json!({"hasKeyword": "$seen", "text": "uniquejournalbody"}))]));
     tokio::pin!(read);
     assert!(tokio::time::timeout(Duration::from_millis(100), &mut read).await.is_err(), "fenced read must not answer from the stale index");
     hold.release.notify_one();
@@ -189,14 +191,14 @@ async fn journal_per_account_publications_apply_in_order_and_latest_source_wins(
     }
     assert_eq!(f.engine.index_publication_status().queued_jobs, 2);
     let engine = &f.engine;
-    let read = jmap(engine, &f.account, json!([query_call(json!({"hasKeyword": "$flagged"}))]));
+    let read = jmap(engine, &f.account, json!([query_call(json!({"hasKeyword": "$flagged", "text": "uniquejournalbody"}))]));
     tokio::pin!(read);
     assert!(tokio::time::timeout(Duration::from_millis(50), &mut read).await.is_err());
     hold.release.notify_one();
     let read = tokio::time::timeout(Duration::from_secs(5), read).await.unwrap();
     assert_eq!(ids_of(&read[0]), vec![f.id.clone()]);
-    let seen = jmap(&f.engine, &f.account, json!([query_call(json!({"hasKeyword": "$seen"}))])).await;
-    assert!(ids_of(&seen[0]).is_empty(), "the last write (unseen) is what the index shows");
+    let seen = jmap(&f.engine, &f.account, json!([query_call(json!({"hasKeyword": "$seen", "text": "uniquejournalbody"}))])).await;
+    assert!(ids_of(&seen[0]).is_empty(), "the last write (unseen) is what the query shows");
     let keywords = doc_keywords(&f);
     assert!(keywords.contains(&"$flagged".to_owned()) && !keywords.contains(&"$seen".to_owned()), "{keywords:?}");
     assert_eq!(f.engine.index_publication_journal_rows().await.unwrap(), 0);
@@ -209,15 +211,19 @@ async fn journal_fence_timeout_is_an_error_never_a_stale_result() {
     let set = jmap(&f.engine, &f.account, json!([set_call(&f.id, json!({"keywords/$seen": true}))])).await;
     updated(&set[0], &f.id);
     entered(&hold).await;
-    let read = jmap(&f.engine, &f.account, json!([query_call(json!({"hasKeyword": "$seen"}))])).await;
+    let read = jmap(&f.engine, &f.account, json!([query_call(json!({"hasKeyword": "$seen", "text": "uniquejournalbody"}))])).await;
     assert_eq!(read[0][0], "error", "{read:?}");
     assert_eq!(read[0][1]["type"], "serverFail", "{read:?}");
     assert_eq!(f.engine.index_publication_status().read_fence_timeouts, 1);
     // SQL-only listing is unaffected by the fence.
     let listing = jmap(&f.engine, &f.account, json!([query_call(json!({"inMailbox": f.inbox}))])).await;
     assert_eq!(ids_of(&listing[0]), vec![f.id.clone()]);
+    // So is a metadata-only query since t50hp-e31 (SQL, already current).
+    let metadata = jmap(&f.engine, &f.account, json!([query_call(json!({"hasKeyword": "$seen"}))])).await;
+    assert_eq!(ids_of(&metadata[0]), vec![f.id.clone()]);
+    assert_eq!(f.engine.index_publication_status().read_fence_timeouts, 1);
     hold.release.notify_one();
-    let read = jmap(&f.engine, &f.account, json!([query_call(json!({"hasKeyword": "$seen"}))])).await;
+    let read = jmap(&f.engine, &f.account, json!([query_call(json!({"hasKeyword": "$seen", "text": "uniquejournalbody"}))])).await;
     assert_eq!(ids_of(&read[0]), vec![f.id.clone()]);
 }
 
@@ -354,7 +360,7 @@ async fn publisher_failure_keeps_rows_refuses_reads_and_recovers() {
     })));
     let set = jmap(&f.engine, &f.account, json!([set_call(&f.id, json!({"keywords/$flagged": true}))])).await;
     updated(&set[0], &f.id);
-    let read = jmap(&f.engine, &f.account, json!([query_call(json!({"hasKeyword": "$flagged"}))])).await;
+    let read = jmap(&f.engine, &f.account, json!([query_call(json!({"hasKeyword": "$flagged", "text": "uniquejournalbody"}))])).await;
     assert_eq!(read[0][1]["type"], "serverFail", "poisoned publication must refuse, not serve stale: {read:?}");
     let status = f.engine.index_publication_status();
     assert!(status.poisoned && status.read_fence_refusals >= 1, "{status:?}");
@@ -362,7 +368,7 @@ async fn publisher_failure_keeps_rows_refuses_reads_and_recovers() {
     f.engine.set_publication_test_hook(None);
     posture.0.store(false, Ordering::Release);
     f.engine.recover_index_publication().await.unwrap();
-    let read = jmap(&f.engine, &f.account, json!([query_call(json!({"hasKeyword": "$flagged"}))])).await;
+    let read = jmap(&f.engine, &f.account, json!([query_call(json!({"hasKeyword": "$flagged", "text": "uniquejournalbody"}))])).await;
     assert_eq!(ids_of(&read[0]), vec![f.id.clone()]);
     f.engine.index_publisher.sweep_for_test(i64::MAX).await;
     assert_eq!(f.store.index_journal_len().await.unwrap(), 0);
@@ -508,6 +514,9 @@ async fn concurrent_read_after_write_for_one_account_never_times_out() {
         });
     }
     while let Some(done) = tasks.join_next().await { done.unwrap(); }
+    // The flag queries above are answered from SQL since t50hp-e31 and do not
+    // wait for publication; wait for it here before counting journal rows.
+    engine.index_read_fence(&account).await.unwrap();
     let status = engine.index_publication_status();
     assert_eq!((status.read_fence_timeouts, status.read_fence_refusals), (0, 0), "{status:?}");
     assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
@@ -588,7 +597,7 @@ async fn journal_mode_back_to_back_mutations_racing_publication_do_not_poison_th
     let seen = store.get_message(&id).await.unwrap().flags_json.contains("Seen");
     let read = jmap(&engine, &account, json!([query_call(json!({"hasKeyword": "$seen"}))])).await;
     assert_eq!(ids_of(&read[0]).contains(&id), seen, "{read:?}");
-    let flagged = jmap(&engine, &account, json!([query_call(json!({"hasKeyword": "$flagged"}))])).await;
+    let flagged = jmap(&engine, &account, json!([query_call(json!({"hasKeyword": "$flagged", "text": "uniquejournalbody"}))])).await;
     assert_eq!(ids_of(&flagged[0]), vec![id.clone()]);
     assert_eq!(store.index_journal_len().await.unwrap(), 0);
 }

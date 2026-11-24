@@ -75,7 +75,11 @@ fn every_filter_field_has_its_route() {
             json!({"notKeyword": "$seen", "after": "2026-01-01T00:00:00Z", "maxSize": 9}),
             "R1",
         ),
-        (json!({"hasKeyword": "$seen", "notKeyword": "$seen"}), "R1"),
+        (
+            json!({"hasKeyword": "$seen", "notKeyword": "$seen"}),
+            "nothing",
+        ),
+        (json!({"text": "pinned:true pinned:false alpha"}), "nothing"),
         // With content: R3.
         (json!({"notKeyword": "$seen", "text": "alpha"}), "R3"),
         (json!({"hasKeyword": "work", "hasAttachment": true}), "R3"),
@@ -391,13 +395,26 @@ fn nested_metadata_is_rewritten_into_sql_nodes() {
         Some(1_767_225_600),
         "the date narrows the SQL side too"
     );
-    assert_eq!(nodes.len(), 2, "{nodes:?}");
+    assert_eq!(nodes.len(), 3, "the text AND is flattened: {nodes:?}");
     // assemble replaces metadata nodes in walk order.
     let mut metas = Vec::new();
     for n in &nodes {
         meta_nodes(n, &mut metas);
     }
     assert_eq!(metas, vec![&kw("$seen", false)]);
+    // In a one-folder query every nested SQL condition is narrowed to it.
+    let Route::Combined { nodes, .. } =
+        route(json!({"inMailbox": "inbox", "text": "is:unread OR from:x"}))
+    else {
+        panic!()
+    };
+    let mut narrowed = Vec::new();
+    meta_nodes(&nodes[0], &mut narrowed);
+    assert_eq!(
+        narrowed[0].in_mailboxes,
+        Some(vec!["inbox".to_owned()]),
+        "{nodes:?}"
+    );
     let resolved = vec![id_set(vec!["i1".into()])];
     let mut it = resolved.into_iter();
     let expr = assemble(&nodes[0], &mut it);
@@ -421,6 +438,20 @@ fn single_conditions_have_a_complement() {
         c.meta_leaves = 1;
     });
     assert_eq!(act.complement().unwrap().follow_up_active, Some(true));
+    // Within the query's folder: the complement keeps the folder.
+    let in_folder = conj(|c| {
+        c.keywords = vec!["a".into()];
+        c.in_mailboxes = Some(vec!["m".into()]);
+        c.meta_leaves = 1;
+    });
+    let complement = in_folder.complement().unwrap();
+    assert_eq!(
+        (
+            complement.not_keywords.clone(),
+            complement.in_mailboxes.clone()
+        ),
+        (vec!["a".to_owned()], Some(vec!["m".to_owned()]))
+    );
     for none in [
         conj(|c| {
             c.keywords = vec!["a".into(), "b".into()];
@@ -428,7 +459,7 @@ fn single_conditions_have_a_complement() {
         }),
         conj(|c| {
             c.keywords = vec!["a".into()];
-            c.in_mailboxes = Some(vec!["m".into()]);
+            c.not_in = vec!["m".into()];
             c.meta_leaves = 1;
         }),
         conj(|c| {

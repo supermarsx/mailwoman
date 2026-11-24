@@ -95,6 +95,9 @@ mod set_error_types_tests;
 #[cfg(test)]
 #[path = "query_differential_tests.rs"]
 mod query_differential_tests;
+#[cfg(test)]
+#[path = "query_plan_engine_tests.rs"]
+mod query_plan_engine_tests;
 
 /// Build the JMAP [`Session`](mw_jmap::Session) resource for a connected account,
 /// advertising core + mail + submission and pointing every URL back at us.
@@ -689,6 +692,9 @@ impl Engine {
             Err(QueryFail::InvalidFilter(message)) => {
                 return json!({"type":"invalidArguments","description":message});
             }
+            Err(QueryFail::Unsupported(message)) => {
+                return json!({"type":"unsupportedFilter","description":message});
+            }
             Err(QueryFail::Engine(e)) => return server_fail(&e),
         };
 
@@ -908,6 +914,43 @@ impl Engine {
             });
         }
 
+        // t50hp-e31: the metadata planner. A query of metadata conditions
+        // (keywords, pin, follow-up) with only folder/date/size conditions
+        // besides, in an order SQL keeps, is answered from the projection
+        // tables with the page in SQL (R1); everything else enumerates
+        // through `search_ids_ordered`, which plans it again with the owned
+        // folders. A saved-search folder keeps its two enumerations here.
+        if additional_filter.is_none()
+            && let Some(conjuncts) = crate::query_plan::filter_conjuncts(&filter, None)
+        {
+            let scope = match filter.in_mailbox.as_deref() {
+                Some(mb) => crate::query_plan::Scope::Folder(mb.to_owned()),
+                None => crate::query_plan::Scope::Account,
+            };
+            let semantic_on = filter.semantic.or(semantic) == Some(true);
+            match crate::query_plan::plan(&conjuncts, &scope, &sort, &tie_breakers, semantic_on)
+                .map_err(|m| QueryFail::Engine(EngineError::Protocol(m.into())))?
+            {
+                crate::query_plan::Route::Sql(conj, order) => {
+                    return self
+                        .sql_page(account_id, &conj, order, anchor, anchor_offset, position, sql_limit, want_total)
+                        .await;
+                }
+                crate::query_plan::Route::Nothing => {
+                    crate::query_plan::taken(crate::query_plan::Taken::Nothing);
+                    if anchor.is_some() {
+                        return Err(QueryFail::AnchorNotFound);
+                    }
+                    return Ok(QueryPage {
+                        ids: Vec::new(),
+                        position,
+                        total: want_total.then_some(0),
+                        total_truncated: false,
+                    });
+                }
+                crate::query_plan::Route::Index | crate::query_plan::Route::Combined { .. } => {}
+            }
+        }
         let mut hits = self.search_ids_ordered(account_id, &filter, sort, semantic, &tie_breakers).await?;
         if let Some(additional) = additional_filter
             && (additional.needs_search() || additional.in_mailbox_other_than.is_some())
@@ -952,10 +995,10 @@ impl Engine {
     ///
     /// `total` is `mailboxes.unread`, which 0122 made the exact count of the
     /// folder's cached rows without `Seen`, maintained in every row write's
-    /// transaction. For `limit: 1` the one id still comes from the index, as a
-    /// top-1 of the same query and order: the collector orders by (date, doc
-    /// address) for any limit, so its first hit is the first hit of the full
-    /// enumeration, and only that one stored document is loaded. `position`
+    /// transaction. For `limit: 1` the one id comes from SQL since t50hp-e31
+    /// (`message_state`, unread in the folder, folder-list order: the first
+    /// row the generic path, now R1, returns too); before, it was the index's
+    /// top-1 of the same query. `position`
     /// is 0 and nothing is truncated (above `MAX_HITS` the generic path, which
     /// withholds the total there, answers). `queryState` and the rest of the
     /// response are built by the caller exactly as for the generic page.
@@ -990,6 +1033,17 @@ impl Engine {
         }
         let ids = if limit == 0 || unread == 0 {
             Vec::new()
+        } else if !crate::query_plan::legacy() {
+            // t50hp-e31: the first unread id in folder-list order, from the
+            // projection (seen = the counter's rule, so it agrees with
+            // `total`); no index read.
+            self.projection_ready().await?;
+            let query = mw_store::message_projection::ProjectionQuery {
+                mailboxes: mw_store::message_projection::MailboxScope::In(std::slice::from_ref(&real.id)),
+                seen: Some(false),
+                ..mw_store::message_projection::ProjectionQuery::account(account_id)
+            };
+            self.store().projection_ids(&query, 1, 0).await?
         } else {
             self.index_read_fence(account_id).await?;
             // Ownership is established (the caller compared the folder's
@@ -1045,7 +1099,9 @@ impl Engine {
         match self.query_page(account_id, &unpaged).await {
             Ok(p) => Ok(p.ids),
             Err(QueryFail::Engine(e)) => Err(e),
-            Err(QueryFail::InvalidFilter(message)) => Err(EngineError::Protocol(message.into())),
+            Err(QueryFail::InvalidFilter(message)) | Err(QueryFail::Unsupported(message)) => {
+                Err(EngineError::Protocol(message.into()))
+            }
             // Unreachable: `anchor` was just removed.
             Err(QueryFail::AnchorNotFound) => Err(EngineError::Protocol(
                 "anchorNotFound from an unpaged query".into(),
@@ -1062,31 +1118,69 @@ impl Engine {
         filter: &EmailFilter,
         sort: mw_search::Sort,
         semantic: Option<bool>,
-    ) -> Result<mw_search::SearchHits> {
+    ) -> std::result::Result<mw_search::SearchHits, QueryFail> {
         self.search_ids_ordered(account_id, filter, sort, semantic, &[]).await
     }
 
-    async fn search_ids_ordered(
+    /// R1 (t50hp-e31): a page of a metadata-only query from the projection
+    /// tables. The window is the SQL LIMIT/OFFSET and the total an exact
+    /// COUNT (also above `MAX_HITS`, accepted difference 1 of the design);
+    /// an anchor is looked up among the first `COMBINE_CAP` ids, as the index
+    /// enumeration would. Zero-access accounts are answered too (decision P1).
+    #[allow(clippy::too_many_arguments)]
+    async fn sql_page(
         &self,
         account_id: &str,
-        filter: &EmailFilter,
-        sort: mw_search::Sort,
-        semantic: Option<bool>,
+        conj: &crate::query_plan::MetaConj,
+        order: mw_store::message_projection::ProjectionSort,
+        anchor: Option<&str>,
+        anchor_offset: i64,
+        position: u64,
+        sql_limit: i64,
+        want_total: bool,
+    ) -> std::result::Result<QueryPage, QueryFail> {
+        use crate::query_plan::{COMBINE_CAP, Taken, taken};
+        self.projection_ready().await?;
+        taken(Taken::Sql);
+        let query = conj.projection(account_id, order);
+        let store = self.store();
+        if let Some(anchor) = anchor {
+            let all = store.projection_ids(&query, COMBINE_CAP as i64 + 1, 0).await?;
+            let within = &all[..all.len().min(COMBINE_CAP)];
+            let at = within
+                .iter()
+                .position(|id| id == anchor)
+                .ok_or(QueryFail::AnchorNotFound)?;
+            let start = (at as u64).saturating_add_signed(anchor_offset);
+            let ids = within
+                .iter()
+                .skip(usize::try_from(start).unwrap_or(usize::MAX))
+                .take(usize::try_from(sql_limit).unwrap_or(usize::MAX))
+                .cloned()
+                .collect();
+            let total = if !want_total {
+                None
+            } else if all.len() <= COMBINE_CAP {
+                Some(all.len() as u64)
+            } else {
+                Some(store.projection_count(&query).await?)
+            };
+            return Ok(QueryPage { ids, position: start, total, total_truncated: false });
+        }
+        let ids = store
+            .projection_ids(&query, sql_limit, position.min(i64::MAX as u64) as i64)
+            .await?;
+        let total = if want_total { Some(store.projection_count(&query).await?) } else { None };
+        Ok(QueryPage { ids, position, total, total_truncated: false })
+    }
+
+    /// One index search with the account-relative `mentions:me` expanded.
+    async fn index_hits(
+        &self,
+        account_id: &str,
+        mut sq: mw_search::SearchQuery,
         tie_breakers: &[mw_search::Sort],
-    ) -> Result<mw_search::SearchHits> {
-        // Journal mode: wait for this account's handed-off publications (or
-        // refuse) before the index is consulted. No-op in commit mode.
-        self.index_read_fence(account_id).await?;
-        let mailbox_ids: Vec<String> = self
-            .store()
-            .list_mailboxes(account_id)
-            .await?
-            .into_iter()
-            .map(|m| m.id)
-            .collect();
-        // Scope to a single mailbox only when the filter pins a real one.
-        let scope = filter.in_mailbox.as_deref();
-        let mut sq = search_index::build_search_query(filter, sort, &mailbox_ids, scope);
+    ) -> std::result::Result<mw_search::SearchHits, QueryFail> {
         if search_index::has_mentions_me(&sq.expr) {
             let mut own = Vec::new();
             if let Some(rt) = self.runtime(account_id) {
@@ -1099,10 +1193,133 @@ impl Engine {
         // `search_hits`, not `search`: the latter cannot say whether `MAX_HITS`
         // cut the result, and a `total` derived from a cut result is a wrong
         // number that looks exactly like a right one (V9).
-        let mut hits = self
+        Ok(self
             .search()
             .search_hits_ordered(&sq, 0, tie_breakers)
-            .map_err(|e| EngineError::Protocol(format!("search: {e}")))?;
+            .map_err(|e| EngineError::Protocol(format!("search: {e}")))?)
+    }
+
+    /// R3 (t50hp-e31): the index query with its metadata conditions resolved
+    /// in SQL. Nested conditions become id sets (or the negation of their
+    /// complement's); the top-level condition is injected as an id set, or,
+    /// above the cap, checked in SQL against the index's hits (filter).
+    async fn combined_hits(
+        &self,
+        account_id: &str,
+        scope: mw_search::Expr,
+        top: Option<crate::query_plan::MetaConj>,
+        nodes: Vec<crate::query_plan::Node>,
+        sort: mw_search::Sort,
+        tie_breakers: &[mw_search::Sort],
+    ) -> std::result::Result<mw_search::SearchHits, QueryFail> {
+        use crate::query_plan::{FILTER_CHUNK, Taken, assemble, id_set, meta_nodes, taken};
+        self.projection_ready().await?;
+        // The index side keeps today's refusals.
+        self.index_read_fence(account_id).await?;
+        let mut metas = Vec::new();
+        for node in &nodes {
+            meta_nodes(node, &mut metas);
+        }
+        let mut resolved = Vec::with_capacity(metas.len());
+        for conj in metas {
+            resolved.push(self.resolve_meta(account_id, conj).await?);
+        }
+        let mut resolved = resolved.into_iter();
+        let mut clauses = vec![scope];
+        for node in &nodes {
+            clauses.push(assemble(node, &mut resolved));
+        }
+        let filter = match top {
+            None => None,
+            Some(conj) => match self.meta_ids(account_id, &conj).await? {
+                Some(ids) => {
+                    clauses.push(id_set(ids));
+                    None
+                }
+                None => Some(conj),
+            },
+        };
+        taken(if filter.is_some() { Taken::Filter } else { Taken::Inject });
+        let sq = search_index::from_clauses(clauses, sort);
+        let mut hits = self.index_hits(account_id, sq, tie_breakers).await?;
+        if let Some(conj) = filter {
+            if hits.truncated {
+                taken(Taken::TooBroad);
+                return Err(QueryFail::Unsupported(crate::query_plan::TOO_BROAD));
+            }
+            let query = conj.projection(account_id, mw_store::message_projection::ProjectionSort::ReceivedDesc);
+            let mut keep = std::collections::HashSet::new();
+            for chunk in hits.ids.chunks(FILTER_CHUNK) {
+                keep.extend(self.store().projection_filter_ids(&query, chunk).await?);
+            }
+            hits.ids.retain(|id| keep.contains(id));
+        }
+        Ok(hits)
+    }
+
+    async fn search_ids_ordered(
+        &self,
+        account_id: &str,
+        filter: &EmailFilter,
+        sort: mw_search::Sort,
+        semantic: Option<bool>,
+        tie_breakers: &[mw_search::Sort],
+    ) -> std::result::Result<mw_search::SearchHits, QueryFail> {
+        use crate::query_plan::{COMBINE_CAP, Route, Scope, Taken, taken};
+        let mailbox_ids: Vec<String> = self
+            .store()
+            .list_mailboxes(account_id)
+            .await?
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        // Scope to a single mailbox only when the filter pins a real one.
+        let scope = filter.in_mailbox.as_deref();
+        // t50hp-e31: plan the query over the same clauses the index query is
+        // built from. No metadata condition (R2): today's index query,
+        // unchanged.
+        let scope_expr = search_index::scope_expr(&mailbox_ids, scope);
+        let conjuncts = crate::query_plan::filter_conjuncts(filter, Some(&mailbox_ids));
+        let route = match (&scope_expr, &conjuncts) {
+            (Some(_), Some(conjuncts)) => {
+                let plan_scope = match scope {
+                    Some(mb) => Scope::Folder(mb.to_owned()),
+                    None => Scope::Account,
+                };
+                let semantic_on = filter.semantic.or(semantic) == Some(true);
+                crate::query_plan::plan(conjuncts, &plan_scope, &sort, tie_breakers, semantic_on)
+                    .map_err(|m| QueryFail::Engine(EngineError::Protocol(m.into())))?
+            }
+            // Matches nothing: today's index query (match-nothing) answers.
+            _ => Route::Index,
+        };
+        let mut hits = match route {
+            Route::Nothing => {
+                taken(Taken::Nothing);
+                mw_search::SearchHits::default()
+            }
+            Route::Sql(conj, order) => {
+                self.projection_ready().await?;
+                taken(Taken::Sql);
+                let query = conj.projection(account_id, order);
+                let mut ids = self.store().projection_ids(&query, COMBINE_CAP as i64 + 1, 0).await?;
+                let truncated = ids.len() > COMBINE_CAP;
+                ids.truncate(COMBINE_CAP);
+                mw_search::SearchHits { ids, truncated }
+            }
+            Route::Index => {
+                taken(Taken::Index);
+                // Journal mode: wait for this account's handed-off publications
+                // (or refuse) before the index is consulted. No-op in commit mode.
+                self.index_read_fence(account_id).await?;
+                let sq = search_index::build_search_query(filter, sort, &mailbox_ids, scope);
+                self.index_hits(account_id, sq, tie_breakers).await?
+            }
+            Route::Combined { top, nodes } => {
+                let scope_expr = scope_expr.expect("planned with a scope");
+                self.combined_hits(account_id, scope_expr, top, nodes, sort, tie_breakers).await?
+            }
+        };
 
         // A8 (26.19, SPEC §10.4/§14.3): opt-in semantic re-rank. Reached ONLY when
         // the request asked for it AND the deployment attached an embedding
@@ -1396,7 +1613,9 @@ impl Engine {
             .await
             .map_err(|error| match error {
                 QueryFail::Engine(error) => error,
-                QueryFail::InvalidFilter(message) => EngineError::Protocol(message.into()),
+                QueryFail::InvalidFilter(message) | QueryFail::Unsupported(message) => {
+                    EngineError::Protocol(message.into())
+                }
                 QueryFail::AnchorNotFound => {
                     EngineError::Protocol("query total anchor unavailable".into())
                 }
@@ -5017,7 +5236,19 @@ enum QueryFail {
     /// RFC 8620 §5.5: the `anchor` id is not in the query result.
     AnchorNotFound,
     InvalidFilter(&'static str),
+    /// RFC 8620 §5.5 `unsupportedFilter` (t50hp-e31: a metadata condition
+    /// whose id set and complement are both above the planner's cap).
+    Unsupported(&'static str),
     Engine(EngineError),
+}
+
+impl From<crate::query_plan::PlanFail> for QueryFail {
+    fn from(e: crate::query_plan::PlanFail) -> Self {
+        match e {
+            crate::query_plan::PlanFail::TooBroad => QueryFail::Unsupported(crate::query_plan::TOO_BROAD),
+            crate::query_plan::PlanFail::Engine(e) => QueryFail::Engine(e),
+        }
+    }
 }
 
 impl From<EngineError> for QueryFail {

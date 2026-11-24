@@ -51,9 +51,6 @@
 //! * if the projection triggers are not installed or are disabled
 //!   (`Store::message_projection_installed`), every route that needs SQL
 //!   metadata refuses (serverFail); none falls back to the index.
-// Wired into Email/query by the next commit (t50hp-e31 D).
-#![allow(dead_code)]
-
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -339,8 +336,14 @@ impl MetaConj {
         if k == mw_search::KW_FOLLOWUP_ACTIVE {
             Self::set_flag(&mut self.follow_up_active, present, &mut self.nothing);
         } else if present {
+            if self.not_keywords.iter().any(|x| x == k) {
+                self.nothing = true;
+            }
             insert_sorted(&mut self.keywords, k);
         } else {
+            if self.keywords.iter().any(|x| x == k) {
+                self.nothing = true;
+            }
             insert_sorted(&mut self.not_keywords, k);
         }
     }
@@ -481,11 +484,13 @@ impl MetaConj {
         next.absorb(e).then_some(next)
     }
 
-    /// The complement within the account when this is exactly one negatable
-    /// condition (a keyword, a pin, the follow-up marker), else `None`.
+    /// The complement when this is exactly one negatable condition (a
+    /// keyword, a pin, the follow-up marker), else `None`. A folder
+    /// restriction (`in_mailboxes`, the query's own folder scope) is kept: the
+    /// complement is then taken within those folders, which is exact because
+    /// the index query is ANDed with the same scope.
     pub(crate) fn complement(&self) -> Option<Self> {
-        let plain = self.in_mailboxes.is_none()
-            && self.not_in.is_empty()
+        let plain = self.not_in.is_empty()
             && self.after.is_none()
             && self.before.is_none()
             && self.larger.is_none()
@@ -498,6 +503,7 @@ impl MetaConj {
         }
         let mut c = MetaConj {
             meta_leaves: 1,
+            in_mailboxes: self.in_mailboxes.clone(),
             ..MetaConj::default()
         };
         match (
@@ -570,7 +576,22 @@ pub(crate) fn rewrite(e: &Expr) -> Result<Node, &'static str> {
         ..MetaConj::default()
     };
     Ok(match e {
-        Expr::And(items) => Node::And(items.iter().map(rewrite).collect::<Result<_, _>>()?),
+        Expr::And(items) => {
+            // The absorbable metadata children form one SQL condition (one id
+            // set instead of one per child); the rest is rewritten one by one.
+            let mut meta = MetaConj::default();
+            let mut rest = Vec::new();
+            for item in items {
+                match meta.try_absorb(item) {
+                    Some(next) if has_meta(item) => meta = next,
+                    _ => rest.push(rewrite(item)?),
+                }
+            }
+            if meta.meta_leaves > 0 {
+                rest.insert(0, Node::Meta(meta));
+            }
+            Node::And(rest)
+        }
         Expr::Or(items) => Node::Or(items.iter().map(rewrite).collect::<Result<_, _>>()?),
         Expr::Not(inner) => Node::Not(Box::new(rewrite(inner)?)),
         Expr::Clause(Clause::Keyword(k)) if is_derived_keyword(k) => {
@@ -605,8 +626,9 @@ pub(crate) enum Route {
     },
 }
 
+#[cfg(test)]
 impl Route {
-    /// The design's route name, for tests and diagnostics.
+    /// The design's route name, for tests.
     pub(crate) fn name(&self) -> &'static str {
         match self {
             Route::Nothing => "nothing",
@@ -656,8 +678,12 @@ pub(crate) fn plan(
     if !conjuncts.iter().any(has_meta) {
         return Ok(Route::Index);
     }
+    // A top-level AND (also inside `filter.text`) is a list of conjuncts.
+    let mut flat = Vec::with_capacity(conjuncts.len());
+    flatten_and(conjuncts, &mut flat);
+    let conjuncts = flat.as_slice();
     let mut all = Some(MetaConj::scoped(scope));
-    for e in conjuncts {
+    for &e in conjuncts {
         all = all.and_then(|c| c.try_absorb(e));
     }
     if let (Some(c), Some(order), false) = (&all, sql_sort(sort, tie_breakers), semantic)
@@ -672,7 +698,7 @@ pub(crate) fn plan(
     let mut top = MetaConj::scoped(scope);
     let mut nodes = Vec::new();
     let mut either_only = Vec::new();
-    for e in conjuncts {
+    for &e in conjuncts {
         if has_meta(e) {
             if let Some(t) = top.try_absorb(e) {
                 top = t;
@@ -700,7 +726,34 @@ pub(crate) fn plan(
     } else {
         None
     };
+    // Nested metadata in a one-folder query: every SQL condition is narrowed
+    // to that folder (the whole index expression is ANDed with it, so the
+    // answer is the same and the id sets are smaller).
+    let mut nodes = nodes;
+    if let Scope::Folder(mb) = scope {
+        for node in &mut nodes {
+            narrow(node, mb);
+        }
+    }
     Ok(Route::Combined { top, nodes })
+}
+
+fn narrow(node: &mut Node, mb: &str) {
+    match node {
+        Node::Index(_) => {}
+        Node::Meta(c) => c.intersect_in(&[mb.to_owned()]),
+        Node::And(items) | Node::Or(items) => items.iter_mut().for_each(|i| narrow(i, mb)),
+        Node::Not(inner) => narrow(inner, mb),
+    }
+}
+
+fn flatten_and<'a>(items: &'a [Expr], out: &mut Vec<&'a Expr>) {
+    for e in items {
+        match e {
+            Expr::And(inner) => flatten_and(inner, out),
+            other => out.push(other),
+        }
+    }
 }
 
 /// Every `Meta` node of `node`, in a fixed (pre-order) walk.
@@ -766,6 +819,34 @@ thread_local! {
     pub(crate) static LEGACY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// Ask the store on every query instead of reusing a positive answer.
     pub(crate) static UNCACHED_PROJECTION_CHECK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// A smaller id-set cap, so the filter strategy, the complement and
+    /// `unsupportedFilter` run on a small corpus.
+    pub(crate) static CAP: std::cell::Cell<usize> = const { std::cell::Cell::new(COMBINE_CAP) };
+}
+
+/// The id-set cap of the combined route ([`COMBINE_CAP`]; tests may lower it).
+pub(crate) fn combine_cap() -> usize {
+    #[cfg(test)]
+    {
+        CAP.with(std::cell::Cell::get)
+    }
+    #[cfg(not(test))]
+    {
+        COMBINE_CAP
+    }
+}
+
+/// Whether this thread runs today's index-only path (the differential test's
+/// old path; always `false` outside tests).
+pub(crate) fn legacy() -> bool {
+    #[cfg(test)]
+    {
+        LEGACY.with(std::cell::Cell::get)
+    }
+    #[cfg(not(test))]
+    {
+        false
+    }
 }
 
 /// Process-wide counters of the routes taken (read-only diagnostics).
@@ -865,12 +946,10 @@ impl crate::Engine {
         if conj.nothing {
             return Ok(Some(Vec::new()));
         }
+        let cap = combine_cap();
         let q = conj.projection(account_id, ProjectionSort::ReceivedDesc);
-        let ids = self
-            .store()
-            .projection_ids(&q, COMBINE_CAP as i64 + 1, 0)
-            .await?;
-        Ok((ids.len() <= COMBINE_CAP).then_some(ids))
+        let ids = self.store().projection_ids(&q, cap as i64 + 1, 0).await?;
+        Ok((ids.len() <= cap).then_some(ids))
     }
 
     /// A nested metadata condition as an index condition: its id set, or the

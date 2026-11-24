@@ -368,9 +368,23 @@ async fn make_account(store: &Store, tag: &'static str) -> Account {
 
 impl World {
     pub(crate) async fn new(store: Store, messages: u32) -> World {
+        Self::with_engine(store, messages, Engine::new, false).await
+    }
+
+    /// [`World::new`] with an engine built by `make` (journal mode, a shared
+    /// index).
+    pub(crate) async fn with_engine(
+        store: Store,
+        messages: u32,
+        make: impl FnOnce(Store) -> Engine,
+        journal: bool,
+    ) -> World {
         let a = make_account(&store, "a").await;
         let b = make_account(&store, "b").await;
-        let engine = Engine::new(store);
+        let engine = make(store);
+        if journal {
+            assert!(engine.start_index_publication().await.unwrap().ready);
+        }
         for acct in [&a, &b] {
             engine.register_backend(
                 acct.id.clone(),
@@ -405,6 +419,11 @@ impl World {
         self.engine
             .handle_jmap(account, &json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail"],"methodCalls":calls}))
             .await
+    }
+
+    /// [`World::ingest_pair`] for other test modules.
+    pub(crate) async fn ingest_pair_for_tests(&self) {
+        self.ingest_pair().await
     }
 
     /// One generated message into both accounts: same folder, body, flags,
@@ -994,6 +1013,8 @@ pub(crate) fn singles() -> Vec<&'static str> {
         r#"{"inMailboxOtherThan":["{Archive}"]}"#,
         r#"{"inMailbox":"{SAVED}"}"#,
         r#"{"inMailbox":"{FOREIGN}"}"#,
+        r#"{"inMailboxes":["{FOREIGN}"],"notKeyword":"$seen"}"#,
+        r#"{"inMailboxOtherThan":["{FOREIGN}"],"hasKeyword":"$flagged"}"#,
         r#"{"inMailbox":"{EVENTS}"}"#,
         r#"{"text":"alpha"}"#,
         r#"{"from":"s1"}"#,
@@ -1104,6 +1125,10 @@ pub(crate) fn text_forms() -> Vec<&'static str> {
         "alph* is:read",
         "from-domain:other.invalid -is:read",
         "has:calendar OR pinned:true",
+        "in:{FOREIGN} is:unread",
+        "in:{FOREIGN} OR is:flagged",
+        "is:unread is:read",
+        "pinned:true pinned:false alpha",
     ]
 }
 
@@ -1194,8 +1219,10 @@ fn expected(
     (out, compound)
 }
 
-/// Run one matrix entry as `acct` and compare it with the oracle. Returns the
-/// method response for callers that compare paths.
+/// Run one matrix entry as `acct` on BOTH paths (today's index path behind
+/// the test-only `query_plan::LEGACY` switch, and the planner) and compare
+/// each with the oracle, and the two queryStates with each other. Returns the
+/// planner's method response.
 pub(crate) async fn check_one(
     w: &World,
     acct: &Account,
@@ -1205,6 +1232,56 @@ pub(crate) async fn check_one(
     win: Window,
     context: &str,
 ) -> Value {
+    let old = check_path(
+        w,
+        acct,
+        rows,
+        template,
+        sort,
+        win,
+        &format!("{context} [old path]"),
+        true,
+        false,
+    )
+    .await
+    .expect("no unsupportedFilter");
+    let new = check_path(
+        w,
+        acct,
+        rows,
+        template,
+        sort,
+        win,
+        &format!("{context} [planner]"),
+        false,
+        false,
+    )
+    .await
+    .expect("no unsupportedFilter");
+    if old[0] == json!("Email/query") {
+        assert_eq!(
+            old[1]["queryState"], new[1]["queryState"],
+            "{context}: queryState; {old} / {new}"
+        );
+    }
+    new
+}
+
+/// One path of [`check_one`]. `tolerate_unsupported`: an `unsupportedFilter`
+/// answer returns `None` instead of failing (tests that lower the planner's
+/// id-set cap); every other answer must equal the oracle.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn check_path(
+    w: &World,
+    acct: &Account,
+    rows: &[Row],
+    template: &str,
+    sort: &SortSpec,
+    win: Window,
+    context: &str,
+    legacy: bool,
+    tolerate_unsupported: bool,
+) -> Option<Value> {
     let filter = fill(template, w, acct);
     let (want, _compound) = expected(w, acct, rows, &filter, sort);
     let mut args = json!({"accountId": acct.id, "filter": serde_json::from_str::<Value>(&filter).unwrap(), "position": win.position, "calculateTotal": win.total});
@@ -1236,8 +1313,14 @@ pub(crate) async fn check_one(
         "{context}: as {} filter {filter} sort {} window {win:?}",
         acct.tag, sort.json
     );
+    crate::query_plan::LEGACY.with(|l| l.set(legacy));
     let r = w.send(&acct.id, json!([["Email/query", args, "q"]])).await;
+    crate::query_plan::LEGACY.with(|l| l.set(false));
     let resp = r["methodResponses"][0].clone();
+    if tolerate_unsupported && resp[1]["type"] == json!("unsupportedFilter") {
+        assert!(!legacy, "{what}: the old path has no cap: {resp}");
+        return None;
+    }
     // A real folder of another account answers an empty page at position 0,
     // whatever the window (query_page returns before reading it).
     let foreign_folder = template.contains(r#""inMailbox":"{FOREIGN}""#);
@@ -1251,7 +1334,7 @@ pub(crate) async fn check_one(
             "{what}: expected anchorNotFound, got {resp}"
         );
         assert_eq!(resp[1]["type"], json!("anchorNotFound"), "{what}: {resp}");
-        return resp;
+        return Some(resp);
     }
     assert_eq!(resp[0], json!("Email/query"), "{what}: {resp}");
     let body = &resp[1];
@@ -1277,7 +1360,7 @@ pub(crate) async fn check_one(
     let key_of = |id: &str| want.iter().find(|(i, _)| i == id).map(|(_, k)| k.clone());
     if foreign_folder {
         assert_eq!((ids_len_of(body), position), (0, 0), "{what}: {resp}");
-        return resp;
+        return Some(resp);
     }
     if let Some((anchor_id, _)) = &anchor {
         let k = key_of(anchor_id).expect("anchor expected");
@@ -1322,7 +1405,7 @@ pub(crate) async fn check_one(
             want.iter().skip(position).take(len).collect::<Vec<_>>()
         );
     }
-    resp
+    Some(resp)
 }
 
 fn ids_len_of(body: &Value) -> usize {
@@ -1368,6 +1451,7 @@ pub(crate) async fn run_matrix(w: &World, which: char, full: bool, context: &str
 /// Rounds of random operations, each followed by a comparison.
 pub(crate) async fn differential(store: Store, messages: u32, rounds: u32, ops: u32) -> usize {
     let w = World::new(store, messages).await;
+    crate::query_plan::TAKEN.with(|t| t.borrow_mut().clear());
     // The corpus must exercise every condition: each single removes at least
     // one message and keeps at least one (design part 7 b).
     let rows = w.rows(&w.a).await;
@@ -1379,7 +1463,9 @@ pub(crate) async fn differential(store: Store, messages: u32, rounds: u32, ops: 
         let filter = fill(&template, &w, &w.a);
         let (hits, _) = expected(&w, &w.a, &rows, &filter, &sorts()[0]);
         let unconstrained = ["{}", r#"{"semantic":true}"#].contains(&template.as_str());
-        let empty_by_design = template.contains("{FOREIGN}");
+        let empty_by_design = template.contains("{FOREIGN}")
+            || template.contains("is:unread is:read")
+            || template.contains("pinned:true pinned:false");
         if !unconstrained && !empty_by_design {
             assert!(
                 !hits.is_empty() && hits.len() < rows.len(),
@@ -1404,6 +1490,16 @@ pub(crate) async fn differential(store: Store, messages: u32, rounds: u32, ops: 
         let last = round + 1 == rounds;
         compares += run_matrix(&w, 'a', last, &context).await;
         compares += run_matrix(&w, 'b', false, &context).await;
+    }
+    // The planner's routes were all exercised (the filter strategy and the
+    // cap need a lowered cap: query_plan_engine_tests).
+    use crate::query_plan::Taken;
+    let taken = crate::query_plan::TAKEN.with(|t| t.borrow().clone());
+    for route in [Taken::Sql, Taken::Index, Taken::Inject, Taken::Nothing] {
+        assert!(
+            taken.contains(&route),
+            "route {route:?} never taken: {taken:?}"
+        );
     }
     compares
 }
