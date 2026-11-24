@@ -62,3 +62,13 @@ readiness/prepare IPC and cancellation, and clean server-worker shutdown. No
 client start command, rate phase or sustained measurement ran. Both containers
 exited successfully and their private volume was removed. This validates the
 runtime wiring, not generator headroom or application capacity.
+
+## Relation to the coordinated application generator (t53s)
+
+The limits in this file (four thousand outstanding, five rates, 30 seconds) belong
+to the synthetic calibration scripts and were not changed. The coordinated
+application generator now accepts up to 64 workers per host, 20,000 outstanding
+requests and 3,600-second stages, can merge workers from several hosts with
+measured clock offsets, and supports a `late=dispatch` policy; see
+"Scale-out of the coordinated generator" in `generator-calibration.md`. The
+multi-process path has still not been run at rate.
