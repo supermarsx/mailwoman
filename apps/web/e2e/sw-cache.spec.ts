@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -40,8 +41,13 @@ function mailwomanCacheNames(page: Page): Promise<string[]> {
 }
 
 test.describe('service-worker cache: shipped worker, stub origin', () => {
-  const SW_SOURCE = readFileSync(fileURLToPath(new URL('../public/sw.js', import.meta.url)));
   const ASSET = '/assets/app-a1b2c3d4.js';
+  const ASSET_BODY = 'export {};';
+  // The worker stores an /assets/ file only when it matches the digest manifest
+  // the build writes into dist/sw.js (t63 R1); an unbuilt sw.js has none and so
+  // never caches. Give the stub's one asset its digest, as the build would.
+  const SW_SOURCE = readFileSync(fileURLToPath(new URL('../public/sw.js', import.meta.url)), 'utf8')
+    .replace('/* @mw-asset-digests */ null', JSON.stringify({ [ASSET]: createHash('sha256').update(ASSET_BODY).digest('hex') }));
   const DOWNLOAD = '/jmap/download/acct1/blob9/report-2026final.pdf';
   const EML = '/jmap/download/acct1/blob7/message.eml';
 
@@ -59,7 +65,7 @@ test.describe('service-worker cache: shipped worker, stub origin', () => {
         res.end(body);
       };
       if (path === '/sw.js') return send('text/javascript', SW_SOURCE);
-      if (path === ASSET) return send('text/javascript', 'export {};');
+      if (path === ASSET) return send('text/javascript', ASSET_BODY);
       if (path.startsWith('/jmap/download/')) return send('application/octet-stream', 'ATTACHMENT-BYTES');
       if (path === '/api/me') return send('application/json', '{"username":"testuser"}');
       if (path === '/api/logout') return send('application/json', '{"ok":true}');
