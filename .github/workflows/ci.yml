@@ -738,8 +738,8 @@ jobs:
       - name: mw-search p95 gate (<50 ms over 100k)
         run: bash ./scripts/search-bench.sh
 
-  # Bundle-size gate (SPEC §23): the login->inbox entry chunk must be < 250 KB
-  # gzip and pdfjs must stay OFF the critical path (a lazy chunk). Both asserted
+  # Bundle-size gate (SPEC §23): the pre-route critical path must stay within
+  # load-budget.json critical.maxGzipBytes and pdfjs must stay OFF it. Both asserted
   # by apps/web/scripts/check-size.mjs (`pnpm run size`). The same command runs
   # the load budget (t52w, scripts/check-load-budget.mjs against
   # scripts/load-budget.json): files and bytes per route, chunk layering, route
@@ -764,7 +764,7 @@ jobs:
         run: pnpm -C apps/web run size:test
       - name: build
         run: pnpm -C apps/web build
-      - name: bundle-size gate (entry < 250 KB gzip; pdfjs lazy) and load budget
+      - name: bundle-size gate (pre-route critical path gzip budget; pdfjs lazy) and load budget
         run: pnpm -C apps/web run size
       # Manual runs only: rebuild once per probe with one appended line and
       # compare hashed file names with the static invalidation numbers.
