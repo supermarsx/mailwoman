@@ -143,6 +143,8 @@ Browser isolation, request forgery protection, the render sandbox and signed ext
 | [`MW_RENDER_BIN`](../admin/configuration.md#mw-render-bin) | render sandbox binary |
 | [`MW_RENDER_JAIL`](../admin/configuration.md#mw-render-jail) | require the render sandbox jail |
 | [`MW_DLP_RULES`](../admin/configuration.md#mw-dlp-rules) | outbound DLP rules from the environment (applied beside the stored rules) |
+| [`MW_WATERMARK`](../admin/configuration.md#mw-watermark) | watermark switch returned by `GET /api/security/watermark`; the web app does not draw a watermark |
+| [`MW_WATERMARK_OPACITY`](../admin/configuration.md#mw-watermark-opacity) | watermark opacity returned by `GET /api/security/watermark` |
 | [`MW_UI_PLUGIN_TRUST_KEYS`](../admin/configuration.md#mw-ui-plugin-trust-keys) | public keys UI plugin signatures are checked against |
 | [`MW_WEBHOOK_INBOUND_SECRET`](../admin/configuration.md#mw-webhook-inbound-secret) | inbound webhook HMAC secret |
 | [`MW_COMPLIANCE_SMTP_PASSWORD`](../admin/configuration.md#mw-compliance-smtp-password) | Password for the compliance SMTP relay; never exposed in settings |
@@ -175,6 +177,7 @@ Optional integrations that are configured from the environment.
 | [`MW_NEXTCLOUD_URL`](../admin/configuration.md#mw-nextcloud-url) | deprecated shared Nextcloud URL; ignored by account-owned file operations |
 | [`MW_NEXTCLOUD_USER`](../admin/configuration.md#mw-nextcloud-user) | deprecated shared Nextcloud user; ignored, each mailbox must verify its own link |
 | [`MW_NEXTCLOUD_APP_PASSWORD`](../admin/configuration.md#mw-nextcloud-app-password) | deprecated shared Nextcloud password; ignored, never grants mailbox access |
+| [`MW_EGRESS_PROBE_URL`](../admin/configuration.md#mw-egress-probe-url) | the URL an egress route test fetches (default `https://example.com/`); environment only |
 
 ## Logs, traces and metrics
 
@@ -185,6 +188,7 @@ What the server logs and where telemetry goes.
 | [`MW_LOG`](../admin/configuration.md#mw-log) | log filter at start (the live level is set in the console) |
 | [`RUST_LOG`](../admin/configuration.md#rust-log) | log filter; wins over MW_LOG |
 | [`MW_OTLP_ENDPOINT`](../admin/configuration.md#mw-otlp-endpoint) | OTLP trace collector |
+| [`MW_ERROR_FORWARD_URL`](../admin/configuration.md#mw-error-forward-url) | where scrubbed browser error reports are also sent; environment only |
 | [`MW_OTEL_SERVICE`](../admin/configuration.md#mw-otel-service) | OpenTelemetry service name |
 | [`MW_METRICS_TOKEN`](../admin/configuration.md#mw-metrics-token) | bearer token for /metrics |
 | [`MW_SENTRY_DSN`](../admin/configuration.md#mw-sentry-dsn) | Sentry error export |
@@ -231,13 +235,9 @@ These variables are tied to a registry setting. A **pin** wins over the stored v
 | `MW_PLUGIN_KV_MAX_TOTAL_BYTES` | [`plugins.kv.maxTotalBytes`](../admin/settings.md#plugins.kv.maxtotalbytes) | pin | no |
 | `MW_PLUGIN_KV_MAX_KEYS` | [`plugins.kv.maxKeys`](../admin/settings.md#plugins.kv.maxkeys) | pin | no |
 | `MW_REALTIME_RECHECK_SECS` | [`realtime.recheckSecs`](../admin/settings.md#realtime.rechecksecs) | pin | no |
-| `MW_WATERMARK` | [`privacy.watermark.enabled`](../admin/settings.md#privacy.watermark.enabled) | pin | no |
-| `MW_WATERMARK_OPACITY` | [`privacy.watermark.opacity`](../admin/settings.md#privacy.watermark.opacity) | pin | no |
 | `MW_MASKED_EMAIL_DOMAIN` | [`maskedEmail.domain`](../admin/settings.md#maskedemail.domain) | pin | no |
 | `MW_ABUSE_ADDRESS` | [`abuse.reportAddress`](../admin/settings.md#abuse.reportaddress) | pin | no |
 | `MW_DLP_ADMIN` | [`dlp.adminAddress`](../admin/settings.md#dlp.adminaddress) | pin | no |
-| `MW_ERROR_FORWARD_URL` | [`observability.errorForwardUrl`](../admin/settings.md#observability.errorforwardurl) | pin | no |
-| `MW_EGRESS_PROBE_URL` | [`egress.probeUrl`](../admin/settings.md#egress.probeurl) | pin | no |
 | `MW_VAPID_CONTACT` | [`push.vapidContact`](../admin/settings.md#push.vapidcontact) | pin | no |
 | `MW_DB_POOL` | [`database.pool`](../admin/settings.md#database.pool) | pin | yes |
 

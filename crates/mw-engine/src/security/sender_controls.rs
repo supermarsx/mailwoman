@@ -8,7 +8,8 @@
 //!   (recorded in `sender_controls`; the engine archives matching messages).
 //! - `report-phishing`/`report-junk` → a spam-trainer keyword on the message +
 //!   (when `abuseReport`) a best-effort ARF emit via the account submitter to the
-//!   configured abuse address (`MW_ABUSE_ADDRESS`); the abuse-relay endpoint is e7.
+//!   configured abuse address (`MW_ABUSE_ADDRESS`, else `abuse.reportAddress`);
+//!   the abuse-relay endpoint is e7.
 
 use mw_sieve::{Action, Condition, MatchOp, Rule, StringTest};
 use serde_json::{Value, json};
@@ -185,15 +186,16 @@ impl Engine {
     }
 
     /// Emit a best-effort ARF abuse report for `email_id` via the account submitter
-    /// to `MW_ABUSE_ADDRESS`. A no-op when the address is unset; the full abuse
-    /// relay + `report` feature wiring is e7's endpoint (plan §3 e7). Non-fatal.
+    /// to the abuse address ([`abuse_address`]). A no-op when no address is set;
+    /// the full abuse relay + `report` feature wiring is e7's endpoint (plan §3
+    /// e7). Non-fatal.
     async fn emit_arf(
         &self,
         rt: &AccountRuntime,
         email_id: &str,
         action: &str,
     ) -> Result<(), String> {
-        let Ok(abuse) = std::env::var("MW_ABUSE_ADDRESS") else {
+        let Some(abuse) = abuse_address(self.store(), &rt.identity).await else {
             return Ok(());
         };
         let raw = {
@@ -267,8 +269,78 @@ fn build_arf(from: &str, to: &str, feedback_type: &str, original: &[u8]) -> Vec<
     .into_bytes()
 }
 
+/// The abuse report address: `MW_ABUSE_ADDRESS` when set (it pins the setting),
+/// else `abuse.reportAddress` for the account's domain, else its global value.
+/// Read on every report so a console change applies at once.
+async fn abuse_address(store: &mw_store::Store, identity: &str) -> Option<String> {
+    let clean = |s: &str| Some(s.trim().to_string()).filter(|s| !s.is_empty());
+    if let Some(env) = std::env::var("MW_ABUSE_ADDRESS").ok().as_deref().and_then(clean) {
+        return Some(env);
+    }
+    let parse = |raw: &str| {
+        serde_json::from_str::<serde_json::Value>(raw)
+            .ok()
+            .and_then(|v| v.as_str().and_then(clean))
+    };
+    if let Some((_, domain)) = identity.rsplit_once('@')
+        && let Ok(Some(row)) = store
+            .get_setting_value(
+                mw_store::settings_policy::SettingScope::Domain,
+                &domain.to_ascii_lowercase(),
+                "abuse.reportAddress",
+            )
+            .await
+        && let Some(address) = parse(&row.value)
+    {
+        return Some(address);
+    }
+    store
+        .get_setting_policy("abuse.reportAddress")
+        .await
+        .ok()
+        .flatten()
+        .and_then(|row| row.global_value)
+        .as_deref()
+        .and_then(parse)
+}
+
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn abuse_address_prefers_the_domain_value_then_the_global_one() {
+        use mw_store::settings_policy::{SettingPolicyRow, SettingScope, SettingValueRow};
+        if std::env::var_os("MW_ABUSE_ADDRESS").is_some() {
+            return;
+        }
+        let store = mw_store::Store::open_in_memory(mw_store::ServerKey::generate()).await.unwrap();
+        assert_eq!(super::abuse_address(&store, "a@one.example").await, None);
+        store
+            .put_setting_policy(&SettingPolicyRow {
+                key: "abuse.reportAddress".into(),
+                global_value: Some("\"abuse@example.org\"".into()),
+                allow_user_override: false,
+                global_locked: false,
+                updated_by: "test".into(),
+                updated_at: 1,
+            })
+            .await
+            .unwrap();
+        store
+            .put_setting_value(&SettingValueRow {
+                scope: SettingScope::Domain,
+                scope_id: "one.example".into(),
+                key: "abuse.reportAddress".into(),
+                value: "\"abuse@one.example\"".into(),
+                locked: false,
+                updated_by: "test".into(),
+                updated_at: 1,
+            })
+            .await
+            .unwrap();
+        assert_eq!(super::abuse_address(&store, "a@One.Example").await.as_deref(), Some("abuse@one.example"));
+        assert_eq!(super::abuse_address(&store, "b@two.example").await.as_deref(), Some("abuse@example.org"));
+    }
+
     use super::*;
 
     /// Defence in depth: the login name and `MW_ABUSE_ADDRESS` are not
@@ -295,3 +367,4 @@ mod tests {
         assert_eq!(hostile[1], "To: abuse@example.orgX-Injected: 1");
     }
 }
+

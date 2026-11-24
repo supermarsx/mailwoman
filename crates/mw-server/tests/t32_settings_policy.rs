@@ -953,7 +953,8 @@ async fn refused_values_name_the_field() {
         &a,
         base,
         "offline.budgetMb",
-        json!({ "globalValue": 99_999 }),
+        // One over the registry maximum, which the web client also clamps to.
+        json!({ "globalValue": 100_001 }),
     )
     .await;
     assert_eq!(status, 422, "{body}");
@@ -961,7 +962,7 @@ async fn refused_values_name_the_field() {
         (body["code"].clone(), body["field"].clone()),
         (json!("invalidValue"), json!("/globalValue"))
     );
-    assert!(body["detail"].as_str().unwrap().contains("10240"));
+    assert!(body["detail"].as_str().unwrap().contains("100000"), "{body}");
 
     let (status, body) = put_global(&a, base, "no.such.key", json!({ "globalValue": 1 })).await;
     assert_eq!((status, body["code"].clone()), (404, json!("notFound")));

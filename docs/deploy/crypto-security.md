@@ -19,7 +19,7 @@ All of these are off until you set them.
 | `MW_WATERMARK` | `false` | Sets the value that `GET /api/security/watermark` reports as `enabled`. It does not draw anything; see below. |
 | `MW_WATERMARK_OPACITY` | `0.08` | The opacity that same endpoint reports, limited to 0 to 1. |
 
-The settings `abuse.reportAddress` (**Abuse report address**) and `privacy.watermark.enabled` appear in the console's Settings and name these variables as their pin, but the server reads only the variables: a value saved in Settings changes nothing.
+The setting `abuse.reportAddress` (**Abuse report address**) applies when `MW_ABUSE_ADDRESS` is not set; when the variable is set, it wins. The watermark has no setting in the console: only the variables configure it.
 
 ### The watermark variables have no visible effect
 

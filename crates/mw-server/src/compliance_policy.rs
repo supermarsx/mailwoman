@@ -273,7 +273,7 @@ fn body(f: &Snapshot, lang: &str, id: &str) -> (String, Vec<&'static str>) {
                 let entries: Vec<String> = INVENTORY
                     .iter()
                     .filter(|e| e.category == cat)
-                    .map(|e| format!("`{}` ({}, {}): {}", e.pattern, e.kind, e.duration, e.purpose))
+                    .map(|e| format!("`{}` ({}, {}): {}", e.effective_pattern(), e.kind, e.duration, e.purpose))
                     .chain(f.iter().filter_map(|(k, v)| {
                         let rest = k.strip_prefix("cookierule:")?;
                         (v.as_str() == Some(cat)).then(|| format!("`{}` ({})", rest.split_once(':').map_or(rest, |x| x.1), rest.split_once(':').map_or("", |x| x.0)))

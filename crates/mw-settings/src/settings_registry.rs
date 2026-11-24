@@ -463,8 +463,8 @@ use Scopes::{
     Global as G, GlobalDomain as GD, GlobalDomainAdminUser as GDA, GlobalDomainUser as GDU,
 };
 
-/// Keys that were registered once and were removed because no feature reads
-/// them (t48). A row stored under one of these is left in place and ignored:
+/// Keys that were registered once and were removed (t48): no feature reads
+/// them, or (the last two) they are now configured only by the environment. A row stored under one of these is left in place and ignored:
 /// settings reads walk [`REGISTRY`], so the row is not listed, exported or used.
 /// Listed in docs/deploy/upgrade-notes so administrators know which saved values
 /// no longer appear.
@@ -489,6 +489,13 @@ pub const REMOVED_KEYS: &[&str] = &[
     "consent.telemetry.version",
     "jobs.historyDays",
     "metrics.drilldownTopN",
+    "privacy.watermark.enabled",
+    "privacy.watermark.opacity",
+    "about.projectLinks",
+    // Outbound targets: configured only by MW_ERROR_FORWARD_URL and
+    // MW_EGRESS_PROBE_URL, so settings.write cannot point them anywhere.
+    "observability.errorForwardUrl",
+    "egress.probeUrl",
 ];
 
 /// Every registered key. Order is the admin screen's order within a category.
@@ -6153,7 +6160,7 @@ pub static REGISTRY: &[SettingDef] = &[
         "0",
         GDA,
         "limits",
-        "blob reservations; 0 = no limit"
+        "engine mode: cached messages plus uploads, checked at upload; proxy mode: not applied (the mail server's quota); 0 = no limit"
     )),
     per_address(def!(
         "limit.send_per_day",
@@ -6314,31 +6321,6 @@ pub static REGISTRY: &[SettingDef] = &[
         ),
         "MW_REALTIME_RECHECK_SECS",
     ),
-    pin(
-        def!(
-            "privacy.watermark.enabled",
-            Kind::Bool,
-            "false",
-            GD,
-            "privacy",
-            "reader watermark"
-        ),
-        "MW_WATERMARK",
-    ),
-    pin(
-        def!(
-            "privacy.watermark.opacity",
-            Kind::Float {
-                min: 0.02,
-                max: 0.5
-            },
-            "0.08",
-            GD,
-            "privacy",
-            "reader watermark opacity"
-        ),
-        "MW_WATERMARK_OPACITY",
-    ),
     def!(
         "privacy.openTracking.retentionDays",
         int(1, 400),
@@ -6390,28 +6372,6 @@ pub static REGISTRY: &[SettingDef] = &[
     ),
     pin(
         nullable(def!(
-            "observability.errorForwardUrl",
-            text(Text::HttpsUrl, 2048),
-            "null",
-            G,
-            "observability",
-            "client error forwarding (errors.rs)"
-        )),
-        "MW_ERROR_FORWARD_URL",
-    ),
-    pin(
-        def!(
-            "egress.probeUrl",
-            text(Text::HttpsUrl, 2048),
-            "\"https://example.com/\"",
-            G,
-            "egress",
-            "egress proxy test target"
-        ),
-        "MW_EGRESS_PROBE_URL",
-    ),
-    pin(
-        nullable(def!(
             "push.vapidContact",
             text(Text::Contact, 320),
             "null",
@@ -6446,14 +6406,6 @@ pub static REGISTRY: &[SettingDef] = &[
         "about",
         "security.txt Policy"
     )),
-    def!(
-        "about.projectLinks",
-        Kind::Links { max_len: 10 },
-        "[]",
-        G,
-        "about",
-        "About screen links"
-    ),
     def!(
         "health.diskFreeMinPercent",
         int(1, 50),
@@ -10391,12 +10343,9 @@ mod tests {
             "webhooks.maxAttempts",
             "outbox.maxAttempts",
             "realtime.recheckSecs",
-            "privacy.watermark.enabled",
             "maskedEmail.domain",
             "abuse.reportAddress",
             "dlp.adminAddress",
-            "observability.errorForwardUrl",
-            "egress.probeUrl",
             "push.vapidContact",
             "push.quietHours",
             "twofa.pendingTtlSecs",
@@ -10405,7 +10354,6 @@ mod tests {
             "admin.session.absoluteSecs",
             "about.securityContact",
             "about.securityPolicyUrl",
-            "about.projectLinks",
             "health.diskFreeMinPercent",
             "metrics.rollupDays",
             "diagnostics.retentionDays",
@@ -10901,7 +10849,7 @@ mod tests {
         );
         let d = lookup("login.notice").unwrap();
         assert_eq!(validate(d, &Value::Null, "/v").unwrap(), Value::Null);
-        let d = lookup("egress.probeUrl").unwrap();
+        let d = lookup("about.securityPolicyUrl").unwrap();
         assert!(validate(d, &json!("http://example.com/"), "/v").is_err());
         assert!(validate(d, &json!("https://example.com/"), "/v").is_ok());
         let d = lookup("push.vapidContact").unwrap();
@@ -10920,7 +10868,11 @@ mod tests {
                 .as_deref(),
             Some("/v/start")
         );
-        let d = lookup("about.projectLinks").unwrap();
+        // No registered key is a link list today; the kind keeps its validation.
+        let d = &SettingDef {
+            kind: Kind::Links { max_len: 10 },
+            ..*lookup("about.securityPolicyUrl").unwrap()
+        };
         assert!(
             validate(
                 d,

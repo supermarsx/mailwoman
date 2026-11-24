@@ -56,11 +56,11 @@ a data-loss control.
 
 ## The web watermark is not rendered
 
-The server has watermark settings (`privacy.watermark.enabled` and
-`privacy.watermark.opacity`, pinned by `MW_WATERMARK` and `MW_WATERMARK_OPACITY`) and an
+The server reads two watermark variables, `MW_WATERMARK` and
+`MW_WATERMARK_OPACITY` (there is no console setting for them), and has an
 endpoint, `GET /api/security/watermark`, that returns the viewer's identity, a
 timestamp and a note that a watermark is a deterrent only. The web app does not
-call this endpoint and draws no watermark; the console's setting help says so too ("The web app does not render a watermark yet, so this setting currently has no effect."). Setting `MW_WATERMARK` has no visible
+call this endpoint and draws no watermark. Setting `MW_WATERMARK` has no visible
 effect, and a browser session has no screen-capture control of any kind.
 
 ## Checking it on Windows

@@ -335,7 +335,7 @@ The mail server an address signs in to when no domain names one. The domain tabl
 <a id="upstream.proxyTimeoutSecs"></a>
 ### Mail server timeout (`upstream.proxyTimeoutSecs`)
 
-**Saving this setting currently has no effect.** Requests to the upstream mail server use a fixed timeout of 300 seconds.
+Applied by the server to each request to the upstream mail server.
 
 How long one request to the mail server may take, in seconds.
 
@@ -414,7 +414,7 @@ Whether a refused sign-in says why (disabled account, address not allowed) or gi
 <a id="signin.ldapBindPrecheck"></a>
 ### LDAP check before sign-in (`signin.ldapBindPrecheck`)
 
-**Saving this setting currently has no effect.** The LDAP check is switched on only by the environment variable `MW_LDAP_BIND_AUTH`.
+Applied by the server. `MW_LDAP_BIND_AUTH`, when set, wins.
 
 Check the password against the directory before the mail server. Changed in Integrations, after a test bind.
 
@@ -446,52 +446,52 @@ How often, in seconds, the admin console replaces the session id while it is in 
 <a id="passwd.policy.minLength"></a>
 ### Minimum password length (`passwd.policy.minLength`)
 
-**Saving this setting currently has no effect.** Password backends apply their own policy; nothing passes this value to them.
+Applied when a password is changed, in the web app and by `mailwoman password`.
 
 The fewest characters a new password may have.
 
 <a id="passwd.policy.requireUpper"></a>
 ### Require an upper-case letter (`passwd.policy.requireUpper`)
 
-**Saving this setting currently has no effect.** Password backends apply their own policy; nothing passes this value to them.
+Applied when a password is changed, in the web app and by `mailwoman password`.
 
 A new password must contain an upper-case letter.
 
 <a id="passwd.policy.requireLower"></a>
 ### Require a lower-case letter (`passwd.policy.requireLower`)
 
-**Saving this setting currently has no effect.** Password backends apply their own policy; nothing passes this value to them.
+Applied when a password is changed, in the web app and by `mailwoman password`.
 
 A new password must contain a lower-case letter.
 
 <a id="passwd.policy.requireDigit"></a>
 ### Require a digit (`passwd.policy.requireDigit`)
 
-**Saving this setting currently has no effect.** Password backends apply their own policy; nothing passes this value to them.
+Applied when a password is changed, in the web app and by `mailwoman password`.
 
 A new password must contain a digit.
 
 <a id="passwd.policy.requireSymbol"></a>
 ### Require a symbol (`passwd.policy.requireSymbol`)
 
-**Saving this setting currently has no effect.** Password backends apply their own policy; nothing passes this value to them.
+Applied when a password is changed, in the web app and by `mailwoman password`.
 
 A new password must contain a character that is not a letter or a digit.
 
 <a id="limit.storage_bytes"></a>
 ### Storage limit (`limit.storage_bytes`)
 
-Meant to cap the bytes one user may store on this server (0 for no cap). The server does not enforce this limit, so saving a value currently has no effect.
+In engine mode, the most bytes one user may hold on this server: cached messages plus uploads. An upload that would go over it is refused. In proxy mode it does not apply; the mail server's own quota does. 0 means no limit.
 
 <a id="limit.send_per_day"></a>
 ### Messages sent per day (`limit.send_per_day`)
 
-Meant to cap the messages one user may send in a day (0 for no cap). The server does not enforce this limit, so saving a value currently has no effect.
+Applied by the server: message submissions per UTC day; one over the limit is answered with 429.
 
 <a id="limit.ai_calls_per_day"></a>
 ### AI assistant calls per day (`limit.ai_calls_per_day`)
 
-Meant to cap the AI assistant requests one user may make in a day (0 for no cap). The server does not enforce this limit, so saving a value currently has no effect.
+Applied by the server: assistant requests per UTC day.
 
 <a id="quota.warnThresholds"></a>
 ### Usage warning levels (`quota.warnThresholds`)
@@ -513,70 +513,70 @@ How many days of daily usage counts are kept.
 <a id="assistant.rateLimitPerMin"></a>
 ### AI assistant rate limit (`assistant.rateLimitPerMin`)
 
-**Saving this setting currently has no effect.** Only `MW_ASSIST_RATE_LIMIT_PER_MIN` is read. With that variable set to `0` every Assist request is refused (not "no limit"); with the variable unset there is no limit.
+Applied by the server, read at start; 0 means no limit. `MW_ASSIST_RATE_LIMIT_PER_MIN`, when set, wins.
 
 The most Assist requests per minute for one account. The environment variable is the only control that is read.
 
 <a id="plugins.kv.maxKeyBytes"></a>
 ### Plugin key size (`plugins.kv.maxKeyBytes`)
 
-**Saving this setting currently has no effect.** Only `MW_PLUGIN_KV_MAX_KEY_BYTES` is read; otherwise the built-in value applies.
+Applied by the server. The environment variable, when set, wins.
 
 The longest key a plugin may store, in bytes.
 
 <a id="plugins.kv.maxValueBytes"></a>
 ### Plugin value size (`plugins.kv.maxValueBytes`)
 
-**Saving this setting currently has no effect.** Only `MW_PLUGIN_KV_MAX_VALUE_BYTES` is read; otherwise the built-in value applies.
+Applied by the server. The environment variable, when set, wins.
 
 The largest value a plugin may store under one key, in bytes.
 
 <a id="plugins.kv.maxTotalBytes"></a>
 ### Plugin storage (`plugins.kv.maxTotalBytes`)
 
-**Saving this setting currently has no effect.** Only `MW_PLUGIN_KV_MAX_TOTAL_BYTES` is read; otherwise the built-in value applies.
+Applied by the server. The environment variable, when set, wins.
 
 The most bytes one plugin may store in total.
 
 <a id="plugins.kv.maxKeys"></a>
 ### Plugin keys (`plugins.kv.maxKeys`)
 
-**Saving this setting currently has no effect.** Only `MW_PLUGIN_KV_MAX_KEYS` is read; otherwise the built-in value applies.
+Applied by the server. The environment variable, when set, wins.
 
 The most keys one plugin may store.
 
 <a id="import.maxMessages"></a>
 ### Import message count (`import.maxMessages`)
 
-**Saving this setting currently has no effect.** The import routes use fixed limits.
+Applied by the server to imports.
 
 The most messages one import may bring in.
 
 <a id="import.maxMessageBytes"></a>
 ### Import message size (`import.maxMessageBytes`)
 
-**Saving this setting currently has no effect.** The import route uses a fixed limit of 64 MiB per message.
+Applied by the server to imports, at most 64 MiB (the request size limit).
 
 The largest message an import accepts, in bytes.
 
 <a id="webhooks.maxAttempts"></a>
 ### Webhook attempts (`webhooks.maxAttempts`)
 
-**Saving this setting currently has no effect.** No code reads it.
+Applied by the server when a webhook is delivered.
 
 How many times a webhook delivery is tried before it is given up.
 
 <a id="webhooks.timeoutSecs"></a>
 ### Webhook timeout (`webhooks.timeoutSecs`)
 
-**Saving this setting currently has no effect.** No code reads it.
+Applied by the server when a webhook is delivered.
 
 How long one webhook delivery may take, in seconds.
 
 <a id="outbox.maxAttempts"></a>
 ### Sending attempts (`outbox.maxAttempts`)
 
-**Saving this setting currently has no effect.** No code reads it.
+Applied by the server: a submission fails after this many attempts.
 
 How many times a message is handed to the mail server before it is reported as not sent.
 
@@ -586,16 +586,6 @@ How many times a message is handed to the mail server before it is reported as n
 **Saving this setting currently has no effect.** Only `MW_REALTIME_RECHECK_SECS` is read; with it unset the live-update connection re-checks every 30 seconds.
 
 How often an open live-update connection checks that its session is still valid, in seconds.
-
-<a id="privacy.watermark.enabled"></a>
-### Reader watermark (`privacy.watermark.enabled`)
-
-Meant to show a watermark with the reader's address over opened messages. The web app does not render a watermark, so this setting currently has no effect. Only the environment variable `MW_WATERMARK` is read, and nothing in the reader uses it.
-
-<a id="privacy.watermark.opacity"></a>
-### Watermark strength (`privacy.watermark.opacity`)
-
-How visible the watermark would be, from 0.02 (faint) to 0.5. Has no effect while the web app renders no watermark. Only the environment variable `MW_WATERMARK_OPACITY` is read, and nothing in the reader uses it.
 
 <a id="privacy.openTracking.retentionDays"></a>
 ### Open tracking history (`privacy.openTracking.retentionDays`)
@@ -639,37 +629,23 @@ A locked `mail.reader.unsafeHtmlMode=strict` policy takes precedence and hides t
 <a id="maskedEmail.domain"></a>
 ### Masked address domain (`maskedEmail.domain`)
 
-**Saving this setting currently has no effect.** Only `MW_MASKED_EMAIL_DOMAIN` is read.
+Applied by the server. `MW_MASKED_EMAIL_DOMAIN`, when set, wins.
 
 The domain masked addresses are created under. Leave empty to turn masked addresses off.
 
 <a id="abuse.reportAddress"></a>
 ### Abuse report address (`abuse.reportAddress`)
 
-**Saving this setting currently has no effect.** Only `MW_ABUSE_ADDRESS` is read.
+Applied by the server. `MW_ABUSE_ADDRESS`, when set, wins.
 
 Where spam and abuse reports are sent.
 
 <a id="dlp.adminAddress"></a>
 ### Data loss notices (`dlp.adminAddress`)
 
-**Saving this setting currently has no effect.** Only `MW_DLP_ADMIN` is read.
+Applied by the server. `MW_DLP_ADMIN`, when set, wins.
 
 Where data loss prevention notices are sent.
-
-<a id="observability.errorForwardUrl"></a>
-### Error forwarding address (`observability.errorForwardUrl`)
-
-**Saving this setting currently has no effect.** Only `MW_ERROR_FORWARD_URL` is read.
-
-An https address that client error reports are forwarded to. Leave empty for none.
-
-<a id="egress.probeUrl"></a>
-### Outbound test address (`egress.probeUrl`)
-
-**Saving this setting currently has no effect.** Only `MW_EGRESS_PROBE_URL` is read.
-
-The https address used to test an outbound proxy.
 
 <a id="push.vapidContact"></a>
 ### Push contact (`push.vapidContact`)
@@ -686,28 +662,21 @@ Hours (UTC) in which no push notification is sent. Leave empty for none.
 <a id="about.securityContact"></a>
 ### Security contact (`about.securityContact`)
 
-**Saving this setting currently has no effect.** No `security.txt` handler reads it.
+Applied by the server: served in `/.well-known/security.txt`, which answers 404 while no contact is set.
 
 The contact in security.txt (mailto: or https:).
 
 <a id="about.securityPolicyUrl"></a>
 ### Security policy (`about.securityPolicyUrl`)
 
-**Saving this setting currently has no effect.** No `security.txt` handler reads it.
+Applied by the server: served in `/.well-known/security.txt`.
 
 The address of your security policy, listed in security.txt.
-
-<a id="about.projectLinks"></a>
-### About links (`about.projectLinks`)
-
-**Saving this setting currently has no effect.** No code reads it.
-
-Links shown on the About page, each with a label and an https address.
 
 <a id="health.diskFreeMinPercent"></a>
 ### Free disk space floor (`health.diskFreeMinPercent`)
 
-**Saving this setting currently has no effect.** The readiness check does not test free disk space.
+Applied by the server: `/readyz` answers 503 when a data directory has less free space.
 
 The readiness check fails when free disk space falls below this percentage.
 
@@ -1366,7 +1335,7 @@ Failures in the window that open a draft. 0 is off.
 
 Exports in the window that open a draft. 0 is off.
 
-<a id="compose.feature"></a>
+<a id="compose.feature"></a><a id="compose.feature.*"></a>
 ### Composer features (`compose.feature.*`)
 
 Switches one composer control on or off, per feature id (for example `layout.columns`). Default on. An administrator can set it for everyone, per domain or per user, and lock it so users cannot change it. Users switch features off in Settings > Compose > Composer features.
@@ -1469,10 +1438,10 @@ The look of the Styles gallery: `default`, `modern`, `classic` or `compact`. Use
 
 A user's own styles as JSON, written by the Styles gallery. It is a user value and has no administrator form.
 
-<a id="serverText"></a>
+<a id="serverText"></a><a id="serverText.*"></a>
 ### Server text (`serverText.*`)
 
-**Saving this setting currently has no effect.** Server notices come from the bundled texts for the language set in `ui.language`; no `serverText.<id>` value is looked up.
+Applied to account notices: `serverText.alert-<kind>-subject`, `-description` and `-guidance` override the bundled text for their domain. Other ids are not looked up.
 
 Text the server writes into mail and notifications, per language and domain.
 
@@ -1766,10 +1735,10 @@ spam classification applies the recipient account's domain and profile policy.
 <a id="cap.integration.microsoft"></a>
 `cap.integration.microsoft` — Allow acquisition and refresh of Microsoft bridge tokens.
 
-<a id="cap.integration"></a>
+<a id="cap.integration"></a><a id="cap.integration.*"></a>
 `cap.integration.*` — Permission for an individual integration identifier; runtime coverage is listed in the feature catalogue.
 
-<a id="cap.ui_plugin"></a>
+<a id="cap.ui_plugin"></a><a id="cap.ui_plugin.*"></a>
 `cap.ui_plugin.*` — Permission for one UI plugin. Use the exact policy key from the integration catalogue.
 
 <a id="cap.ai_assistant"></a>
@@ -1905,7 +1874,7 @@ spam classification applies the recipient account's domain and profile policy.
 `limit.attachment_bytes` — The largest upload, in bytes, the server accepts for one attachment (`POST /jmap/upload/…`, judged by the declared length). A larger upload is refused with `413`. Default `50000000`; 0 means no limit.
 
 <a id="limit.send_per_hour"></a>
-`limit.send_per_hour` — Meant to cap the messages one user may send in an hour (0 for no cap). The server does not enforce this limit, so saving a value currently has no effect.
+`limit.send_per_hour` — Applied by the server: message submissions per clock hour; one over the limit is answered with 429.
 
 <a id="limit.recipients_per_message"></a>
 `limit.recipients_per_message` — The most recipients one message may have (To, Cc and Bcc together); a message with more is refused with `403`. Default `0`, which means no limit.
@@ -4051,14 +4020,14 @@ Setting | Purpose |
 <a id="views.keys.name"></a>`views.keys.name` | Custom sidebar name for keys; empty uses the translated default |
 <a id="views.keys.showCount"></a>`views.keys.showCount` | Show the notable-item count beside keys |
 <a id="views.attachments.visibility"></a>`views.attachments.visibility` | Sidebar visibility for attachments: visible, hidden, or only when notable; feature policy remains a ceiling |
-<a id="views.attachments.name"></a>`views.attachments.name` | Custom sidebar name for attachments; empty uses the translated default **Saving this setting currently has no effect.** The sidebar button uses a fixed label. |
-<a id="views.attachments.showCount"></a>`views.attachments.showCount` | Show the notable-item count beside attachments **Saving this setting currently has no effect.** The sidebar button never shows a count. |
+<a id="views.attachments.name"></a>`views.attachments.name` | Custom sidebar name for attachments; empty uses the translated default Applied by the web app. |
+<a id="views.attachments.showCount"></a>`views.attachments.showCount` | Show the notable-item count beside attachments Applied by the web app. |
 <a id="views.outbox.visibility"></a>`views.outbox.visibility` | Sidebar visibility for outbox: visible, hidden, or only when notable; feature policy remains a ceiling |
-<a id="views.outbox.name"></a>`views.outbox.name` | Custom sidebar name for outbox; empty uses the translated default **Saving this setting currently has no effect.** The sidebar button uses a fixed label. |
-<a id="views.outbox.showCount"></a>`views.outbox.showCount` | Show the notable-item count beside outbox **Saving this setting currently has no effect.** The Outbox badge always shows the number of pending messages. |
+<a id="views.outbox.name"></a>`views.outbox.name` | Custom sidebar name for outbox; empty uses the translated default Applied by the web app. |
+<a id="views.outbox.showCount"></a>`views.outbox.showCount` | Show the notable-item count beside outbox Applied by the web app. |
 <a id="views.templates.visibility"></a>`views.templates.visibility` | Sidebar visibility for templates: visible, hidden, or only when notable; feature policy remains a ceiling |
 <a id="views.templates.name"></a>`views.templates.name` | Custom sidebar name for templates; empty uses the translated default |
-<a id="views.templates.showCount"></a>`views.templates.showCount` | Show the notable-item count beside templates **Saving this setting currently has no effect.** The sidebar button never shows a count. |
+<a id="views.templates.showCount"></a>`views.templates.showCount` | Show the notable-item count beside templates Applied by the web app. |
 <a id="accounts.linked.directLogin"></a>`accounts.linked.directLogin` | Allow this linked mailbox to sign in to Mailwoman directly; false requires a verified primary-account link; administrator locks override user choices |
 <a id="accounts.linked.allowUserLoginPolicy"></a>`accounts.linked.allowUserLoginPolicy` | Allow users to change direct-login policy for verified linked mailboxes; disabled by default; administrator locks on the direct-login setting always win |
 <a id="mail.badge.importance"></a>`mail.badge.importance` | Visibility of importance message badges; always, only when notable, or never |
@@ -4660,10 +4629,10 @@ Every key in the settings registry, generated from the registry and checked agai
 | <a id="receipts.dsnallowed"></a>[`receipts.dsnAllowed`](#receipts.dsnAllowed) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server and the web app. |
 | <a id="mail.readreceipts"></a>[`mail.readReceipts`](#mail.readReceipts) | one of `ask`, `never`, `always`, `contactsOnly`, `orgOnly`, `orgAlwaysAskOthers` | `"ask"` | server, domain, user |  | Applied by the server. |
 | <a id="mail.opentracking"></a>[`mail.openTracking`](#mail.openTracking) | on or off | `false` | server, domain, user |  | Applied by the server and the web app. |
-| <a id="outbox.maxattempts"></a>[`outbox.maxAttempts`](#outbox.maxAttempts) | integer, 1 to 50 | `8` | server |  | **No effect.** No code reads it. |
-| <a id="maskedemail.domain"></a>[`maskedEmail.domain`](#maskedEmail.domain) | domain name, up to 253 characters; may be unset | `null` | server | `MW_MASKED_EMAIL_DOMAIN` (pin) | **No effect when saved.** Only `MW_MASKED_EMAIL_DOMAIN` is read. |
-| <a id="abuse.reportaddress"></a>[`abuse.reportAddress`](#abuse.reportAddress) | email address, up to 254 characters; may be unset | `null` | server, domain | `MW_ABUSE_ADDRESS` (pin) | **No effect when saved.** Only `MW_ABUSE_ADDRESS` is read. |
-| <a id="dlp.adminaddress"></a>[`dlp.adminAddress`](#dlp.adminAddress) | email address, up to 254 characters; may be unset | `null` | server | `MW_DLP_ADMIN` (pin) | **No effect when saved.** Only `MW_DLP_ADMIN` is read. |
+| <a id="outbox.maxattempts"></a>[`outbox.maxAttempts`](#outbox.maxAttempts) | integer, 1 to 50 | `8` | server |  | Applied by the server: a submission fails after this many attempts. |
+| <a id="maskedemail.domain"></a>[`maskedEmail.domain`](#maskedEmail.domain) | domain name, up to 253 characters; may be unset | `null` | server | `MW_MASKED_EMAIL_DOMAIN` (pin) | Applied by the server. `MW_MASKED_EMAIL_DOMAIN`, when set, wins. |
+| <a id="abuse.reportaddress"></a>[`abuse.reportAddress`](#abuse.reportAddress) | email address, up to 254 characters; may be unset | `null` | server, domain | `MW_ABUSE_ADDRESS` (pin) | Applied by the server. `MW_ABUSE_ADDRESS`, when set, wins. |
+| <a id="dlp.adminaddress"></a>[`dlp.adminAddress`](#dlp.adminAddress) | email address, up to 254 characters; may be unset | `null` | server | `MW_DLP_ADMIN` (pin) | Applied by the server. `MW_DLP_ADMIN`, when set, wins. |
 | [`mail.badge.headers`](#mail.badge.headers) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
 | <a id="compose.layout.defaultfont"></a>[`compose.layout.defaultFont`](#compose.layout.defaultFont) | text, up to 200 characters | `""` | server, domain, user |  | Applied by the web app only. |
 | <a id="compose.replyto.show"></a>[`compose.replyTo.show`](#compose.replyTo.show) | one of `auto`, `always`, `never` | `"auto"` | server, domain, user |  | Applied by the web app only. |
@@ -4788,14 +4757,14 @@ Every key in the settings registry, generated from the registry and checked agai
 | [`views.keys.name`](#views.keys.name) | text, up to 128 characters | `""` | server, domain, user |  | Applied by the web app only. |
 | <a id="views.keys.showcount"></a>[`views.keys.showCount`](#views.keys.showCount) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
 | [`views.attachments.visibility`](#views.attachments.visibility) | one of `visible`, `hidden`, `notable` | `"visible"` | server, domain, user |  | Applied by the web app only. |
-| [`views.attachments.name`](#views.attachments.name) | text, up to 128 characters | `""` | server, domain, user |  | **No effect.** The sidebar button uses a fixed label. |
-| <a id="views.attachments.showcount"></a>[`views.attachments.showCount`](#views.attachments.showCount) | on or off | `true` | server, domain, user |  | **No effect.** The sidebar button never shows a count. |
+| [`views.attachments.name`](#views.attachments.name) | text, up to 128 characters | `""` | server, domain, user |  | Applied by the web app. |
+| <a id="views.attachments.showcount"></a>[`views.attachments.showCount`](#views.attachments.showCount) | on or off | `true` | server, domain, user |  | Applied by the web app. |
 | [`views.outbox.visibility`](#views.outbox.visibility) | one of `visible`, `hidden`, `notable` | `"visible"` | server, domain, user |  | Applied by the web app only. |
-| [`views.outbox.name`](#views.outbox.name) | text, up to 128 characters | `""` | server, domain, user |  | **No effect.** The sidebar button uses a fixed label. |
-| <a id="views.outbox.showcount"></a>[`views.outbox.showCount`](#views.outbox.showCount) | on or off | `true` | server, domain, user |  | **No effect.** The Outbox badge always shows the number of pending messages. |
+| [`views.outbox.name`](#views.outbox.name) | text, up to 128 characters | `""` | server, domain, user |  | Applied by the web app. |
+| <a id="views.outbox.showcount"></a>[`views.outbox.showCount`](#views.outbox.showCount) | on or off | `true` | server, domain, user |  | Applied by the web app. |
 | [`views.templates.visibility`](#views.templates.visibility) | one of `visible`, `hidden`, `notable` | `"visible"` | server, domain, user |  | Applied by the web app only. |
 | [`views.templates.name`](#views.templates.name) | text, up to 128 characters | `""` | server, domain, user |  | Applied by the web app only. |
-| <a id="views.templates.showcount"></a>[`views.templates.showCount`](#views.templates.showCount) | on or off | `true` | server, domain, user |  | **No effect.** The sidebar button never shows a count. |
+| <a id="views.templates.showcount"></a>[`views.templates.showCount`](#views.templates.showCount) | on or off | `true` | server, domain, user |  | Applied by the web app. |
 | <a id="accounts.settings.inheritgroups"></a>[`accounts.settings.inheritGroups`](#accounts.settings.inheritGroups) | list of up to 8 strings, each up to 16 characters | `[]` | server, domain, user |  | Applied by the server. |
 | <a id="mail.unifiedaccount"></a>[`mail.unifiedAccount`](#mail.unifiedAccount) | on or off | `false` | server, domain, user |  | Applied by the server and the web app. |
 | <a id="mail.unifiedinbox"></a>[`mail.unifiedInbox`](#mail.unifiedInbox) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
@@ -4853,8 +4822,6 @@ Every key in the settings registry, generated from the registry and checked agai
 | <a id="privacy.allowdirect"></a>[`privacy.allowDirect`](#privacy.allowDirect) | on or off | `false` | server |  | Applied by the server. |
 | [`cap.remote_content.direct`](#cap.remote_content.direct) | on or off | `false` | server, domain, one user (administrator only) |  | Applied by the server. |
 | [`offline.enabled`](#offline.enabled) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
-| [`privacy.watermark.enabled`](#privacy.watermark.enabled) | on or off | `false` | server, domain | `MW_WATERMARK` (pin) | **No effect when saved.** Only the environment variable `MW_WATERMARK` is read, and nothing in the reader uses it. |
-| [`privacy.watermark.opacity`](#privacy.watermark.opacity) | number, 0.02 to 0.5 | `0.08` | server, domain | `MW_WATERMARK_OPACITY` (pin) | **No effect when saved.** Only the environment variable `MW_WATERMARK_OPACITY` is read, and nothing in the reader uses it. |
 | <a id="privacy.opentracking.retentiondays"></a>[`privacy.openTracking.retentionDays`](#privacy.openTracking.retentionDays) | integer, 1 to 400 | `365` | server |  | Applied by the server. |
 | <a id="privacy.opentracking.unboundttlhours"></a>[`privacy.openTracking.unboundTtlHours`](#privacy.openTracking.unboundTtlHours) | integer, 1 to 168 | `24` | server |  | Applied by the server. |
 | <a id="retention.requestmetrics.detaildays"></a>[`retention.requestMetrics.detailDays`](#retention.requestMetrics.detailDays) | integer, 0 to 1095 | `30` | server |  | Applied by the server. |
@@ -5306,7 +5273,7 @@ Every key in the settings registry, generated from the registry and checked agai
 | <a id="signin.preprovision.retentiondays"></a>[`signin.preprovision.retentionDays`](#signin.preprovision.retentionDays) | integer, 0 to 365 | `30` | server |  | Applied by the server. Written only on its own console page (`/signin-policy`); the general settings route refuses it. |
 | <a id="signin.domainmode"></a>[`signin.domainMode`](#signin.domainMode) | one of `any`, `listed` | `"any"` | server |  | Applied by the server. Written only on its own console page (`/signin-policy`); the general settings route refuses it. |
 | <a id="signin.refusaldetail"></a>[`signin.refusalDetail`](#signin.refusalDetail) | one of `explain`, `uniform` | `"explain"` | server |  | Applied by the server and the web app. Written only on its own console page (`/signin-policy`); the general settings route refuses it. |
-| <a id="signin.ldapbindprecheck"></a>[`signin.ldapBindPrecheck`](#signin.ldapBindPrecheck) | on or off | `false` | server | `MW_LDAP_BIND_AUTH` (pin) | **No effect when saved.** The LDAP check is switched on only by the environment variable `MW_LDAP_BIND_AUTH`. Written only on its own console page (`/integrations/directory`); the general settings route refuses it. |
+| <a id="signin.ldapbindprecheck"></a>[`signin.ldapBindPrecheck`](#signin.ldapBindPrecheck) | on or off | `false` | server | `MW_LDAP_BIND_AUTH` (pin) | Applied by the server. `MW_LDAP_BIND_AUTH`, when set, wins. |
 | <a id="twofa.pendingttlsecs"></a>[`twofa.pendingTtlSecs`](#twofa.pendingTtlSecs) | integer, 60 to 900 | `300` | server |  | Applied by the server. Some sign-in paths still use a fixed 300 seconds. |
 | <a id="twofa.maxattempts"></a>[`twofa.maxAttempts`](#twofa.maxAttempts) | integer, 3 to 10 | `5` | server |  | Applied by the server. Some sign-in paths still use a fixed limit of 5 attempts. |
 
@@ -5472,16 +5439,16 @@ Every key in the settings registry, generated from the registry and checked agai
 
 | Key | Type | Default | Set at | Environment | Effect |
 |---|---|---|---|---|---|
-| [`assistant.enabled`](#assistant.enabled) | on or off | `true` | server, domain, user |  | **No behavioural effect.** It only decides whether the generated privacy policy and the compliance listing mention the AI assistant. The assistant itself does not check it. |
+| [`assistant.enabled`](#assistant.enabled) | on or off | `true` | server, domain, user |  | Applied by the server: off refuses assistant requests. |
 | [`assist.profile`](#assist.profile) | lower-case letters, digits and hyphens, up to 64 characters (may be empty) | `""` | server, domain, one user (administrator only) |  | Applied by the server. |
-| <a id="assistant.ratelimitpermin"></a>[`assistant.rateLimitPerMin`](#assistant.rateLimitPerMin) | integer, 0 to 10,000 | `0` | server | `MW_ASSIST_RATE_LIMIT_PER_MIN` (pin) | **No effect when saved.** Only `MW_ASSIST_RATE_LIMIT_PER_MIN` is read. With that variable set to `0` every Assist request is refused (not "no limit"); with the variable unset there is no limit. |
+| <a id="assistant.ratelimitpermin"></a>[`assistant.rateLimitPerMin`](#assistant.rateLimitPerMin) | integer, 0 to 10,000 | `0` | server | `MW_ASSIST_RATE_LIMIT_PER_MIN` (pin) | Applied by the server, read at start; 0 means no limit. `MW_ASSIST_RATE_LIMIT_PER_MIN`, when set, wins. |
 
 ### Upstream mail server keys
 
 | Key | Type | Default | Set at | Environment | Effect |
 |---|---|---|---|---|---|
 | [`upstream.default`](#upstream.default) | HTTP(S) JMAP URL or IMAP/POP3 mail transport URL, up to 2048 characters; may be unset | `null` | server | `MW_UPSTREAM_DEFAULT` (fallback) | Applied by the server. |
-| <a id="upstream.proxytimeoutsecs"></a>[`upstream.proxyTimeoutSecs`](#upstream.proxyTimeoutSecs) | integer, 30 to 900 | `300` | server |  | **No effect.** Requests to the upstream mail server use a fixed timeout of 300 seconds. |
+| <a id="upstream.proxytimeoutsecs"></a>[`upstream.proxyTimeoutSecs`](#upstream.proxyTimeoutSecs) | integer, 30 to 900 | `300` | server |  | Applied by the server to each request to the upstream mail server. |
 
 ### Security keys
 
@@ -5670,11 +5637,11 @@ Every key in the settings registry, generated from the registry and checked agai
 
 | Key | Type | Default | Set at | Environment | Effect |
 |---|---|---|---|---|---|
-| <a id="passwd.policy.minlength"></a>[`passwd.policy.minLength`](#passwd.policy.minLength) | integer, 8 to 128 | `12` | server, domain |  | **No effect.** Password backends apply their own policy; nothing passes this value to them. |
-| <a id="passwd.policy.requireupper"></a>[`passwd.policy.requireUpper`](#passwd.policy.requireUpper) | on or off | `false` | server, domain |  | **No effect.** Password backends apply their own policy; nothing passes this value to them. |
-| <a id="passwd.policy.requirelower"></a>[`passwd.policy.requireLower`](#passwd.policy.requireLower) | on or off | `false` | server, domain |  | **No effect.** Password backends apply their own policy; nothing passes this value to them. |
-| <a id="passwd.policy.requiredigit"></a>[`passwd.policy.requireDigit`](#passwd.policy.requireDigit) | on or off | `false` | server, domain |  | **No effect.** Password backends apply their own policy; nothing passes this value to them. |
-| <a id="passwd.policy.requiresymbol"></a>[`passwd.policy.requireSymbol`](#passwd.policy.requireSymbol) | on or off | `false` | server, domain |  | **No effect.** Password backends apply their own policy; nothing passes this value to them. |
+| <a id="passwd.policy.minlength"></a>[`passwd.policy.minLength`](#passwd.policy.minLength) | integer, 8 to 128 | `12` | server, domain |  | Applied when a password is changed, in the web app and by `mailwoman password`. |
+| <a id="passwd.policy.requireupper"></a>[`passwd.policy.requireUpper`](#passwd.policy.requireUpper) | on or off | `false` | server, domain |  | Applied when a password is changed, in the web app and by `mailwoman password`. |
+| <a id="passwd.policy.requirelower"></a>[`passwd.policy.requireLower`](#passwd.policy.requireLower) | on or off | `false` | server, domain |  | Applied when a password is changed, in the web app and by `mailwoman password`. |
+| <a id="passwd.policy.requiredigit"></a>[`passwd.policy.requireDigit`](#passwd.policy.requireDigit) | on or off | `false` | server, domain |  | Applied when a password is changed, in the web app and by `mailwoman password`. |
+| <a id="passwd.policy.requiresymbol"></a>[`passwd.policy.requireSymbol`](#passwd.policy.requireSymbol) | on or off | `false` | server, domain |  | Applied when a password is changed, in the web app and by `mailwoman password`. |
 
 ### Attachments keys
 
@@ -5695,38 +5662,38 @@ Every key in the settings registry, generated from the registry and checked agai
 | Key | Type | Default | Set at | Environment | Effect |
 |---|---|---|---|---|---|
 | [`limit.attachment_bytes`](#limit.attachment_bytes) | integer, 0 to 1,125,899,906,842,624 | `50000000` | server, domain, one user (administrator only); per-user values are stored per address |  | Applied by the server. |
-| [`limit.send_per_hour`](#limit.send_per_hour) | integer, 0 to 1,000,000 | `0` | server, domain, one user (administrator only); per-user values are stored per address |  | **No effect.** The limit is shown in the capability editor, but nothing counts submissions against it. |
+| [`limit.send_per_hour`](#limit.send_per_hour) | integer, 0 to 1,000,000 | `0` | server, domain, one user (administrator only); per-user values are stored per address |  | Applied by the server: message submissions per clock hour; one over the limit is answered with 429. |
 | [`limit.recipients_per_message`](#limit.recipients_per_message) | integer, 0 to 1,000,000 | `0` | server, domain, one user (administrator only); per-user values are stored per address |  | Applied by the server. |
-| [`limit.storage_bytes`](#limit.storage_bytes) | integer, 0 to 1,125,899,906,842,624 | `0` | server, domain, one user (administrator only); per-user values are stored per address |  | **No effect.** The limit is shown in the capability editor, but nothing enforces it. |
-| [`limit.send_per_day`](#limit.send_per_day) | integer, 0 to 1,000,000 | `0` | server, domain, one user (administrator only); per-user values are stored per address |  | **No effect.** The limit is shown in the capability editor, but nothing counts submissions against it. |
-| [`limit.ai_calls_per_day`](#limit.ai_calls_per_day) | integer, 0 to 1,000,000 | `0` | server, domain, one user (administrator only); per-user values are stored per address |  | **No effect.** The limit is shown in the capability editor, but the assistant does not check it. |
+| [`limit.storage_bytes`](#limit.storage_bytes) | integer, 0 to 1,125,899,906,842,624 | `0` | server, domain, one user (administrator only); per-user values are stored per address |  | Applied in engine mode at upload (cached messages plus uploads). Not applied in proxy mode. |
+| [`limit.send_per_day`](#limit.send_per_day) | integer, 0 to 1,000,000 | `0` | server, domain, one user (administrator only); per-user values are stored per address |  | Applied by the server: message submissions per UTC day; one over the limit is answered with 429. |
+| [`limit.ai_calls_per_day`](#limit.ai_calls_per_day) | integer, 0 to 1,000,000 | `0` | server, domain, one user (administrator only); per-user values are stored per address |  | Applied by the server: assistant requests per UTC day. |
 | [`limit.linked_mailboxes`](#limit.linked_mailboxes) | integer, 0 to 16 | `0` | server, domain, one user (administrator only); per-user values are stored per address |  | Applied by the server. |
 | <a id="quota.warnthresholds"></a>[`quota.warnThresholds`](#quota.warnThresholds) | strictly increasing list of up to 5 integers, 1 to 100 | `[80,95]` | server, domain; per-user values are stored per address |  | Applied by the web app only. |
 | <a id="quota.warnenabled"></a>[`quota.warnEnabled`](#quota.warnEnabled) | on or off | `true` | server, domain; per-user values are stored per address |  | Applied by the web app only. |
-| <a id="usage.retentiondays"></a>[`usage.retentionDays`](#usage.retentionDays) | integer, 31 to 3650 | `730` | server |  | **No behavioural effect.** The value appears in the retention overview; nothing deletes usage counters when they pass it. |
+| <a id="usage.retentiondays"></a>[`usage.retentionDays`](#usage.retentionDays) | integer, 31 to 3650 | `730` | server |  | Applied by the server: the retention sweeper deletes older usage counters. |
 
 ### Plugins keys
 
 | Key | Type | Default | Set at | Environment | Effect |
 |---|---|---|---|---|---|
-| <a id="plugins.kv.maxkeybytes"></a>[`plugins.kv.maxKeyBytes`](#plugins.kv.maxKeyBytes) | integer, 1 to 1024 | `256` | server | `MW_PLUGIN_KV_MAX_KEY_BYTES` (pin) | **No effect when saved.** Only `MW_PLUGIN_KV_MAX_KEY_BYTES` is read; otherwise the built-in value applies. |
-| <a id="plugins.kv.maxvaluebytes"></a>[`plugins.kv.maxValueBytes`](#plugins.kv.maxValueBytes) | integer, 1 to 262,144 | `65536` | server | `MW_PLUGIN_KV_MAX_VALUE_BYTES` (pin) | **No effect when saved.** Only `MW_PLUGIN_KV_MAX_VALUE_BYTES` is read; otherwise the built-in value applies. |
-| <a id="plugins.kv.maxtotalbytes"></a>[`plugins.kv.maxTotalBytes`](#plugins.kv.maxTotalBytes) | integer, 1 to 20,971,520 | `5242880` | server | `MW_PLUGIN_KV_MAX_TOTAL_BYTES` (pin) | **No effect when saved.** Only `MW_PLUGIN_KV_MAX_TOTAL_BYTES` is read; otherwise the built-in value applies. |
-| <a id="plugins.kv.maxkeys"></a>[`plugins.kv.maxKeys`](#plugins.kv.maxKeys) | integer, 1 to 4000 | `1000` | server | `MW_PLUGIN_KV_MAX_KEYS` (pin) | **No effect when saved.** Only `MW_PLUGIN_KV_MAX_KEYS` is read; otherwise the built-in value applies. |
+| <a id="plugins.kv.maxkeybytes"></a>[`plugins.kv.maxKeyBytes`](#plugins.kv.maxKeyBytes) | integer, 1 to 1024 | `256` | server | `MW_PLUGIN_KV_MAX_KEY_BYTES` (pin) | Applied by the server. The environment variable, when set, wins. |
+| <a id="plugins.kv.maxvaluebytes"></a>[`plugins.kv.maxValueBytes`](#plugins.kv.maxValueBytes) | integer, 1 to 262,144 | `65536` | server | `MW_PLUGIN_KV_MAX_VALUE_BYTES` (pin) | Applied by the server. The environment variable, when set, wins. |
+| <a id="plugins.kv.maxtotalbytes"></a>[`plugins.kv.maxTotalBytes`](#plugins.kv.maxTotalBytes) | integer, 1 to 20,971,520 | `5242880` | server | `MW_PLUGIN_KV_MAX_TOTAL_BYTES` (pin) | Applied by the server. The environment variable, when set, wins. |
+| <a id="plugins.kv.maxkeys"></a>[`plugins.kv.maxKeys`](#plugins.kv.maxKeys) | integer, 1 to 4000 | `1000` | server | `MW_PLUGIN_KV_MAX_KEYS` (pin) | Applied by the server. The environment variable, when set, wins. |
 
 ### Import keys
 
 | Key | Type | Default | Set at | Environment | Effect |
 |---|---|---|---|---|---|
-| <a id="import.maxmessages"></a>[`import.maxMessages`](#import.maxMessages) | integer, 1 to 80,000 | `20000` | server, domain |  | **No effect.** The import routes use fixed limits. |
-| <a id="import.maxmessagebytes"></a>[`import.maxMessageBytes`](#import.maxMessageBytes) | integer, 1 to 67,108,864 | `67108864` | server, domain |  | **No effect.** The import route uses a fixed limit of 64 MiB per message. |
+| <a id="import.maxmessages"></a>[`import.maxMessages`](#import.maxMessages) | integer, 1 to 80,000 | `20000` | server, domain |  | Applied by the server to imports. |
+| <a id="import.maxmessagebytes"></a>[`import.maxMessageBytes`](#import.maxMessageBytes) | integer, 1 to 67,108,864 | `67108864` | server, domain |  | Applied by the server to imports, at most 64 MiB (the request size limit). |
 
 ### Webhooks keys
 
 | Key | Type | Default | Set at | Environment | Effect |
 |---|---|---|---|---|---|
-| <a id="webhooks.maxattempts"></a>[`webhooks.maxAttempts`](#webhooks.maxAttempts) | integer, 1 to 10 | `3` | server |  | **No effect.** No code reads it. |
-| <a id="webhooks.timeoutsecs"></a>[`webhooks.timeoutSecs`](#webhooks.timeoutSecs) | integer, 1 to 60 | `10` | server |  | **No effect.** No code reads it. |
+| <a id="webhooks.maxattempts"></a>[`webhooks.maxAttempts`](#webhooks.maxAttempts) | integer, 1 to 10 | `3` | server |  | Applied by the server when a webhook is delivered. |
+| <a id="webhooks.timeoutsecs"></a>[`webhooks.timeoutSecs`](#webhooks.timeoutSecs) | integer, 1 to 60 | `10` | server |  | Applied by the server when a webhook is delivered. |
 
 ### Live updates keys
 
@@ -5738,7 +5705,6 @@ Every key in the settings registry, generated from the registry and checked agai
 
 | Key | Type | Default | Set at | Environment | Effect |
 |---|---|---|---|---|---|
-| <a id="observability.errorforwardurl"></a>[`observability.errorForwardUrl`](#observability.errorForwardUrl) | https:// URL, up to 2048 characters; may be unset | `null` | server | `MW_ERROR_FORWARD_URL` (pin) | **No effect when saved.** Only `MW_ERROR_FORWARD_URL` is read. |
 | <a id="metrics.defaultrangeseconds"></a>[`metrics.defaultRangeSeconds`](#metrics.defaultRangeSeconds) | integer, 60 to 34,560,000 | `3600` | server |  | Applied by the server. |
 | <a id="metrics.maxrangeseconds"></a>[`metrics.maxRangeSeconds`](#metrics.maxRangeSeconds) | integer, 3600 to 34,560,000 | `2592000` | server |  | Applied by the server. |
 | <a id="metrics.rollupdays"></a>[`metrics.rollupDays`](#metrics.rollupDays) | integer, 1 to 1095 | `1095` | server |  | Applied by the server. |
@@ -5781,7 +5747,6 @@ Every key in the settings registry, generated from the registry and checked agai
 
 | Key | Type | Default | Set at | Environment | Effect |
 |---|---|---|---|---|---|
-| <a id="egress.probeurl"></a>[`egress.probeUrl`](#egress.probeUrl) | https:// URL, up to 2048 characters | `"https://example.com/"` | server | `MW_EGRESS_PROBE_URL` (pin) | **No effect when saved.** Only `MW_EGRESS_PROBE_URL` is read. |
 
 ### Updates keys
 
@@ -5797,9 +5762,8 @@ Every key in the settings registry, generated from the registry and checked agai
 
 | Key | Type | Default | Set at | Environment | Effect |
 |---|---|---|---|---|---|
-| <a id="about.securitycontact"></a>[`about.securityContact`](#about.securityContact) | `mailto:` address or https:// URL, up to 320 characters; may be unset | `null` | server |  | **No effect.** No `security.txt` handler reads it. |
-| <a id="about.securitypolicyurl"></a>[`about.securityPolicyUrl`](#about.securityPolicyUrl) | https:// URL, up to 2048 characters; may be unset | `null` | server |  | **No effect.** No `security.txt` handler reads it. |
-| <a id="about.projectlinks"></a>[`about.projectLinks`](#about.projectLinks) | list of up to 10 objects with a `label` and an https:// `url` | `[]` | server |  | **No effect.** No code reads it. |
+| <a id="about.securitycontact"></a>[`about.securityContact`](#about.securityContact) | `mailto:` address or https:// URL, up to 320 characters; may be unset | `null` | server |  | Applied by the server: served in `/.well-known/security.txt`, which answers 404 while no contact is set. |
+| <a id="about.securitypolicyurl"></a>[`about.securityPolicyUrl`](#about.securityPolicyUrl) | https:// URL, up to 2048 characters; may be unset | `null` | server |  | Applied by the server: served in `/.well-known/security.txt`. |
 
 ### Configuration keys
 
@@ -5815,7 +5779,7 @@ Every key in the settings registry, generated from the registry and checked agai
 
 | Key | Type | Default | Set at | Environment | Effect |
 |---|---|---|---|---|---|
-| <a id="health.diskfreeminpercent"></a>[`health.diskFreeMinPercent`](#health.diskFreeMinPercent) | integer, 1 to 50 | `5` | server |  | **No effect.** The readiness check does not test free disk space. |
+| <a id="health.diskfreeminpercent"></a>[`health.diskFreeMinPercent`](#health.diskFreeMinPercent) | integer, 1 to 50 | `5` | server |  | Applied by the server: `/readyz` answers 503 when a data directory has less free space. |
 
 ### Diagnostics keys
 
@@ -5833,7 +5797,7 @@ Every key in the settings registry, generated from the registry and checked agai
 
 | Key | Type | Default | Set at | Environment | Effect |
 |---|---|---|---|---|---|
-| <a id="servertext"></a>[`serverText.*`](#serverText) | object mapping an interface language code to text of up to 4000 characters | `{}` | server, domain |  | **No effect.** Server notices come from the bundled texts for the language set in `ui.language`; no `serverText.<id>` value is looked up. |
+| <a id="servertext"></a>[`serverText.*`](#serverText) | object mapping an interface language code to text of up to 4000 characters | `{}` | server, domain |  | Applied to account notices: `serverText.alert-<kind>-subject`, `-description` and `-guidance` override the bundled text for their domain. Other ids are not looked up. |
 
 <a id="web.prefetch.modules"></a>
 ### Unopened application modules

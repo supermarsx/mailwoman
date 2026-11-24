@@ -163,6 +163,7 @@ nothing is stored; **boot** = read once at start, a change needs a restart.
 | <a id="mw-ui-plugin-trust-keys"></a>`MW_UI_PLUGIN_TRUST_KEYS` | readOnly | plain |  | boot | public keys UI plugin signatures are checked against | a root of trust, or a protection a stolen admin session could switch off |
 | <a id="mw-assist-local-programs"></a>`MW_ASSIST_LOCAL_PROGRAMS` | readOnly | plain |  | boot | programs a local AI adapter may run on the host | a root of trust, or a protection a stolen admin session could switch off |
 | <a id="mw-mcp-resource"></a>`MW_MCP_RESOURCE` | readOnly | url | derived from the public origin | boot | MCP OAuth resource identifier; changing it invalidates issued tokens | a wrong value leaves state in clients that cannot be undone |
+| <a id="mw-egress-probe-url"></a>`MW_EGRESS_PROBE_URL` | readOnly | url | https://example.com/ | boot | the URL an egress route test fetches; environment only, so a settings.write session cannot point it at an internal address | a root of trust, or a protection a stolen admin session could switch off |
 
 ## Mail, upstreams and content
 
@@ -177,6 +178,8 @@ nothing is stored; **boot** = read once at start, a change needs a restart.
 | <a id="mw-autoconfig-allow-private"></a>`MW_AUTOCONFIG_ALLOW_PRIVATE` | readOnly | plain | false | boot | allow private addresses in autoconfig lookups | a root of trust, or a protection a stolen admin session could switch off |
 | <a id="mw-allowed-froms"></a>`MW_ALLOWED_FROMS` | ui | plain |  | boot | server-advertised sender identities | Admin → Identities |
 | <a id="mw-dlp-rules"></a>`MW_DLP_RULES` | ui | plain |  | boot | outbound DLP rules from the environment (applied beside the stored rules) | Admin → Security policy |
+| <a id="mw-watermark"></a>`MW_WATERMARK` | readOnly | plain |  | boot | watermark switch returned by GET /api/security/watermark (1 or true); the web app does not draw a watermark | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-watermark-opacity"></a>`MW_WATERMARK_OPACITY` | readOnly | plain | 0.08 | boot | watermark opacity returned by GET /api/security/watermark | a CLI, build or test input, or a protocol or safety constant |
 
 ## Logs, traces and metrics
 
@@ -184,6 +187,7 @@ nothing is stored; **boot** = read once at start, a change needs a restart.
 |---|---|---|---|---|---|---|
 | <a id="mw-log"></a>`MW_LOG` | readOnly | plain | info | boot | log filter at start (the live level is set in the console) | needed before the database opens or to reach the console |
 | <a id="mw-otlp-endpoint"></a>`MW_OTLP_ENDPOINT` | readOnly | url |  | boot | OTLP trace collector | needed before the database opens or to reach the console |
+| <a id="mw-error-forward-url"></a>`MW_ERROR_FORWARD_URL` | readOnly | url |  | boot | where scrubbed browser error reports are also sent; environment only, so a settings.write session cannot redirect them | a root of trust, or a protection a stolen admin session could switch off |
 | <a id="mw-otel-service"></a>`MW_OTEL_SERVICE` | readOnly | plain | mailwoman | boot | OpenTelemetry service name | needed before the database opens or to reach the console |
 | <a id="mw-metrics-token"></a>`MW_METRICS_TOKEN` | ui | secret |  | pin | bearer token for /metrics | Admin → Observability |
 | <a id="mw-sentry-dsn"></a>`MW_SENTRY_DSN` | readOnly | secret |  | boot | Sentry error export | needed before the database opens or to reach the console |
@@ -304,6 +308,14 @@ nothing is stored; **boot** = read once at start, a change needs a restart.
 | <a id="mw-require-live"></a>`MW_REQUIRE_LIVE` | testOnly | plain |  |  | fail instead of skipping when a live test service is missing | a CLI, build or test input, or a protocol or safety constant |
 | <a id="mw-e14-pg-dsn"></a>`MW_E14_PG_DSN` | testOnly | secret |  |  | PostgreSQL for the e14 tests | a CLI, build or test input, or a protocol or safety constant |
 | <a id="mw-mock-port"></a>`MW_MOCK_PORT` | testOnly | plain |  |  | port of the mock mail server | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-mock-user"></a>`MW_MOCK_USER` | testOnly | plain |  |  | user name the mock JMAP server accepts | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-bg-test-pg"></a>`MW_BG_TEST_PG` | testOnly | dsn |  |  | PostgreSQL for the mw-store background-maintenance tests | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-store-operation-bench"></a>`MW_STORE_OPERATION_BENCH` | testOnly | plain |  |  | 1 runs the ignored SQLCipher store operation benchmark | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-mock-pass"></a>`MW_MOCK_PASS` | testOnly | secret |  |  | password the mock JMAP server accepts | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-mock-name"></a>`MW_MOCK_NAME` | testOnly | plain |  |  | display name the mock JMAP server reports | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-fixture-request-profile"></a>`MW_FIXTURE_REQUEST_PROFILE` | testOnly | plain |  |  | 1 records per-request phase timings in load fixtures; read once at start | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-native-load-request-inputs-mode"></a>`MW_NATIVE_LOAD_REQUEST_INPUTS_MODE` | testOnly | plain |  |  | request-input mode of the native load fixture | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-native-load-ordinary-auth-mode"></a>`MW_NATIVE_LOAD_ORDINARY_AUTH_MODE` | testOnly | plain |  |  | retired load-fixture variable; set, it stops the fixture with an error naming its replacement | a CLI, build or test input, or a protocol or safety constant |
 | <a id="mw-e2e-admin-path"></a>`MW_E2E_ADMIN_PATH` | testOnly | plain |  |  | console path the e2e suites use | a CLI, build or test input, or a protocol or safety constant |
 | <a id="mw-imap-live-host"></a>`MW_IMAP_LIVE_HOST` | testOnly | plain |  |  | live IMAP test server | a CLI, build or test input, or a protocol or safety constant |
 | <a id="mw-pop3-live-host"></a>`MW_POP3_LIVE_HOST` | testOnly | plain |  |  | live POP3 test server | a CLI, build or test input, or a protocol or safety constant |
@@ -759,7 +771,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="web.assets.cache.preload"></a>`web.assets.cache.preload` | interface | global | "shell" | plain |  | yes | Best-effort background preload: off, shell only, or shell plus bounded core assets; foreground loads take priority |
 | <a id="performance.preparedmail"></a>`performance.preparedMail` | maintenance | global | {"enabled":false,"budgetMiB":64,"maxEntries":256,"maxAccounts":128,"idleSeconds":30} | plain |  | yes | Bounded prepared metadata DATA cache; apply from published global policy before preparation and verify with final policy fence; defaults are not a sizing claim for 10,000 users |
 | <a id="web.prefetch.enabled"></a>`web.prefetch.enabled` | interface | global | true | plain |  | yes | Allow speculative mailbox/module/catalog prefetch; demanded navigation remains available |
-| <a id="web.prefetch.modules"></a>`web.prefetch.modules` | interface | global | false | plain |  | yes | Preload unopened Settings, Compose/editor and PIM modules while idle; off by default to reduce startup JavaScript. |
+| <a id="web.prefetch.modules"></a>`web.prefetch.modules` | interface | global | false | plain |  | yes | Preload unopened Settings, Compose/editor and PIM modules while idle; off by default to reduce startup JavaScript. Reader catalog and mail-data prefetch keep their own controls |
 | <a id="web.prefetch.idledelayms"></a>`web.prefetch.idleDelayMs` | interface | global | 2500 | plain |  | yes | Milliseconds after an authenticated mail session before scheduling optional idle prefetch |
 | <a id="web.offline.precachemode"></a>`web.offline.precacheMode` | offline | global | "all" | plain |  | yes | Service worker install prewarm: all retains the existing full asset set; core omits unopened translation/PDF assets, which may need network on first use |
 | <a id="web.offline.precacheconcurrency"></a>`web.offline.precacheConcurrency` | offline | global | 4 | plain |  | yes | Maximum parallel service worker install asset fetches; changed values apply at the next worker installation |
@@ -1095,7 +1107,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="limit.attachment-bytes"></a>`limit.attachment_bytes` | limits | global+domain+admin_user | 50000000 | plain |  | yes | Attachment bytes; 0 = no limit |
 | <a id="limit.send-per-hour"></a>`limit.send_per_hour` | limits | global+domain+admin_user | 0 | plain |  | yes | Submissions per hour; 0 = no limit |
 | <a id="limit.recipients-per-message"></a>`limit.recipients_per_message` | limits | global+domain+admin_user | 0 | plain |  | yes | Recipients per message; 0 = no limit |
-| <a id="limit.storage-bytes"></a>`limit.storage_bytes` | limits | global+domain+admin_user | 0 | plain |  | yes | blob reservations; 0 = no limit |
+| <a id="limit.storage-bytes"></a>`limit.storage_bytes` | limits | global+domain+admin_user | 0 | plain |  | yes | engine mode: cached messages plus uploads, checked at upload; proxy mode: not applied (the mail server's quota); 0 = no limit |
 | <a id="limit.send-per-day"></a>`limit.send_per_day` | limits | global+domain+admin_user | 0 | plain |  | yes | EmailSubmission/set creates per day; 0 = no limit |
 | <a id="limit.ai-calls-per-day"></a>`limit.ai_calls_per_day` | limits | global+domain+admin_user | 0 | plain |  | yes | assistant adapter calls per day; 0 = no limit |
 | <a id="limit.linked-mailboxes"></a>`limit.linked_mailboxes` | limits | global+domain+admin_user | 0 | plain |  | yes | linked mailboxes per user, below accounts.maxLinked; 0 = no limit beyond it (feature_gate.rs) |
@@ -1113,20 +1125,15 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="webhooks.timeoutsecs"></a>`webhooks.timeoutSecs` | webhooks | global | 10 | plain |  | yes | webhook delivery timeout |
 | <a id="outbox.maxattempts"></a>`outbox.maxAttempts` | mail | global | 8 | plain |  | yes | submission attempts (engine dispatcher) |
 | <a id="realtime.rechecksecs"></a>`realtime.recheckSecs` | realtime | global | 30 | plain | `MW_REALTIME_RECHECK_SECS` (pin) | yes | push stream re-check period (push.rs) |
-| <a id="privacy.watermark.enabled"></a>`privacy.watermark.enabled` | privacy | global+domain | false | plain | `MW_WATERMARK` (pin) | yes | reader watermark |
-| <a id="privacy.watermark.opacity"></a>`privacy.watermark.opacity` | privacy | global+domain | 0.08 | plain | `MW_WATERMARK_OPACITY` (pin) | yes | reader watermark opacity |
 | <a id="privacy.opentracking.retentiondays"></a>`privacy.openTracking.retentionDays` | privacy | global | 365 | plain |  | yes | open-tracking token retention |
 | <a id="privacy.opentracking.unboundttlhours"></a>`privacy.openTracking.unboundTtlHours` | privacy | global | 24 | plain |  | yes | open-tracking unbound token life |
 | <a id="maskedemail.domain"></a>`maskedEmail.domain` | mail | global | null | plain | `MW_MASKED_EMAIL_DOMAIN` (pin) | yes | masked-address domain (masked.rs) |
 | <a id="abuse.reportaddress"></a>`abuse.reportAddress` | mail | global+domain | null | plain | `MW_ABUSE_ADDRESS` (pin) | yes | ARF report address |
 | <a id="dlp.adminaddress"></a>`dlp.adminAddress` | mail | global | null | plain | `MW_DLP_ADMIN` (pin) | yes | DLP notice address |
-| <a id="observability.errorforwardurl"></a>`observability.errorForwardUrl` | observability | global | null | url | `MW_ERROR_FORWARD_URL` (pin) | yes | client error forwarding (errors.rs) |
-| <a id="egress.probeurl"></a>`egress.probeUrl` | egress | global | "https://example.com/" | url | `MW_EGRESS_PROBE_URL` (pin) | yes | egress proxy test target |
 | <a id="push.vapidcontact"></a>`push.vapidContact` | notifications | global | null | url | `MW_VAPID_CONTACT` (pin) | yes | VAPID contact (push_relay.rs) |
 | <a id="push.quiethours"></a>`push.quietHours` | notifications | global | null | plain |  | yes | push quiet hours, UTC |
 | <a id="about.securitycontact"></a>`about.securityContact` | about | global | null | url |  | yes | security.txt Contact |
 | <a id="about.securitypolicyurl"></a>`about.securityPolicyUrl` | about | global | null | url |  | yes | security.txt Policy |
-| <a id="about.projectlinks"></a>`about.projectLinks` | about | global | [] | url |  | yes | About screen links |
 | <a id="health.diskfreeminpercent"></a>`health.diskFreeMinPercent` | health | global | 5 | plain |  | yes | /readyz disk free floor |
 | <a id="metrics.defaultrangeseconds"></a>`metrics.defaultRangeSeconds` | observability | global | 3600 | plain |  | yes | default request history range |
 | <a id="metrics.maxrangeseconds"></a>`metrics.maxRangeSeconds` | observability | global | 2592000 | plain |  | yes | maximum request history range |

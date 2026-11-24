@@ -91,37 +91,6 @@ const BUILT: &[Built] = &[
 /// Keys with no reader yet, each with the reason. Keep this list short: an entry
 /// here is a switch in the console that does nothing today.
 const PENDING: &[(&str, &str)] = &[
-    // t48-e2 (password policy, assistant, plugin storage).
-    ("passwd.policy.minLength", "t48-e2 wires passwd.policy.*"),
-    ("passwd.policy.requireUpper", "t48-e2 wires passwd.policy.*"),
-    ("passwd.policy.requireLower", "t48-e2 wires passwd.policy.*"),
-    ("passwd.policy.requireDigit", "t48-e2 wires passwd.policy.*"),
-    ("passwd.policy.requireSymbol", "t48-e2 wires passwd.policy.*"),
-    ("plugins.kv.maxKeyBytes", "t48-e2 reads it through the registry instead of the environment"),
-    ("plugins.kv.maxValueBytes", "t48-e2 reads it through the registry instead of the environment"),
-    ("plugins.kv.maxTotalBytes", "t48-e2 reads it through the registry instead of the environment"),
-    ("plugins.kv.maxKeys", "t48-e2 reads it through the registry instead of the environment"),
-    // t48-e7 (lib.rs, webhooks, masked addresses, security.txt).
-    ("webhooks.maxAttempts", "t48-e7 reads it at delivery time"),
-    ("webhooks.timeoutSecs", "t48-e7 reads it at delivery time"),
-    ("upstream.proxyTimeoutSecs", "t48-e7 reads it when the upstream client is built"),
-    ("signin.ldapBindPrecheck", "t48-e7 reads it through the registry instead of the environment"),
-    ("maskedEmail.domain", "t48-e7 reads it through the registry instead of the environment"),
-    ("abuse.reportAddress", "t48-e7 reads it through the registry instead of the environment"),
-    ("about.securityContact", "t48-e7 serves /.well-known/security.txt"),
-    ("about.securityPolicyUrl", "t48-e7 serves /.well-known/security.txt"),
-    // t48-e8 (engine, health).
-    ("outbox.maxAttempts", "t48-e8 reads it in the dispatcher"),
-    ("dlp.adminAddress", "t48-e8 reads it through the registry instead of the environment"),
-    ("health.diskFreeMinPercent", "t48-e8 adds the /readyz disk floor"),
-    ("about.projectLinks", "t48-e1 wave 3: removed with the knobs.rs test that names it (no About screen reads it)"),
-    // Read only from the environment today; t48-e1 removes them from the registry
-    // together with their knob rows (knobs.rs, wave 3) so the variables stay
-    // catalogued.
-    ("privacy.watermark.enabled", "t48-e1 wave 3: removed with the lib.rs env read"),
-    ("privacy.watermark.opacity", "t48-e1 wave 3: removed with the lib.rs env read"),
-    ("observability.errorForwardUrl", "t48-e1 wave 3: stays environment-only (outbound target)"),
-    ("egress.probeUrl", "t48-e1 wave 3: stays environment-only (outbound target)"),
     // Deferred: its only reader is push.rs, which t48 does not edit.
     ("realtime.recheckSecs", "deferred until the push.rs owner reads it through the registry"),
 ];

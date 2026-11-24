@@ -1336,6 +1336,38 @@ pub static CATALOGUE: &[Knob] = &[
         "OTLP trace collector",
     ),
     boot(
+        "MW_ERROR_FORWARD_URL",
+        Gr::Observability,
+        Url,
+        R::Trust,
+        "",
+        "where scrubbed browser error reports are also sent; environment only, so a settings.write session cannot redirect them",
+    ),
+    boot(
+        "MW_EGRESS_PROBE_URL",
+        Gr::Integrations,
+        Url,
+        R::Trust,
+        "https://example.com/",
+        "the URL an egress route test fetches; environment only, so a settings.write session cannot point it at an internal address",
+    ),
+    boot(
+        "MW_WATERMARK",
+        Gr::Mail,
+        Plain,
+        R::Input,
+        "",
+        "watermark switch returned by GET /api/security/watermark (1 or true); the web app does not draw a watermark",
+    ),
+    boot(
+        "MW_WATERMARK_OPACITY",
+        Gr::Mail,
+        Plain,
+        R::Input,
+        "0.08",
+        "watermark opacity returned by GET /api/security/watermark",
+    ),
+    boot(
         "MW_OTEL_SERVICE",
         Gr::Observability,
         Plain,
@@ -1770,6 +1802,30 @@ pub static CATALOGUE: &[Knob] = &[
     ),
     test("MW_E14_PG_DSN", Secret, "PostgreSQL for the e14 tests"),
     test("MW_MOCK_PORT", Plain, "port of the mock mail server"),
+    test("MW_MOCK_USER", Plain, "user name the mock JMAP server accepts"),
+    test("MW_BG_TEST_PG", Dsn, "PostgreSQL for the mw-store background-maintenance tests"),
+    test(
+        "MW_STORE_OPERATION_BENCH",
+        Plain,
+        "1 runs the ignored SQLCipher store operation benchmark",
+    ),
+    test("MW_MOCK_PASS", Secret, "password the mock JMAP server accepts"),
+    test("MW_MOCK_NAME", Plain, "display name the mock JMAP server reports"),
+    test(
+        "MW_FIXTURE_REQUEST_PROFILE",
+        Plain,
+        "1 records per-request phase timings in load fixtures; read once at start",
+    ),
+    test(
+        "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE",
+        Plain,
+        "request-input mode of the native load fixture",
+    ),
+    test(
+        "MW_NATIVE_LOAD_ORDINARY_AUTH_MODE",
+        Plain,
+        "retired load-fixture variable; set, it stops the fixture with an error naming its replacement",
+    ),
     test(
         "MW_E2E_ADMIN_PATH",
         Plain,
@@ -2240,10 +2296,12 @@ mod tests {
         ] {
             assert!(!strip_url(value).contains("secret"), "{value}");
         }
-        let def = registry_def("about.projectLinks").unwrap();
+        // No registered key is a link list today; the kind keeps its redaction.
+        let mut def = *registry_def("about.securityPolicyUrl").unwrap();
+        def.kind = crate::settings_registry::Kind::Links { max_len: 10 };
         assert_eq!(
             redact_setting(
-                def,
+                &def,
                 &json!([{"label":"a=b@example.org","url":"https://user:secret@example.org?token=secret"}])
             ),
             json!([{"label":"a=b@example.org","url":"https://example.org"}])
@@ -2258,8 +2316,8 @@ mod tests {
             "cli-maintenance-vacuum"
         );
         assert_eq!(
-            anchor_of("privacy.watermark.enabled"),
-            "privacy.watermark.enabled"
+            anchor_of("dsr.export.encrypt"),
+            "dsr.export.encrypt"
         );
     }
 }
