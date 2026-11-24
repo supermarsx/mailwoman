@@ -311,6 +311,22 @@ impl Store {
         key: &str,
     ) -> Result<SettingsResolutionInputs, StoreError> {
         let revision = self.settings_read_revision().await?;
+        self.settings_resolution_inputs_for_at(subject, key, &revision).await
+    }
+    /// [`Store::settings_resolution_inputs_for`] at a revision freshly obtained
+    /// by the current request (t50hp): one request may share one proof across
+    /// its middleware. Never pass a proof retained across requests.
+    pub async fn settings_resolution_inputs_for_at(
+        &self,
+        subject: &SettingSubject<'_>,
+        key: &str,
+        revision: &SettingsReadRevision,
+    ) -> Result<SettingsResolutionInputs, StoreError> {
+        if revision.scope != self.cache_scope() {
+            return Err(StoreError::Corrupt(
+                "settings revision belongs to another store".into(),
+            ));
+        }
         let canonical = self
             .canonical_setting_subject_at(subject, revision.number())
             .await?;

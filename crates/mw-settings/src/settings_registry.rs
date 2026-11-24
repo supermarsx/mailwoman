@@ -9835,21 +9835,34 @@ pub async fn effective_for_with(
     extra: &[SettingValueRow],
 ) -> Result<Option<Effective>, StoreError> {
     let inputs = store.settings_resolution_inputs_for(subject, key).await?;
+    Ok(effective_one_from_inputs(inputs, key, extra))
+}
+
+/// [`effective_for`] at a revision proof the current request obtained fresh
+/// (t50hp). Callers must not retain the proof across requests.
+pub async fn effective_for_at(
+    store: &Store,
+    key: &str,
+    subject: &SettingSubject<'_>,
+    revision: &mw_store::settings_policy::SettingsReadRevision,
+) -> Result<Option<Effective>, StoreError> {
+    let inputs = store
+        .settings_resolution_inputs_for_at(subject, key, revision)
+        .await?;
+    Ok(effective_one_from_inputs(inputs, key, &[]))
+}
+
+fn effective_one_from_inputs(
+    inputs: mw_store::settings_policy::SettingsResolutionInputs,
+    key: &str,
+    extra: &[SettingValueRow],
+) -> Option<Effective> {
     let subject = &inputs.canonical.as_subject();
-    let Some(def) = lookup(key) else {
-        return Ok(None);
-    };
+    let def = lookup(key)?;
     let policy = inputs.policies.iter().find(|row| row.key == key);
     let mut values = inputs.values;
     values.extend_from_slice(extra);
-    Ok(Some(resolve_loaded(
-        def,
-        key,
-        subject,
-        policy,
-        &values,
-        &process_env,
-    )))
+    Some(resolve_loaded(def, key, subject, policy, &values, &process_env))
 }
 
 /// Resolve a bounded ordered selection with the strict single-key collector.

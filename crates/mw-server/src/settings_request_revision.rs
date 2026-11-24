@@ -36,6 +36,9 @@ pub(crate) async fn get(
     Ok(revision)
 }
 #[cfg(test)]
+#[path = "guard_read_budget_tests.rs"]
+mod guard_read_budget_tests;
+#[cfg(test)]
 mod tests {
     use super::*;
     #[tokio::test]

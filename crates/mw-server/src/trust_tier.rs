@@ -524,15 +524,28 @@ pub(crate) async fn policy(store: &mw_store::Store) -> Arc<Policy> {
     if let Some(value)=published_policy(store).await {return value;}
     match store.settings_read_revision().await {
         Ok(revision) => policy_at_revision(store, &revision).await,
-        Err(_) => {
-            let value = cache()
-                .last(store.instance_id())
-                .unwrap_or_else(|| Arc::new(Policy::default()));
-            lock().adopt(store.instance_id(), persist::salt(store));
-            hydrate_once(store, &value).await;
-            value
-        }
+        Err(_) => last_known(store).await,
     }
+}
+/// [`policy`] for request middleware (t50hp): resolves at the revision the
+/// request's middleware share (settings_request_revision), not a new read.
+pub(crate) async fn policy_for_request(
+    store: &mw_store::Store,
+    request: &mut axum::extract::Request,
+) -> Arc<Policy> {
+    if let Some(value)=published_policy(store).await {return value;}
+    match crate::settings_request_revision::get(store, request).await {
+        Ok(revision) => policy_at_revision(store, &revision).await,
+        Err(_) => last_known(store).await,
+    }
+}
+async fn last_known(store: &mw_store::Store) -> Arc<Policy> {
+    let value = cache()
+        .last(store.instance_id())
+        .unwrap_or_else(|| Arc::new(Policy::default()));
+    lock().adopt(store.instance_id(), persist::salt(store));
+    hydrate_once(store, &value).await;
+    value
 }
 pub(crate) async fn policy_at_revision(
     store: &mw_store::Store,

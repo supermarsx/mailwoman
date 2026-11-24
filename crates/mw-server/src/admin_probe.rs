@@ -447,7 +447,7 @@ fn blocked(policy: &Policy, until_ms: u64, now_ms: u64) -> Response {
 
 /// The router layer. Sits outside the other source guards and inside the
 /// security headers, so a blocked answer carries the same headers everywhere.
-pub(crate) async fn guard(State(state): State<AppState>, request: Request, next: Next) -> Response {
+pub(crate) async fn guard(State(state): State<AppState>, mut request: Request, next: Next) -> Response {
     let runtime = state.admin_probe.clone();
     // Liveness and readiness probes stay reachable, whatever the source.
     if matches!(request.uri().path(), "/healthz" | "/readyz") {
@@ -455,7 +455,8 @@ pub(crate) async fn guard(State(state): State<AppState>, request: Request, next:
     }
     // Keeps the shared trust-tier policy fresh (cached 30 s) for every guard.
     if let Err(response) = crate::request_inputs::effect_boundary(&state.store, crate::published_guard_context::Guard::Trust).await { return response; }
-    let trust = crate::trust_tier::policy(&state.store).await;
+    // t50hp: at the request's shared settings revision (no second read).
+    let trust = crate::trust_tier::policy_for_request(&state.store, &mut request).await;
     let Some(ip) = crate::scope_mw::proxy::client_ip(request.headers(), request.extensions())
     else {
         return next.run(request).await;

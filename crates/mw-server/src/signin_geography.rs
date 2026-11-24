@@ -12,7 +12,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use mw_engine::security::{CountryLookup, country_lookup};
-use mw_store::AuthSurface;
+use mw_store::{AuthSurface, settings_policy::SettingsReadRevision};
 use serde_json::{Value, json};
 use std::net::IpAddr;
 /// `security.signin.geoScope` values (the registry's `Kind::Enum` for that key).
@@ -49,42 +49,62 @@ pub(crate) fn prepare_published_inputs(rows:&[crate::settings_registry::Effectiv
 }
 impl Policy {
     async fn load(state: &AppState) -> Result<std::sync::Arc<Self>, AdminApiError> {
+        Self::load_at(state, None).await
+    }
+    /// All six keys resolve at ONE revision: the caller's proof (fresh for
+    /// the current request), else one fresh read here.
+    async fn load_at(
+        state: &AppState,
+        revision: Option<&SettingsReadRevision>,
+    ) -> Result<std::sync::Arc<Self>, AdminApiError> {
         if let Some(current)=crate::published_guard_context::current().await {
             current.used(crate::published_guard_context::Guard::Geography);
             return current.inputs.geography().ok_or_else(unavailable);
         }
-        async fn value(state: &AppState, key: &str) -> Result<Value, AdminApiError> {
-            crate::settings_registry::effective_for(&state.store, key, &Default::default())
+        let fresh;
+        let revision = match revision {
+            Some(revision) => revision,
+            None => {
+                fresh = state.store.settings_read_revision().await.map_err(|_| unavailable())?;
+                &fresh
+            }
+        };
+        async fn value(
+            state: &AppState,
+            key: &str,
+            revision: &SettingsReadRevision,
+        ) -> Result<Value, AdminApiError> {
+            crate::settings_registry::effective_for_at(&state.store, key, &Default::default(), revision)
                 .await
                 .map_err(|_| unavailable())?
                 .map(|v| v.value)
                 .ok_or_else(unavailable)
         }
-        let enforce_sessions = value(state, "security.signin.geoEnforceSessions")
+        let enforce_sessions = value(state, "security.signin.geoEnforceSessions", revision)
             .await?
             .as_bool()
             .ok_or_else(unavailable)?;
-        let scope = value(state, "security.signin.geoScope")
+        let scope = value(state, "security.signin.geoScope", revision)
             .await?
             .as_str()
             .ok_or_else(unavailable)?
             .to_owned();
-        let mode = value(state, "security.signin.geoMode")
+        let mode = value(state, "security.signin.geoMode", revision)
             .await?
             .as_str()
             .ok_or_else(unavailable)?
             .to_owned();
-        let unknown = value(state, "security.signin.geoUnknown")
+        let unknown = value(state, "security.signin.geoUnknown", revision)
             .await?
             .as_str()
             .ok_or_else(unavailable)?
             .to_owned();
-        let no_database = value(state, "security.signin.geoNoDatabase")
+        let no_database = value(state, "security.signin.geoNoDatabase", revision)
             .await?
             .as_str()
             .ok_or_else(unavailable)?
             .to_owned();
-        let countries = value(state, "security.signin.geoCountries")
+        let countries = value(state, "security.signin.geoCountries", revision)
             .await?
             .as_array()
             .ok_or_else(unavailable)?
@@ -220,19 +240,30 @@ pub(crate) async fn session_guard(
         request
     };
     if let Err(response) = crate::request_inputs::effect_boundary(&state.store, crate::published_guard_context::Guard::Geography).await { return response; }
+    // t50hp: the request's settings revision (shared by its middleware, see
+    // settings_request_revision), not a separate fresh read per key.
+    let mut request = request;
+    let mut revision = None;
     let enabled = if let Some(current)=crate::published_guard_context::current().await {
         current.used(crate::published_guard_context::Guard::Geography);
         current.inputs.global("security.signin.geoEnforceSessions").and_then(|r|r.value.as_bool())
-    }else {crate::settings_registry::effective_for(
-        &state.store,"security.signin.geoEnforceSessions",&Default::default(),
-    ).await.ok().flatten().and_then(|effective|effective.value.as_bool())};
+    }else {match crate::settings_request_revision::get(&state.store, &mut request).await {
+        Ok(proof) => {
+            let enabled = crate::settings_registry::effective_for_at(
+                &state.store,"security.signin.geoEnforceSessions",&Default::default(),&proof,
+            ).await.ok().flatten().and_then(|effective|effective.value.as_bool());
+            revision = Some(proof);
+            enabled
+        }
+        Err(_) => None,
+    }};
     match enabled {
         Some(false) => return next.run(request).await,
         Some(true) => {}
         None => return unavailable().into_response(),
     }
     if let Err(response) = crate::request_inputs::effect_boundary(&state.store, crate::published_guard_context::Guard::Geography).await { return response; }
-    let policy = match Policy::load(&state).await {
+    let policy = match Policy::load_at(&state, revision.as_ref()).await {
         Ok(policy) => policy,
         Err(error) => return error.into_response(),
     };
