@@ -508,10 +508,10 @@ async fn mixed_contract_foreign_matching_content_never_enters_ids_totals_or_muta
                 &mut HashMap::new(),
             )
             .await;
-    // Existing set_error deliberately maps both missing and foreign scoped
-    // Store errors to the same sanitized serverFail. Do not invent a new
-    // notFound public contract or reveal whether another owner has this ID.
-    assert_eq!(out["notUpdated"][&id]["type"], "serverFail", "{out}");
+    // Missing and foreign ids get the same RFC 8620 `notFound` SetError with
+    // the same fixed text (t55): the answer never reveals whether another
+    // owner has this ID.
+    assert_eq!(out["notUpdated"][&id]["type"], "notFound", "{out}");
     assert_eq!(out["notUpdated"][&id], out["notUpdated"][missing], "{out}");
     assert_eq!(out["notUpdated"].as_object().unwrap().len(), 2);
     assert!(

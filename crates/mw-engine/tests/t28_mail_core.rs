@@ -569,7 +569,7 @@ async fn an_update_the_engine_cannot_apply_is_not_reported_as_updated() {
     // Unknown id, with a patch that is itself fine.
     let set = set_update(&h, "no-such-id", json!({ "keywords/$seen": true })).await;
     assert_eq!(
-        set["notUpdated"]["no-such-id"]["type"], "serverFail",
+        set["notUpdated"]["no-such-id"]["type"], "notFound",
         "unknown id: {set}"
     );
     assert!(set["updated"].as_object().unwrap().is_empty(), "{set}");

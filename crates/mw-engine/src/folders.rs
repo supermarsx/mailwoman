@@ -1290,12 +1290,16 @@ mod tests {
         let internal = [
             EngineError::Transport("connect 10.0.0.5:993 refused".into()),
             EngineError::Auth("LOGIN rejected for admin".into()),
-            EngineError::Store(mw_store::StoreError::NotFound),
+            EngineError::Store(mw_store::StoreError::Corrupt("row 7 in /var/lib/mw".into())),
         ];
         for e in internal {
             let v = set_error(&e);
             assert_eq!(v["description"], SERVER_FAIL_TEXT, "{e}");
         }
+        // A missing record is `notFound` with a fixed text (t55).
+        let missing = set_error(&EngineError::Store(mw_store::StoreError::NotFound));
+        assert_eq!(missing["type"], "notFound");
+        assert_eq!(missing["description"], "no such record in this account");
         let own = set_error(&EngineError::Protocol("unknown submission".into()));
         assert_eq!(
             own["description"],

@@ -422,7 +422,9 @@ async fn compose_with_unknown_blob_is_clean_not_created() {
     );
     let not_created = resp["notCreated"].as_object().expect("notCreated present");
     let err = &not_created["draft1"];
-    assert_eq!(err["type"].as_str(), Some("serverFail"));
+    // RFC 8621 §4.6: an attachment blob that does not resolve (t55).
+    assert_eq!(err["type"].as_str(), Some("blobNotFound"));
+    assert_eq!(err["notFound"], serde_json::json!(["0000deadbeef.9"]));
     assert!(
         err["description"]
             .as_str()

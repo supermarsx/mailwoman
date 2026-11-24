@@ -89,6 +89,9 @@ mod unread_count_shortcut_tests;
 #[cfg(test)]
 #[path = "bulk_set_limit_tests.rs"]
 mod bulk_set_limit_tests;
+#[cfg(test)]
+#[path = "set_error_types_tests.rs"]
+mod set_error_types_tests;
 
 /// Build the JMAP [`Session`](mw_jmap::Session) resource for a connected account,
 /// advertising core + mail + submission and pointing every URL back at us.
@@ -1928,7 +1931,7 @@ impl Engine {
                         created.insert(client_id.clone(), json!({ "id": sid, "blobId": blob }));
                     }
                     Err(e) => {
-                        not_created.insert(client_id.clone(), set_error(&e));
+                        not_created.insert(client_id.clone(), compose_set_error(&e));
                     }
                 }
             }
@@ -2000,6 +2003,7 @@ impl Engine {
             // refuses fails only its own ids, as SetErrors, with nothing written
             // for them; chunks already done stay done (RFC 8620 §5.3 is per id).
             let chunk_size = self.index_publication_status().max_batch_documents.max(1);
+            let mut known_mailboxes: HashMap<String, bool> = HashMap::new();
             for chunk in update_ids.chunks(chunk_size) {
                 let chunk_publication_ids: Vec<String> = chunk.iter().filter(|id| !destroys.contains(*id)
                     && rows.get(*id).is_some_and(|row| row.account_id == account_id)).cloned().collect();
@@ -2069,11 +2073,32 @@ impl Engine {
                                 .ok()
                                 .map(|m| m.mailbox_id),
                         };
-                        if let Some(current) = current
-                            && let Err(invalid) = check_mailbox_patch(patch, &current)
-                        {
-                            not_updated.insert(id.clone(), invalid);
-                            continue;
+                        if let Some(current) = current {
+                            if let Err(invalid) = check_mailbox_patch(patch, &current) {
+                                not_updated.insert(id.clone(), invalid);
+                                continue;
+                            }
+                            // A target that is no mailbox of this account is the
+                            // patch's fault (RFC 8621 §4.6: invalidProperties),
+                            // checked before anything is written (t55).
+                            if let Some(target) = move_target(patch, &current) {
+                                let known = match known_mailboxes.get(&target) {
+                                    Some(known) => *known,
+                                    None => {
+                                        let known = matches!(self.store().get_mailbox(&target).await, Ok(m) if m.account_id == account_id);
+                                        known_mailboxes.insert(target.clone(), known);
+                                        known
+                                    }
+                                };
+                                if !known {
+                                    not_updated.insert(id.clone(), json!({
+                                        "type": "invalidProperties",
+                                        "properties": ["mailboxIds"],
+                                        "description": "no such mailbox in this account",
+                                    }));
+                                    continue;
+                                }
+                            }
                         }
                     }
                     match self
@@ -2261,7 +2286,7 @@ impl Engine {
             mw_mime::build(&req)
         } else {
             return Err(EngineError::Protocol(
-                "a receipt request or an inline part needs a From address with a domain".into(),
+                COMPOSE_NEEDS_DOMAIN_FROM.into(),
             ));
         }
         .map_err(|e| EngineError::Protocol(e.to_string()))?;
@@ -2357,13 +2382,13 @@ impl Engine {
                 };
                 let blob = self.fetch_blob(account_id, blob_id).await?.ok_or_else(|| {
                     EngineError::Protocol(format!(
-                        "attachment blobId {blob_id:?} does not resolve to a stored message part or uploaded blob"
+                        "attachment blobId {blob_id:?} {COMPOSE_BLOB_NOT_FOUND}"
                     ))
                 })?;
                 attachment_bytes = attachment_bytes.saturating_add(blob.bytes.len());
                 if attachment_bytes > 32 * 1024 * 1024 {
                     return Err(EngineError::Protocol(
-                        "attachments exceed the 32 MiB composition limit".into(),
+                        COMPOSE_TOO_LARGE.into(),
                     ));
                 }
                 // Prefer the client-declared type/name; fall back to what the
@@ -5896,6 +5921,12 @@ fn submission_update_error(e: &EngineError) -> Value {
 /// item). The other variants describe the request itself (an unknown id, an
 /// unsupported operation, the mail server's refusal) and keep their text.
 fn set_error(e: &EngineError) -> Value {
+    // The record the call names does not exist in this account (RFC 8620
+    // §5.3 `notFound`, t55). Its store text says nothing useful ("session not
+    // found"), so a fixed description is sent.
+    if matches!(e, EngineError::Store(mw_store::StoreError::NotFound)) {
+        return json!({ "type": "notFound", "description": "no such record in this account" });
+    }
     let description = match e {
         EngineError::Store(_) | EngineError::Transport(_) | EngineError::Auth(_) => {
             tracing::warn!("JMAP set error: {e}");
@@ -5917,6 +5948,32 @@ pub(super) fn publication_refusal(e: &EngineError) -> Value {
     };
     tracing::warn!("Email/set id not applied: {reason}");
     json!({ "type": "serverFail", "description": format!("not applied: {reason}; retry") })
+}
+
+/// The texts of the create-time refusals [`compose_set_error`] maps to their
+/// RFC 8621 SetError types; written and matched here only.
+const COMPOSE_BLOB_NOT_FOUND: &str = "does not resolve to a stored message part or uploaded blob";
+const COMPOSE_TOO_LARGE: &str = "attachments exceed the 32 MiB composition limit";
+const COMPOSE_NEEDS_DOMAIN_FROM: &str = "a receipt request or an inline part needs a From address with a domain";
+
+/// The SetError for a failed Email/set create (RFC 8621 §4.6): an attachment
+/// blob that does not resolve is `blobNotFound` (with `notFound`), attachments
+/// over the composition limit are `tooLarge`, a From address the requested
+/// parts cannot use is `invalidProperties`; anything else as [`set_error`].
+fn compose_set_error(e: &EngineError) -> Value {
+    if let EngineError::Protocol(m) = e {
+        if m.ends_with(COMPOSE_BLOB_NOT_FOUND) {
+            let blob = m.split('"').nth(1).unwrap_or_default();
+            return json!({ "type": "blobNotFound", "notFound": [blob], "description": m });
+        }
+        if m == COMPOSE_TOO_LARGE {
+            return json!({ "type": "tooLarge", "description": m });
+        }
+        if m == COMPOSE_NEEDS_DOMAIN_FROM {
+            return json!({ "type": "invalidProperties", "properties": ["from"], "description": m });
+        }
+    }
+    set_error(e)
 }
 
 /// A whole-method server failure result. The error is logged; the client gets
