@@ -8,18 +8,20 @@ The filter and jail files are in `deploy/fail2ban/`:
 |------|------------|
 | `deploy/fail2ban/filter.d/mailwoman.conf` | `/etc/fail2ban/filter.d/mailwoman.conf` |
 | `deploy/fail2ban/filter.d/mailwoman-admin-probe.conf` | `/etc/fail2ban/filter.d/mailwoman-admin-probe.conf` |
+| `deploy/fail2ban/filter.d/mailwoman-request-protection.conf` | `/etc/fail2ban/filter.d/mailwoman-request-protection.conf` |
 | `deploy/fail2ban/jail.d/mailwoman.conf` | `/etc/fail2ban/jail.d/mailwoman.conf` |
 
 ```sh
 install -m 0644 deploy/fail2ban/filter.d/mailwoman.conf /etc/fail2ban/filter.d/
 install -m 0644 deploy/fail2ban/filter.d/mailwoman-admin-probe.conf /etc/fail2ban/filter.d/
+install -m 0644 deploy/fail2ban/filter.d/mailwoman-request-protection.conf /etc/fail2ban/filter.d/
 install -m 0644 deploy/fail2ban/jail.d/mailwoman.conf /etc/fail2ban/jail.d/
 fail2ban-client reload
 fail2ban-client status mailwoman
 fail2ban-client status mailwoman-admin-probe
 ```
 
-The jail file defines two jails: `mailwoman` (rejected sign-ins) and `mailwoman-admin-probe` (sources blocked for probing).
+The jail file defines three jails: `mailwoman` (rejected sign-ins), `mailwoman-admin-probe` (sources blocked for probing) and `mailwoman-request-protection` (sources blocked for a recognized scan path; off by default, see [Blocked scan-path sources](#blocked-scan-path-sources)).
 
 ## Before you start
 
@@ -63,13 +65,31 @@ failregex = mailwoman\[admin-probe\]: source blocked; .*rhost=<HOST>
 - `signal=` is the miss that crossed the threshold (`probe-path`, `slug-guess`, `admin-signin-failed`, `admin-unauthenticated`), `strike=` the repeat count, `blockSecs=` the server's own block length.
 - `rhost=` is the full address whatever **Source address in the audit log** says. **IP addresses in logs** still applies to it (see above).
 - An address in **Never-blocked networks** (`security.adminProbe.allowlist`) is never blocked, so it never appears. Add the same networks to the jail's `ignoreip`.
-- The **Recognized scan paths** block of request protection writes no line. A scanner that requests `/wp-admin` is blocked by the server for five minutes, but the jail only sees it once probing protection blocks it too.
+- The **Recognized scan paths** block of request protection writes its own line, read by a separate jail; see [Blocked scan-path sources](#blocked-scan-path-sources).
 
 The line is switched on and off on the **Probing** sub-tab of **Security centre** > **Aggregate and adaptive protection**:
 
 ![The Audit and logging group of the Probing sub-tab: the source address in the audit log set to masked and the fail2ban log line on block switched on.](/screenshots/admin-access/fail2ban-probe-logging.webp){.mw-crop}
 
 **fail2ban log line on block** ([`security.adminProbe.fail2banLog`](/admin/settings#security.adminProbe.fail2banLog)) is on by default.
+
+## Blocked scan-path sources
+
+The **Recognized scan paths** block of [request protection](../admin/request-protection.md) blocks a source that requests a catalogued scan path such as `/.env` or `/.git/config`. When a request starts an enforced block, one line is written:
+
+```text
+2026-11-24T10:02:11.402Z  WARN request_protection: 2026-11-24T10:02:11Z mailwoman[request-protection]: source blocked; reason=probe-path blockSecs=300 rhost=203.0.113.7
+```
+
+```ini
+failregex = mailwoman\[request-protection\]: source blocked; .*rhost=<HOST>
+```
+
+- A request a browser made for another site's page (`Sec-Fetch-Site` is `cross-site` or `same-site`, for example an `<img>` on a third-party page pointing at `/.env`) is not recorded and writes no line. Requests without the header, as scanners send them, and typed URLs (`none`) are recorded.
+- A request that carries a verified mailbox or admin console session is not recorded, and passes an active block of its address. Requests from the same address without a session stay blocked.
+- The line is written when a block starts. Requests in the block's first second can repeat it; later scan-path requests during the block write no line.
+- `rhost=` is the canonical client address. **IP addresses in logs** applies to it (see above).
+- The supplied jail `mailwoman-request-protection` is **off by default** (`enabled = false`): one request is enough for a line, and a firewall ban covers every user behind that address. To use it, set `enabled = true` in `/etc/fail2ban/jail.d/mailwoman.conf` and add your own networks to `ignoreip`. As supplied it bans on the first line (`maxretry = 1`) for 1 hour.
 
 ## Log source
 

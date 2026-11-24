@@ -793,6 +793,149 @@ fn hostile_normalized_probe(normalized: &str, admin: &str) -> bool {
     probe_path::hostile_normalized_probe_path(path)
 }
 
+/// `Sec-Fetch-Site` present and neither `none` (typed URL, bookmark) nor
+/// `same-origin`: a browser fetched this for another site's page.
+fn browser_cross_site(headers: &axum::http::HeaderMap) -> bool {
+    headers.get("sec-fetch-site").is_some_and(|value| {
+        !value
+            .to_str()
+            .is_ok_and(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "none" | "same-origin"))
+    })
+}
+
+/// The fail2ban `failregex` for [`fail2ban_probe_block_line`].
+#[cfg_attr(not(test), allow(dead_code))]
+pub const FAIL2BAN_PROBE_BLOCK_FAILREGEX: &str =
+    r"mailwoman\[request-protection\]: source blocked; .*rhost=<HOST>";
+
+/// One line when a probe-path hit starts an enforced block, in the format of
+/// the admin-probe fail2ban line. `rhost` is the canonical client address.
+pub fn fail2ban_probe_block_line(
+    ts: chrono::DateTime<chrono::Utc>,
+    block_secs: u32,
+    ip: &str,
+) -> String {
+    let ip = ip.parse::<std::net::IpAddr>().map_or_else(|_| ip.to_owned(), |ip| ip.to_canonical().to_string());
+    format!(
+        "{} mailwoman[request-protection]: source blocked; reason=probe-path blockSecs={block_secs} rhost={ip}",
+        ts.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+    )
+}
+
+/// The recorded hit started (or restarted) an enforced block: the full block
+/// duration remains. Later hits inside the block report less, so this logs at
+/// most about once per source per second while a block is being set.
+fn probe_block_started(decision: &Decision, policy: &Policy) -> bool {
+    decision.enforced
+        && decision.action == mw_store::request_protection_model::Action::Block
+        && decision.reason == Some(mw_store::request_protection_model::Reason::ProbePath)
+        && decision.retry_after_secs == policy.block_secs
+}
+
+/// The source's probe-path gate. `Ok(Some(evidence))` when the session lookup
+/// ran (its result is reused by the rest of the guard), `Err` with the refusal.
+async fn probe_gate(
+    state: &AppState,
+    config: &Config,
+    headers: &axum::http::HeaderMap,
+    path: &str,
+    probe: bool,
+    source: &str,
+    source_country: Option<&str>,
+) -> Result<Option<Option<SessionEvidence>>, Response> {
+    let Some(policy) = config.probe_policy(source) else { return Ok(None) };
+    if policy.adaptive_mode == mw_store::request_protection_model::Mode::Off {
+        return Ok(None);
+    }
+    let probe_subject = format!("probe-path:{source}");
+    let now = chrono::Utc::now().timestamp();
+    // A request a browser made for another site (an image, script, link or
+    // navigation from a third-party page) is not evidence about this source:
+    // it is not recorded. Scanners send no Sec-Fetch-Site; a typed URL is `none`.
+    let mut record = probe && !browser_cross_site(headers);
+    // A verified mailbox or administrator session is neither recorded as a
+    // probe nor refused by an active probe block. The lookup runs only for a
+    // recordable probe hit or an enforced block, never on ordinary requests.
+    let mut session = None;
+    if record {
+        let evidence = session_evidence_for(state, headers, path).await?;
+        record = evidence.is_none();
+        session = Some(evidence);
+    }
+    if matches!(session, Some(Some(_))) {
+        return Ok(session);
+    }
+    let source_meta = mw_store::request_protection::ProtectionSource {
+        country: source_country,
+        ip: Some(source),
+    };
+    let (decision, storage_failed) = if let Some(accounting) = state.request_protection.write_behind() {
+        let answer = if record {
+            accounting
+                .record("client", &probe_subject, &policy, now, Some(Signal::ProbePath), source_meta)
+                .await
+        } else {
+            accounting.probe_decision("client", &probe_subject, &policy, now).await
+        };
+        (answer.decision, answer.storage_failed)
+    } else {
+        // Strong scanner evidence belongs to the transport source. Subsequent
+        // checks never charge an anonymous budget or revise a subject simply
+        // because a page was read.
+        let decision = if record {
+            state
+                .store
+                .request_protection_with_source(
+                    "client",
+                    &probe_subject,
+                    &policy,
+                    now,
+                    Some(Signal::ProbePath),
+                    source_meta,
+                )
+                .await
+                .map(|outcome| outcome.decision)
+        } else {
+            state
+                .store
+                .request_protection_probe_decision("client", &probe_subject, &policy, now)
+                .await
+        };
+        match decision {
+            Ok(decision) => (decision, false),
+            Err(_) => (Decision::default(), true),
+        }
+    };
+    if storage_failed {
+        warning();
+        if config.fail_closed
+            && policy.adaptive_mode == mw_store::request_protection_model::Mode::Enforce
+        {
+            return Err(response(unavailable()));
+        }
+    } else {
+        history::note_decision("client", &decision);
+    }
+    if record && probe_block_started(&decision, &policy) {
+        tracing::warn!(
+            target: "request_protection",
+            "{}",
+            fail2ban_probe_block_line(chrono::Utc::now(), policy.block_secs, source)
+        );
+    }
+    if decision.enforced {
+        let evidence = match session {
+            Some(evidence) => evidence,
+            None => session_evidence_for(state, headers, path).await?,
+        };
+        if evidence.is_none() {
+            return Err(response(limited(decision)));
+        }
+        return Ok(Some(evidence));
+    }
+    Ok(session)
+}
+
 fn bot_protected(path: &str) -> bool {
     let admin = mw_admin::config::admin_path();
     !matches!(
@@ -859,96 +1002,36 @@ pub(crate) async fn guard(
         _ => None,
     };
     let source_ip = source.map(|ip| ip.to_string());
-    if source_scope
-        && let Some(source) = source_ip.as_deref()
-        && let Some(policy) = config.probe_policy(source)
-        && policy.adaptive_mode != mw_store::request_protection_model::Mode::Off
-    {
-        let probe_subject = format!("probe-path:{source}");
-        let now = chrono::Utc::now().timestamp();
-        if let Some(accounting) = state.request_protection.write_behind() {
-            let answer = if probe {
-                accounting
-                    .record(
-                        "client",
-                        &probe_subject,
-                        &policy,
-                        now,
-                        Some(Signal::ProbePath),
-                        mw_store::request_protection::ProtectionSource {
-                            country: source_country.as_deref(),
-                            ip: source_ip.as_deref(),
-                        },
-                    )
-                    .await
-            } else {
-                accounting
-                    .probe_decision("client", &probe_subject, &policy, now)
-                    .await
-            };
-            if answer.storage_failed {
-                warning();
-                if config.fail_closed
-                    && policy.adaptive_mode == mw_store::request_protection_model::Mode::Enforce
-                {
-                    return response(unavailable());
-                }
-            } else {
-                history::note_decision("client", &answer.decision);
+    // Successful evidence belongs only to this request. Handler authentication
+    // remains independent; no revocation/expiry decisions survive a request.
+    let mut session_evidence = None;
+    let mut session_checked = false;
+    if source_scope && let Some(source) = source_ip.as_deref() {
+        // Boxed: the probe gate is a separate frame, keeping the guard's own
+        // future and stack use unchanged on ordinary requests.
+        match Box::pin(probe_gate(
+            &state,
+            &config,
+            request.headers(),
+            request.uri().path(),
+            probe,
+            source,
+            source_country.as_deref(),
+        ))
+        .await
+        {
+            Ok(Some(evidence)) => {
+                session_evidence = evidence;
+                session_checked = true;
             }
-            if answer.decision.enforced {
-                return response(limited(answer.decision));
-            }
-        } else {
-        // Strong scanner evidence belongs to the transport source even when a
-        // cookie is present. Subsequent checks never charge an anonymous budget
-        // or revise a subject simply because an authenticated page was read.
-        let decision = if probe {
-            state
-                .store
-                .request_protection_with_source(
-                    "client",
-                    &probe_subject,
-                    &policy,
-                    now,
-                    Some(Signal::ProbePath),
-                    mw_store::request_protection::ProtectionSource {
-                        country: source_country.as_deref(),
-                        ip: source_ip.as_deref(),
-                    },
-                )
-                .await
-                .map(|outcome| outcome.decision)
-        } else {
-            state
-                .store
-                .request_protection_probe_decision("client", &probe_subject, &policy, now)
-                .await
-        };
-        if let Ok(decision) = &decision {
-            history::note_decision("client", decision);
-        }
-        match decision {
-            Ok(decision) if decision.enforced => return response(limited(decision)),
-            Err(_) => {
-                warning();
-                if config.fail_closed
-                    && policy.adaptive_mode == mw_store::request_protection_model::Mode::Enforce
-                {
-                    return response(unavailable());
-                }
-            }
-            _ => {}
-        }
+            Ok(None) => {}
+            Err(refused) => return refused,
         }
     }
     if let Err(response) = crate::request_inputs::effect_boundary(&state.store, crate::published_guard_context::Guard::Trust).await { return response; }
     let trust = match revision.as_ref() {Some(revision)=>crate::trust_tier::policy_at_revision(&state.store,revision).await,
         None=>crate::trust_tier::policy(&state.store).await};
     let mut ua_allowed = false;
-    // Successful evidence belongs only to this request. Handler authentication
-    // remains independent; no revocation/expiry decisions survive a request.
-    let mut session_evidence = None;
     let ua_claim = (ua_route || bot_route)
         .then(|| {
             config.user_agent.claimed_class(
@@ -964,10 +1047,12 @@ pub(crate) async fn guard(
         if let Some((_, action)) = claimed.as_mut()
             && *action == crate::trust_tier::UaAction::Block
         {
-            session_evidence = match session_evidence_for(&state, request.headers(), request.uri().path()).await {
-                Ok(evidence) => evidence,
-                Err(response) => return response,
-            };
+            if !session_checked {
+                session_evidence = match session_evidence_for(&state, request.headers(), request.uri().path()).await {
+                    Ok(evidence) => evidence,
+                    Err(response) => return response,
+                };
+            }
             if session_evidence.is_some() {
                 *action = class_outcome(crate::trust_tier::UaAction::Block, true);
             }
@@ -1303,6 +1388,60 @@ mod identity_tests {
         assert!(!super::ua_protected("/health"));
     }
     use super::*;
+    #[test]
+    fn only_browser_requests_for_another_site_skip_probe_recording() {
+        let with = |value: Option<&[u8]>| {
+            let mut headers = axum::http::HeaderMap::new();
+            if let Some(value) = value {
+                headers.insert("sec-fetch-site", axum::http::HeaderValue::from_bytes(value).unwrap());
+            }
+            browser_cross_site(&headers)
+        };
+        assert!(!with(None), "scanners send no Sec-Fetch-Site");
+        assert!(!with(Some(b"none")) && !with(Some(b"same-origin")) && !with(Some(b"Same-Origin")));
+        assert!(with(Some(b"cross-site")) && with(Some(b"same-site")) && with(Some(b"\xff")));
+    }
+    #[test]
+    fn fail2ban_block_line_matches_its_filter_and_logs_only_a_new_block() {
+        use mw_store::request_protection_model::{Action, Mode, Reason, WindowPolicy};
+        let line = fail2ban_probe_block_line(
+            chrono::DateTime::from_timestamp(1_790_000_000, 0).unwrap(),
+            300,
+            "::ffff:198.51.100.4",
+        );
+        assert!(line.ends_with("reason=probe-path blockSecs=300 rhost=198.51.100.4"), "{line}");
+        assert_eq!(line.matches("rhost=").count(), 1);
+        let literal = FAIL2BAN_PROBE_BLOCK_FAILREGEX
+            .split(" .*rhost=<HOST>")
+            .next()
+            .unwrap()
+            .replace('\\', "");
+        assert!(line.contains(&literal), "{line} / {literal}");
+        let window = WindowPolicy { seconds: 60, minimum_samples: 1, absolute_anomalies: 1, ratio_percent: 0 };
+        let policy = Policy {
+            rate_mode: Mode::Off, adaptive_mode: Mode::Enforce, rate_limit: 0, rate_window_secs: 60,
+            short: window, long: WindowPolicy { seconds: 3600, ..window }, normal_cap_per_bucket: 100,
+            signals: 0, throttle_secs: 3, block_secs: 300, decay_secs: 3600, max_stage: 2,
+        };
+        let new = Decision { action: Action::Block, reason: Some(Reason::ProbePath), enforced: true, retry_after_secs: 300 };
+        assert!(probe_block_started(&new, &policy));
+        assert!(!probe_block_started(&Decision { retry_after_secs: 299, ..new }, &policy), "inside an existing block");
+        assert!(!probe_block_started(&Decision { enforced: false, ..new }, &policy), "observe mode");
+        assert!(!probe_block_started(&Decision { action: Action::Throttle, ..new }, &policy));
+    }
+    #[test]
+    fn the_shipped_probe_block_filter_carries_the_failregex_in_code() {
+        let filter = include_str!("../../../deploy/fail2ban/filter.d/mailwoman-request-protection.conf");
+        let lines: Vec<&str> = filter
+            .lines()
+            .filter_map(|l| l.strip_prefix("failregex"))
+            .map(|rest| rest.trim_start().trim_start_matches('=').trim())
+            .collect();
+        assert_eq!(lines, [FAIL2BAN_PROBE_BLOCK_FAILREGEX]);
+        let jail = include_str!("../../../deploy/fail2ban/jail.d/mailwoman.conf");
+        assert!(jail.contains("[mailwoman-request-protection]"));
+        assert!(jail.contains("filter   = mailwoman-request-protection"));
+    }
     #[test]
     fn upstream_local_accounts_require_the_verified_service_realm() {
         let first = proxy_account_key("https://mail.example/a/session", "1").unwrap();

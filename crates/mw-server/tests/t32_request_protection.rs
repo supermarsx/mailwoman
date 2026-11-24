@@ -313,8 +313,11 @@ async fn probe_blocks_remain_source_scoped_with_valid_sessions_and_preserve_reco
     .await;
     let actor = client(43);
     login(&actor, &base).await;
+    // t45 B1: a verified session is neither recorded as a probe nor refused by
+    // its source's probe block; an anonymous request from that source is.
+    let anonymous = client(43);
     assert_eq!(
-        actor
+        anonymous
             .get(format!("{base}/cmd_sco"))
             .send()
             .await
@@ -329,8 +332,18 @@ async fn probe_blocks_remain_source_scoped_with_valid_sessions_and_preserve_reco
             .await
             .unwrap()
             .status(),
+        200,
+        "a verified session passes the source's probe block"
+    );
+    assert_eq!(
+        anonymous
+            .get(format!("{base}/api/me"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
         429,
-        "a valid cookie cannot bypass the source's probe block"
+        "anonymous requests from the blocked source stay refused"
     );
     assert_eq!(
         actor
