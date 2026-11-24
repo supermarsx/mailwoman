@@ -103,6 +103,7 @@ fn synthetic_corpus() -> Vec<IndexDoc> {
             filenames,
             pinned: rng.next().is_multiple_of(20),
             attachment_text: String::new(),
+            source_content_ref: None,
         });
     }
     docs
