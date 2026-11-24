@@ -50,6 +50,7 @@ pub mod database_observability;
 pub mod database_growth;
 pub mod pool_telemetry;
 pub mod pool_policy;
+pub mod pg_settings_check;
 pub mod sqlite_page_cache;
 mod message_cache;
 mod websocket_cookie_handoff;
@@ -528,6 +529,7 @@ impl Store {
             eprintln!("[mw-store] feature profile targets incomplete until fresh verified sign-in: {error}");
         }
         store.configure_pool_at_startup().await?;
+        store.warn_on_postgres_settings().await;
         Ok(store)
     }
 
