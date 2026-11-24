@@ -26,12 +26,14 @@ type Step = () => Promise<unknown>;
 export function prefetchSteps(): Step[] {
   return [
     () => preloadCatalogs(READER_CATALOGS),
+    ...(webPerformancePolicy().prefetchModules?[
     () => preloadCatalogs(SETTINGS_CATALOGS),
     loadComposePane,
     loadSettingsPane,
     () => preloadCatalogs(MODULE_CATALOGS),
     () => import('../shell/mounts.tsx'),
     () => import('../modules/contacts/index.tsx'),
+    ].map(step=>()=>webPerformanceReady()&&webPerformancePolicy().prefetchModules?step():Promise.resolve()):[]),
   ];
 }
 

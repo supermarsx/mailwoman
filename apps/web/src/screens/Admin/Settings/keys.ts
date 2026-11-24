@@ -28,6 +28,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'web.assets.cache.revalidateSeconds',
   'web.assets.cache.preload',
   'web.prefetch.enabled',
+  'web.prefetch.modules',
   'web.prefetch.idleDelayMs',
   'web.offline.precacheMode',
   'web.offline.precacheConcurrency',

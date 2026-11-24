@@ -2735,3 +2735,6 @@ admin-settings-key-notifications-login-summary-lookback-days = Maximum lookback 
 admin-settings-help-notifications-login-summary-lookback-days = Count at most this many days of received mail after a long absence.
 admin-settings-key-appearance-ui-scale = Interface scale (%)
 admin-settings-help-appearance-ui-scale = Resize the entire interface, including controls, text and spacing (50–200%). Message zoom remains independent.
+
+admin-settings-key-web-prefetch-modules = Preload unopened app screens
+admin-settings-help-web-prefetch-modules = Load Settings, Compose, the editor and other app modules while idle. Off by default to reduce startup downloads; screens still load when opened.

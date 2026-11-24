@@ -2834,3 +2834,6 @@ admin-settings-key-notifications-login-summary-lookback-days = Максимал�
 admin-settings-help-notifications-login-summary-lookback-days = Максимальна кількість днів після довгої відсутності.
 admin-settings-key-appearance-ui-scale = Масштаб інтерфейсу (%)
 admin-settings-help-appearance-ui-scale = Змінює розмір елементів керування, тексту й відступів (50–200%). Масштаб повідомлень задається окремо.
+
+admin-settings-key-web-prefetch-modules = Попереднє завантаження невідкритих екранів
+admin-settings-help-web-prefetch-modules = Завантажує налаштування, створення повідомлень, редактор та інші модулі під час простою. Типово вимкнено для зменшення завантажень при запуску; екрани завантажуються після відкриття.

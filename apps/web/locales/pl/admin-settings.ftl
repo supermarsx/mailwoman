@@ -2834,3 +2834,6 @@ admin-settings-key-notifications-login-summary-lookback-days = Maksymalny okres 
 admin-settings-help-notifications-login-summary-lookback-days = Maksymalna liczba dni po długiej nieobecności.
 admin-settings-key-appearance-ui-scale = Skala interfejsu (%)
 admin-settings-help-appearance-ui-scale = Zmienia rozmiar elementów sterujących, tekstu i odstępów (50–200%). Powiększenie wiadomości jest niezależne.
+
+admin-settings-key-web-prefetch-modules = Wstępne ładowanie nieotwartych ekranów
+admin-settings-help-web-prefetch-modules = Ładuje ustawienia, tworzenie wiadomości, edytor i inne moduły podczas bezczynności. Domyślnie wyłączone, aby ograniczyć pobieranie przy starcie; ekrany ładują się po otwarciu.

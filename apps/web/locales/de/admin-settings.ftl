@@ -2822,3 +2822,6 @@ admin-settings-key-notifications-login-summary-lookback-days = Maximaler Rückbl
 admin-settings-help-notifications-login-summary-lookback-days = Maximale Anzahl berücksichtigter Tage nach langer Abwesenheit.
 admin-settings-key-appearance-ui-scale = Oberflächenskalierung (%)
 admin-settings-help-appearance-ui-scale = Skaliert alle Bedienelemente, Texte und Abstände (50–200 %). Der Nachrichtenzoom bleibt unabhängig.
+
+admin-settings-key-web-prefetch-modules = Ungeöffnete Ansichten vorladen
+admin-settings-help-web-prefetch-modules = Lädt Einstellungen, Verfassen, den Editor und weitere Module im Leerlauf. Standardmäßig aus, um Startdownloads zu reduzieren; Ansichten laden beim Öffnen weiterhin.

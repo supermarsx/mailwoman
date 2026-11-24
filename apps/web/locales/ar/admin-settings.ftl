@@ -2838,3 +2838,6 @@ admin-settings-key-notifications-login-summary-lookback-days = أقصى فترة
 admin-settings-help-notifications-login-summary-lookback-days = أقصى عدد أيام للمراجعة بعد غياب طويل.
 admin-settings-key-appearance-ui-scale = مقياس الواجهة (%)
 admin-settings-help-appearance-ui-scale = يغير حجم عناصر التحكم والنصوص والمسافات في الواجهة كلها (50–200%). تكبير الرسائل مستقل.
+
+admin-settings-key-web-prefetch-modules = التحميل المسبق للشاشات غير المفتوحة
+admin-settings-help-web-prefetch-modules = يحمّل الإعدادات وإنشاء الرسائل والمحرر والوحدات الأخرى أثناء الخمول. معطل افتراضيًا لتقليل تنزيلات بدء التشغيل؛ تُحمّل الشاشات عند فتحها.

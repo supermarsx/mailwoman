@@ -5834,3 +5834,8 @@ Every key in the settings registry, generated from the registry and checked agai
 | Key | Type | Default | Set at | Environment | Effect |
 |---|---|---|---|---|---|
 | <a id="servertext"></a>[`serverText.*`](#serverText) | object mapping an interface language code to text of up to 4000 characters | `{}` | server, domain |  | **No effect.** Server notices come from the bundled texts for the language set in `ui.language`; no `serverText.<id>` value is looked up. |
+
+<a id="web.prefetch.modules"></a>
+### Unopened application modules
+
+`web.prefetch.modules` defaults to `false`. Settings, Compose, rich-text editing, Calendar and Contacts are loaded when used instead of being imported automatically shortly after opening the inbox. Set it to `true` to restore broad idle module prewarming. `web.prefetch.enabled` remains the master speculation control; reader catalog and mail-header prefetch retain their existing behavior. Full service-worker offline caching is configured separately.

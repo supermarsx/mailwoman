@@ -38,6 +38,7 @@ pub(crate) async fn public_config(
                 | "signin.retryCooldownSecs"
                 | "web.i18n.retainedLocales"
                 | "web.i18n.concurrentLoads"
+                | "web.prefetch.modules"
                 | "web.prefetch.enabled"
                 | "web.prefetch.idleDelayMs"
                 | "web.offline.precacheMode"
@@ -92,6 +93,7 @@ pub(crate) async fn public_config(
             "retainedLocales":value("web.i18n.retainedLocales"),
             "concurrentLoads":value("web.i18n.concurrentLoads"),
             "prefetchEnabled":value("web.prefetch.enabled"),
+            "prefetchModules":value("web.prefetch.modules"),
             "idleDelayMs":value("web.prefetch.idleDelayMs"),
             "precacheMode":value("web.offline.precacheMode"),
             "precacheConcurrency":value("web.offline.precacheConcurrency"),
@@ -137,12 +139,12 @@ mod web_performance_tests {
                     assert_eq!(response.status(),200);assert_eq!(response.headers()[header::CACHE_CONTROL],"no-store");
                     serde_json::from_slice::<serde_json::Value>(&to_bytes(response.into_body(),1024*1024).await.unwrap()).unwrap()
                 };
-                let before=read(router.clone()).await;assert_eq!(before["webPerformance"],json!({"retainedLocales":3,"concurrentLoads":4,"prefetchEnabled":true,"idleDelayMs":2500,"precacheMode":"all","precacheConcurrency":4,"respectSaveData":true}));
+                let before=read(router.clone()).await;assert_eq!(before["webPerformance"],json!({"retainedLocales":3,"concurrentLoads":4,"prefetchEnabled":true,"prefetchModules":false,"idleDelayMs":2500,"precacheMode":"all","precacheConcurrency":4,"respectSaveData":true}));
                 for(key,value)in [("web.i18n.retainedLocales",json!(2)),("web.i18n.concurrentLoads",json!(1)),("web.prefetch.enabled",json!(false)),("web.prefetch.idleDelayMs",json!(800)),("web.offline.precacheMode",json!("core")),("web.offline.precacheConcurrency",json!(1)),("web.offline.respectSaveData",json!(false))]{
                     store.put_setting_policy(&SettingPolicyRow{key:key.into(),global_value:Some(value.to_string()),allow_user_override:false,global_locked:true,updated_by:"web-performance-fixture".into(),updated_at:chrono::Utc::now().timestamp()}).await.unwrap();
                 }
                 store.set_setting("web.private.not-public","must-not-leak").await.unwrap();
-                let after=read(router).await;assert_eq!(after["webPerformance"],json!({"retainedLocales":2,"concurrentLoads":1,"prefetchEnabled":false,"idleDelayMs":800,"precacheMode":"core","precacheConcurrency":1,"respectSaveData":false}));
+                let after=read(router).await;assert_eq!(after["webPerformance"],json!({"retainedLocales":2,"concurrentLoads":1,"prefetchEnabled":false,"prefetchModules":false,"idleDelayMs":800,"precacheMode":"core","precacheConcurrency":1,"respectSaveData":false}));
                 assert!(!after.to_string().contains("must-not-leak"));
             });
         }).unwrap();

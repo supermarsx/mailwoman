@@ -2808,3 +2808,6 @@ admin-settings-key-notifications-login-summary-lookback-days = 最大集計期�
 admin-settings-help-notifications-login-summary-lookback-days = 長期間不在だった場合に集計する最大日数です。
 admin-settings-key-appearance-ui-scale = インターフェースの倍率 (%)
 admin-settings-help-appearance-ui-scale = 操作部品、文字、余白を含む画面全体を拡大・縮小します（50～200%）。メッセージの倍率とは独立しています。
+
+admin-settings-key-web-prefetch-modules = 未使用画面を事前読み込み
+admin-settings-help-web-prefetch-modules = アイドル時に設定、作成画面、エディターなどを読み込みます。起動時のダウンロードを減らすため既定では無効です。画面は開く際に読み込まれます。

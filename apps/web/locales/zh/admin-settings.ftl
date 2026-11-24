@@ -2808,3 +2808,6 @@ admin-settings-key-notifications-login-summary-lookback-days = 最长回溯时�
 admin-settings-help-notifications-login-summary-lookback-days = 长时间离开后统计的最多天数。
 admin-settings-key-appearance-ui-scale = 界面缩放比例 (%)
 admin-settings-help-appearance-ui-scale = 调整整个界面的控件、文字和间距（50–200%）。邮件缩放独立设置。
+
+admin-settings-key-web-prefetch-modules = 预加载尚未打开的界面
+admin-settings-help-web-prefetch-modules = 在空闲时加载设置、写信、编辑器和其他模块。默认关闭以减少启动下载；打开界面时仍会按需加载。
