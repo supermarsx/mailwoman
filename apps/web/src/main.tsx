@@ -15,6 +15,7 @@ import './styles/app.css';
 // After app.css: one size and accent for every checkbox and radio (t32-h12).
 import './styles/checks.css.ts';
 import './styles/controls.css.ts';
+import './styles/scrollbars.css.ts';
 import './styles/motion.css.ts';
 import {nativeBackgroundStartup,startNativeBackgroundOnStartup} from './offline/nativeBackgroundStartup.ts';
 

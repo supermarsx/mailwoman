@@ -213,3 +213,12 @@ button, input, select { font-family: inherit; }
 #viewsManager .popupMenu button {
   font-family: var(--mw-font-sans, system-ui, sans-serif) !important;
 }
+
+/* Scrollbars use the same app palette as the viewer tools. */
+* { scrollbar-color: var(--mw-text-dim, #bdc1c6) var(--mw-bg-alt, #303134); }
+@media (forced-colors: active) { * { scrollbar-color: auto; } }
+@supports not (scrollbar-color: red blue) {
+  ::-webkit-scrollbar { width: 12px; height: 12px; }
+  ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: var(--mw-bg-alt, #303134); }
+  ::-webkit-scrollbar-thumb { background: var(--mw-text-dim, #bdc1c6); border: 3px solid var(--mw-bg-alt, #303134); }
+}
