@@ -2,19 +2,18 @@
 //! concurrent writers never share a state and never commit a state lower than
 //! one a reader has already observed.
 //!
-//! `record_change` / `record_changes` (and the ingest path) compute the next
-//! state as `MAX(state) + 1` inside the INSERT. SQLite has one writer, so the
-//! maximum is always read after the previous writer committed. PostgreSQL under
-//! READ COMMITTED gives each statement its own snapshot and has no unique index
-//! on `(account_id, type, state)`, so without a lock two concurrent writers can
-//! compute the same next state, and a writer that computed a lower state can
-//! commit after one that computed a higher state.
+//! Every change log (`changes`, `pim_changes`, `crypto_changes`) computes the
+//! next state as `MAX(state) + 1` inside the INSERT. SQLite has one writer, so
+//! the maximum is always read after the previous writer committed. PostgreSQL
+//! under READ COMMITTED gives each statement its own snapshot and has no unique
+//! index on `(account_id, type, state)`, so without a lock two concurrent
+//! writers can compute the same next state, and a writer that computed a lower
+//! state can commit after one that computed a higher state.
 //!
 //! Each scenario runs concurrent writers against one account while a reader
-//! polls the change log the way `Email/changes` does (`state > since`). It
-//! asserts:
-//! * every state belongs to exactly one write batch (one `record_change` call,
-//!   one `record_changes` call, or one ingested message);
+//! polls one change log the way `*/changes` does (`state > since`). It asserts:
+//! * every state belongs to exactly one write batch (one `record_*` call, one
+//!   ingested message, or one synced deletion);
 //! * no row becomes visible at a state at or below the highest state the reader
 //!   had already seen in an earlier poll (that row would be missed by a client
 //!   that synced to the higher state).
@@ -69,13 +68,83 @@ async fn mailbox(store: &Store, account: &str) -> String {
         .unwrap()
 }
 
+/// Ingest one new message (records Email `created` + Mailbox `updated`).
+async fn ingest(store: &Store, account: &str, mailbox: &str, uid: u32, label: &str) -> String {
+    let message_id = format!("<{label}@example.org>");
+    let raw = format!("Message-ID: {message_id}\r\nSubject: {label}\r\n\r\nbody {label}\r\n");
+    store
+        .ingest_message_with_body(
+            &MessageUpsert {
+                account_id: account,
+                mailbox_id: mailbox,
+                uid,
+                uidvalidity: 1,
+                message_id: Some(&message_id),
+                thread_id: None,
+                internaldate: None,
+                size: raw.len() as u64,
+                flags_json: "[]",
+                envelope: None,
+                blob_ref: None,
+            },
+            raw.as_bytes(),
+        )
+        .await
+        .unwrap()
+        .stable_id
+}
+
 /// What a writer does in one round.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum Writer {
     /// Alternate `record_change` and `record_changes` (2–3 ids).
     Record,
-    /// `ingest_message_with_body` of a new message (records Email + Mailbox).
+    /// `ingest_message_with_body` of a new message.
     Ingest,
+    /// `delete_synced_message_if_source` of a message seeded before the race.
+    DeleteSynced,
+    /// `record_pim_change` (CalendarEvent).
+    Pim,
+    /// `record_crypto_change` (MailRule).
+    Crypto,
+}
+
+/// The change log the reader polls.
+#[derive(Clone, Copy)]
+enum Log {
+    Email,
+    Pim,
+    Crypto,
+}
+
+const PIM_TYPE: &str = "CalendarEvent";
+const CRYPTO_TYPE: &str = "MailRule";
+
+/// `(state, object id, op)` rows of `log`, oldest first.
+async fn read_log(store: &Store, account: &str, log: Log) -> Vec<(u64, String, String)> {
+    match log {
+        Log::Email => store
+            .changes_since(account, "Email", 0)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|r| (r.state, r.stable_id, r.op))
+            .collect(),
+        Log::Pim => store
+            .pim_changes_since(account, PIM_TYPE, 0)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|r| (r.state, r.object_id, r.op))
+            .collect(),
+        Log::Crypto => store
+            .crypto_changes_since(account, CRYPTO_TYPE, 0)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|r| (r.state, r.object_id, r.op))
+            .collect(),
+    }
 }
 
 struct Outcome {
@@ -87,41 +156,63 @@ struct Outcome {
     polls: usize,
 }
 
+type Labels = Arc<std::sync::Mutex<HashMap<(String, String), String>>>;
+
+fn label(labels: &Labels, id: &str, op: &str, batch: &str) {
+    labels
+        .lock()
+        .unwrap()
+        .insert((id.to_string(), op.to_string()), batch.to_string());
+}
+
 /// Run `plan` writers concurrently on `stores` (round-robin) against one
-/// account, with a reader polling the Email change log until they finish.
-async fn race(stores: &[Store], plan: &[Writer]) -> Outcome {
+/// account, with a reader polling `log` until they finish.
+async fn race(stores: &[Store], plan: &[Writer], log: Log) -> Outcome {
     let store = &stores[0];
     let acct = account(store).await;
     let mbox = mailbox(store, &acct).await;
     let done = Arc::new(AtomicBool::new(false));
-    // stable_id -> batch label. Record batches name their own ids; ingest
-    // stable ids are minted by the store and reported back.
-    let labels: Arc<std::sync::Mutex<HashMap<String, String>>> = Default::default();
+    // (object id, op) -> batch label.
+    let labels: Labels = Default::default();
+
+    // Messages for the synced-deletion writers, ingested serially up front.
+    let mut seeded: HashMap<usize, Vec<String>> = HashMap::new();
+    for (w, kind) in plan.iter().enumerate() {
+        if *kind == Writer::DeleteSynced {
+            for i in 0..ROUNDS {
+                let seed = format!("seed-w{w}-r{i}");
+                let uid = (100_000 + w * ROUNDS + i) as u32;
+                let id = ingest(store, &acct, &mbox, uid, &seed).await;
+                label(&labels, &id, "created", &seed);
+                seeded.entry(w).or_default().push(id);
+            }
+        }
+    }
 
     let reader = {
         let store = stores[stores.len() - 1].clone();
         let acct = acct.clone();
         let done = done.clone();
         tokio::spawn(async move {
-            let mut seen: HashSet<(u64, String)> = HashSet::new();
+            let mut seen: HashSet<(u64, String, String)> = HashSet::new();
             let mut high = 0u64;
             let mut late = Vec::new();
             let mut polls = 0usize;
             loop {
                 let finished = done.load(Ordering::SeqCst);
-                let rows = store.changes_since(&acct, "Email", 0).await.unwrap();
+                let rows = read_log(&store, &acct, log).await;
                 polls += 1;
                 let mut poll_high = high;
                 for row in rows {
-                    if seen.insert((row.state, row.stable_id.clone())) {
-                        if polls > 1 && row.state <= high {
-                            let relation = if row.state < high { "below" } else { "at" };
+                    if seen.insert(row.clone()) {
+                        if polls > 1 && row.0 <= high {
+                            let relation = if row.0 < high { "below" } else { "at" };
                             late.push(format!(
-                                "{} appeared at state {} ({relation}) after the reader had seen state {}",
-                                row.stable_id, row.state, high
+                                "{} {} appeared at state {} ({relation}) after the reader had seen state {}",
+                                row.1, row.2, row.0, high
                             ));
                         }
-                        poll_high = poll_high.max(row.state);
+                        poll_high = poll_high.max(row.0);
                     }
                 }
                 high = poll_high;
@@ -139,13 +230,14 @@ async fn race(stores: &[Store], plan: &[Writer]) -> Outcome {
         let acct = acct.clone();
         let mbox = mbox.clone();
         let labels = labels.clone();
+        let mine = seeded.remove(&w).unwrap_or_default();
         tasks.push(tokio::spawn(async move {
             for i in 0..ROUNDS {
-                let label = format!("w{w}-r{i}");
+                let batch = format!("w{w}-r{i}");
                 match kind {
                     Writer::Record if i % 2 == 0 => {
-                        let id = format!("{label}-0");
-                        labels.lock().unwrap().insert(id.clone(), label);
+                        let id = format!("{batch}-0");
+                        label(&labels, &id, "updated", &batch);
                         store
                             .record_change(&acct, "Email", &id, "updated")
                             .await
@@ -153,9 +245,9 @@ async fn race(stores: &[Store], plan: &[Writer]) -> Outcome {
                     }
                     Writer::Record => {
                         let ids: Vec<String> =
-                            (0..2 + i % 2).map(|k| format!("{label}-{k}")).collect();
+                            (0..2 + i % 2).map(|k| format!("{batch}-{k}")).collect();
                         for id in &ids {
-                            labels.lock().unwrap().insert(id.clone(), label.clone());
+                            label(&labels, id, "updated", &batch);
                         }
                         store
                             .record_changes(&acct, "Email", &ids, "updated")
@@ -164,30 +256,36 @@ async fn race(stores: &[Store], plan: &[Writer]) -> Outcome {
                     }
                     Writer::Ingest => {
                         let uid = (w * ROUNDS + i + 1) as u32;
-                        let message_id = format!("<{label}@example.org>");
-                        let raw = format!(
-                            "Message-ID: {message_id}\r\nSubject: {label}\r\n\r\nbody {label}\r\n"
+                        let id = ingest(&store, &acct, &mbox, uid, &batch).await;
+                        label(&labels, &id, "created", &batch);
+                    }
+                    Writer::DeleteSynced => {
+                        let id = mine.get(i).expect("seeded message");
+                        label(&labels, id, "destroyed", &batch);
+                        let current = store.get_message(id).await.unwrap();
+                        assert!(
+                            store
+                                .delete_synced_message_if_source(&current)
+                                .await
+                                .unwrap(),
+                            "seeded message {id} was deleted"
                         );
-                        let outcome = store
-                            .ingest_message_with_body(
-                                &MessageUpsert {
-                                    account_id: &acct,
-                                    mailbox_id: &mbox,
-                                    uid,
-                                    uidvalidity: 1,
-                                    message_id: Some(&message_id),
-                                    thread_id: None,
-                                    internaldate: None,
-                                    size: raw.len() as u64,
-                                    flags_json: "[]",
-                                    envelope: None,
-                                    blob_ref: None,
-                                },
-                                raw.as_bytes(),
-                            )
+                    }
+                    Writer::Pim => {
+                        let id = format!("{batch}-0");
+                        label(&labels, &id, "updated", &batch);
+                        store
+                            .record_pim_change(&acct, PIM_TYPE, &id, "updated")
                             .await
                             .unwrap();
-                        labels.lock().unwrap().insert(outcome.stable_id, label);
+                    }
+                    Writer::Crypto => {
+                        let id = format!("{batch}-0");
+                        label(&labels, &id, "updated", &batch);
+                        store
+                            .record_crypto_change(&acct, CRYPTO_TYPE, &id, "updated")
+                            .await
+                            .unwrap();
                     }
                 }
             }
@@ -199,15 +297,15 @@ async fn race(stores: &[Store], plan: &[Writer]) -> Outcome {
     done.store(true, Ordering::SeqCst);
     let (late, polls) = reader.await.unwrap();
 
-    let rows = store.changes_since(&acct, "Email", 0).await.unwrap();
+    let rows = read_log(store, &acct, log).await;
     let labels = labels.lock().unwrap();
     let mut by_state: BTreeMap<u64, HashSet<String>> = BTreeMap::new();
-    for row in &rows {
-        let label = labels
-            .get(&row.stable_id)
+    for (state, id, op) in &rows {
+        let batch = labels
+            .get(&(id.clone(), op.clone()))
             .cloned()
-            .unwrap_or_else(|| format!("unlabelled:{}", row.stable_id));
-        by_state.entry(row.state).or_default().insert(label);
+            .unwrap_or_else(|| format!("unlabelled:{id}:{op}"));
+        by_state.entry(*state).or_default().insert(batch);
     }
     let duplicates = by_state
         .iter()
@@ -228,7 +326,7 @@ async fn race(stores: &[Store], plan: &[Writer]) -> Outcome {
 
 fn assert_clean(name: &str, outcome: Outcome) {
     eprintln!(
-        "[t54] {name}: {} Email rows, {} reader polls, {} shared states, {} late rows ({} strictly below)",
+        "[t54] {name}: {} rows, {} reader polls, {} shared states, {} late rows ({} strictly below)",
         outcome.rows,
         outcome.polls,
         outcome.duplicates.len(),
@@ -271,6 +369,24 @@ fn mixed_plan() -> Vec<Writer> {
     let mut plan = vec![Writer::Ingest; WRITERS - 1];
     plan.push(Writer::Record);
     plan
+}
+
+/// Synced deletions of one mailbox serialize among themselves on the mailbox
+/// row lock; a `record_change` writer and an ingest writer among them make any
+/// shared state a cross-path one.
+fn delete_plan() -> Vec<Writer> {
+    let mut plan = vec![Writer::DeleteSynced; WRITERS - 2];
+    plan.push(Writer::Record);
+    plan.push(Writer::Ingest);
+    plan
+}
+
+fn pim_plan() -> Vec<Writer> {
+    vec![Writer::Pim; WRITERS]
+}
+
+fn crypto_plan() -> Vec<Writer> {
+    vec![Writer::Crypto; WRITERS]
 }
 
 fn pg_dsn() -> Option<String> {
@@ -326,33 +442,65 @@ async fn sqlite_store(dir: &tempfile::TempDir) -> Store {
         .unwrap()
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-async fn postgres_concurrent_record_changes_get_distinct_ordered_states() {
-    // 4 stores x 5 connections: 16 writers plus the reader each get a connection.
-    with_pg("postgres record", 4, |stores| async move {
-        assert_clean("postgres record", race(&stores, &record_plan()).await);
-    })
-    .await;
+/// One scenario on PostgreSQL (4 stores x 5 connections: 16 writers plus the
+/// reader each get a connection) and on SQLite.
+macro_rules! scenario {
+    ($pg:ident, $sqlite:ident, $name:literal, $plan:expr, $log:expr) => {
+        #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+        async fn $pg() {
+            with_pg(concat!("postgres ", $name), 4, |stores| async move {
+                assert_clean(
+                    concat!("postgres ", $name),
+                    race(&stores, &$plan, $log).await,
+                );
+            })
+            .await;
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+        async fn $sqlite() {
+            let dir = tempfile::tempdir().unwrap();
+            let store = sqlite_store(&dir).await;
+            assert_clean(
+                concat!("sqlite ", $name),
+                race(&[store], &$plan, $log).await,
+            );
+        }
+    };
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-async fn postgres_ingest_and_record_change_share_one_state_sequence() {
-    with_pg("postgres ingest+record", 4, |stores| async move {
-        assert_clean("postgres ingest+record", race(&stores, &mixed_plan()).await);
-    })
-    .await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-async fn sqlite_concurrent_record_changes_get_distinct_ordered_states() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = sqlite_store(&dir).await;
-    assert_clean("sqlite record", race(&[store], &record_plan()).await);
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-async fn sqlite_ingest_and_record_change_share_one_state_sequence() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = sqlite_store(&dir).await;
-    assert_clean("sqlite ingest+record", race(&[store], &mixed_plan()).await);
-}
+scenario!(
+    postgres_concurrent_record_changes_get_distinct_ordered_states,
+    sqlite_concurrent_record_changes_get_distinct_ordered_states,
+    "record",
+    record_plan(),
+    Log::Email
+);
+scenario!(
+    postgres_ingest_and_record_change_share_one_state_sequence,
+    sqlite_ingest_and_record_change_share_one_state_sequence,
+    "ingest+record",
+    mixed_plan(),
+    Log::Email
+);
+scenario!(
+    postgres_synced_delete_shares_the_mail_state_sequence,
+    sqlite_synced_delete_shares_the_mail_state_sequence,
+    "delete-synced+record+ingest",
+    delete_plan(),
+    Log::Email
+);
+scenario!(
+    postgres_concurrent_pim_changes_get_distinct_ordered_states,
+    sqlite_concurrent_pim_changes_get_distinct_ordered_states,
+    "pim",
+    pim_plan(),
+    Log::Pim
+);
+scenario!(
+    postgres_concurrent_crypto_changes_get_distinct_ordered_states,
+    sqlite_concurrent_crypto_changes_get_distinct_ordered_states,
+    "crypto",
+    crypto_plan(),
+    Log::Crypto
+);

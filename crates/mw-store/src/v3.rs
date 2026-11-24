@@ -998,6 +998,9 @@ impl Store {
     /// Append one PIM change and return the new `(account, type)` state. A single
     /// atomic `INSERT … SELECT MAX+1 … RETURNING` (same WAL-safe discipline as the
     /// mail change log, [`Store::record_change`]).
+    /// On PostgreSQL it runs under the account's PIM change-log advisory lock
+    /// (`crate::v2::append_changes`, key 719305) so concurrent writers cannot
+    /// share a state or commit one below a state already visible (t54).
     pub async fn record_pim_change(
         &self,
         account_id: &str,
@@ -1006,7 +1009,7 @@ impl Store {
         op: &str,
     ) -> Result<u64, StoreError> {
         let now = chrono::Utc::now().to_rfc3339();
-        let next = q(
+        let insert = q(
             "INSERT INTO pim_changes (account_id, type, state, object_id, op, at)
              VALUES (
                  ?1, ?2,
@@ -1019,9 +1022,11 @@ impl Store {
         .bind(type_name)
         .bind(object_id)
         .bind(op)
-        .bind(&now)
-        .fetch_scalar_i64(&self.backend)
-        .await?;
+        .bind(&now);
+        let rows =
+            crate::v2::append_changes(&self.backend, crate::v2::ChangeLog::Pim, account_id, insert)
+                .await?;
+        let next = rows.first().map(|r| r.get_i64_idx(0)).unwrap_or_default();
         Ok(next as u64)
     }
 

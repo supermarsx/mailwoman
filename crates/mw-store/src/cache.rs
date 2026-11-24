@@ -1903,7 +1903,11 @@ impl Store {
         let mut tx = self.backend.begin().await?;
         // Ingest locks mailbox before message. Match that order on PostgreSQL
         // without a no-op write; SQLite's first DELETE obtains its writer lock.
+        // The account's change-log lock comes first, as in ingest and the
+        // mailbox paths: the Email/Mailbox rows below allocate MAX(state)+1,
+        // which races `record_change` and ingest without it (t54).
         if self.backend.dialect() == Dialect::Postgres {
+            crate::background_maintenance::lock_body_account(&mut tx, &expected.account_id).await?;
             q("SELECT id FROM mailboxes WHERE id=?1 AND account_id=?2 FOR UPDATE")
                 .bind(&expected.mailbox_id).bind(&expected.account_id)
                 .fetch_opt_scalar_string_tx(&mut tx).await?;

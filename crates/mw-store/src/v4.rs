@@ -110,6 +110,8 @@ impl Store {
     /// state. A single atomic `INSERT … SELECT MAX+1 … RETURNING` (same WAL-safe
     /// discipline as [`Store::record_pim_change`]). `type_name` is a ChangeType
     /// name (`"CryptoKey"` | `"MailRule"`).
+    /// On PostgreSQL it runs under the account's crypto change-log advisory lock
+    /// (`crate::v2::append_changes`, key 719306), as the PIM log does (t54).
     pub async fn record_crypto_change(
         &self,
         account_id: &str,
@@ -118,7 +120,7 @@ impl Store {
         op: &str,
     ) -> Result<u64, StoreError> {
         let now = chrono::Utc::now().to_rfc3339();
-        let next = q(
+        let insert = q(
             "INSERT INTO crypto_changes (account_id, type, state, object_id, op, at)
              VALUES (
                  ?1, ?2,
@@ -131,9 +133,15 @@ impl Store {
         .bind(type_name)
         .bind(object_id)
         .bind(op)
-        .bind(&now)
-        .fetch_scalar_i64(&self.backend)
+        .bind(&now);
+        let rows = crate::v2::append_changes(
+            &self.backend,
+            crate::v2::ChangeLog::Crypto,
+            account_id,
+            insert,
+        )
         .await?;
+        let next = rows.first().map(|r| r.get_i64_idx(0)).unwrap_or_default();
         Ok(next as u64)
     }
 

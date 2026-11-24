@@ -173,6 +173,31 @@ PostgreSQL server's `max_connections` for all of them. A shared database does no
 make the other parts of Mailwoman multi-instance aware: read
 [scaling and multi-location boundaries](scaling.md) before adding replicas.
 
+## Change-state collisions from earlier releases
+
+Releases from 26.10 until this fix could give two concurrent changes for one
+account the same change state on PostgreSQL (mail, PIM and crypto/rule change
+logs). A client that synced at that state could miss the second change; SQLite
+installations were not affected. Rows written in one batch share one timestamp,
+so a state whose rows carry more than one timestamp is a collision. This
+read-only query lists them (it cannot find collisions written within the same
+timestamp):
+
+```sql
+SELECT 'changes' AS log, account_id, type, state, COUNT(DISTINCT at) AS stamps
+  FROM changes GROUP BY account_id, type, state HAVING COUNT(DISTINCT at) > 1
+UNION ALL
+SELECT 'pim_changes', account_id, type, state, COUNT(DISTINCT at)
+  FROM pim_changes GROUP BY account_id, type, state HAVING COUNT(DISTINCT at) > 1
+UNION ALL
+SELECT 'crypto_changes', account_id, type, state, COUNT(DISTINCT at)
+  FROM crypto_changes GROUP BY account_id, type, state HAVING COUNT(DISTINCT at) > 1;
+```
+
+No repair is needed in the database. An affected client receives the missed
+item again the next time that item changes, or on its next full resync, when it
+discards its cached state and fetches the account again.
+
 ## When to use PostgreSQL
 
 - **SQLite**: single-user and small installations, evaluation, the desktop app.

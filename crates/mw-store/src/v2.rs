@@ -853,7 +853,7 @@ impl Store {
         .bind(stable_id)
         .bind(op)
         .bind(&now);
-        let rows = append_changes(&self.backend, account_id, insert).await?;
+        let rows = append_changes(&self.backend, ChangeLog::Mail, account_id, insert).await?;
         Ok(rows
             .first()
             .map(|r| r.get_i64_idx(0) as u64)
@@ -941,7 +941,7 @@ impl Store {
             .bind(id_list_json(&ids))
             .bind(op)
             .bind(&now);
-        let rows = append_changes(&self.backend, account_id, insert).await?;
+        let rows = append_changes(&self.backend, ChangeLog::Mail, account_id, insert).await?;
         // Every row carries the same state by construction; read it off the
         // first rather than trusting the caller's arithmetic.
         Ok(rows
@@ -1102,6 +1102,45 @@ fn identity_from_row(r: &Row) -> IdentityRow {
     }
 }
 
+/// Which per-account change log an append belongs to, and so which
+/// PostgreSQL advisory lock serializes its state allocation.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum ChangeLog {
+    /// `changes` (Email/Mailbox/Thread/…): `hashtextextended(account, 719304)`,
+    /// the key ingest, batch move/destroy and body GC already take
+    /// (`lock_body_account`), so mail change rows from every path share one
+    /// sequence lock.
+    Mail,
+    /// `pim_changes`: `hashtextextended(account, 719305)`.
+    Pim,
+    /// `crypto_changes`: `hashtextextended(account, 719306)`.
+    Crypto,
+}
+
+/// Take `log`'s per-account sequence lock in `tx` (PostgreSQL; a no-op on
+/// SQLite, whose `BEGIN IMMEDIATE` / single writer already serializes). Held
+/// to commit.
+pub(crate) async fn lock_change_log(
+    tx: &mut crate::backend::Tx,
+    log: ChangeLog,
+    account_id: &str,
+) -> Result<(), StoreError> {
+    match log {
+        ChangeLog::Mail => {
+            crate::background_maintenance::lock_body_account(tx, account_id).await?;
+        }
+        ChangeLog::Pim | ChangeLog::Crypto if matches!(tx, crate::backend::Tx::Postgres(_)) => {
+            let sql = match log {
+                ChangeLog::Pim => "SELECT pg_advisory_xact_lock(hashtextextended(?1,719305))",
+                _ => "SELECT pg_advisory_xact_lock(hashtextextended(?1,719306))",
+            };
+            q(sql).bind(account_id).execute_tx(tx).await?;
+        }
+        ChangeLog::Pim | ChangeLog::Crypto => {}
+    }
+    Ok(())
+}
+
 /// Run a change-log `INSERT … MAX(state)+1 … RETURNING state` so concurrent
 /// writers for one account get distinct states that become visible in order.
 ///
@@ -1111,16 +1150,20 @@ fn identity_from_row(r: &Row) -> IdentityRow {
 /// two concurrent statements can read the same `MAX(state)`, and a statement
 /// that computed a lower state can commit after one that computed a higher
 /// state, so a client already synced past it misses the row (t54). The insert
-/// therefore runs in a transaction that first takes the account's
-/// `pg_advisory_xact_lock` — the same key the ingest path takes
-/// (`lock_body_account`) before its own change rows — and holds it to commit.
-/// The lock is taken in a separate statement, so the INSERT's snapshot is taken
-/// after the previous holder committed. Lock order: advisory account lock, then
-/// the `changes` insert (its FK takes `FOR KEY SHARE` on the account row) —
-/// the same order as ingest, so the two cannot deadlock. Callers must not hold
-/// that account lock in another open transaction while calling this.
-async fn append_changes(
+/// therefore runs in a transaction that first takes the log's per-account
+/// `pg_advisory_xact_lock` ([`lock_change_log`]) and holds it to commit. The
+/// lock is taken in a separate statement, so the INSERT's snapshot is taken
+/// after the previous holder committed.
+///
+/// Lock order: the one advisory lock, then the insert (its FK takes
+/// `FOR KEY SHARE` on the account row). For [`ChangeLog::Mail`] that is the
+/// order ingest and the mailbox paths use (advisory, account, mailbox rows),
+/// so they cannot deadlock. The PIM and crypto keys are taken by nothing else
+/// and never together with another advisory lock. Callers must not hold the
+/// same key in another open transaction while calling this.
+pub(crate) async fn append_changes(
     backend: &crate::backend::Backend,
+    log: ChangeLog,
     account_id: &str,
     insert: crate::backend::Sql,
 ) -> Result<Vec<Row>, StoreError> {
@@ -1128,7 +1171,7 @@ async fn append_changes(
         Dialect::Sqlite => Ok(insert.fetch_all(backend).await?),
         Dialect::Postgres => {
             let mut tx = backend.begin().await?;
-            crate::background_maintenance::lock_body_account(&mut tx, account_id).await?;
+            lock_change_log(&mut tx, log, account_id).await?;
             let rows = insert.fetch_all_tx(&mut tx).await?;
             tx.commit().await?;
             Ok(rows)
