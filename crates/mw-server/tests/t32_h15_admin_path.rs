@@ -852,15 +852,68 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+/// The files that `files` include only as `#[cfg(test)] mod name;` (optionally
+/// with a `#[path = "…"]` attribute between the two), resolved the way rustc
+/// resolves them. Such a file is test code from its first line to its last.
+fn test_module_files(files: &[PathBuf]) -> std::collections::HashSet<PathBuf> {
+    let mut out = std::collections::HashSet::new();
+    for f in files {
+        let text = std::fs::read_to_string(f).unwrap();
+        let dir = f.parent().unwrap();
+        let stem = f.file_stem().unwrap().to_string_lossy().into_owned();
+        let mut armed = false;
+        let mut path_attr: Option<String> = None;
+        for line in text.lines() {
+            let code = line.trim();
+            if code.starts_with("#[cfg(test)]") {
+                armed = true;
+                path_attr = None;
+                continue;
+            }
+            if armed && code.starts_with("#[path") {
+                path_attr = code.split('"').nth(1).map(str::to_string);
+                continue;
+            }
+            if armed {
+                let declared = code
+                    .strip_prefix("pub(crate) ")
+                    .unwrap_or(code)
+                    .strip_prefix("mod ")
+                    .and_then(|rest| rest.strip_suffix(';'));
+                if let Some(name) = declared {
+                    let target = match &path_attr {
+                        Some(path) => dir.join(path),
+                        None if matches!(stem.as_str(), "lib" | "main" | "mod") => {
+                            dir.join(format!("{name}.rs"))
+                        }
+                        None => dir.join(&stem).join(format!("{name}.rs")),
+                    };
+                    out.insert(target);
+                }
+            }
+            armed = false;
+            path_attr = None;
+        }
+    }
+    out
+}
+
 /// The shipped (non-test, non-comment) lines of every `.rs` file under
 /// `crates/mw-server/src`, with their file and line number. A `#[cfg(test)] mod … {`
-/// block is skipped to its closing brace.
+/// block is skipped to its closing brace, and a file included only through a
+/// `#[cfg(test)] mod name;` declaration is skipped whole.
 fn shipped_lines() -> Vec<(String, usize, String)> {
     let src = repo_root().join("crates/mw-server/src");
     let mut files = Vec::new();
     rust_files(&src, &mut files);
+    let test_files = test_module_files(&files);
+    assert!(
+        test_files.iter().any(|f| f.ends_with("websocket_actions/tests.rs")),
+        "the test-module resolution found {} files, not websocket_actions/tests.rs",
+        test_files.len()
+    );
     let mut out = Vec::new();
-    for f in &files {
+    for f in files.iter().filter(|f| !test_files.contains(*f)) {
         let text = std::fs::read_to_string(f).unwrap();
         let mut depth: Option<i32> = None;
         let mut armed = false;
