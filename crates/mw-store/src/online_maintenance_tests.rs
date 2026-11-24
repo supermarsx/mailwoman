@@ -663,3 +663,50 @@ async fn expired_copy_deadline_can_cleanup_and_confirm_workers_before_shadow_rem
     drop(live);
     fixture.clean().await;
 }
+
+#[test]
+fn a_terminal_phase_in_memory_is_already_in_the_status_file() {
+    // A reader that sees the terminal phase through online_conversion_status
+    // then reads the status file (the full-conversion test does this). Before
+    // the fix the phase was visible in memory before the file was written.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mailwoman.db");
+    for round in 0..40 {
+        let job = Arc::new(Job {
+            report: Mutex::new(ConversionReport {
+                id: format!("round-{round}"),
+                phase: "switching".into(),
+                started_at: now(),
+                updated_at: now(),
+                progress: None,
+                error: None,
+                retained_previous: false,
+                source_generation: None,
+                target_generation: None,
+                timing: ConversionTiming::default(),
+            }),
+            cancel: Arc::new(AtomicBool::new(false)),
+            running: AtomicBool::new(false),
+            last_write: Mutex::new(Instant::now() - Duration::from_secs(2)),
+            timing: Mutex::new(JobTiming::new(Instant::now())),
+        });
+        publish_status(&path, &job, "switching", None, None).unwrap();
+        let publisher = {
+            let (job, path) = (job.clone(), path.clone());
+            std::thread::spawn(move || publish_status(&path, &job, "completed", None, None))
+        };
+        loop {
+            let phase = job.report.lock().unwrap_or_else(|p| p.into_inner()).phase.clone();
+            if terminal(&phase) {
+                break;
+            }
+            std::thread::yield_now();
+        }
+        let persisted: ConversionReport = serde_json::from_slice(
+            &generation_files::bounded_read(&status_path(&path), 65536).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(persisted.phase, "completed", "round {round}");
+        publisher.join().unwrap().unwrap();
+    }
+}

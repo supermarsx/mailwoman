@@ -123,8 +123,12 @@ fn publish_status(
     progress: Option<CopyProgress>,
     error: Option<String>,
 ) -> Result<(), String> {
+    // One publisher at a time, and the status file is written before the new
+    // phase is visible in memory: a reader that sees a terminal phase from
+    // `online_conversion_status` can then rely on the file holding it too.
+    let mut at = job.last_write.lock().unwrap_or_else(|p| p.into_inner());
     let report = {
-        let mut r = job.report.lock().unwrap_or_else(|p| p.into_inner());
+        let mut r = job.report.lock().unwrap_or_else(|p| p.into_inner()).clone();
         r.phase = phase.into();
         r.updated_at = now();
         if progress.is_some() {
@@ -134,17 +138,29 @@ fn publish_status(
         let mut timing=job.timing.lock().unwrap_or_else(|p|p.into_inner());
         if terminal(phase){timing.finish(Instant::now(),r.updated_at);}
         r.timing=timing.snapshot(Instant::now(),r.progress.as_ref());
-        r.clone()
+        r
     };
-    let mut at = job.last_write.lock().unwrap_or_else(|p| p.into_inner());
-    if at.elapsed() < Duration::from_secs(1) && matches!(phase, "copying" | "catching-up") {
-        return Ok(());
-    }
-    let bytes = serde_json::to_vec(&report).map_err(|_| "Could not encode conversion status")?;
-    generation_files::private_atomic_write(&status_path(path), &bytes)
-        .map_err(|e| e.to_string())?;
-    *at = Instant::now();
-    Ok(())
+    let written = if at.elapsed() < Duration::from_secs(1) && matches!(phase, "copying" | "catching-up") {
+        Ok(())
+    } else {
+        serde_json::to_vec(&report)
+            .map_err(|_| "Could not encode conversion status".to_string())
+            .and_then(|bytes| {
+                generation_files::private_atomic_write(&status_path(path), &bytes)
+                    .map_err(|e| e.to_string())
+            })
+            .map(|()| *at = Instant::now())
+    };
+    // Only the fields this call owns; other fields (retained_previous, a
+    // catch-up progress tick) may have been set since the copy was taken.
+    let mut r = job.report.lock().unwrap_or_else(|p| p.into_inner());
+    r.phase = report.phase;
+    r.updated_at = report.updated_at;
+    r.progress = report.progress;
+    r.error = report.error;
+    r.timing = report.timing;
+    drop(r);
+    written
 }
 impl Store {
     pub fn online_conversion_status(&self) -> Option<ConversionReport> {
