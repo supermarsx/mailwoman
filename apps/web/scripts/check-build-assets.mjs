@@ -143,7 +143,10 @@ else {
     count('sw offline entry');
     if (!(path in digests)) fail(`sw.js offline list: ${path} has no integrity digest`);
   }
-  for (const match of sw.matchAll(/importScripts\('\.\/([^']+)'\)/g)) expect('sw.js', `./${match[1]}`, 'sw import');
+  // t59: sw.js is served under `require-trusted-types-for 'script'`; a plain
+  // string passed to importScripts is refused there and the worker never installs.
+  for (const match of sw.matchAll(/\bimportScripts\(\s*["'`]([^"'`]*)/g)) fail(`sw.js: importScripts("${match[1]}") passes a plain string; Trusted Types refuses it (use scripts/swTrustedImport.ts)`);
+  for (const match of sw.matchAll(/\}\)\("(\.\/assets\/[^"]+)"\);/g)) expect('sw.js', match[1], 'sw import');
 }
 
 // ── Precompressed variants: base file exists and the bytes decode to it ──────

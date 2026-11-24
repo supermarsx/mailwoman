@@ -15,6 +15,7 @@ import { join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { transformWithEsbuild, type Plugin } from 'vite';
 import { bundledPackages } from './scripts/about-bundled-packages.mjs';
+import { swTrustedImport } from './scripts/swTrustedImport.ts';
 
 const buildCacheStats={hits:0,misses:0};
 const webRoot = fileURLToPath(new URL('.', import.meta.url));
@@ -136,7 +137,7 @@ export function assetIntegrity(): Plugin {
       const sw = readFileSync(swPath, 'utf8');
       const marker = '/* @mw-asset-digests */ null';
       if (!sw.includes(marker)) throw new Error('mw-asset-integrity: dist/sw.js has no asset-digest placeholder');
-      writeFileSync(swPath, sw.replace(marker, JSON.stringify(digests)).replace('/* @mw-offline-assets */ []',JSON.stringify(Object.keys(digests).filter(path=>(path.startsWith('/pdfjs/')||/\.(?:js|mjs|css|wasm)$/.test(path)||isAppCatalogPack(path))&&!/^\/assets\/(?:admin|offline-background)/.test(path)))).replace('/* @mw-offline-background */',offlineBackgroundFile?`importScripts('./${offlineBackgroundFile}');`:''));
+      writeFileSync(swPath, sw.replace(marker, JSON.stringify(digests)).replace('/* @mw-offline-assets */ []',JSON.stringify(Object.keys(digests).filter(path=>(path.startsWith('/pdfjs/')||/\.(?:js|mjs|css|wasm)$/.test(path)||isAppCatalogPack(path))&&!/^\/assets\/(?:admin|offline-background)/.test(path)))).replace('/* @mw-offline-background */',offlineBackgroundFile?swTrustedImport(offlineBackgroundFile):''));
     },
   };
 }
