@@ -92,6 +92,9 @@ mod bulk_set_limit_tests;
 #[cfg(test)]
 #[path = "set_error_types_tests.rs"]
 mod set_error_types_tests;
+#[cfg(test)]
+#[path = "query_differential_tests.rs"]
+mod query_differential_tests;
 
 /// Build the JMAP [`Session`](mw_jmap::Session) resource for a connected account,
 /// advertising core + mail + submission and pointing every URL back at us.
