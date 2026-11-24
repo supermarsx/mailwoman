@@ -83,6 +83,9 @@ mod dlp_retry_tests;
 #[cfg(test)]
 #[path = "unread_counter_drift_tests.rs"]
 mod unread_counter_drift_tests;
+#[cfg(test)]
+#[path = "unread_count_shortcut_tests.rs"]
+mod unread_count_shortcut_tests;
 
 /// Build the JMAP [`Session`](mw_jmap::Session) resource for a connected account,
 /// advertising core + mail + submission and pointing every URL back at us.
@@ -754,16 +757,40 @@ impl Engine {
         let custom_sort = sort != mw_search::Sort::received_desc() || !tie_breakers.is_empty();
 
         let mut additional_filter = None;
+        // t50hp-e26 (S3-a): `{inMailbox, notKeyword: "$seen"}` with limit 0/1
+        // and a total is the client's unread count; answer it from the stored
+        // counter. The same single mailbox read also says whether the account
+        // is zero-access, so the generic path costs the same statements.
+        let unread_shape = crate::unread_count_shortcut::is_unread_count_filter(&filter);
         if let Some(mailbox) = filter.in_mailbox.clone() {
-            match self.store().get_mailbox(&mailbox).await {
-                Ok(real) if real.account_id == account_id => {}
+            let resolved = if unread_shape {
+                self.store().get_mailbox_with_zero_access(&mailbox).await.map(|(m, zero)| (m, Some(zero)))
+            } else {
+                self.store().get_mailbox(&mailbox).await.map(|m| (m, None))
+            };
+            match resolved {
+                Ok((real, zero_access)) if real.account_id == account_id => {
+                    if let Some(zero_access) = zero_access
+                        && let Some(page) = self
+                            .unread_count_page(account_id, &real, zero_access, &filter, args, custom_sort)
+                            .await?
+                    {
+                        return Ok(page);
+                    }
+                }
                 Ok(_) => {
+                    if unread_shape {
+                        crate::unread_count_shortcut::fallback(crate::unread_count_shortcut::Fallback::Folder);
+                    }
                     return Ok(QueryPage {
                         total: want_total.then_some(0),
                         ..QueryPage::default()
                     });
                 }
                 Err(mw_store::StoreError::NotFound) => {
+                    if unread_shape {
+                        crate::unread_count_shortcut::fallback(crate::unread_count_shortcut::Fallback::Folder);
+                    }
                     let owner = self.store().native_personal_subject(account_id).await?;
                     match self.store().get_personal_saved_search(&mailbox).await? {
                         Some(saved)
@@ -898,6 +925,73 @@ impl Engine {
             total,
             total_truncated: want_total && hits.truncated,
         })
+    }
+
+    /// S3-a (t50hp-e26): the page of an unread-count query, from the folder's
+    /// stored unread counter, or `None` to take the generic path.
+    ///
+    /// `total` is `mailboxes.unread`, which 0122 made the exact count of the
+    /// folder's cached rows without `Seen`, maintained in every row write's
+    /// transaction. For `limit: 1` the one id still comes from the index, as a
+    /// top-1 of the same query and order: the collector orders by (date, doc
+    /// address) for any limit, so its first hit is the first hit of the full
+    /// enumeration, and only that one stored document is loaded. `position`
+    /// is 0 and nothing is truncated (above `MAX_HITS` the generic path, which
+    /// withholds the total there, answers). `queryState` and the rest of the
+    /// response are built by the caller exactly as for the generic page.
+    ///
+    /// Owned real folder only (checked by the caller); a zero-access account,
+    /// whose index documents are withheld, keeps the generic path.
+    async fn unread_count_page(
+        &self,
+        account_id: &str,
+        real: &mw_store::Mailbox,
+        zero_access: bool,
+        filter: &EmailFilter,
+        args: &Value,
+        custom_sort: bool,
+    ) -> std::result::Result<Option<QueryPage>, QueryFail> {
+        use crate::unread_count_shortcut::{Fallback, fallback, taken, window};
+        let limit = match window(args, custom_sort) {
+            Ok(limit) => limit,
+            Err(reason) => {
+                fallback(reason);
+                return Ok(None);
+            }
+        };
+        if zero_access || self.account_posture(account_id) != crate::v6::AccountPosture::Standard {
+            fallback(Fallback::Posture);
+            return Ok(None);
+        }
+        let unread = u64::from(real.unread);
+        if unread > mw_search::MAX_HITS as u64 {
+            fallback(Fallback::OverCap);
+            return Ok(None);
+        }
+        let ids = if limit == 0 || unread == 0 {
+            Vec::new()
+        } else {
+            self.index_read_fence(account_id).await?;
+            // Ownership is established (the caller compared the folder's
+            // account), so the folder itself is the whole scope.
+            let sq = search_index::build_search_query(
+                filter,
+                mw_search::Sort::received_desc(),
+                std::slice::from_ref(&real.id),
+                Some(real.id.as_str()),
+            );
+            self.search()
+                .search_hits_ordered(&sq, 1, &[])
+                .map_err(|e| EngineError::Protocol(format!("search: {e}")))?
+                .ids
+        };
+        taken(limit);
+        Ok(Some(QueryPage {
+            ids,
+            position: 0,
+            total: Some(unread),
+            total_truncated: false,
+        }))
     }
 
     /// `COUNT(*)` for the fast path's `calculateTotal`, or `None` when the client

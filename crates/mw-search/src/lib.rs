@@ -354,7 +354,7 @@ const F_FROM_SORT: &str = "from_sort";
 const F_SUBJECT_SORT: &str = "subject_sort";
 
 /// Cap for an unbounded (`limit == 0`) search, bounding the collector heap.
-const MAX_HITS: usize = 100_000;
+pub const MAX_HITS: usize = 100_000;
 
 /// What [`Index::search_hits`] returns: the ids, and whether the cap cut them
 /// short (26.20 t22-e2, finding V9).

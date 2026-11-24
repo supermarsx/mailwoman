@@ -792,3 +792,73 @@ async fn the_refresh_pair_answers_as_the_unshared_oracle_postgres() {
     };
     refresh_pair_differential(&hot, "postgres").await;
 }
+
+// ── the client's list batch with its unread count (t50hp-e26, S3-a) ─────────
+
+/// `workspaceMessages`' three calls: the page, its headers, and the unread
+/// count of the folder (`notKeyword: $seen`, `limit: 1`, `calculateTotal`).
+fn list_batch(account: &str, inbox: &str, page: usize) -> Vec<Value> {
+    vec![
+        json!(["Email/query", {"accountId":account,"filter":{"inMailbox":inbox},"limit":page,"position":0,"calculateTotal":true}, "query"]),
+        json!(["Email/get", {"accountId":account,"#ids":{"resultOf":"query","name":"Email/query","path":"/ids"},"properties":header_props()}, "rows"]),
+        json!(["Email/query", {"accountId":account,"filter":{"inMailbox":inbox,"notKeyword":"$seen"},"limit":1,"calculateTotal":true}, "unread"]),
+    ]
+}
+
+/// Warm statements of the list batch through the generic path (the unread
+/// count from the index) and with the S3-a shortcut (from the counter). The
+/// one statement saved is the account's mailbox list the index scope needed;
+/// the larger saving, the index enumeration of every unread message of the
+/// folder, is not SQL and does not show here.
+const LIST_BATCH_GENERIC: usize = 10;
+const LIST_BATCH_SHORTCUT: usize = 9;
+
+async fn list_batch_budget(hot: &Hot, backend: &str) {
+    let inbox = hot
+        .store()
+        .list_mailboxes(&hot.a)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|m| m.role.as_deref() == Some("inbox"))
+        .unwrap()
+        .id;
+    let generic_only = |on: bool| crate::unread_count_shortcut::GENERIC_ONLY.with(|g| g.set(on));
+    for page in [5, 50] {
+        generic_only(true);
+        let (_, before) = hot.warm(&hot.a, list_batch(&hot.a, &inbox, page)).await;
+        generic_only(false);
+        let (response, after) = hot.warm(&hot.a, list_batch(&hot.a, &inbox, page)).await;
+        assert_answered("list-batch", &response, page);
+        eprintln!("t50hp-e26 {backend} list-batch page{page}: generic={} shortcut={}", before.len(), after.len());
+        for f in families(&after) {
+            eprintln!("t50hp-e26 {backend} list-batch   {f}");
+        }
+        assert_eq!(before.len(), LIST_BATCH_GENERIC, "{backend} generic list batch: {:#?}", families(&before));
+        assert_eq!(after.len(), LIST_BATCH_SHORTCUT, "{backend} list batch with the shortcut: {:#?}", families(&after));
+        // Every seeded inbox message is unread; the counter says so.
+        assert_eq!(response["methodResponses"][2][1]["total"], json!(SEEDED), "{response}");
+    }
+    // Zero-access: the same read sees the posture and the generic path answers.
+    hot.set_zero_access(&hot.a, true).await;
+    let response = hot.send(&hot.a, list_batch(&hot.a, &inbox, 5)).await;
+    generic_only(true);
+    let generic = hot.send(&hot.a, list_batch(&hot.a, &inbox, 5)).await;
+    generic_only(false);
+    assert_eq!(response["methodResponses"][2], generic["methodResponses"][2], "zero-access keeps the generic answer");
+    hot.set_zero_access(&hot.a, false).await;
+}
+
+#[tokio::test]
+async fn list_batch_unread_count_statements_sqlite() {
+    list_batch_budget(&Hot::sqlite().await, "sqlite").await;
+}
+
+#[tokio::test]
+async fn list_batch_unread_count_statements_postgres() {
+    let Some(hot) = Hot::pg().await else {
+        mw_test_gate::skip("DATABASE_URL_PG and MW_E14_PG_DSN unset: list batch statements on PostgreSQL");
+        return;
+    };
+    list_batch_budget(&hot, "postgres").await;
+}

@@ -722,6 +722,24 @@ impl Store {
         Ok(Self::mailbox_from_row(&row))
     }
 
+    /// [`Store::get_mailbox`] plus whether the owning account is zero-access,
+    /// from the same statement (t50hp-e26: the unread-count shortcut must not
+    /// answer for an account whose index is withheld). Fail closed: an
+    /// enabled row, or any row that is not explicitly disabled, is zero-access.
+    pub async fn get_mailbox_with_zero_access(&self, id: &str) -> Result<(Mailbox, bool), StoreError> {
+        let row = q(
+            "SELECT m.id, m.account_id, m.name, m.role, m.uidvalidity, m.uidnext, m.highestmodseq, m.total, m.unread, m.parent_id,
+                    CAST(CASE WHEN z.account_id IS NULL THEN 0 WHEN z.enabled=0 THEN 0 ELSE 1 END AS BIGINT) AS zero_access
+             FROM mailboxes m LEFT JOIN zeroaccess_accounts z ON z.account_id = m.account_id
+             WHERE m.id = ?1",
+        )
+        .bind(id)
+        .fetch_optional(&self.backend)
+        .await?
+        .ok_or(StoreError::NotFound)?;
+        Ok((Self::mailbox_from_row(&row), row.get_i64("zero_access") != 0))
+    }
+
     /// Refresh a mailbox's upstream position and the server's own MESSAGES /
     /// UNSEEN figures. The cached-row counters are not written (t50hp-e26).
     pub async fn update_mailbox_counts(
