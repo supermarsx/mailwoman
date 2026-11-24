@@ -105,11 +105,11 @@ test('the per-stage mix report: achieved split, verified mutations and per-user 
  assert.equal(goalMixReport({},10),undefined);
 });
 
-test('the standing goal is 30,000 requests/s; the host option lets a loopback run qualify throughput but never a network claim',()=>{
- assert.equal(DEFAULT_TARGET_RPS,30000);
+test('the standing goal is 100,000 requests/s; the host option lets a loopback run qualify throughput but never a network claim',()=>{
+ assert.equal(DEFAULT_TARGET_RPS,100000);
  const goal=goalFromEnv({});
- assert.deepEqual([goal.successfulRps,goal.simultaneousAuthenticatedUsers,goal.isDefault],[30000,10000,true]);
- const stage=extra=>({endpoint:GOAL_MIX_NAME,phase:'offered-rate',arrivalRate:30000,acceptedDuringScheduledWindowRps:30000,uniquePrincipalsAcceptedDuringScheduledWindow:10000,uniqueClientsAcceptedDuringScheduledWindow:10000,coordination:{valid:true},mutationStateTainted:false,scheduledSeconds:30,errors:0,timeouts:0,throttled:0,droppedCapacity:0,droppedScheduler:0,
+ assert.deepEqual([goal.successfulRps,goal.simultaneousAuthenticatedUsers,goal.isDefault],[100000,10000,true]);
+ const stage=extra=>({endpoint:GOAL_MIX_NAME,phase:'offered-rate',arrivalRate:100000,acceptedDuringScheduledWindowRps:100000,uniquePrincipalsAcceptedDuringScheduledWindow:10000,uniqueClientsAcceptedDuringScheduledWindow:10000,coordination:{valid:true},mutationStateTainted:false,scheduledSeconds:30,errors:0,timeouts:0,throttled:0,droppedCapacity:0,droppedScheduler:0,
   mix:{acceptedInWindow:{writeShare:.35}},diagnostics:null,...extra});
  const env={MW_LOAD_QUALIFICATION_RUN:'1',MW_LOAD_QUALIFICATION_HOST:'local',MW_LOAD_HOST_DOCKER_VCPUS:'12',MW_LOAD_HOST_CPUSET_APP:'0-3',MW_LOAD_HOST_CPUSET_DB:'4-5',MW_LOAD_HOST_CPUSET_GENERATOR:'6-11'};
  const local=goalFromEnv(env);
@@ -128,7 +128,7 @@ test('the standing goal is 30,000 requests/s; the host option lets a loopback ru
  assert.equal(ok(options,full()),true,'loopback qualifies throughput when this machine is designated');
  const withoutHost=campaignOptions({MW_LOAD_QUALIFICATION_RUN:'1',MW_LOAD_NETWORK_GBIT:'10'});
  assert.equal(ok(withoutHost,full({transfer:{networkGbitBodyBytes:1}})),false,'a loopback qualification run without the option cannot qualify');
- assert.equal(ok(options,full({acceptedDuringScheduledWindowRps:29999})),false);
+ assert.equal(ok(options,full({acceptedDuringScheduledWindowRps:99999})),false);
  assert.equal(ok(options,full({mix:{acceptedInWindow:{writeShare:.5}}})),false,'the goal mix stage must hold about 35% writes');
  assert.equal(ok(options,full({mix:undefined})),false);
  assert.equal(ok(options,full({endpoint:'mixed',mix:undefined})),true,'the older mixed endpoints keep qualifying the plain rate rule');

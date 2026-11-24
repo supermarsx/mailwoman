@@ -3,7 +3,7 @@ import {fork} from 'node:child_process';
 import {writeFile,mkdir} from 'node:fs/promises';
 import {dirname,resolve} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
-import {measure} from './http-load.mjs';
+import {measure,MAX_OUTSTANDING,MAX_OFFERED_RPS} from './http-load.mjs';
 import {readPrivate} from './external-control.mjs';
 import {calibrationRequests} from './http-calibration-protocol.mjs';
 import {clusterAuthority,clusterOptions,clusterRequest,calibrationStageBudget,aggregateCalibrationWorkers,clusterCalibrationReport,calibrationChannel} from './http-cluster-calibration-protocol.mjs';
@@ -28,7 +28,7 @@ async function worker(){
    process.on('message',async message=>{
     try{
      if(message?.type==='prepare'){
-      if(phase||busy||!Number.isSafeInteger(message.id)||message.id<0||!Number.isInteger(message.seconds)||message.seconds<1||message.seconds>3600||!Number.isInteger(message.concurrency)||message.concurrency<1||message.concurrency>20000||!Number.isInteger(message.rate)||message.rate<1||message.rate>100000)throw new Error();
+      if(phase||busy||!Number.isSafeInteger(message.id)||message.id<0||!Number.isInteger(message.seconds)||message.seconds<1||message.seconds>3600||!Number.isInteger(message.concurrency)||message.concurrency<1||message.concurrency>MAX_OUTSTANDING||!Number.isInteger(message.rate)||message.rate<1||message.rate>MAX_OFFERED_RPS)throw new Error();
       phase={...message,spec:clusterRequest(message.endpoint,authority.dataBases,config.index)};process.send({type:'stage-ready',id:message.id,index:config.index});return;
      }
      if(message?.type!=='start'||busy||!phase||message.id!==phase.id||!Number.isSafeInteger(message.startAtMs)||message.startAtMs<Date.now()-1000||message.startAtMs>Date.now()+10000)throw new Error();

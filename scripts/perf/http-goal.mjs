@@ -2,12 +2,12 @@
 // the standing goal; anything else is recorded in the report (first key and
 // first Markdown line) so a report cannot be mistaken for the standing claim.
 //
-// Standing goal, revised 2026-11-24 by the user: 30,000 successful requests per
+// Standing goal, revised again on 2026-11-24 by the user: 100,000 successful requests per
 // second on a balanced mix of about 65% reads and 35% writes (by request count),
-// this machine being the base test hardware. Earlier text said 40,000.
+// this machine being the base test hardware. Earlier text said 30,000, and before that 40,000.
 import os from 'node:os';
 
-export const DEFAULT_TARGET_RPS=30000;
+export const DEFAULT_TARGET_RPS=100000;
 export const DEFAULT_TARGET_USERS=10000;
 export const GOAL_WORKLOAD='about 65% reads and 35% writes by HTTP request count (goal-65-35)';
 

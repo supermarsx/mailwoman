@@ -1,3 +1,4 @@
+import {MAX_OUTSTANDING,MAX_OFFERED_RPS} from './http-load.mjs';
 // Synthetic transport calibration only. No Mailwoman authentication or data.
 export const JSON_PAYLOAD = Object.freeze({calibration:'constant-response',padding:'x'.repeat(4096)});
 export const JSON_BYTES = Buffer.from(JSON.stringify(JSON_PAYLOAD));
@@ -13,7 +14,7 @@ export function calibrationHandoff(value,now=Date.now()){
 export function calibrationOptions(args){
  if(Object.keys(args).some(key=>!['handoff','output','seconds','rates','concurrency'].includes(key))||typeof args.handoff!=='string'||!args.handoff||typeof args.output!=='string'||!args.output)throw new Error('Explicit private handoff and output paths required');
  const seconds=Number(args.seconds??3),concurrency=Number(args.concurrency??256),rates=String(args.rates??'10000,20000,40000,60000,80000').split(',').map(Number);
- if(!Number.isFinite(seconds)||seconds<.1||seconds>3600||!Number.isInteger(concurrency)||concurrency<1||concurrency>20000||!rates.length||rates.length>5||new Set(rates).size!==rates.length||rates.some(rate=>!Number.isInteger(rate)||rate<100||rate>80000))throw new Error('Calibration options exceed bounded limits');
+ if(!Number.isFinite(seconds)||seconds<.1||seconds>3600||!Number.isInteger(concurrency)||concurrency<1||concurrency>MAX_OUTSTANDING||!rates.length||rates.length>5||new Set(rates).size!==rates.length||rates.some(rate=>!Number.isInteger(rate)||rate<100||rate>MAX_OFFERED_RPS))throw new Error('Calibration options exceed bounded limits');
  return {seconds,concurrency,rates};
 }
 

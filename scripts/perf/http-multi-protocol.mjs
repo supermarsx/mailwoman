@@ -1,5 +1,5 @@
 // Aggregate only: credentials and principal identifiers never enter this format.
-import {mergeMeasurements,mergeLatencyBreakdowns,mergeHttp503Reasons,MAX_WORKERS_TOTAL,MAX_OUTSTANDING,MAX_STAGE_SECONDS,SCHEDULING_LAG_LIMIT_MS} from './http-load.mjs';
+import {mergeMeasurements,mergeLatencyBreakdowns,mergeHttp503Reasons,MAX_WORKERS_TOTAL,MAX_OUTSTANDING,MAX_STAGE_SECONDS,MAX_OFFERED_RPS,SCHEDULING_LAG_LIMIT_MS} from './http-load.mjs';
 import {mergeH2Reports} from './http-h2-client.mjs';
 import {mergeBytesSnapshots,bytesReport} from './http-load.mjs';
 import {goalMixReport} from './representative-workload.mjs';
@@ -8,7 +8,7 @@ export const ENDPOINT_LABELS=['authenticated-identity','Mailbox/get','Email/quer
 const number=(value)=>typeof value==='number'&&Number.isFinite(value)&&value>=0;
 const integer=value=>Number.isSafeInteger(value)&&value>=0;
 export function splitBudget(total,count){
- if(!Number.isInteger(count)||count<1||count>MAX_WORKERS_TOTAL||!Number.isInteger(total)||total<count||total>100000)throw new Error('Invalid exact worker budget');
+ if(!Number.isInteger(count)||count<1||count>MAX_WORKERS_TOTAL||!Number.isInteger(total)||total<count||total>MAX_OFFERED_RPS)throw new Error('Invalid exact worker budget');
  return Array.from({length:count},(_,index)=>Math.floor(total/count)+(index<total%count?1:0));
 }
 export function partitionPrincipals(principals,workers){
@@ -19,7 +19,7 @@ export function partitionPrincipals(principals,workers){
  });
 }
 export function validateStage({workers,concurrency,seconds,arrivalRate,timeoutMs}){
- if(!Number.isInteger(workers)||workers<1||workers>MAX_WORKERS_TOTAL||!Number.isInteger(concurrency)||concurrency<workers||concurrency>MAX_OUTSTANDING||!Number.isInteger(seconds)||seconds<1||seconds>MAX_STAGE_SECONDS||!Number.isInteger(timeoutMs)||timeoutMs<100||timeoutMs>30000||arrivalRate!==undefined&&(!Number.isInteger(arrivalRate)||arrivalRate<workers||arrivalRate>100000))throw new Error('Invalid coordinated stage');
+ if(!Number.isInteger(workers)||workers<1||workers>MAX_WORKERS_TOTAL||!Number.isInteger(concurrency)||concurrency<workers||concurrency>MAX_OUTSTANDING||!Number.isInteger(seconds)||seconds<1||seconds>MAX_STAGE_SECONDS||!Number.isInteger(timeoutMs)||timeoutMs<100||timeoutMs>30000||arrivalRate!==undefined&&(!Number.isInteger(arrivalRate)||arrivalRate<workers||arrivalRate>MAX_OFFERED_RPS))throw new Error('Invalid coordinated stage');
  return {concurrency:splitBudget(concurrency,workers),...(arrivalRate===undefined?{}:{rates:splitBudget(arrivalRate,workers)})};
 }
 // Reuse the generator's exact bounded histogram/counter validator.

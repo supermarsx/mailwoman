@@ -65,7 +65,7 @@ export function representativeSpecs(p){
  ].map(spec=>({...spec,...(['mark-read-and-restore','move-and-restore'].includes(spec.name)?{statefulMutation:true}:{})}));
 }
 
-// ---- goal-65-35: the user's goal mix (30,000 requests/s, about 65% reads / 35% writes BY HTTP REQUEST COUNT) ----
+// ---- goal-65-35: the user's goal mix (100,000 requests/s, about 65% reads / 35% writes BY HTTP REQUEST COUNT) ----
 // One entry is one actual HTTP request. Every template is validated: either an existing one (identity, jmap-session,
 // list batch, Email/get, reader body, changes, preferences, appearance, mark-read, move) or one built like them and
 // smoke-validated against a real seeded fixture (t60): mark-unread, flag, unflag, delete-to-trash, draft save, search.

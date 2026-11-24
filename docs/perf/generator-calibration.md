@@ -9,8 +9,8 @@ after every compiler, image build and other load generator has stopped.
 The server provides a JSON response with 4,096 padding characters and a 65,536-byte
 binary response. The client uses the same `measure()` scheduler, fetch pipeline,
 bounded response buffering and content validators as application campaigns.
-Each endpoint receives up to five offered-rate phases, with 100–80,000 offered
-requests/second, 0.1–3,600 seconds per phase, and at most 20,000 outstanding requests.
+Each endpoint receives up to five offered-rate phases, with 100–250,000 offered
+requests/second, 0.1–3,600 seconds per phase, and at most 50,000 outstanding requests.
 Defaults are 10k/20k/40k/60k/80k, three seconds per phase, and 256 outstanding.
 Longer phases should be used for evidence beyond an initial smoke check.
 
@@ -110,9 +110,10 @@ are logic checks, not capacity evidence.
 | Limit | Before | Now |
 | --- | --- | --- |
 | Workers per host | 16 | 64 (256 across all hosts) |
-| Outstanding requests, one stage | 4,096 | 20,000 (40,000 rps x 250 ms = 10,000) |
+| Outstanding requests, one stage | 4,096 | 50,000 (100,000 rps x 250 ms = 25,000; was 20,000 for the 40,000 rps goal) |
 | Stage duration | 60 s (600 s single process) | 3,600 s (`MW_LOAD_FIXTURE_DEADLINE_SECONDS` up to 14,400) |
-| Users, offered rate | 10,000, 100,000 | unchanged |
+| Offered rate, one stage | 100,000 | 250,000 (the 100,000 goal plus overload stages above it) |
+| Users | 10,000 | unchanged |
 
 Values past a limit are rejected before any worker starts. The calibration client
 (`http-calibration-*.mjs`) keeps its own, smaller bounds.
@@ -253,20 +254,20 @@ run.
 
 ## Judged target and byte accounting (t53s)
 
-The standing goal is 30,000 successful requests/s on a balanced mix of about 65%
+The standing goal is 100,000 successful requests/s on a balanced mix of about 65%
 reads and 35% writes, with 10,000 simultaneous authenticated users, on this
-machine as the base hardware. The user revised it on 2026-11-24 (it was 40,000
-requests/s). Both numbers are parameters:
+machine as the base hardware. The user revised it on 2026-11-24, twice (it was
+40,000 requests/s, then 30,000). Both numbers are parameters:
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `MW_LOAD_TARGET_RPS` | 30000 | requests/s a stage must offer and have accepted inside its window |
+| `MW_LOAD_TARGET_RPS` | 100000 | requests/s a stage must offer and have accepted inside its window |
 | `MW_LOAD_TARGET_USERS` | 10000 | distinct users and simulated clients a stage must cover (at most 10,000) |
 | `MW_LOAD_NETWORK_GBIT` | unset | declared network budget; when set, every stage's body bytes (response plus request, in Gbit/s) must stay within it |
 | `MW_LOAD_QUALIFICATION_RUN=1` | off | requires `MW_LOAD_NETWORK_GBIT`, and a run whose targets include loopback can never qualify |
 
 Every report starts with `judgedAgainst` (target, users, and the network
-claim), and a report judged against anything but 30,000 / 10,000 says
+claim), and a report judged against anything but 100,000 / 10,000 says
 `NON-DEFAULT TARGET` there and in the first Markdown line. A loopback or
 shared-network-namespace run is labelled as unable to qualify a network claim,
 whatever its numbers.
@@ -371,3 +372,35 @@ A `goal-65-35` stage qualifies only when its accepted write share is 30-40%;
 `goal-65-35` as a mutating group. The request-inputs evidence in
 `request-inputs-experiment.mjs` does not know this group's shape list; do not
 combine `MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT` with it until that is extended.
+
+## Can this host offer 100,000 requests/s? (t53s, 2026-11-24)
+
+Limits of the generator: the validation caps above accept a 100,000 requests/s
+stage with 25,000 outstanding requests, 64 workers (about 1,563 requests/s each)
+and campaign rates up to 250,000. The HTTP/2 proxy-like preset shares 4
+connections per worker; with the server's 32-stream limit that is 128 concurrent
+streams per worker, enough while the mean latency stays below about 80 ms at
+1,563 requests/s per worker (beyond that requests queue in the generator and show
+as scheduling lag, which marks the stage generator-limited). The default capacity
+ramp rates (`1000,...,42000`) are unchanged for comparability: set
+`MW_LOAD_FIXTURE_RATES` explicitly for a 100,000 requests/s campaign.
+
+What it costs in CPU, from the only measurement that exists: one Node process
+completed about 5,725 constant-response JSON requests/s using about 1.5 logical
+CPUs (calibration, 2026-11-20), roughly 3,800 requests/s per CPU. Offering
+100,000 requests/s is then about 26 logical CPUs at saturation, and about 52 to
+keep the generator at or below 50% CPU. That figure is for a constant response with
+trivial validation; the real templates (JSON parse, validators, 10,000 simulated
+clients) cost more, so treat it as a lower bound. The multi-process path has never
+been run at rate, so the per-CPU figure is unconfirmed for it.
+
+This host reports 40 logical cores. At saturation the generator alone would take
+about 26 of them, leaving about 14 for the server, the database and everything
+else; at the 50% CPU rule it would need more cores than exist. So, on these
+numbers, one host cannot both offer 100,000 requests/s with generator headroom
+and serve it: a claim at that rate needs either the generator on other hosts
+(multi-host mode, private network, which makes the run a network run rather than
+a loopback one) or a measured per-CPU generator cost that is better than the
+single-process figure. A stage at that rate on this host must report
+`generatorLimited` honestly; it is not evidence about the server when it is set.
+

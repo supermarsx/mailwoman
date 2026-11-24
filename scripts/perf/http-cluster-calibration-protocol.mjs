@@ -1,5 +1,5 @@
 // Synthetic transport only: this protocol cannot establish application capacity.
-import {mergeMeasurements} from './http-load.mjs';
+import {mergeMeasurements,MAX_OUTSTANDING,MAX_OFFERED_RPS} from './http-load.mjs';
 import {splitBudget} from './http-multi-protocol.mjs';
 import {calibrationRequests,JSON_BYTES,BINARY_BYTES} from './http-calibration-protocol.mjs';
 export function loopbackOrigin(value){
@@ -16,7 +16,7 @@ export function clusterAuthority(value,now=Date.now()){
 export function clusterOptions(args){
  if(Object.keys(args).some(key=>!['handoff','output','seconds','rates','concurrency','workers'].includes(key))||!args.handoff||!args.output)throw new Error('Explicit private handoff and report required');
  const workers=Number(args.workers??4),seconds=Number(args.seconds??3),concurrency=Number(args.concurrency??256),rates=String(args.rates??'10000,20000,40000,60000,80000').split(',').map(Number);
- if(!Number.isInteger(workers)||workers<1||workers>64||!Number.isInteger(seconds)||seconds<1||seconds>3600||!Number.isInteger(concurrency)||concurrency<workers||concurrency>20000||!rates.length||rates.length>5||new Set(rates).size!==rates.length||rates.some(rate=>!Number.isInteger(rate)||rate<100||rate<workers||rate>100000))throw new Error('Cluster calibration limits exceeded');
+ if(!Number.isInteger(workers)||workers<1||workers>64||!Number.isInteger(seconds)||seconds<1||seconds>3600||!Number.isInteger(concurrency)||concurrency<workers||concurrency>MAX_OUTSTANDING||!rates.length||rates.length>5||new Set(rates).size!==rates.length||rates.some(rate=>!Number.isInteger(rate)||rate<100||rate<workers||rate>MAX_OFFERED_RPS))throw new Error('Cluster calibration limits exceeded');
  return {workers,seconds,concurrency,rates};
 }
 export function calibrationStageBudget(options,rate){return {concurrency:splitBudget(options.concurrency,options.workers),rates:splitBudget(rate,options.workers)};}

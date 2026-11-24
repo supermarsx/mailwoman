@@ -27,7 +27,7 @@ test('workers get disjoint complete bounded partitions and exact global budgets'
  assert.equal(parts.reduce((n,p)=>n+p.count,0),10000);assert.equal(new Set(parts.flatMap(p=>p.principals)).size,10000);
  assert.deepEqual(splitBudget(100,3),[34,33,33]);assert.equal(splitBudget(4096,16).reduce((a,b)=>a+b),4096);
  assert.deepEqual(validateStage({workers:3,concurrency:10,seconds:30,timeoutMs:1000,arrivalRate:40000}),{concurrency:[4,3,3],rates:[13334,13333,13333]});
- for(const patch of [{workers:257},{concurrency:1},{concurrency:20001},{seconds:.5},{seconds:3601},{arrivalRate:1},{arrivalRate:100001}])assert.throws(()=>validateStage({...stage,workers:2,...patch}));
+ for(const patch of [{workers:257},{concurrency:1},{concurrency:50001},{seconds:.5},{seconds:3601},{arrivalRate:1},{arrivalRate:250001}])assert.throws(()=>validateStage({...stage,workers:2,...patch}));
 });
 test('optional launch integration preserves the original single driver and bounds multiprocess selection',()=>{
  const input={directory:'/owned/private',ready:{handoffFile:'handoff.private.json',outputFile:'report.json'}};
@@ -57,7 +57,7 @@ test('an early mutation abort retains counts and a later taint invalidates earli
  aborted.measurement.rawMeasurements={schema:1,aggregate:aggregate.snapshot(),byRequest:{'Email/query':aggregate.snapshot()},scheduling:scheduling.snapshot(),arrivalLatency:aggregate.snapshot()};
  const merged=aggregateWorkers({results:[aborted,result(1)],partitions,stage,startAtMs});
  assert.equal(merged.mutationStateTainted,true);assert.equal(merged.unknownMutationOutcomes,1);assert.equal(merged.abortedUnscheduled,40);assert.equal(merged.offered,60);assert.equal(merged.plannedArrivals,100);assert.equal(merged.requests,60);assert.equal(merged.errors,1);
- const eligible={endpoint:'mixed',phase:'offered-rate',arrivalRate:40000,acceptedDuringScheduledWindowRps:40000,uniquePrincipalsAcceptedDuringScheduledWindow:10000,uniqueClientsAcceptedDuringScheduledWindow:10000,coordination:{valid:true},mutationStateTainted:false,scheduledSeconds:30,errors:0,timeouts:0,throttled:0,droppedCapacity:0,droppedScheduler:0};
+ const eligible={endpoint:'mixed',phase:'offered-rate',arrivalRate:100000,acceptedDuringScheduledWindowRps:100000,uniquePrincipalsAcceptedDuringScheduledWindow:10000,uniqueClientsAcceptedDuringScheduledWindow:10000,coordination:{valid:true},mutationStateTainted:false,scheduledSeconds:30,errors:0,timeouts:0,throttled:0,droppedCapacity:0,droppedScheduler:0};
  assert.equal(qualifiesHttpTarget({stages:[eligible],mutationStateTainted:false},true),false); // Legacy absent telemetry is unreported, not qualified.
  const health={submitted:20,applied:20,dropped:0,depth:0,queueDepth:0,capacity:8192,running:true,closing:false};
  eligible.diagnostics={before:{httpTelemetry:health},after:{httpTelemetry:{...health,submitted:40,applied:40}}};

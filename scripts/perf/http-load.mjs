@@ -11,7 +11,7 @@ import {goalMixReport} from './representative-workload.mjs';
 // Fetch exposes decoded body chunks, never TLS/header/on-wire byte counts.
 // Generator scale limits (t53s). Defaults of every caller are unchanged; only the ceilings moved.
 export const SCHEDULING_LAG_LIMIT_MS=1;
-export const MAX_WORKERS_PER_HOST=64,MAX_WORKERS_TOTAL=256,MAX_OUTSTANDING=20000,MAX_STAGE_SECONDS=3600;
+export const MAX_WORKERS_PER_HOST=64,MAX_WORKERS_TOTAL=256,MAX_OUTSTANDING=50000,MAX_STAGE_SECONDS=3600,MAX_OFFERED_RPS=250000;
 // Byte accounting beyond the decoded-body counters: response size distribution (5% buckets), request body
 // bytes, and compression as far as the wire size is known (HTTP/2 always; HTTP/1.1 only from Content-Length).
 const SIZE_STEP=Math.log(1.05);
@@ -239,7 +239,7 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
   };
   let offered=0,droppedCapacity=0,droppedScheduler=0,droppedLateSlots=0,peakOutstanding=0;
   if(arrivalRate!==undefined){
-    if(!Number.isFinite(arrivalRate)||arrivalRate<=0||arrivalRate>100000)throw new Error('Invalid arrival rate');
+    if(!Number.isFinite(arrivalRate)||arrivalRate<=0||arrivalRate>MAX_OFFERED_RPS)throw new Error('Invalid arrival rate');
     const pending=new Set(),interval=1000/arrivalRate,total=Math.floor(seconds*arrivalRate);
     // Batch due arrivals because JS timers cannot represent 10us slots. No
     // unbounded work queue: discard slots over 100ms late and cap outstanding.
@@ -324,7 +324,7 @@ async function main(){
  const levels=(args.concurrency??'1,8,32,64').split(',').map(Number),seconds=Number(args.seconds??30),warmup=Number(args.warmup??3),timeoutMs=Number(args.timeout??10000);
  if(!levels.length||levels.length>10||levels.some(n=>!Number.isInteger(n)||n<1||n>4096)||!Number.isFinite(seconds)||seconds<1||seconds>600||!Number.isFinite(warmup)||warmup<0||warmup>60||!Number.isFinite(timeoutMs)||timeoutMs<100||timeoutMs>120000)throw new Error('Invalid bounded load parameters');
  const arrivalRate=args['arrival-rate']===undefined?undefined:Number(args['arrival-rate']),dropRate=Number(args['max-drop-rate']??0);
- if((arrivalRate!==undefined&&(!Number.isFinite(arrivalRate)||arrivalRate<1||arrivalRate>100000))||!Number.isFinite(dropRate)||dropRate<0||dropRate>1)throw new Error('Invalid arrival or drop budget');
+ if((arrivalRate!==undefined&&(!Number.isFinite(arrivalRate)||arrivalRate<1||arrivalRate>MAX_OFFERED_RPS))||!Number.isFinite(dropRate)||dropRate<0||dropRate>1)throw new Error('Invalid arrival or drop budget');
  const p95=Number(args['max-p95']??Infinity),errorRate=Number(args['max-error-rate']??0),throttleRate=Number(args['max-throttle-rate']??(args['allow-throttles']==='true'?1:0));
  if(!(p95>0)||!Number.isFinite(errorRate)||errorRate<0||errorRate>1||!Number.isFinite(throttleRate)||throttleRate<0||throttleRate>1)throw new Error('Invalid report budgets');
  const scenario=args.scenario??'public';if(!['public','mail','malformed'].includes(scenario))throw new Error('Scenario must be public, mail or malformed');
@@ -346,7 +346,7 @@ async function main(){
  }
  if(args['allow-throttles']==='true')requests=requests.map(request=>request.name==='health'?request:{...request,statuses:[...(request.statuses??[200]),429]});
  const profile=args.profile??'sustained',rates=(args.rates??'20000,50000,100000').split(',').map(Number);
- if(!['sustained','burst','peak'].includes(profile)||rates.length>10||!rates.length||rates.some(n=>!Number.isFinite(n)||n<1||n>100000))throw new Error('Invalid bounded profile/rates');
+ if(!['sustained','burst','peak'].includes(profile)||rates.length>10||!rates.length||rates.some(n=>!Number.isFinite(n)||n<1||n>MAX_OFFERED_RPS))throw new Error('Invalid bounded profile/rates');
  const stages=args.profile?(profile==='sustained'?rates.map(rate=>({rate,duration:seconds})):profile==='burst'?[{rate:rates[0],duration:seconds},{rate:rates.at(-1),duration:Math.min(5,seconds)},{rate:rates[0],duration:seconds}]:[...rates,...rates.slice(0,-1).reverse()].map(rate=>({rate,duration:seconds}))):[{rate:arrivalRate,duration:seconds}];
  const report={profile:args.profile??'custom',generatedAt:new Date().toISOString(),target:base.origin,scenario,model:!args.profile&&arrivalRate===undefined?'single-session diagnostic; closed-loop concurrent requests; not multi-user capacity':'single-session diagnostic; fixed arrival rate with bounded outstanding requests; dropped arrivals reported separately',runtime:process.version,workload:'single-session-diagnostic',stages:[]};
  try{

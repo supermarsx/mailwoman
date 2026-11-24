@@ -38,7 +38,7 @@ Bound server and generator CPU/RAM independently (for example, each at 4 CPU and
 compilers or unrelated load. Publish no ports and mount no Docker socket or
 application data. The scripts do not require privileged mode or host PID access.
 The CLI limits each phase to 1–3,600 integer seconds, at most five rates up to
-100,000 RPS, and a total outstanding budget of at most 20,000 requests.
+250,000 RPS, and a total outstanding budget of at most 50,000 requests.
 
 Payloads are the same exact approximately 4 KiB JSON and 64 KiB binary samples as
 the single-process calibration, with complete response validation. HTTP RPS
@@ -66,8 +66,8 @@ runtime wiring, not generator headroom or application capacity.
 ## Relation to the coordinated application generator (t53s)
 
 The calibration scripts now use the same ceilings as the coordinated application
-generator: up to 64 client workers, 20,000 outstanding requests and 3,600-second
-phases (at most five rates up to 100,000 RPS; the synthetic server keeps its own
+generator: up to 64 client workers, 50,000 outstanding requests and 3,600-second
+phases (at most five rates up to 250,000 RPS; the synthetic server keeps its own
 16-worker bound). The application generator can also merge workers from several
 hosts with measured clock offsets and supports a `late=dispatch` policy; see
 "Scale-out of the coordinated generator" in `generator-calibration.md`. The

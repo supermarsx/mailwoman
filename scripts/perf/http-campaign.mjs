@@ -1,7 +1,7 @@
 import {requestInputsExpected} from './request-inputs-experiment.mjs';
 import {cacheExperimentFromEnv} from './sqlite-page-cache-witness.mjs';
 // Bounded plans for an explicitly opted-in, isolated application fixture.
-import {measure,MAX_OUTSTANDING,MAX_STAGE_SECONDS} from './http-load.mjs';
+import {measure,MAX_OUTSTANDING,MAX_STAGE_SECONDS,MAX_OFFERED_RPS} from './http-load.mjs';
 import {h2FromEnv} from './http-h2-client.mjs';
 import {goalOption} from './http-goal.mjs';
 import {mixWithDiagnostics} from './representative-workload.mjs';
@@ -32,7 +32,7 @@ export function campaignOptions(env=process.env){
  const concurrency=numbers(env,'MW_LOAD_FIXTURE_CONCURRENCY',mode==='smoke'?'32':'1,4,16,64,256',1,MAX_OUTSTANDING);
  const endpoints=String(env.MW_LOAD_FIXTURE_ENDPOINTS??'mixed').split(',');
  if(!endpoints.length||endpoints.length>16||endpoints.some(v=>!['mixed','identity','mailboxes','query','headers','refresh','representative','paged-headers','reader','attachment','flag-write','move-write','goal-65-35','jmap-session','list-batch','changes','account-polls'].includes(v)))throw new Error('Invalid MW_LOAD_FIXTURE_ENDPOINTS');
- const rates=mode==='ramp'&&!env.MW_LOAD_FIXTURE_RATES?[]:numbers(env,'MW_LOAD_FIXTURE_RATES',mode==='capacity'?'1000,5000,10000,20000,40000,42000':'100,500,1000',1,100000);
+ const rates=mode==='ramp'&&!env.MW_LOAD_FIXTURE_RATES?[]:numbers(env,'MW_LOAD_FIXTURE_RATES',mode==='capacity'?'1000,5000,10000,20000,40000,42000':'100,500,1000',1,MAX_OFFERED_RPS);
  if(mode==='smoke'&&seconds>5)throw new Error('Smoke phases are limited to five seconds; opt in to long mode');
  return {mode,seconds,warmupSeconds,deadlineSeconds,concurrency,endpoints,rates,
   ...(env.MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT===undefined?{}:{requestInputsExpected:requestInputsExpected(env.MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT)}),

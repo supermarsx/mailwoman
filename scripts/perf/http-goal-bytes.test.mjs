@@ -13,16 +13,16 @@ function eligibleStage(extra={}){
  const health={submitted:20,applied:20,dropped:0,depth:0,queueDepth:0,capacity:8192,running:true,closing:false};
  const publication={running:true,poisoned:false,requiresFullRebuild:false,pendingJobs:0,pendingBytes:0,queuedJobs:0,submittedJobs:20,completedJobs:20,failedJobs:0,publishedBatches:8,publishedChanges:20,revalidations:0,pendingRepairMessages:0,erasingAccounts:0,maxPendingJobs:128,maxPendingBytes:16777216,maxBatchDocuments:4096};
  eligible.diagnostics={before:{httpTelemetry:health,searchIndex:{publication}},after:{httpTelemetry:{...health,submitted:40,applied:40},searchIndex:{publication:{...publication,submittedJobs:40,completedJobs:40}}}};
- return {...eligible,...extra};
+ return {...eligible,arrivalRate:100000,acceptedDuringScheduledWindowRps:100000,...extra};
 }
 
 test('the standing target is the default and campaign options stay unchanged without MW_LOAD_TARGET_*',()=>{
  const goal=goalFromEnv({});
- assert.deepEqual([goal.successfulRps,goal.simultaneousAuthenticatedUsers,goal.isDefault,goal.networkGbit],[30000,10000,true,undefined]);
+ assert.deepEqual([goal.successfulRps,goal.simultaneousAuthenticatedUsers,goal.isDefault,goal.networkGbit],[100000,10000,true,undefined]);
  assert.deepEqual(goalOption({}),{});
  assert.equal(campaignOptions({}).goal,undefined);
  assert.equal(qualifiesHttpTarget({stages:[eligibleStage()],mutationStateTainted:false},true),true);
- assert.equal(qualifiesHttpTarget({stages:[eligibleStage({acceptedDuringScheduledWindowRps:29999})],mutationStateTainted:false},true),false);
+ assert.equal(qualifiesHttpTarget({stages:[eligibleStage({acceptedDuringScheduledWindowRps:99999})],mutationStateTainted:false},true),false);
  assert.equal(qualifiesHttpTarget({stages:[eligibleStage({uniquePrincipalsAcceptedDuringScheduledWindow:9999})],mutationStateTainted:false},true),false);
  assert.equal(judgedAgainst(goal,{loopback:true}).default,true);
  assert.equal(judgedAgainst(goal,{loopback:true}).note,undefined);
@@ -35,12 +35,12 @@ test('non-default targets replace the literals, are validated, and are announced
  const low=eligibleStage({arrivalRate:20000,acceptedDuringScheduledWindowRps:20000,uniquePrincipalsAcceptedDuringScheduledWindow:5000,uniqueClientsAcceptedDuringScheduledWindow:5000});
  assert.equal(qualifiesHttpTarget({options,stages:[low],mutationStateTainted:false},true),true);
  assert.equal(qualifiesHttpTarget({options,stages:[{...low,acceptedDuringScheduledWindowRps:19999}],mutationStateTainted:false},true),false);
- assert.equal(qualifiesHttpTarget({stages:[{...low,acceptedDuringScheduledWindowRps:25000}],mutationStateTainted:false},true),false,'25,000/s does not meet the standing 30,000');
- const high=campaignOptions({MW_LOAD_TARGET_RPS:'60000'});
+ assert.equal(qualifiesHttpTarget({stages:[{...low,acceptedDuringScheduledWindowRps:25000}],mutationStateTainted:false},true),false,'25,000/s does not meet the standing 100,000');
+ const high=campaignOptions({MW_LOAD_TARGET_RPS:'200000'});
  assert.equal(qualifiesHttpTarget({options:high,stages:[eligibleStage()],mutationStateTainted:false},true),false);
  const judged=judgedAgainst(options.goal,{loopback:false});
  assert.equal(judged.default,false);
- assert.match(judged.note,/NON-DEFAULT TARGET.*20000 requests\/s and 5000 users.*30000 \/ 10000/);
+ assert.match(judged.note,/NON-DEFAULT TARGET.*20000 requests\/s and 5000 users.*100000 \/ 10000/);
  const report={judgedAgainst:judged,target:'t',scenario:'s',runtime:'r',model:'m',stages:[]};
  assert.equal(Object.keys(report)[0],'judgedAgainst');
  assert.match(markdownReport(report).split('\n')[0],/^# HTTP load report - NON-DEFAULT TARGET: 20000 requests\/s, 5000 users$/);
