@@ -250,6 +250,16 @@ impl Store {
         if versions.store != self.cache_scope() {
             return Err(invalid("foreign publication schema source"));
         }
+        self.validate_publication_schema_stamp(expected, sqlite_extra, postgres_extra).await
+    }
+    /// The required definitions are present and the current stamp equals
+    /// `expected`. No fence is needed for either.
+    async fn validate_publication_schema_stamp(
+        &self,
+        expected: &str,
+        sqlite_extra: &'static str,
+        postgres_extra: &'static str,
+    ) -> Result<bool, StoreError> {
         let valid = match self.backend.dialect() {
             Dialect::Sqlite => {
                 let mut required = triggers(false);
@@ -339,6 +349,46 @@ impl Store {
             .fetch_one(&self.backend)
             .await?;
         Ok(row.try_get_opt_string("publication_schema")?.as_deref() == Some(expected))
+    }
+}
+
+/// What the bounded guard snapshot needs from a PostgreSQL server (t49pg).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PostgresSnapshotFacts {
+    /// `server_version_num` (130000 is PostgreSQL 13, the first with `xid8`).
+    pub server_version_num: i64,
+    /// `pg_is_in_recovery()`: a standby or read replica.
+    pub in_recovery: bool,
+    /// `authority_change_log.xid` exists and has type `xid8` (migration 0120).
+    pub change_log_xid_column: bool,
+}
+impl Store {
+    /// `None` on SQLite. One bounded statement; used at start-up only.
+    pub async fn postgres_snapshot_facts(&self) -> Result<Option<PostgresSnapshotFacts>, StoreError> {
+        if self.backend.dialect() != Dialect::Postgres {
+            return Ok(None);
+        }
+        let row = q("SELECT CAST(pg_catalog.current_setting('server_version_num') AS BIGINT) AS version,CAST(CASE WHEN pg_catalog.pg_is_in_recovery() THEN 1 ELSE 0 END AS BIGINT) AS recovery,CAST(CASE WHEN EXISTS(SELECT 1 FROM pg_catalog.pg_attribute a JOIN pg_catalog.pg_class c ON c.oid=a.attrelid JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=current_schema() AND c.relname='authority_change_log' AND a.attname='xid' AND a.attnum>0 AND NOT a.attisdropped AND pg_catalog.format_type(a.atttypid,a.atttypmod)='xid8') THEN 1 ELSE 0 END AS BIGINT) AS xid_column")
+            .fetch_one(&self.backend)
+            .await?;
+        Ok(Some(PostgresSnapshotFacts {
+            server_version_num: row.get_i64("version"),
+            in_recovery: row.get_i64("recovery") != 0,
+            change_log_xid_column: row.get_i64("xid_column") != 0,
+        }))
+    }
+    /// The same required-definition check the request path runs cold
+    /// ([`Store::validate_native_publication_schema`]), against the schema as
+    /// it is now, without a session fence. For start-up validation.
+    pub async fn validate_current_native_publication_schema(&self) -> Result<bool, StoreError> {
+        let Some(stamp) = q(stamp_sql(self.backend.dialect()))
+            .fetch_one(&self.backend)
+            .await?
+            .try_get_opt_string("publication_schema")?
+        else {
+            return Ok(false);
+        };
+        self.validate_publication_schema_stamp(&stamp, "", "").await
     }
 }
 

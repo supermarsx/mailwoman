@@ -203,6 +203,7 @@ mod request_inputs;
 pub use request_inputs::freeze_environment;
 /// t34 modes: startup validation and the graceful-shutdown drain.
 pub mod t34_modes;
+mod guard_snapshot_startup;
 #[cfg(feature="load-test-fixtures")]
 pub mod request_inputs_fixture;
 #[cfg(feature="load-test-fixtures")]

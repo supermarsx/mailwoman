@@ -795,6 +795,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
     // Keep the engine and protection runtime alive past the HTTP server so the
     // shutdown drain below can finish their queued work.
     mw_server::t34_modes::hold_for_shutdown();
+    mw_server::t34_modes::validate_guard_snapshot_store().await.map_err(|e| anyhow::anyhow!("refusing to start: {e}"))?;
 
     // Decide the transport: ACME > external cert > plaintext.
     let tls = if !args.acme.is_empty() {

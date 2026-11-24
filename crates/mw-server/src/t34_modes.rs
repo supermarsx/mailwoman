@@ -11,8 +11,10 @@
 //!
 //! Combinations:
 //! * PostgreSQL + `MW_INDEX_PUBLICATION_ACK=journal` (engine mode): refused.
-//! * PostgreSQL + `MW_GUARD_SNAPSHOT=bounded`: accepted, inert (no mirror is
-//!   started; every request reads fresh). Logged as a warning.
+//! * PostgreSQL + `MW_GUARD_SNAPSHOT=bounded`: accepted here; the database
+//!   preconditions are checked once the store exists
+//!   ([`validate_guard_snapshot_store`], `guard_snapshot_startup.rs`) and a
+//!   failed one refuses to start.
 //! * PostgreSQL + `MW_REQUEST_PROTECTION_ACCOUNTING=write-behind`: accepted,
 //!   accounting stays synchronous. Logged as a warning.
 //! * Proxy mode: the index publication variables are not used (no engine).
@@ -44,8 +46,10 @@ pub const ACCOUNTING_FLUSH_BUDGET: Duration = Duration::from_secs(5);
 #[derive(Debug)]
 pub struct Modes {
     pub(crate) guard: snapshot::Mode,
-    /// `false` when the guard snapshot was requested on PostgreSQL (inert).
+    /// The guard snapshot is on (`bounded`), on either backend.
     pub(crate) guard_live: bool,
+    /// The database is PostgreSQL.
+    pub(crate) postgres: bool,
     /// `None` in proxy mode (no engine).
     pub(crate) index: Option<mw_engine::PublicationOptions>,
     pub(crate) accounting: write_behind::AccountingConfig,
@@ -84,12 +88,7 @@ pub(crate) fn validate_from(
         var("MW_GUARD_SNAPSHOT").as_deref(),
         var("MW_GUARD_SNAPSHOT_MAX_STALENESS_MS").as_deref(),
     )?;
-    let guard_live = !matches!(guard, snapshot::Mode::Off) && !postgres;
-    if !matches!(guard, snapshot::Mode::Off) && postgres {
-        warnings.push(
-            "MW_GUARD_SNAPSHOT=bounded has no effect on PostgreSQL; every request reads authority state fresh".into(),
-        );
-    }
+    let guard_live = !matches!(guard, snapshot::Mode::Off);
 
     let index = if engine {
         Some(crate::engine_mode::publication_options_from(db_path, &var)?)
@@ -132,7 +131,7 @@ pub(crate) fn validate_from(
         mw_store::parse_sqlite_writer_mode(var("MW_SQLITE_WRITER").as_deref())?;
     }
 
-    Ok(Modes { guard, guard_live, index, accounting, accounting_effective, warnings })
+    Ok(Modes { guard, guard_live, postgres, index, accounting, accounting_effective, warnings })
 }
 
 impl Modes {
@@ -140,10 +139,11 @@ impl Modes {
     pub fn summary(&self) -> String {
         let guard = match self.guard {
             snapshot::Mode::Off => "off".to_owned(),
-            snapshot::Mode::Bounded(bound) if self.guard_live => {
-                format!("bounded ({} ms)", bound.as_millis())
-            }
-            snapshot::Mode::Bounded(_) => "bounded (inert on PostgreSQL)".to_owned(),
+            snapshot::Mode::Bounded(bound) if self.postgres => format!(
+                "bounded ({} ms; PostgreSQL: multi-process-safe within the bound, one extra database connection per process)",
+                bound.as_millis()
+            ),
+            snapshot::Mode::Bounded(bound) => format!("bounded ({} ms)", bound.as_millis()),
         };
         let index = match &self.index {
             None => "not used (proxy mode)".to_owned(),
@@ -251,6 +251,14 @@ pub(crate) fn held_store() -> Option<mw_store::Store> {
     HELD.lock().ok()?.as_ref().map(|held| held.store.clone())
 }
 
+/// Start-up check of the guard snapshot against the database the app opened
+/// (PostgreSQL only; a no-op in mode off and on SQLite). Call after
+/// [`hold_for_shutdown`]. `Err` names what failed: refuse to start.
+pub async fn validate_guard_snapshot_store() -> Result<(), String> {
+    let Some(store) = held_store() else { return Ok(()) };
+    crate::guard_snapshot_startup::validate(&store, snapshot::mode()).await
+}
+
 /// Budget for saving each metric recorder at shutdown.
 const RECORDER_SAVE_BUDGET: Duration = Duration::from_secs(5);
 
@@ -309,6 +317,7 @@ impl Held {
 /// stopped and before telemetry flushing. A no-op unless
 /// [`hold_for_shutdown`] held something.
 pub async fn drain_for_shutdown() -> DrainReport {
+    crate::guard_snapshot_startup::release();
     let held = HELD.lock().ok().and_then(|mut slot| slot.take());
     match held {
         Some(held) => held.drain(ACCOUNTING_FLUSH_BUDGET).await,

@@ -61,7 +61,8 @@ fn every_mode_on_sqlite_is_accepted_and_reported() {
         ("MW_SQLITE_WRITER", "off"),
     ])
     .unwrap();
-    assert!(modes.guard_live && modes.warnings.is_empty());
+    assert!(modes.guard_live && !modes.postgres && modes.warnings.is_empty());
+    assert!(modes.summary().contains("guard snapshot bounded (250 ms)"), "{}", modes.summary());
     assert_eq!(modes.accounting_effective, write_behind::AccountingMode::WriteBehind);
     assert_eq!(
         modes.summary(),
@@ -87,10 +88,14 @@ fn postgres_refuses_journal_and_disables_the_other_two_with_a_warning() {
         ("MW_SQLITE_WRITER", "group"),
     ])
     .unwrap();
-    assert!(!modes.guard_live);
+    // Live on PostgreSQL since t49pg: no warning, and the line says what it needs.
+    assert!(modes.guard_live && modes.postgres);
     assert_eq!(modes.accounting_effective, write_behind::AccountingMode::Synchronous);
-    assert_eq!(modes.warnings.len(), 2, "{:?}", modes.warnings);
-    assert!(modes.summary().contains("guard snapshot bounded (inert on PostgreSQL)"));
+    assert_eq!(modes.warnings.len(), 1, "{:?}", modes.warnings);
+    assert!(modes.warnings[0].contains("SQLite-only"), "{:?}", modes.warnings);
+    let line = modes.summary();
+    assert!(!line.contains("inert"), "{line}");
+    assert!(line.contains("guard snapshot bounded (1000 ms; PostgreSQL: multi-process-safe within the bound, one extra database connection per process)"), "{line}");
     assert!(modes.summary().ends_with("request-protection accounting synchronous"));
 }
 

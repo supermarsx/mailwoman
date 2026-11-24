@@ -62,7 +62,9 @@ pub struct Status {
 /// t34 guard snapshot (`MW_GUARD_SNAPSHOT`) activity witness for the load
 /// fixture: process-global counts only (see `request_inputs::snapshot::witness`).
 pub fn guard_snapshot() -> serde_json::Value {
-    crate::request_inputs::snapshot::witness()
+    let mut witness = crate::request_inputs::snapshot::witness();
+    witness["postgresStartup"] = crate::guard_snapshot_startup::witness();
+    witness
 }
 pub fn snapshot() -> Status {
     let counts=COUNTS.each_ref().map(|v|v.load(Ordering::Relaxed));

@@ -427,6 +427,7 @@ pub use guard_inputs::{GuardInputSection, NativeGuardInputSnapshot};
 mod native_seed;
 pub use native_seed::NativeAuthoritySeed;
 pub use fence::NativeAuthorityFence;
+pub use schema::PostgresSnapshotFacts;
 #[path = "global_guard_publication.rs"]
 mod global_guard;
 /// t34 bounded guard snapshot: a polled mirror of the 0115 change log.

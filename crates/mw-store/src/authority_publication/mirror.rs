@@ -717,7 +717,7 @@ impl EpochMirror {
         bump(&self.counters.connects);
         let options = (*pool.connect_options())
             .clone()
-            .application_name("mailwoman authority mirror");
+            .application_name("mailwoman-guard-mirror");
         let mut conn = timeout(self.poll_timeout(), options.connect()).await??;
         // Freshness is measured by this process's clock, not by these limits; they
         // end a stuck statement (poll or prune) instead of waiting on it.
