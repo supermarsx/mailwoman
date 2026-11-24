@@ -1265,6 +1265,7 @@ async fn run(workers: usize) {
                 snapshot["ordinaryRequestInputs"] = serde_json::to_value(mw_server::request_inputs_fixture::snapshot()).unwrap();
                 snapshot["t34Modes"] = t34_modes::witness(&engine);
                 snapshot["httpTelemetry"] = mw_server::http_telemetry_snapshot();
+                snapshot["realtime"] = mw_server::push::metrics_snapshot();
                 snapshot["processCpuSeconds"] = json!(process_cpu::process_cpu_seconds());
                 snapshot["upstreamCommands"] = representative::upstream_commands();
                 snapshot["searchIndex"] = json!({

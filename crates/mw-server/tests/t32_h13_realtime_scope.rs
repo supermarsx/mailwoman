@@ -798,3 +798,120 @@ async fn session_and_notification_changes_are_live_and_account_scoped() {
     }
     logout(&srv, &another).await;
 }
+
+// ── 7. password change (t35-e1) ──────────────────────────────────────────────
+
+/// The panel's "force password change" flag on an account.
+async fn force_password_change(srv: &Server, id: &str) {
+    let r = admin(srv)
+        .await
+        .put(format!("{}/admin/users/{id}/flags", srv.base))
+        .json(&json!({
+            "zeroAccess": false,
+            "forcePasswordChange": true,
+            "remoteCacheWipe": false,
+            "disabled": false,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 204, "the panel's flag write is accepted");
+}
+
+#[tokio::test]
+async fn forcing_a_password_change_ends_the_accounts_streams_only() {
+    let _g = serial().await;
+    let srv = spawn(HardeningConfig::default()).await;
+    let a_cookie = cookie_login(&srv, A_USER, A_PASS).await;
+    let a_bearer = native_login(&srv, A_USER, A_PASS).await;
+    let b = cookie_login(&srv, B_USER, B_PASS).await;
+    let mut a_streams = open_both(&srv, &a_cookie).await;
+    let mut a_bearer_streams = open_both(&srv, &a_bearer).await;
+    let mut b_streams = open_both(&srv, &b).await;
+    assert_alive(&srv, &mut a_streams, &a_cookie, "a").await;
+    assert_alive(&srv, &mut a_bearer_streams, &a_bearer, "a-bearer").await;
+
+    force_password_change(&srv, A_USER).await;
+
+    for s in a_streams.iter_mut().chain(a_bearer_streams.iter_mut()) {
+        s.assert_ends("a password change was required").await;
+    }
+    assert_alive(&srv, &mut b_streams, &b, "b").await;
+}
+
+// ── 8. a lagged stream catches up from the store (t35-e1) ────────────────────
+
+fn realtime_counter(path: &[&str]) -> u64 {
+    let mut v = mw_server::push::metrics_snapshot();
+    for key in path {
+        v = v[*key].clone();
+    }
+    v.as_u64().unwrap_or(0)
+}
+
+/// More changes for another account than the broadcast holds arrive while A's
+/// streams cannot run (the test and the server share one thread, and the sends
+/// do not yield), so A's own change in front of them is lost from the channel.
+/// Each of A's streams then sends A's current state read from the store, and
+/// nothing of B's.
+#[tokio::test]
+async fn a_lagged_stream_sends_its_accounts_current_state_from_the_store() {
+    let _g = serial().await;
+    let srv = spawn(HardeningConfig::default()).await;
+    let a = cookie_login(&srv, A_USER, A_PASS).await;
+    let b = cookie_login(&srv, B_USER, B_PASS).await;
+    let mut streams = open_both(&srv, &a).await;
+    assert_alive(&srv, &mut streams, &a, "before-lag").await;
+    let store = mw_store::Store::open(&srv.db, mw_store::ServerKey::from_hex(KEY_HEX).unwrap())
+        .await
+        .unwrap();
+    let (lagged_ws, lagged_sse, resyncs) = (
+        realtime_counter(&["lagged", "ws"]),
+        realtime_counter(&["lagged", "sse"]),
+        realtime_counter(&["resyncs", "lag"]),
+    );
+
+    srv.push.send(change(&a.account_id, "h13-lag-dropped"));
+    for i in 0..1000 {
+        srv.push.send(change(&b.account_id, &format!("h13-lag-b-{i}")));
+    }
+
+    let current = mw_engine::change::state_change_from_store(&store, &a.account_id)
+        .await
+        .unwrap();
+    let expected = current.to_wire();
+    for s in streams.iter_mut() {
+        let mut seen = Vec::new();
+        loop {
+            match s.next(Duration::from_secs(5)).await {
+                Next::Change(v) => {
+                    let (accounts, tokens) = describe(&v);
+                    assert!(
+                        accounts.iter().all(|id| id == &a.account_id),
+                        "{} stream carried another account: {v}",
+                        s.kind()
+                    );
+                    assert!(
+                        !tokens.iter().any(|t| t == "h13-lag-dropped" || t.starts_with("h13-lag-b")),
+                        "{} stream: a frame from the gap arrived: {v}",
+                        s.kind()
+                    );
+                    let done = v == expected;
+                    seen.push(v);
+                    if done {
+                        break;
+                    }
+                }
+                other => panic!(
+                    "{} stream: the current state never arrived ({other:?}); saw {seen:?}",
+                    s.kind()
+                ),
+            }
+        }
+    }
+    assert!(realtime_counter(&["lagged", "ws"]) > lagged_ws, "the ws lag is counted");
+    assert!(realtime_counter(&["lagged", "sse"]) > lagged_sse, "the sse lag is counted");
+    assert!(realtime_counter(&["resyncs", "lag"]) >= resyncs + 2, "both streams resynced");
+    // Still live and still scoped afterwards.
+    assert_alive(&srv, &mut streams, &a, "after-lag").await;
+}

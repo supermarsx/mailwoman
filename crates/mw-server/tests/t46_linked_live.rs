@@ -724,3 +724,71 @@ async fn greenmail_idle_reaches_the_parent_stream() {
         );
     }
 }
+
+// ── t35-e1: a lagged parent stream catches up its links ──────────────────────
+
+/// More changes for an unrelated account than the broadcast holds arrive while
+/// the parent's stream cannot run (one thread, no yield between the sends), so
+/// the child's change in front of them is lost from the channel. The stream
+/// then sends each live link's current state, read from the store and
+/// re-verified, as a `MailboxChange` under the link id; a link removed before
+/// the gap gets no frame, and no raw child account id reaches the wire.
+#[tokio::test]
+async fn a_lagged_parent_stream_catches_up_its_links_from_the_store() {
+    let _guard = serial().await;
+    for ws in [true, false] {
+        let users = ["p@example.org", "c1@example.org", "c2@example.org"];
+        let srv = spawn(&users, None).await;
+        let p = login(&srv, users[0]).await;
+        let (l1, _, _) = link(&srv, &p, users[1]).await;
+        let (l2, r2, _) = link(&srv, &p, users[2]).await;
+        let c1 = child_account(&srv, &p, &l1).await;
+        let c2 = child_account(&srv, &p, &l2).await;
+        unlink(&srv, &p, &l2, &r2).await;
+        let mut s = open(&srv, &p, ws).await;
+        s.until(Duration::from_secs(5), |f| {
+            f["@type"] == "MailboxChange" && f["link"] == l1.as_str()
+        })
+        .await;
+        let store = mw_store::Store::open(&srv.db, mw_store::ServerKey::from_hex(KEY_HEX).unwrap())
+            .await
+            .unwrap();
+        let child_now = mw_engine::change::state_change_from_store(&store, &c1)
+            .await
+            .unwrap();
+        let resyncs = mw_server::push::metrics_snapshot()["resyncs"]["lag"]
+            .as_u64()
+            .unwrap();
+
+        srv.push.send(change(&c1, "t46-lag-dropped"));
+        srv.push.send(change(&c2, "t46-lag-unlinked"));
+        for i in 0..1000 {
+            srv.push.send(change("t46-elsewhere", &format!("t46-x-{i}")));
+        }
+
+        let mut frames = s
+            .until(Duration::from_secs(5), |f| {
+                f["@type"] == "MailboxChange"
+                    && f["link"] == l1.as_str()
+                    && f["changed"]["Email"] == child_now.email.as_str()
+            })
+            .await;
+        frames.extend(s.drain(Duration::from_millis(1500)).await);
+        let text = serde_json::to_string(&frames).unwrap();
+        for token in ["t46-lag-dropped", "t46-lag-unlinked", "t46-x-"] {
+            assert!(!text.contains(token), "{token} from the gap arrived: {text}");
+        }
+        assert!(!text.contains(l2.as_str()), "the removed link got a frame: {text}");
+        for raw in [&c1, &c2] {
+            assert!(!text.contains(&format!("\"{raw}\"")), "raw child id on the wire: {text}");
+        }
+        let after = mw_server::push::metrics_snapshot()["resyncs"]["lag"]
+            .as_u64()
+            .unwrap();
+        assert!(after > resyncs, "the stream resynced");
+        // Still live afterwards.
+        srv.push.send(change(&c1, "t46-lag-after"));
+        s.until(Duration::from_secs(5), |f| linked_token(f, &l1, "t46-lag-after"))
+            .await;
+    }
+}

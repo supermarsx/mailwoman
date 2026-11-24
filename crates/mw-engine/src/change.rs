@@ -143,6 +143,45 @@ impl StateChange {
     }
 }
 
+/// The account's current [`StateChange`], read from the store (t35).
+///
+/// The same fields `Engine::broadcast_state` publishes, from the same two
+/// statements (`current_core_mail_states` + `current_crypto_states`, read
+/// concurrently; `Thread` carries the `Email` token, as there). The difference
+/// is the failure mode: `broadcast_state` degrades a failed read to zeros, this
+/// returns the error, because its callers (a realtime stream catching up after
+/// a gap, a relay consumer's sweep) must not send an account state backwards.
+///
+/// State tokens are absolute, so sending the value read here after a gap
+/// covers every change the gap skipped.
+pub async fn state_change_from_store(
+    store: &mw_store::Store,
+    account_id: &str,
+) -> Result<StateChange, mw_store::StoreError> {
+    let (mail, crypto) = tokio::join!(
+        store.current_core_mail_states(account_id),
+        store.current_crypto_states(account_id),
+    );
+    let (mail, crypto) = (mail?, crypto?);
+    let read = |counters: &std::collections::HashMap<String, u64>, kind: ChangeType| {
+        counters
+            .get(kind.as_str())
+            .copied()
+            .unwrap_or(0)
+            .to_string()
+    };
+    let email = read(&mail, ChangeType::Email);
+    Ok(StateChange {
+        account_id: account_id.to_string(),
+        thread: email.clone(),
+        email,
+        mailbox: read(&mail, ChangeType::Mailbox),
+        submission: read(&mail, ChangeType::EmailSubmission),
+        crypto_key: read(&crypto, ChangeType::CryptoKey),
+        mail_rule: read(&crypto, ChangeType::MailRule),
+    })
+}
+
 // ── Typed events (26.20 t28-e18) ─────────────────────────────────────────────
 
 /// What happened, for an outbound webhook that asked for it. A [`StateChange`]
@@ -230,6 +269,70 @@ mod tests {
         let names: std::collections::HashSet<&str> =
             EventKind::ALL.iter().map(|k| k.as_str()).collect();
         assert_eq!(names.len(), EventKind::ALL.len(), "wire names are distinct");
+    }
+
+    /// `state_change_from_store` sends what `broadcast_state` sends for the same
+    /// store state: an untouched account, every counter populated at distinct
+    /// values, and crypto-only counters.
+    #[tokio::test]
+    async fn state_change_from_store_matches_broadcast_state() {
+        use mw_store::{AccountKind, Credentials, NewAccount, ServerKey, Store};
+
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let engine = crate::Engine::new(store.clone());
+        let account = |name: &'static str| {
+            let store = store.clone();
+            async move {
+                store
+                    .create_account(
+                        &NewAccount {
+                            kind: AccountKind::Imap,
+                            host: "h",
+                            port: 993,
+                            tls: "implicit",
+                            username: name,
+                            sync_policy_json: "{}",
+                        },
+                        &Credentials {
+                            username: name.into(),
+                            password: "p".into(),
+                        },
+                    )
+                    .await
+                    .unwrap()
+            }
+        };
+        let full = account("parity-full").await;
+        let crypto_only = account("parity-crypto").await;
+        let mail = [ChangeType::Email, ChangeType::Mailbox, ChangeType::EmailSubmission];
+        for (n, kind) in mail.iter().enumerate() {
+            for i in 0..=n {
+                engine
+                    .record_change(&full, *kind, &format!("m{n}-{i}"), ChangeOp::Created)
+                    .await
+                    .unwrap();
+            }
+        }
+        for (n, kind) in [ChangeType::CryptoKey, ChangeType::MailRule].iter().enumerate() {
+            for i in 0..=n + 3 {
+                for id in [&full, &crypto_only] {
+                    engine
+                        .record_crypto_change(id, *kind, &format!("c{n}-{i}"), ChangeOp::Created)
+                        .await
+                        .unwrap();
+                }
+            }
+        }
+        for id in [full.as_str(), crypto_only.as_str(), "parity-never-seen"] {
+            let mut rx = engine.subscribe();
+            engine.broadcast_state(id).await;
+            let sent = rx.try_recv().expect("broadcast_state publishes");
+            let read = state_change_from_store(&store, id).await.unwrap();
+            assert_eq!(read, sent, "{id}");
+        }
+        let full_read = state_change_from_store(&store, &full).await.unwrap();
+        assert_ne!(full_read.email, "0", "the premise: populated counters");
+        assert_ne!(full_read.mail_rule, full_read.crypto_key, "distinct values");
     }
 
     #[test]

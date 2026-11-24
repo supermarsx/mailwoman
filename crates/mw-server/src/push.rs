@@ -65,10 +65,34 @@
 //! the stream (at open, on a link/unlink anywhere, at each re-check) a frame
 //! with an empty `changed` reports its current count. Each linked change is
 //! verified again ([`linked_accounts::verify_link`]) before it is written.
+//!
+//! ## Gaps: a stream never skips changes silently (t35)
+//! The broadcast holds a bounded backlog per receiver
+//! (`MW_REALTIME_FANOUT_CAPACITY`, default 256). A stream that falls further
+//! behind than that, for example while a slow client blocks its writes, gets
+//! `Lagged` from its receiver: the changes in between are gone from the
+//! channel. The stream then reads the current state of every account it
+//! carries (its own, and each live link, re-verified as for any linked change)
+//! from the store and sends it ([`resync`]). State tokens are absolute, so that
+//! one frame per account covers everything the gap skipped. If the engine →
+//! server bridge itself lags, [`PushHandle::resync_all`] asks every stream to do
+//! the same. A read that fails closes the stream (WS close 1011, end of the SSE
+//! body); the client reconnects and runs its own full resync.
+//!
+//! A frame byte-identical to the last one the stream sent for the same account
+//! or link is not sent again (`MW_REALTIME_DEDUPE`), so a resync that finds
+//! nothing new writes nothing. `MW_REALTIME_LAG_RESYNC=off` restores the
+//! earlier behaviour (a lagged stream continues without catching up) for
+//! comparison runs.
+//!
+//! ## Shutdown
+//! [`PushHandle::begin_shutdown`] (or [`begin_shutdown_all`]) closes every WS
+//! stream with code 1012 ("service restart") and ends every SSE body, including
+//! streams opened after the call. Counters: [`metrics_snapshot`].
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::convert::Infallible;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
 use axum::extract::State;
@@ -87,6 +111,109 @@ use mw_store::{Session, StoreError};
 
 use crate::linked_accounts::{self, LiveLink};
 use crate::{AppState, account_gate, authed, push_relay};
+
+mod metrics;
+pub(crate) mod resync;
+#[cfg(test)]
+mod resync_tests;
+
+pub use self::metrics::ResyncReason;
+use self::metrics::{Consumer, StreamGauge, Transport};
+use self::resync::{Gap, Hub, ReadFn};
+
+/// The realtime counters since process start (no identities): open streams,
+/// lags, resyncs, suppressed duplicates, shutdown closes, backlog high-water.
+pub fn metrics_snapshot() -> serde_json::Value {
+    self::metrics::snapshot()
+}
+
+/// The environment variable that sizes each broadcast channel's backlog.
+const FANOUT_ENV: &str = "MW_REALTIME_FANOUT_CAPACITY";
+const FANOUT_DEFAULT: usize = 256;
+const FANOUT_RANGE: (usize, usize) = (64, 65_536);
+/// `on` (default) or `off`: catch a lagged stream up from the store.
+const LAG_RESYNC_ENV: &str = "MW_REALTIME_LAG_RESYNC";
+/// `on` (default) or `off`: skip a frame identical to the last one sent for the
+/// same account or link.
+const DEDUPE_ENV: &str = "MW_REALTIME_DEDUPE";
+/// How many resync reads may run against the store at once, process-wide.
+const RESYNC_CONCURRENCY_ENV: &str = "MW_REALTIME_RESYNC_CONCURRENCY";
+const RESYNC_CONCURRENCY_DEFAULT: usize = 16;
+const RESYNC_CONCURRENCY_RANGE: (usize, usize) = (1, 1024);
+
+/// How long one stream's resync may take before the stream is closed instead.
+const RESYNC_DEADLINE: Duration = Duration::from_secs(10);
+
+/// The reason sent with the WS close frame when a resync could not read state.
+const RESYNC_FAILED: &str = "resync failed";
+/// The reason sent with the WS close frame at shutdown.
+const SERVICE_RESTART: &str = "service restart";
+
+/// The realtime switches, read once per process.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RealtimeConfig {
+    pub(crate) fanout_capacity: usize,
+    pub(crate) lag_resync: bool,
+    pub(crate) dedupe: bool,
+    pub(crate) resync_concurrency: usize,
+}
+
+impl Default for RealtimeConfig {
+    fn default() -> Self {
+        Self {
+            fanout_capacity: FANOUT_DEFAULT,
+            lag_resync: true,
+            dedupe: true,
+            resync_concurrency: RESYNC_CONCURRENCY_DEFAULT,
+        }
+    }
+}
+
+fn parse_config(get: impl Fn(&str) -> Option<String>) -> Result<RealtimeConfig, String> {
+    let number = |name: &str, (lo, hi): (usize, usize), default: usize| {
+        match get(name).as_deref().map(str::trim) {
+            None | Some("") => Ok(default),
+            Some(v) => v
+                .parse::<usize>()
+                .ok()
+                .filter(|n| (lo..=hi).contains(n))
+                .ok_or_else(|| format!("{name}={v:?} is not a whole number in {lo}..={hi}")),
+        }
+    };
+    let switch = |name: &str| match get(name).as_deref().map(str::trim) {
+        None | Some("") | Some("on") => Ok(true),
+        Some("off") => Ok(false),
+        Some(v) => Err(format!("{name}={v:?} must be on or off")),
+    };
+    Ok(RealtimeConfig {
+        fanout_capacity: number(FANOUT_ENV, FANOUT_RANGE, FANOUT_DEFAULT)?,
+        lag_resync: switch(LAG_RESYNC_ENV)?,
+        dedupe: switch(DEDUPE_ENV)?,
+        resync_concurrency: number(
+            RESYNC_CONCURRENCY_ENV,
+            RESYNC_CONCURRENCY_RANGE,
+            RESYNC_CONCURRENCY_DEFAULT,
+        )?,
+    })
+}
+
+fn env_config() -> Result<RealtimeConfig, String> {
+    parse_config(|name| std::env::var(name).ok())
+}
+
+/// Refuse to start on an invalid `MW_REALTIME_*` switch; the error names the
+/// variable and its range.
+pub fn validate_startup() -> Result<(), String> {
+    env_config().map(|_| ())
+}
+
+/// The process's realtime switches. An invalid value panics with the same
+/// message [`validate_startup`] returns: [`PushHandle::new`] runs at start-up,
+/// so the process does not start with a switch it cannot honour.
+fn config() -> RealtimeConfig {
+    static CONFIG: OnceLock<RealtimeConfig> = OnceLock::new();
+    *CONFIG.get_or_init(|| env_config().unwrap_or_else(|e| panic!("refusing to start: {e}")))
+}
 
 /// How often an idle connection is nudged so proxies do not reap it (§2.2).
 const HEARTBEAT: Duration = Duration::from_secs(30);
@@ -141,16 +268,143 @@ pub struct PushHandle {
     ws: broadcast::Sender<StateChange>,
     relay: broadcast::Sender<StateChange>,
     preferences: broadcast::Sender<Option<String>>,
+    control: Arc<Control>,
+}
+
+/// A request that every stream read its accounts' current state again
+/// ([`PushHandle::resync_all`]). `epoch` increases by one per request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ResyncSignal {
+    pub epoch: u64,
+    pub reason: ResyncReason,
+}
+
+/// What every stream of one handle shares besides the channels.
+struct Control {
+    resync: watch::Sender<ResyncSignal>,
+    shutdown: watch::Sender<bool>,
+    hub: Hub,
+    /// Account id → number of open streams carrying it.
+    interest: Mutex<HashMap<String, usize>>,
+    lag_resync: bool,
+    dedupe: bool,
+}
+
+/// Every handle's control, for [`begin_shutdown_all`].
+fn registry() -> &'static Mutex<Vec<Weak<Control>>> {
+    static REGISTRY: OnceLock<Mutex<Vec<Weak<Control>>>> = OnceLock::new();
+    REGISTRY.get_or_init(Default::default)
+}
+
+/// Close every realtime stream of every [`PushHandle`] in this process: WS with
+/// 1012 "service restart", SSE by ending the body. Streams opened afterwards
+/// close at once. Returns the number of handles told. For the shutdown path,
+/// right after the termination signal and before HTTP graceful shutdown waits
+/// for open connections (an SSE body is one).
+pub fn begin_shutdown_all() -> usize {
+    let mut handles = registry().lock().unwrap_or_else(|e| e.into_inner());
+    handles.retain(|weak| weak.strong_count() > 0);
+    for control in handles.iter().filter_map(Weak::upgrade) {
+        control.shutdown.send_replace(true);
+    }
+    handles.len()
 }
 
 impl PushHandle {
     /// Create a fresh push channel with a bounded backlog (slow WS/SSE clients
-    /// lag rather than stall the engine).
+    /// lag rather than stall the engine; a lagged stream catches up from the
+    /// store, see the module header). Reads the `MW_REALTIME_*` switches.
     pub fn new() -> Self {
-        let (ws, _rx) = broadcast::channel(256);
-        let (relay, _rx) = broadcast::channel(256);
+        Self::with_config(config())
+    }
+
+    pub(crate) fn with_config(config: RealtimeConfig) -> Self {
+        let capacity = config.fanout_capacity;
+        let (ws, _rx) = broadcast::channel(capacity);
+        let (relay, _rx) = broadcast::channel(capacity);
         let (preferences, _) = broadcast::channel(256);
-        Self { ws, relay, preferences }
+        let control = Arc::new(Control {
+            resync: watch::Sender::new(ResyncSignal {
+                epoch: 0,
+                reason: ResyncReason::Bridge,
+            }),
+            shutdown: watch::Sender::new(false),
+            hub: Hub::new(config.resync_concurrency),
+            interest: Mutex::new(HashMap::new()),
+            lag_resync: config.lag_resync,
+            dedupe: config.dedupe,
+        });
+        registry()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(Arc::downgrade(&control));
+        Self {
+            ws,
+            relay,
+            preferences,
+            control,
+        }
+    }
+
+    /// Ask every open stream to read its accounts' current state and send it
+    /// (for a gap upstream of the streams: the engine bridge lagged, or a
+    /// cross-process transport lost its place). Relay consumers can watch the
+    /// same signal ([`subscribe_resync`](Self::subscribe_resync)).
+    pub fn resync_all(&self, reason: ResyncReason) {
+        self::metrics::resync_signal(reason);
+        self.control.resync.send_modify(|signal| {
+            signal.epoch = signal.epoch.wrapping_add(1);
+            signal.reason = reason;
+        });
+    }
+
+    /// Wakes on each later [`resync_all`](Self::resync_all).
+    pub fn subscribe_resync(&self) -> watch::Receiver<ResyncSignal> {
+        self.control.resync.subscribe()
+    }
+
+    /// Close this handle's streams (WS 1012, SSE end), now and for any stream
+    /// opened later.
+    pub fn begin_shutdown(&self) {
+        self.control.shutdown.send_replace(true);
+    }
+
+    /// Whether [`begin_shutdown`](Self::begin_shutdown) was called.
+    pub fn shutting_down(&self) -> bool {
+        *self.control.shutdown.borrow()
+    }
+
+    /// The account ids at least one open stream carries (its own accounts and
+    /// its live links), for a transport that only needs those accounts'
+    /// changes. Sorted.
+    pub fn interest_accounts(&self) -> Vec<String> {
+        let interest = self.control.interest.lock().unwrap_or_else(|e| e.into_inner());
+        let mut accounts: Vec<String> = interest.keys().cloned().collect();
+        accounts.sort();
+        accounts
+    }
+
+    /// Mark a gap detected now: [`current_state`](Self::current_state) with it
+    /// answers only from a read that started afterwards.
+    #[allow(dead_code)] // for the relay consumers' sweep (t35-e2)
+    pub(crate) fn resync_gap(&self) -> Gap {
+        self.control.hub.gap()
+    }
+
+    /// `account`'s current state through this handle's shared, bounded resync
+    /// reads (the read started after `since`).
+    #[allow(dead_code)] // for the relay consumers' sweep (t35-e2)
+    pub(crate) async fn current_state(
+        &self,
+        store: &mw_store::Store,
+        account: &str,
+        since: Gap,
+    ) -> Result<StateChange, String> {
+        let source = resync::store_reader(store.clone());
+        self.control
+            .hub
+            .read(&source, account, since, RESYNC_DEADLINE)
+            .await
     }
 
     /// Opaque invalidation after a committed preference write. None denotes an
@@ -215,6 +469,79 @@ pub(crate) struct ScopedChanges {
     links_epoch: Option<watch::Receiver<u64>>,
     /// Frames ready to write ahead of the next change.
     pending: VecDeque<String>,
+    /// Where a resync reads current state; `None` makes a gap close the stream.
+    resync: Option<StreamResync>,
+    /// Wakes on [`PushHandle::resync_all`]; taken by the stream loop.
+    resync_epoch: Option<watch::Receiver<ResyncSignal>>,
+    /// Becomes `true` at shutdown; taken by the stream loop.
+    shutdown: Option<watch::Receiver<bool>>,
+    lag_resync: bool,
+    dedupe: bool,
+    /// The last `StateChange` wire string sent per own account, and the last
+    /// `changed` object sent per link id (bounded by the stream's accounts and
+    /// links), for duplicate suppression.
+    last_own: HashMap<String, String>,
+    last_link: HashMap<String, String>,
+    /// Registers the stream's accounts with [`PushHandle::interest_accounts`].
+    interest: Option<InterestGuard>,
+}
+
+/// The store reader and shared read hub one stream resyncs through.
+struct StreamResync {
+    control: Arc<Control>,
+    source: ReadFn,
+}
+
+/// Holds one stream's accounts in its handle's interest set until dropped.
+struct InterestGuard {
+    control: Arc<Control>,
+    accounts: Vec<String>,
+}
+
+impl InterestGuard {
+    fn new(control: Arc<Control>, accounts: Vec<String>) -> Self {
+        let mut guard = Self {
+            control,
+            accounts: Vec::new(),
+        };
+        guard.set(accounts);
+        guard
+    }
+
+    fn set(&mut self, mut next: Vec<String>) {
+        next.sort();
+        next.dedup();
+        if next == self.accounts {
+            return;
+        }
+        let mut interest = self.control.interest.lock().unwrap_or_else(|e| e.into_inner());
+        for account in &next {
+            *interest.entry(account.clone()).or_default() += 1;
+        }
+        for account in &self.accounts {
+            release(&mut interest, account);
+        }
+        drop(interest);
+        self.accounts = next;
+    }
+}
+
+fn release(interest: &mut HashMap<String, usize>, account: &str) {
+    if let Some(n) = interest.get_mut(account) {
+        *n -= 1;
+        if *n == 0 {
+            interest.remove(account);
+        }
+    }
+}
+
+impl Drop for InterestGuard {
+    fn drop(&mut self) {
+        let mut interest = self.control.interest.lock().unwrap_or_else(|e| e.into_inner());
+        for account in &self.accounts {
+            release(&mut interest, account);
+        }
+    }
 }
 
 /// What one stream needs to deliver its parent's linked mailboxes.
@@ -239,7 +566,9 @@ enum Incoming {
 }
 
 impl ScopedChanges {
+    /// A stream with no state source: a gap closes it (see [`attach`](Self::attach)).
     pub(crate) fn new(rx: broadcast::Receiver<StateChange>, accounts: Vec<String>) -> Self {
+        let defaults = RealtimeConfig::default();
         Self {
             rx,
             preferences: None,
@@ -247,7 +576,40 @@ impl ScopedChanges {
             linked: None,
             links_epoch: None,
             pending: VecDeque::new(),
+            resync: None,
+            resync_epoch: None,
+            shutdown: None,
+            lag_resync: defaults.lag_resync,
+            dedupe: defaults.dedupe,
+            last_own: HashMap::new(),
+            last_link: HashMap::new(),
+            interest: None,
         }
+    }
+
+    /// Join `push`'s resync and shutdown signals and its interest set, and
+    /// resync through `source` after a gap.
+    pub(crate) fn attach(mut self, push: &PushHandle, source: Option<ReadFn>) -> Self {
+        let control = &push.control;
+        self.resync_epoch = Some(control.resync.subscribe());
+        self.shutdown = Some(control.shutdown.subscribe());
+        self.lag_resync = control.lag_resync;
+        self.dedupe = control.dedupe;
+        self.resync = source.map(|source| StreamResync {
+            control: control.clone(),
+            source,
+        });
+        self.interest = Some(InterestGuard::new(control.clone(), self.interest_set()));
+        self
+    }
+
+    /// The accounts this stream carries: its own and its live links'.
+    fn interest_set(&self) -> Vec<String> {
+        let mut accounts = self.accounts.clone();
+        if let Some(scope) = &self.linked {
+            accounts.extend(scope.links.iter().map(|link| link.account_id.clone()));
+        }
+        accounts
     }
 
     /// A stream for `parent` that also carries its verified linked mailboxes.
@@ -259,7 +621,10 @@ impl ScopedChanges {
         state: AppState,
         parent: Session,
     ) -> Self {
-        let mut changes = Self::new(rx, accounts);
+        let mut changes = Self::new(rx, accounts).attach(
+            &state.push,
+            Some(resync::store_reader(state.store.clone())),
+        );
         // Subscribed before the first resolution, so a link made meanwhile is
         // not missed.
         changes.links_epoch = Some(linked_accounts::subscribe_links());
@@ -289,7 +654,11 @@ impl ScopedChanges {
     async fn recv(&mut self) -> Result<Incoming, broadcast::error::RecvError> {
         loop {
             let change = tokio::select! {
-                change = self.rx.recv() => change?,
+                change = self.rx.recv() => {
+                    let change = change?;
+                    self::metrics::observe_backlog(self.rx.len());
+                    change
+                }
                 event = async {match self.preferences.as_mut(){Some(rx)=>rx.recv().await,None=>std::future::pending().await}} => {
                     // A slow receiver catches up its own settings; no foreign
                     // account id or setting value ever goes onto its wire.
@@ -340,6 +709,14 @@ impl ScopedChanges {
             }
             Incoming::Own(change) => {
                 let wire = change.to_wire().to_string();
+                if self.dedupe {
+                    if self.last_own.get(&change.account_id) == Some(&wire) {
+                        self::metrics::duplicate_suppressed();
+                        return;
+                    }
+                    self.last_own
+                        .insert(change.account_id.clone(), wire.clone());
+                }
                 self.pending.push_back(wire);
                 if let Some(scope) = &self.linked
                     && !scope.links.is_empty()
@@ -355,11 +732,20 @@ impl ScopedChanges {
                 let Some(scope) = self.linked.as_mut() else {
                     return;
                 };
+                let changed = change.to_wire()["changed"][&change.account_id].to_string();
+                if self.dedupe && self.last_link.get(&link.link) == Some(&changed) {
+                    self::metrics::duplicate_suppressed();
+                    return;
+                }
                 let current =
                     linked_accounts::verify_link(&scope.state, &scope.parent, &link.link).await;
                 if current.as_ref() != Some(&link) {
                     scope.links.retain(|l| l.link != link.link);
+                    self.last_link.remove(&link.link);
                     return;
+                }
+                if self.dedupe {
+                    self.last_link.insert(link.link.clone(), changed);
                 }
                 let unread = linked_accounts::inbox_unread(&scope.state, &link.account_id).await;
                 self.pending.push_back(mailbox_change(
@@ -439,6 +825,90 @@ impl ScopedChanges {
             }
         }
         scope.links = next;
+        let live: Vec<&str> = scope.links.iter().map(|l| l.link.as_str()).collect();
+        self.last_link.retain(|link, _| live.contains(&link.as_str()));
+        let accounts = self.interest_set();
+        if let Some(interest) = self.interest.as_mut() {
+            interest.set(accounts);
+        }
+    }
+
+    /// Read the current state of every account this stream carries (own
+    /// accounts and live links) and queue it, as if each had just changed: a
+    /// linked one is re-verified first and identical frames are suppressed. The
+    /// reads start after this call begins, so they cover every change skipped
+    /// before it. An error means the stream must close.
+    async fn resync(&mut self, reason: ResyncReason) -> Result<(), String> {
+        self::metrics::resync(reason);
+        let Some((control, source)) = self
+            .resync
+            .as_ref()
+            .map(|r| (r.control.clone(), r.source.clone()))
+        else {
+            return Err("this stream has no state source".into());
+        };
+        // Everything still queued for this stream was committed before the
+        // reads below start, so the reads cover it: drop it rather than send it
+        // after the newer state (a stale token would make the client refetch
+        // for nothing). Bounded, so a busy channel cannot hold the stream here.
+        for _ in 0..self.rx.len().saturating_add(1).min(1 << 17) {
+            match self.rx.try_recv() {
+                Ok(_) | Err(broadcast::error::TryRecvError::Lagged(_)) => {}
+                Err(_) => break,
+            }
+        }
+        let gap = control.hub.gap();
+        let deadline = tokio::time::Instant::now() + RESYNC_DEADLINE;
+        let links = self
+            .linked
+            .as_ref()
+            .map(|scope| scope.links.clone())
+            .unwrap_or_default();
+        let wanted: Vec<String> = self
+            .accounts
+            .iter()
+            .cloned()
+            .chain(links.iter().map(|link| link.account_id.clone()))
+            .collect();
+        let reads = wanted.iter().map(|account| {
+            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+            control.hub.read(&source, account, gap, left)
+        });
+        let mut current = futures_util::future::try_join_all(reads).await?.into_iter();
+        for _ in 0..self.accounts.len() {
+            if let Some(change) = current.next() {
+                self.admit(Incoming::Own(change)).await;
+            }
+        }
+        for (link, change) in links.into_iter().zip(current) {
+            self.admit(Incoming::Linked(link, change)).await;
+        }
+        self::metrics::observe_pending(self.pending.len());
+        Ok(())
+    }
+
+    /// [`resync`](Self::resync), logging and counting a failure. `false`: close.
+    async fn catch_up(&mut self, reason: ResyncReason) -> bool {
+        match self.resync(reason).await {
+            Ok(()) => true,
+            Err(why) => {
+                self::metrics::resync_failure();
+                tracing::info!("realtime stream closed: {} resync failed: {why}", reason.as_str());
+                false
+            }
+        }
+    }
+
+    /// What the stream loop does after its receiver reported a gap of
+    /// `skipped` changes: `false` means close.
+    async fn lagged(&mut self, consumer: Consumer, skipped: u64) -> bool {
+        self::metrics::lagged(consumer, skipped);
+        !self.lag_resync || self.catch_up(ResyncReason::Lag).await
+    }
+
+    /// The same for a [`PushHandle::resync_all`] signal.
+    async fn resync_requested(&mut self, reason: ResyncReason) -> bool {
+        !self.lag_resync || self.catch_up(reason).await
     }
 
     /// The next queued frame, if any.
@@ -475,6 +945,27 @@ fn mailbox_change(
 async fn links_moved(epoch: &mut Option<watch::Receiver<u64>>) {
     if let Some(rx) = epoch
         && rx.changed().await.is_ok()
+    {
+        return;
+    }
+    std::future::pending().await
+}
+
+/// Resolves with the reason of the next [`PushHandle::resync_all`]; never when
+/// the stream has no signal.
+async fn resync_signalled(signal: &mut Option<watch::Receiver<ResyncSignal>>) -> ResyncReason {
+    if let Some(rx) = signal
+        && rx.changed().await.is_ok()
+    {
+        return rx.borrow_and_update().reason;
+    }
+    std::future::pending().await
+}
+
+/// Resolves once shutdown has begun, at once if it already has.
+async fn shutdown_begun(shutdown: &mut Option<watch::Receiver<bool>>) {
+    if let Some(rx) = shutdown
+        && rx.wait_for(|down| *down).await.is_ok()
     {
         return;
     }
@@ -610,7 +1101,10 @@ async fn open_stream(
 }
 
 /// Forward every `Engine` broadcast into the server push channel for the life of
-/// the process. Spawned once by `build_app` in engine mode.
+/// the process. Spawned once by `build_app` in engine mode. When the bridge
+/// itself falls behind, every stream is asked to resync
+/// ([`PushHandle::resync_all`]), since the lost changes never reached any of
+/// them.
 pub(crate) async fn bridge_engine(mut src: broadcast::Receiver<StateChange>, out: PushHandle) {
     loop {
         match src.recv().await {
@@ -618,7 +1112,11 @@ pub(crate) async fn bridge_engine(mut src: broadcast::Receiver<StateChange>, out
                 out.send(change);
             }
             Err(broadcast::error::RecvError::Lagged(n)) => {
-                tracing::warn!("push bridge lagged {n} engine changes");
+                self::metrics::lagged(Consumer::Bridge, n);
+                tracing::warn!("push bridge lagged {n} engine changes; streams resync");
+                if out.control.lag_resync {
+                    out.resync_all(ResyncReason::Bridge);
+                }
             }
             Err(broadcast::error::RecvError::Closed) => break,
         }
@@ -672,9 +1170,16 @@ async fn ws_loop(
     heartbeat: Duration,
     guard: StreamGuard,
 ) {
+    let _gauge = StreamGauge::open(Transport::Ws);
     let mut beat = idle_beat(heartbeat);
     let mut recheck = idle_beat(guard.period);
     let mut links_epoch = changes.links_epoch.take();
+    let mut resync_epoch = changes.resync_epoch.take();
+    let mut shutdown = changes.shutdown.take();
+    let resync_failed = || CloseFrame {
+        code: close_code::ERROR,
+        reason: RESYNC_FAILED.into(),
+    };
     loop {
         // Queued frames first: linked counts at open, and the frames a change
         // or a link resolution produced.
@@ -685,16 +1190,39 @@ async fn ws_loop(
             beat.reset(); // a real frame is itself proof of life
         }
         tokio::select! {
+            _ = shutdown_begun(&mut shutdown) => {
+                self::metrics::shutdown_close();
+                let frame = CloseFrame {
+                    code: close_code::RESTART,
+                    reason: SERVICE_RESTART.into(),
+                };
+                let _ = socket.send(Message::Close(Some(frame))).await;
+                return;
+            }
             incoming = socket.recv() => match incoming {
                 Some(Ok(Message::Close(_))) | None => break,
                 Some(Ok(_)) => {}            // pong/ping/text/binary: ignore (axum auto-pongs)
                 Some(Err(_)) => break,
             },
             change = changes.recv() => match change {
-                Ok(incoming) => changes.admit(incoming).await,
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Ok(incoming) => {
+                    changes.admit(incoming).await;
+                    self::metrics::observe_pending(changes.pending.len());
+                }
+                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                    if !changes.lagged(Consumer::Ws, skipped).await {
+                        let _ = socket.send(Message::Close(Some(resync_failed()))).await;
+                        return;
+                    }
+                }
                 Err(broadcast::error::RecvError::Closed) => break,
             },
+            reason = resync_signalled(&mut resync_epoch) => {
+                if !changes.resync_requested(reason).await {
+                    let _ = socket.send(Message::Close(Some(resync_failed()))).await;
+                    return;
+                }
+            }
             _ = links_moved(&mut links_epoch) => changes.refresh_links().await,
             _ = beat.tick() => {
                 // Protocol Ping first (proxies and native clients watch for it),
@@ -758,9 +1286,10 @@ fn sse_response(changes: ScopedChanges, heartbeat: Duration, guard: StreamGuard)
     resp
 }
 
-/// Turn the stream's changes into an SSE `Event` stream, skipping lag gaps and
-/// ending when the channel closes or a re-check finds the session no longer
-/// valid.
+/// Turn the stream's changes into an SSE `Event` stream, catching up after a
+/// gap (see the module header) and ending when the channel closes, a resync
+/// cannot read state, shutdown begins, or a re-check finds the session no
+/// longer valid.
 ///
 /// The keepalive is emitted here rather than through [`axum::response::sse::KeepAlive`]
 /// because that helper writes an SSE *comment* (`:keep-alive`), which the
@@ -771,43 +1300,74 @@ fn change_stream(
     heartbeat: Duration,
     guard: StreamGuard,
 ) -> impl Stream<Item = Result<Event, Infallible>> + Send {
-    let recheck = idle_beat(guard.period);
+    struct Sse {
+        changes: ScopedChanges,
+        beat: Interval,
+        recheck: Interval,
+        guard: StreamGuard,
+        links_epoch: Option<watch::Receiver<u64>>,
+        resync_epoch: Option<watch::Receiver<ResyncSignal>>,
+        shutdown: Option<watch::Receiver<bool>>,
+        _gauge: StreamGauge,
+    }
     let mut changes = changes;
-    let epoch = changes.links_epoch.take();
-    futures_util::stream::unfold(
-        (changes, idle_beat(heartbeat), recheck, guard, epoch),
-        |(mut changes, mut beat, mut recheck, guard, mut epoch)| async move {
-            loop {
-                // Queued frames first: linked counts at open, and the frames a
-                // change or a link resolution produced.
-                if let Some(frame) = changes.pop_pending() {
-                    beat.reset(); // a real frame is itself proof of life
-                    let ev = Event::default().data(frame);
-                    return Some((Ok(ev), (changes, beat, recheck, guard, epoch)));
+    let state = Sse {
+        recheck: idle_beat(guard.period),
+        beat: idle_beat(heartbeat),
+        guard,
+        links_epoch: changes.links_epoch.take(),
+        resync_epoch: changes.resync_epoch.take(),
+        shutdown: changes.shutdown.take(),
+        changes,
+        _gauge: StreamGauge::open(Transport::Sse),
+    };
+    futures_util::stream::unfold(state, |mut s| async move {
+        loop {
+            // Queued frames first: linked counts at open, and the frames a
+            // change or a link resolution produced.
+            if let Some(frame) = s.changes.pop_pending() {
+                s.beat.reset(); // a real frame is itself proof of life
+                let ev = Event::default().data(frame);
+                return Some((Ok(ev), s));
+            }
+            tokio::select! {
+                _ = shutdown_begun(&mut s.shutdown) => {
+                    self::metrics::shutdown_close();
+                    return None;
                 }
-                tokio::select! {
-                    // `ScopedChanges::recv` is cancel-safe, so losing this branch
-                    // of the select drops no change for this stream.
-                    change = changes.recv() => match change {
-                        Ok(incoming) => changes.admit(incoming).await,
-                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                        Err(broadcast::error::RecvError::Closed) => return None,
-                    },
-                    _ = links_moved(&mut epoch) => changes.refresh_links().await,
-                    _ = beat.tick() => {
-                        let ev = Event::default().data(PING_FRAME);
-                        return Some((Ok(ev), (changes, beat, recheck, guard, epoch)));
+                // `ScopedChanges::recv` is cancel-safe, so losing this branch
+                // of the select drops no change for this stream.
+                change = s.changes.recv() => match change {
+                    Ok(incoming) => {
+                        s.changes.admit(incoming).await;
+                        self::metrics::observe_pending(s.changes.pending.len());
                     }
-                    _ = recheck.tick() => {
-                        if !guard.holds().await {
+                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                        if !s.changes.lagged(Consumer::Sse, skipped).await {
                             return None;
                         }
-                        changes.refresh_links().await;
+                    }
+                    Err(broadcast::error::RecvError::Closed) => return None,
+                },
+                reason = resync_signalled(&mut s.resync_epoch) => {
+                    if !s.changes.resync_requested(reason).await {
+                        return None;
                     }
                 }
+                _ = links_moved(&mut s.links_epoch) => s.changes.refresh_links().await,
+                _ = s.beat.tick() => {
+                    let ev = Event::default().data(PING_FRAME);
+                    return Some((Ok(ev), s));
+                }
+                _ = s.recheck.tick() => {
+                    if !s.guard.holds().await {
+                        return None;
+                    }
+                    s.changes.refresh_links().await;
+                }
             }
-        },
-    )
+        }
+    })
 }
 
 #[cfg(test)]
