@@ -99,7 +99,7 @@ fn empty_protection_outcome() -> ProtectionOutcome {
 mod batch_tests;
 #[path = "request_protection_owner.rs"]
 mod owner;
-pub use owner::{Ownership, ProtectionParticipant};
+pub use owner::{Checked, Ownership, ProtectionParticipant, join_wait, ownership_window};
 
 /// The subject-key HMAC with its key schedule computed once
 /// (`mw-request-protection-subject-v1` subkey; inner and outer SHA-256 states

@@ -1028,3 +1028,41 @@ async fn review_r2_an_aliased_path_shares_the_witness() {
         assert!(first.status().owned, "alone again");
     }
 }
+
+/// R3: the owner's deadline is counted from before its check, so a stall
+/// between the check and storing the deadline cannot extend trust past the
+/// joiner's wait. Here the owner stalls longer than the joiner waits: the
+/// joiner writes and the owner is not owned while it does, nor after the stall;
+/// its next check sees the participant and the block is enforced.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn review_r3_a_stalled_check_cannot_extend_ownership_past_the_joiners_wait() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = file_store_path(&dir);
+    let key = ServerKey::generate();
+    let store = Store::open(&path, key.clone()).await.unwrap();
+    let owner = Arc::new(WriteBehind::new(store.clone(), config(250, 4096)));
+    owner.check_ownership().await;
+    assert!(owner.status().owned);
+    let mut p = policy();
+    p.rate_limit = 1000;
+    assert!(!owner.record("client", "192.0.2.82", &p, 1000, None, NONE).await.decision.enforced);
+    // Window 500 ms; the joiner waits 500 ms + 2 s. The owner stalls 3.5 s.
+    owner.stall_after_check(Some(Duration::from_millis(3500)));
+    let stalled = tokio::spawn({
+        let owner = owner.clone();
+        async move { owner.check_ownership().await }
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let other = Store::open(&path, key).await.unwrap();
+    let started = Instant::now();
+    let blocked = other.request_protection("client", "192.0.2.82", &p, 1001, Some(Signal::ProbePath)).await.unwrap();
+    assert!(blocked.decision.enforced);
+    assert!(started.elapsed() >= Duration::from_secs(2), "the joiner waited for an acknowledgement");
+    assert!(!owner.owned(), "no trust while the joiner writes");
+    stalled.await.unwrap();
+    assert!(!owner.owned(), "the stalled check stored an already past deadline");
+    owner.stall_after_check(None);
+    owner.check_ownership().await;
+    let next = owner.record("client", "192.0.2.82", &p, 1001, None, NONE).await;
+    assert!(next.decision.enforced, "{:?}", owner.status());
+}

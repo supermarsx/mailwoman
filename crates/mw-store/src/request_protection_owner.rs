@@ -14,8 +14,8 @@
 //!   its own handle for as long as it can write;
 //! - `<db>.mw-request-protection-admission.lock`: held EXCLUSIVE only for the few
 //!   system calls of a join or an ownership check, so the two never interleave;
-//! - `<db>.mw-request-protection.state`: one line, `v1 <joins> <acknowledged>
-//!   <owner>`, read and written only under the admission lock.
+//! - `<db>.mw-request-protection.state`: one line, `v2 <joins> <acknowledged>
+//!   <owner> <window_ms>`, read and written only under the admission lock.
 //!
 //! `<db>` is the canonical path of the database file (symbolic links,
 //! junctions, case and short names resolved), so every name of one file finds
@@ -33,10 +33,16 @@
 //! Join: under the admission lock, take the shared lock, count the join, and
 //! when the state names an owner that has not acknowledged it, wait (polling,
 //! never holding the admission lock while asleep) until the owner acknowledges
-//! it, gives up ownership, or [`JOIN_WAIT`] passes. An owner's trust lapses by
-//! itself two check intervals after its last successful check, and a check
-//! interval is at most 5 s, so after `JOIN_WAIT` no owner can still be trusting
-//! a cache from before the join. A joiner that finds itself alone does not wait.
+//! it, gives up ownership, or the wait for the owner's window passes. An owner
+//! trusts its cache only until `started + window`, where `started` is taken
+//! before its check takes the admission lock and `window` is written into the
+//! state line by that check. A joiner enters after that check released the
+//! lock, so `started + window` is at most `window` after the joiner's start; it
+//! waits `window + max(window, 2 s)` ([`join_wait`]). A stall of the owner
+//! anywhere after `started` only shortens its trust. When the wait ends without
+//! an acknowledgement the participant is *unacknowledged* (it still holds its
+//! lock, so the owner's next check sees it). A joiner that finds itself alone
+//! does not wait.
 //!
 //! Not covered: a writer that does not use this crate's request-protection
 //! functions (direct SQL on the file, an older binary), and deleting these files
@@ -51,8 +57,29 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-/// Longest wait of a joiner for an owner's acknowledgement (see module docs).
-pub(crate) const JOIN_WAIT: Duration = Duration::from_secs(12);
+/// Upper bound of a joiner's wait, whatever window a state line names.
+pub(crate) const JOIN_WAIT_CAP: Duration = Duration::from_secs(30);
+/// Margin added to an owner's window: at least the window, never under 2 s.
+const MIN_MARGIN: Duration = Duration::from_secs(2);
+/// The joiner's wait for an owner whose trust window is `window`.
+pub fn join_wait(window: Duration) -> Duration {
+    window + window.max(MIN_MARGIN)
+}
+/// The ownership window for a flush interval: two intervals. `Err` when the
+/// joiner's wait for it would exceed [`JOIN_WAIT_CAP`], so start-up refuses it.
+pub fn ownership_window(flush_every: Duration) -> Result<Duration, String> {
+    let window = flush_every * 2;
+    if join_wait(window) > JOIN_WAIT_CAP {
+        return Err(format!(
+            "a flush interval of {} ms gives an ownership window whose join wait exceeds {} s",
+            flush_every.as_millis(),
+            JOIN_WAIT_CAP.as_secs()
+        ));
+    }
+    Ok(window)
+}
+/// Window assumed for a state line written before the window was recorded.
+const LEGACY_WINDOW: Duration = Duration::from_secs(10);
 /// Longest wait for the admission lock, which is only held for a few system calls.
 const ADMISSION_WAIT: Duration = Duration::from_secs(2);
 const POLL: Duration = Duration::from_millis(25);
@@ -98,11 +125,14 @@ struct StateLine {
     joins: u64,
     acknowledged: u64,
     owner: bool,
+    /// The owner's trust window in milliseconds (0: none recorded).
+    window_ms: u64,
 }
 impl StateLine {
     fn parse(raw: &str) -> Option<Self> {
         let mut parts = raw.split_ascii_whitespace();
-        if parts.next()? != "v1" {
+        let version = parts.next()?;
+        if version != "v1" && version != "v2" {
             return None;
         }
         let joins = parts.next()?.parse().ok()?;
@@ -112,15 +142,25 @@ impl StateLine {
             "0" => false,
             _ => return None,
         };
-        parts.next().is_none().then_some(Self { joins, acknowledged, owner })
+        let window_ms = if version == "v2" { parts.next()?.parse().ok()? } else { 0 };
+        parts.next().is_none().then_some(Self { joins, acknowledged, owner, window_ms })
     }
     fn render(self) -> String {
-        format!("v1 {} {} {}\n", self.joins, self.acknowledged, u8::from(self.owner))
+        format!("v2 {} {} {} {}\n", self.joins, self.acknowledged, u8::from(self.owner), self.window_ms)
+    }
+    fn window(self) -> Duration {
+        if self.window_ms == 0 { LEGACY_WINDOW } else { Duration::from_millis(self.window_ms) }
     }
 }
 
 fn io(error: std::io::Error) -> StoreError {
     StoreError::Corrupt(format!("request protection witness: {error}"))
+}
+/// The message of the one transient join failure (the admission lock stayed busy).
+pub(crate) const ADMISSION_BUSY: &str = "request protection witness: admission lock busy";
+/// A join failure worth retrying soon (the admission lock was busy).
+pub fn transient(error: &StoreError) -> bool {
+    matches!(error, StoreError::Invalid(message) if *message == ADMISSION_BUSY)
 }
 fn open_rw(path: &Path) -> Result<File, StoreError> {
     OpenOptions::new().read(true).write(true).create(true).truncate(false).open(path).map_err(io)
@@ -162,9 +202,7 @@ impl Admission {
                 return Ok(admission);
             }
             if tokio::time::Instant::now() >= until {
-                return Err(StoreError::Invalid(
-                    "request protection witness: admission lock busy",
-                ));
+                return Err(StoreError::Invalid(ADMISSION_BUSY));
             }
             tokio::time::sleep(Duration::from_millis(2)).await;
         }
@@ -189,6 +227,14 @@ fn ensure_token(path: &Path, file: &mut File) -> Result<String, StoreError> {
     file.write_all(token.as_bytes()).map_err(io)?;
     file.sync_all().map_err(io)?;
     Ok(token)
+}
+
+/// One ownership check: the result and the instant taken before the check
+/// took the admission lock, from which the owner's trust window is counted.
+#[derive(Clone, Copy, Debug)]
+pub struct Checked {
+    pub ownership: Ownership,
+    pub started: std::time::Instant,
 }
 
 /// Result of one ownership check.
@@ -220,13 +266,15 @@ enum Kind {
 #[derive(Debug)]
 pub struct ProtectionParticipant {
     kind: Kind,
+    /// No owner was waiting on this join, or the owner acknowledged it in time.
+    acknowledged: bool,
 }
 
 impl ProtectionParticipant {
     pub(crate) async fn join(location: &Location) -> Result<Self, StoreError> {
         let (paths, database) = match location {
-            Location::Private => return Ok(Self { kind: Kind::Private }),
-            Location::Shared => return Ok(Self { kind: Kind::Shared }),
+            Location::Private => return Ok(Self { kind: Kind::Private, acknowledged: true }),
+            Location::Shared => return Ok(Self { kind: Kind::Shared, acknowledged: true }),
             Location::Unresolved => {
                 return Err(StoreError::Invalid("request protection witness: database path unresolved"));
             }
@@ -253,21 +301,24 @@ impl ProtectionParticipant {
             state.acknowledged = mine;
         }
         let wait = state.owner && state.acknowledged < mine;
+        let window = state.window();
         write_state(&paths.state, state)?;
         drop(admission);
+        let mut acknowledged = !wait;
         if wait {
-            let until = tokio::time::Instant::now() + JOIN_WAIT;
+            let until = tokio::time::Instant::now() + join_wait(window).min(JOIN_WAIT_CAP);
             while tokio::time::Instant::now() < until {
                 tokio::time::sleep(POLL).await;
                 let Some(admission) = Admission::try_take(&paths)? else { continue };
                 let current = read_state(&paths.state)?;
                 drop(admission);
                 if current.is_none_or(|current| !current.owner || current.acknowledged >= mine) {
+                    acknowledged = true;
                     break;
                 }
             }
         }
-        Ok(Self { kind: Kind::File { paths, database, file, token, seen_joins: Some(mine) } })
+        Ok(Self { kind: Kind::File { paths, database, file, token, seen_joins: Some(mine) }, acknowledged })
     }
 
     /// Caller holds the admission lock and a shared lock on `file`: release it,
@@ -294,8 +345,14 @@ impl ProtectionParticipant {
         Ok(alone)
     }
 
-    /// One ownership check (see module docs). No SQL; a few file system calls.
-    pub fn check(&mut self) -> Ownership {
+    /// One ownership check (see module docs) for an owner whose trust window is
+    /// `window`. No SQL; a few file system calls.
+    pub fn check(&mut self, window: Duration) -> Checked {
+        let started = std::time::Instant::now();
+        let ownership = self.check_at(window);
+        Checked { ownership, started }
+    }
+    fn check_at(&mut self, window: Duration) -> Ownership {
         let (paths, database, file, token, seen_joins) = match &mut self.kind {
             Kind::Private => return Ownership::Alone { changed: false },
             Kind::Shared => return Ownership::Shared,
@@ -324,6 +381,7 @@ impl ProtectionParticipant {
         let mut next = state.unwrap_or_default();
         next.acknowledged = next.joins;
         next.owner = alone;
+        next.window_ms = if alone { u64::try_from(window.as_millis()).unwrap_or(u64::MAX) } else { 0 };
         if state != Some(next) && write_state(&paths.state, next).is_err() {
             return Ownership::Lost;
         }
@@ -336,12 +394,17 @@ impl ProtectionParticipant {
     pub fn can_own(&self) -> bool {
         !matches!(self.kind, Kind::Shared)
     }
+    /// See the `acknowledged` field.
+    pub fn acknowledged(&self) -> bool {
+        self.acknowledged
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    const W: Duration = Duration::from_millis(500);
     fn location(dir: &tempfile::TempDir) -> Location {
         let database = dir.path().join("witness.db");
         if !database.exists() {
@@ -354,8 +417,8 @@ mod tests {
     async fn a_lone_participant_owns_and_a_second_one_ends_ownership() {
         let dir = tempfile::tempdir().unwrap();
         let mut first = ProtectionParticipant::join(&location(&dir)).await.unwrap();
-        assert_eq!(first.check(), Ownership::Alone { changed: false });
-        assert_eq!(first.check(), Ownership::Alone { changed: false });
+        assert_eq!(first.check(W).ownership, Ownership::Alone { changed: false });
+        assert_eq!(first.check(W).ownership, Ownership::Alone { changed: false });
         // A second participant joins: the owner has acknowledged nothing yet, so
         // the joiner waits for the owner's next check.
         let started = std::time::Instant::now();
@@ -365,14 +428,15 @@ mod tests {
         });
         tokio::time::sleep(Duration::from_millis(150)).await;
         assert!(!joining.is_finished(), "the joiner waits for the owner's acknowledgement");
-        assert_eq!(first.check(), Ownership::Shared);
+        assert_eq!(first.check(W).ownership, Ownership::Shared);
         let mut second = joining.await.unwrap();
-        assert!(started.elapsed() < JOIN_WAIT);
-        assert_eq!(second.check(), Ownership::Shared);
+        assert!(started.elapsed() < join_wait(W));
+        assert!(second.acknowledged());
+        assert_eq!(second.check(W).ownership, Ownership::Shared);
         drop(second);
         // Alone again. The join was already seen by the previous check, so the
         // caller (which stopped trusting its cache at `Shared`) is not told twice.
-        assert_eq!(first.check(), Ownership::Alone { changed: false });
+        assert_eq!(first.check(W).ownership, Ownership::Alone { changed: false });
     }
 
     #[tokio::test]
@@ -382,37 +446,37 @@ mod tests {
         // No check yet, so no owner is recorded and the next joiner does not wait.
         let transient = ProtectionParticipant::join(&location(&dir)).await.unwrap();
         drop(transient);
-        assert_eq!(first.check(), Ownership::Alone { changed: true });
-        assert_eq!(first.check(), Ownership::Alone { changed: false });
+        assert_eq!(first.check(W).ownership, Ownership::Alone { changed: true });
+        assert_eq!(first.check(W).ownership, Ownership::Alone { changed: false });
         // An unreadable state line also counts as a change.
         std::fs::write(Paths::new(&std::fs::canonicalize(dir.path().join("witness.db")).unwrap()).state, b"garbage").unwrap();
-        assert_eq!(first.check(), Ownership::Alone { changed: true });
-        assert_eq!(first.check(), Ownership::Alone { changed: false });
+        assert_eq!(first.check(W).ownership, Ownership::Alone { changed: true });
+        assert_eq!(first.check(W).ownership, Ownership::Alone { changed: false });
     }
 
     #[tokio::test]
     async fn a_joiner_that_finds_itself_alone_does_not_wait_for_a_departed_owner() {
         let dir = tempfile::tempdir().unwrap();
         let mut owner = ProtectionParticipant::join(&location(&dir)).await.unwrap();
-        assert_eq!(owner.check(), Ownership::Alone { changed: false });
+        assert_eq!(owner.check(W).ownership, Ownership::Alone { changed: false });
         drop(owner); // exits without clearing the owner flag
         let started = std::time::Instant::now();
         let mut next = ProtectionParticipant::join(&location(&dir)).await.unwrap();
         assert!(started.elapsed() < Duration::from_secs(2));
-        assert_eq!(next.check(), Ownership::Alone { changed: false });
+        assert_eq!(next.check(W).ownership, Ownership::Alone { changed: false });
     }
 
     #[tokio::test]
     async fn a_replaced_lock_file_is_reported_lost() {
         let dir = tempfile::tempdir().unwrap();
         let mut owner = ProtectionParticipant::join(&location(&dir)).await.unwrap();
-        assert_eq!(owner.check(), Ownership::Alone { changed: false });
+        assert_eq!(owner.check(W).ownership, Ownership::Alone { changed: false });
         let lock = Paths::new(&std::fs::canonicalize(dir.path().join("witness.db")).unwrap()).lock;
         if std::fs::remove_file(&lock).is_ok() && std::fs::write(&lock, b"").is_ok() {
-            assert_eq!(owner.check(), Ownership::Lost);
+            assert_eq!(owner.check(W).ownership, Ownership::Lost);
             // A new participant on the new file is alone and owns.
             let mut next = ProtectionParticipant::join(&location(&dir)).await.unwrap();
-            assert!(matches!(next.check(), Ownership::Alone { .. }));
+            assert!(matches!(next.check(W).ownership, Ownership::Alone { .. }));
         } else {
             eprintln!("[witness] a held lock file cannot be replaced on this platform");
         }
@@ -421,17 +485,19 @@ mod tests {
     #[tokio::test]
     async fn private_and_shared_locations() {
         let mut private = ProtectionParticipant::join(&Location::Private).await.unwrap();
-        assert_eq!(private.check(), Ownership::Alone { changed: false });
+        assert_eq!(private.check(W).ownership, Ownership::Alone { changed: false });
         let mut shared = ProtectionParticipant::join(&Location::Shared).await.unwrap();
-        assert_eq!(shared.check(), Ownership::Shared);
+        assert_eq!(shared.check(W).ownership, Ownership::Shared);
         assert!(!shared.can_own() && private.can_own());
     }
 
     #[test]
     fn state_lines_round_trip_and_reject_garbage() {
-        let line = StateLine { joins: 7, acknowledged: 5, owner: true };
+        let line = StateLine { joins: 7, acknowledged: 5, owner: true, window_ms: 500 };
         assert_eq!(StateLine::parse(&line.render()), Some(line));
-        for raw in ["", "v2 1 1 1", "v1 1 1", "v1 1 1 2", "v1 x 1 1", "v1 1 1 1 extra"] {
+        let legacy = StateLine::parse("v1 3 2 1").unwrap();
+        assert_eq!((legacy.joins, legacy.window()), (3, LEGACY_WINDOW));
+        for raw in ["", "v3 1 1 1 1", "v2 1 1 1", "v1 1 1", "v1 1 1 2", "v1 x 1 1", "v1 1 1 1 extra", "v2 1 1 1 x"] {
             assert_eq!(StateLine::parse(raw), None, "{raw}");
         }
     }
@@ -440,15 +506,40 @@ mod tests {
     async fn a_hard_linked_database_is_never_owned() {
         let dir = tempfile::tempdir().unwrap();
         let mut owner = ProtectionParticipant::join(&location(&dir)).await.unwrap();
-        assert_eq!(owner.check(), Ownership::Alone { changed: false });
+        assert_eq!(owner.check(W).ownership, Ownership::Alone { changed: false });
         std::fs::hard_link(dir.path().join("witness.db"), dir.path().join("second-name.db")).unwrap();
-        assert_eq!(owner.check(), Ownership::Shared, "another name could use another witness");
+        assert_eq!(owner.check(W).ownership, Ownership::Shared, "another name could use another witness");
         std::fs::remove_file(dir.path().join("second-name.db")).unwrap();
-        assert!(matches!(owner.check(), Ownership::Alone { .. }));
+        assert!(matches!(owner.check(W).ownership, Ownership::Alone { .. }));
     }
 
     #[tokio::test]
     async fn an_unresolved_database_path_cannot_join() {
         assert!(ProtectionParticipant::join(&Location::Unresolved).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_joiner_that_is_not_acknowledged_in_time_is_marked_unacknowledged() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut owner = ProtectionParticipant::join(&location(&dir)).await.unwrap();
+        // A short window: the joiner waits window + 2 s, then gives up.
+        let window = Duration::from_millis(100);
+        assert!(matches!(owner.check(window).ownership, Ownership::Alone { .. }));
+        let started = std::time::Instant::now();
+        let joiner = ProtectionParticipant::join(&location(&dir)).await.unwrap();
+        let waited = started.elapsed();
+        assert!(!joiner.acknowledged(), "the owner never checked");
+        assert!(waited >= join_wait(window) && waited < join_wait(window) + Duration::from_secs(2), "{waited:?}");
+        assert_eq!(owner.check(window).ownership, Ownership::Shared);
+    }
+
+    #[test]
+    fn the_window_and_the_join_wait_follow_the_flush_interval() {
+        assert_eq!(ownership_window(Duration::from_millis(250)).unwrap(), Duration::from_millis(500));
+        assert_eq!(join_wait(Duration::from_millis(500)), Duration::from_millis(2500));
+        assert_eq!(join_wait(Duration::from_secs(10)), Duration::from_secs(20));
+        // The largest configurable interval (5 s) is accepted; longer ones are refused.
+        assert!(ownership_window(Duration::from_secs(5)).is_ok());
+        assert!(ownership_window(Duration::from_secs(8)).is_err());
     }
 }

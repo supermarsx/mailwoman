@@ -22,7 +22,8 @@
 //!   tick), a cached subject is used until its row expires by its own policy window, it
 //!   is evicted (bounded, below), or something invalidates it. A warm request then reads
 //!   nothing. Ownership is checked again at every tick and lapses by itself two flush
-//!   intervals after the last successful check. Whenever it is gained (again) or ends,
+//!   intervals after the instant taken before the last successful check (so a stall
+//!   of this process after its check never extends it). Whenever it is gained (again) or ends,
 //!   or the check reports that another writer joined since the previous check, every
 //!   cached subject without pending observations is re-read once on its next use.
 //! - Re-read rule, without ownership (another participant exists, PostgreSQL never
@@ -162,6 +163,9 @@ impl AccountingConfig {
         if let Some(ms) = ranged(FLUSH_VAR, flush_ms, 50..=5000)? {
             config.flush_every = Duration::from_millis(ms);
         }
+        // The ownership window and a joiner's wait derive from the interval.
+        mw_store::request_protection::ownership_window(config.flush_every)
+            .map_err(|error| format!("{FLUSH_VAR}: {error}"))?;
         if let Some(max) = ranged(MAX_PENDING_VAR, max_pending, 64..=65536)? {
             config.max_pending = max as usize;
         }
@@ -343,6 +347,11 @@ pub(crate) struct WriteBehind {
     /// Milliseconds since `epoch` until which ownership holds; 0 = not owned.
     owned_until_ms: AtomicU64,
     epoch: Instant,
+    /// Two flush intervals: how long one successful check is trusted.
+    window: Duration,
+    /// Test hook: a delay between a check and storing its deadline.
+    #[cfg(test)]
+    stall_after_check: Mutex<Option<Duration>>,
     wake: Arc<tokio::sync::Notify>,
     degraded_since: Mutex<Option<Instant>>,
     counters: Counters,
@@ -362,6 +371,10 @@ impl WriteBehind {
             ownership: true,
             owned_until_ms: AtomicU64::new(0),
             epoch: Instant::now(),
+            window: mw_store::request_protection::ownership_window(config.flush_every)
+                .unwrap_or(config.flush_every * 2),
+            #[cfg(test)]
+            stall_after_check: Mutex::new(None),
             wake: Arc::new(tokio::sync::Notify::new()),
             degraded_since: Mutex::new(None),
             counters: Counters::default(),
@@ -419,6 +432,10 @@ impl WriteBehind {
             self.mark_all_stale();
         }
     }
+    #[cfg(test)]
+    pub(crate) fn stall_after_check(&self, delay: Option<Duration>) {
+        *lock(&self.stall_after_check) = delay;
+    }
     /// Every cached subject without pending observations is re-read on its next use.
     fn mark_all_stale(&self) {
         for shard in &self.shards {
@@ -450,7 +467,8 @@ impl WriteBehind {
             return;
         }
         let participant = slot.as_mut().expect("participant joined");
-        match participant.check() {
+        let checked = participant.check(self.window);
+        match checked.ownership {
             Ownership::Alone { changed } => {
                 let was_owned = self.owned();
                 if changed || !was_owned {
@@ -458,8 +476,18 @@ impl WriteBehind {
                     // another writer's rows.
                     self.mark_all_stale();
                 }
-                let window = u64::try_from(self.flush_every.as_millis()).unwrap_or(u64::MAX) * 2;
-                self.owned_until_ms.store(self.now_ms().saturating_add(window).max(1), Ordering::Release);
+                #[cfg(test)]
+                {
+                    let delay = *lock(&self.stall_after_check);
+                    if let Some(delay) = delay {
+                        tokio::time::sleep(delay).await;
+                    }
+                }
+                // Counted from before the check took the admission lock: a joiner
+                // that entered after the check waits longer than this window.
+                let until = checked.started.saturating_duration_since(self.epoch) + self.window;
+                let until = u64::try_from(until.as_millis()).unwrap_or(u64::MAX).max(1);
+                self.owned_until_ms.store(until, Ordering::Release);
                 if !was_owned {
                     bump(&self.counters.ownership_gained, 1);
                 }
