@@ -188,6 +188,11 @@ jobs:
 
   rust:
     runs-on: ubuntu-latest
+    env:
+      # Debug-build mw-server tests need more than the 2 MiB default thread stack
+      # (v6_e2e apikey_enforcement_matrix_live overflowed it, t61); local runs use
+      # the same value. Remove once the large futures are boxed.
+      RUST_MIN_STACK: "67108864"
     steps:
       - uses: actions/checkout@v4
       # TOOLCHAIN PIN (t24-e3). Every `dtolnay/rust-toolchain@<ref>` in these
@@ -342,6 +347,11 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      # Debug-build mw-server tests need more than the 2 MiB default thread stack
+      # (v6_e2e apikey_enforcement_matrix_live overflowed it, t61); local runs use
+      # the same value. Remove once the large futures are boxed.
+      RUST_MIN_STACK: "67108864"
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
@@ -437,6 +447,11 @@ jobs:
   # -------------------------------------------------------------------------
   imap-conformance:
     runs-on: ubuntu-latest
+    env:
+      # Debug-build mw-server tests need more than the 2 MiB default thread stack
+      # (v6_e2e apikey_enforcement_matrix_live overflowed it, t61); local runs use
+      # the same value. Remove once the large futures are boxed.
+      RUST_MIN_STACK: "67108864"
     needs: [rust]
     # Run, and fail on its own, even when `rust`/`web` are red (t61);
     # it builds what it needs itself. Only a cancelled run skips it.
@@ -1164,6 +1179,11 @@ jobs:
   #     list-actions (firefox, phone), reader-metadata (firefox), workspace-tabs (phone)
   e2e-receipts:
     runs-on: ubuntu-latest
+    env:
+      # These run target/debug/mailwoman; its server died mid-run in ci run
+      # 45390279332 with no log kept. Debug builds overflow the 2 MiB default
+      # thread stack in v6_e2e (t61), so give the server the same stack.
+      RUST_MIN_STACK: "67108864"
     needs: [rust, web]
     # Run, and fail on its own, even when `rust`/`web` are red (t61);
     # it builds what it needs itself. Only a cancelled run skips it.
@@ -1266,6 +1286,11 @@ jobs:
   # findings are for a person to read. The self-test of its checks runs first.
   restyle-report:
     runs-on: ubuntu-latest
+    env:
+      # These run target/debug/mailwoman; its server died mid-run in ci run
+      # 45390279332 with no log kept. Debug builds overflow the 2 MiB default
+      # thread stack in v6_e2e (t61), so give the server the same stack.
+      RUST_MIN_STACK: "67108864"
     needs: [rust, web]
     # Run, and fail on its own, even when `rust`/`web` are red (t61);
     # it builds what it needs itself. Only a cancelled run skips it.
@@ -2018,6 +2043,11 @@ jobs:
   # (never a silent pass). SQLite-path assertions run regardless (plan §3 e1/§11).
   store-dual-backend:
     runs-on: ubuntu-latest
+    env:
+      # Debug-build mw-server tests need more than the 2 MiB default thread stack
+      # (v6_e2e apikey_enforcement_matrix_live overflowed it, t61); local runs use
+      # the same value. Remove once the large futures are boxed.
+      RUST_MIN_STACK: "67108864"
     needs: [rust]
     # Run, and fail on its own, even when `rust`/`web` are red (t61);
     # it builds what it needs itself. Only a cancelled run skips it.
@@ -2229,6 +2259,10 @@ jobs:
     # it builds what it needs itself. Only a cancelled run skips it.
     if: ${{ !cancelled() }}
     env:
+      # Debug-build mw-server tests need more than the 2 MiB default thread stack
+      # (v6_e2e apikey_enforcement_matrix_live overflowed it, t61); local runs use
+      # the same value. Remove once the large futures are boxed.
+      RUST_MIN_STACK: "67108864"
       DOCKER_BUILDKIT: "1"
       COMPOSE_DOCKER_CLI_BUILD: "1"
       # Shared dev server key so sealed columns round-trip within the run (DEV ONLY,
@@ -2789,6 +2823,11 @@ jobs:
   # Needs outbound network — Squid resolves and dials the origin itself.
   egress-squid:
     runs-on: ubuntu-latest
+    env:
+      # Debug-build mw-server tests need more than the 2 MiB default thread stack
+      # (v6_e2e apikey_enforcement_matrix_live overflowed it, t61); local runs use
+      # the same value. Remove once the large futures are boxed.
+      RUST_MIN_STACK: "67108864"
     needs: [rust]
     # Run, and fail on its own, even when `rust`/`web` are red (t61);
     # it builds what it needs itself. Only a cancelled run skips it.
@@ -2903,6 +2942,10 @@ jobs:
     # it builds what it needs itself. Only a cancelled run skips it.
     if: ${{ !cancelled() }}
     env:
+      # Debug-build mw-server tests need more than the 2 MiB default thread stack
+      # (v6_e2e apikey_enforcement_matrix_live overflowed it, t61); local runs use
+      # the same value. Remove once the large futures are boxed.
+      RUST_MIN_STACK: "67108864"
       DOCKER_BUILDKIT: "1"
       COMPOSE_DOCKER_CLI_BUILD: "1"
       # Shared dev server key so sealed columns round-trip within the run (DEV ONLY,
