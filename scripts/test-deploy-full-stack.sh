@@ -46,6 +46,11 @@ assert set(app['networks'])=={'default','store'}
 assert app['environment']['MW_DB_PATH'].startswith('postgres://')
 assert app['environment']['MW_REDIS_URL'].startswith('redis://:')
 assert app['depends_on']['postgres']['condition']=='service_healthy'
+command=s['postgres']['command']
+assert command[0]=='postgres', command
+settings=dict(command[i+1].split('=',1) for i in range(1,len(command),2) if command[i]=='-c')
+assert {'shared_buffers','effective_cache_size','maintenance_work_mem','max_wal_size','jit'}<=set(settings), settings
+assert not {'fsync','full_page_writes','synchronous_commit','commit_delay'}&set(settings), 'the stack never changes durability settings'
 PY
 # Check both BYO proxy shapes and a managed-Caddy positive control using the
 # real renderer and Compose merger. No proxy/app container is started here.
@@ -84,6 +89,8 @@ EXPOSURE=local PUBLIC_URL=http://localhost:18182 DOMAIN='' CADDY_ID=''
 cp "$work/original.env" "$ACTIVE/app.env"
 render "$ACTIVE"
 compose "$ACTIVE" up -d --wait --wait-timeout "$TIMEOUT" postgres valkey
+[[ $(compose "$ACTIVE" exec -T postgres psql -U mailwoman -d mailwoman -Atc 'SHOW jit') == off ]] || die 'PostgreSQL did not start with the rendered settings'
+[[ $(compose "$ACTIVE" exec -T postgres psql -U mailwoman -d mailwoman -Atc 'SHOW synchronous_commit') == on ]] || die 'synchronous_commit must stay on'
 compose "$ACTIVE" exec -T postgres psql -U mailwoman -d mailwoman -v ON_ERROR_STOP=1 -c "CREATE TABLE fixture (content text NOT NULL); INSERT INTO fixture VALUES ('backup retained');" >/dev/null
 mkdir "$work/backup"
 tar -cf "$work/backup/data.tar" --files-from /dev/null

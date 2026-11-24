@@ -167,9 +167,15 @@ embeddings and remote-image grants. The full list is `TABLES` in
 
 ## Connections
 
-Each opened PostgreSQL store uses a connection pool of up to 5 connections
-(fixed in code). When several Mailwoman instances share one database, size the
-PostgreSQL server's `max_connections` for all of them. A shared database does not
+Each Mailwoman process opens a bootstrap pool of 5 connections for migrations,
+then replaces it with its main pool: `cpus × 4` connections clamped to 4–64
+(application CPUs), capped by the `database.pool` budget (default 100) and the
+server's `max_connections` minus 20 reserved, divided by `replicaCount`. Add
+about 8 dedicated connections per process (authority mirror, maintenance jobs).
+When several Mailwoman instances share one database, size the PostgreSQL
+server's `max_connections` for all of them; [PostgreSQL tuning](../admin/postgresql-tuning.md)
+gives the rule, the other server settings, and why a transaction-mode pooler
+is not supported. A shared database does not
 make the other parts of Mailwoman multi-instance aware: read
 [scaling and multi-location boundaries](scaling.md) before adding replicas.
 
@@ -207,6 +213,7 @@ discards its cached state and fetches the account again.
 
 ## Related
 
+- [PostgreSQL tuning](../admin/postgresql-tuning.md)
 - [Deployment script](script.md)
 - [Backups](backups.md)
 - [Scaling and multi-location boundaries](scaling.md)

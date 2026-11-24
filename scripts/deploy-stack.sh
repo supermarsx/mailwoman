@@ -14,14 +14,37 @@ stack_secrets() {
     done
 }
 
+# PostgreSQL settings for the full stack, where PostgreSQL shares the host with
+# Mailwoman: the "colocated" rules of docs/admin/postgresql-tuning.md, sized from
+# this host's memory (or the KiB given as $1) when the stack is rendered;
+# scripts/perf/postgres-profile.mjs holds the same formulas. None of them
+# changes durability: fsync, full_page_writes and synchronous_commit keep their
+# defaults (on). max_wal_size is disk space PostgreSQL may use for WAL.
+stack_postgres_settings() {
+    local kib mb shared cache maintenance wal
+    kib=${1:-$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null)}
+    [[ $kib =~ ^[0-9]+$ ]] || kib=1048576
+    mb=$((kib / 1024))
+    shared=$((mb * 15 / 100)); ((shared >= 128)) || shared=128; ((shared <= 32768)) || shared=32768
+    cache=$((mb / 2)); ((cache >= 256)) || cache=256
+    maintenance=$((mb / 16)); ((maintenance >= 64)) || maintenance=64; ((maintenance <= 2048)) || maintenance=2048
+    wal=1GB; ((mb < 8192)) || wal=4GB
+    printf '%s\n' "shared_buffers=${shared}MB" "effective_cache_size=${cache}MB" "maintenance_work_mem=${maintenance}MB" \
+        "max_wal_size=$wal" checkpoint_timeout=15min wal_compression=lz4 jit=off \
+        idle_in_transaction_session_timeout=10min log_lock_waits=on log_autovacuum_min_duration=10s
+}
+
 stack_render() {
-    local directory=$1 db_password cache_password public_network=default extra_network='  default: {}'
+    local directory=$1 db_password cache_password public_network=default extra_network='  default: {}' postgres_command setting
     if [[ $EXPOSURE == network ]]; then public_network=proxy; extra_network=; fi
     [[ $STACK == full ]] || return 0
     db_password=$(sed -n 's/^MW_STACK_DB_PASSWORD=//p' "$directory/app.env")
     cache_password=$(sed -n 's/^MW_STACK_CACHE_PASSWORD=//p' "$directory/app.env")
     [[ $db_password =~ ^[0-9a-f]{64}$ && $cache_password =~ ^[0-9a-f]{64}$ ]] || die "Missing full-stack credentials; initialize them before rendering"
     [[ $POSTGRES_VOLUME =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]+$ ]] || die "Invalid PostgreSQL volume"
+    postgres_command="[postgres"
+    while IFS= read -r setting; do postgres_command+=", -c, '$setting'"; done < <(stack_postgres_settings)
+    postgres_command+="]"
     cat > "$directory/stack.yaml" <<EOF
 services:
   mailwoman:
@@ -37,6 +60,7 @@ services:
   postgres:
     image: $POSTGRES_IMAGE
     restart: unless-stopped
+    command: $postgres_command
     environment:
       POSTGRES_USER: mailwoman
       POSTGRES_DB: mailwoman

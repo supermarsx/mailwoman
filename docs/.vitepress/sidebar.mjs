@@ -84,7 +84,7 @@ const administering=()=>{
    'deploy/sieve-runtime','deploy/scheduler-runtime','admin/plugins','admin/ui-plugins'])),
   group('Appearance',list(['admin/branding','deploy/fonts'])),
   group('Operations',list(['admin/observability','admin/latency-metrics','admin/metrics-persistence','admin/logs','admin/diagnostics',
-   'admin/analytics','admin/maintenance','admin/database-maintenance','admin/database-startup','admin/performance-modes','deploy/online-sqlite-maintenance',
+   'admin/analytics','admin/maintenance','admin/database-maintenance','admin/database-startup','admin/postgresql-tuning','admin/performance-modes','deploy/online-sqlite-maintenance',
    'admin/operational-incidents','admin/configuration-transfer','deploy/telemetry','deploy/scaling','deploy/load-testing','deploy/websocket-load-testing'])),
   group('Troubleshooting',list(['admin/troubleshooting'])),
  ];
