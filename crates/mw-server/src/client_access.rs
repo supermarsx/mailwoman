@@ -498,7 +498,7 @@ fn exempt(path: &str) -> bool {
             | "/service-worker.js"
     ) || crate::is_sso_idp_callback(path)
 }
-pub(crate) async fn guard(State(state): State<AppState>, request: Request, next: Next) -> Response {
+pub(crate) async fn guard(State(state): State<AppState>, mut request: Request, next: Next) -> Response {
     let path = request.uri().path().to_owned();
     if exempt(&path) || path == UNLOCK {
         return next.run(request).await;
@@ -507,8 +507,14 @@ pub(crate) async fn guard(State(state): State<AppState>, request: Request, next:
         let value=current.inputs.client().ok()?.0.clone();
         current.used(crate::published_guard_context::Guard::Client);Some(value)
     });
-    let cfg = if let Some(value)=prepared {value}else {match load(&state.store).await {
-        Ok((_, cfg)) => std::sync::Arc::new(cfg),
+    // t50hp: parsed once per settings revision (0123: every change of this
+    // key bumps it), at the revision this request's middleware share.
+    static MEMO: crate::settings_request_revision::RevisionMemo<Config> =
+        crate::settings_request_revision::RevisionMemo::new();
+    let cfg = if let Some(value)=prepared {value}else {match crate::settings_request_revision::memoised(
+        &MEMO, &state.store, &mut request, async { load(&state.store).await.map(|(_, cfg)| cfg) },
+    ).await {
+        Ok(cfg) => cfg,
         Err(_) => return crate::request_inputs::terminal(StatusCode::SERVICE_UNAVAILABLE.into_response()).await,
     }};
     if !cfg.enabled() {

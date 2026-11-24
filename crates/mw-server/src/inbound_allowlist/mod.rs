@@ -46,14 +46,17 @@ fn surface(path: &str) -> Option<bool> {
 }
 pub(crate) async fn guard(
     State(state): State<crate::AppState>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
     let Some(admin) = surface(request.uri().path()) else {
         return next.run(request).await;
     };
     let ip = crate::scope_mw::proxy::client_ip(request.headers(), request.extensions());
-    match state.inbound_allowlist.admit(&state.store, admin, ip).await {
+    // t50hp: the revision this request's middleware share; without one
+    // (published inputs, read failure) the guard keeps its own direct read.
+    let revision = crate::settings_request_revision::shared(&state.store, &mut request).await;
+    match state.inbound_allowlist.admit_at(&state.store, admin, ip, revision.as_ref()).await {
         Ok(true) => next.run(request).await,
         result => crate::request_inputs::terminal((
             if result.is_err() {

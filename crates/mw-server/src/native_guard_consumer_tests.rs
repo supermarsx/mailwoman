@@ -153,8 +153,11 @@ fn declared_default36_uses_guard_inputs_and_preserves_real_fifty_row_reply() {
                 .len(),
             50
         );
+        // t50hp: the original readers of the four key-value guard inputs are now
+        // memoised by settings revision too, so the original arm can match the
+        // published arm; the mask above proves the published DATA was consumed.
         assert!(
-            ready.3.read.calls < original.3.read.calls,
+            ready.3.read.calls <= original.3.read.calls,
             "whole router counts: ready={:?},original={:?}",
             ready.3,
             original.3

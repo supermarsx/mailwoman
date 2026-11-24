@@ -204,8 +204,8 @@ fn sqlite_guard_chain_statement_budget() {
         let fixture = Fixture::new(sqlite_db(), "sqlite-off").await;
         run_budgets(
             &fixture,
-            &Budget { route: "GET /api/me", reads: 17, writes: 0, other: 0 },
-            &Budget { route: "POST /jmap/api Core/echo", reads: 19, writes: 0, other: 0 },
+            &Budget { route: "GET /api/me", reads: 13, writes: 0, other: 0 },
+            &Budget { route: "POST /jmap/api Core/echo", reads: 15, writes: 0, other: 0 },
         )
         .await;
     });
@@ -221,8 +221,8 @@ fn postgres_guard_chain_statement_budget() {
         let fixture = Fixture::new(url, "postgres").await;
         run_budgets(
             &fixture,
-            &Budget { route: "GET /api/me", reads: 17, writes: 0, other: 0 },
-            &Budget { route: "POST /jmap/api Core/echo", reads: 19, writes: 0, other: 0 },
+            &Budget { route: "GET /api/me", reads: 13, writes: 0, other: 0 },
+            &Budget { route: "POST /jmap/api Core/echo", reads: 15, writes: 0, other: 0 },
         )
         .await;
     });
@@ -328,6 +328,66 @@ async fn key_value_guard_inputs_bump_the_revision(fixture: &Fixture) {
     assert_eq!(status, StatusCode::OK, "{}: {body}", fixture.label);
 }
 
+/// The four key-value guard inputs are memoised by settings revision (t50hp,
+/// after 0123). For each key: a warm request keeps a memo entry; a change
+/// written through the second Store handle bumps the revision and is enforced
+/// by the very next request; restoring it is seen by the next request again.
+async fn each_guard_key_write_is_seen_by_the_next_request(fixture: &Fixture) {
+    let banned_at = chrono::Utc::now().to_rfc3339();
+    let cases: [(&str, String, &str, StatusCode, &str); 4] = [
+        (
+            "v6:admin:bans",
+            json!([{"ip":"127.0.0.1","reason":"guard-budget","banned_at":banned_at,"expires_at":null}]).to_string(),
+            "[]",
+            StatusCode::FORBIDDEN,
+            "sourceUnavailable",
+        ),
+        (
+            "security.inbound-allowlist.v1",
+            json!({"webmail":{"enabled":true,"cidrs":["192.0.2.0/24"],"hostnames":[]}}).to_string(),
+            "{}",
+            StatusCode::FORBIDDEN,
+            "sourceUnavailable",
+        ),
+        (
+            "security.clientAccess.v1",
+            json!({"pskEnabled":false,"slugEnabled":true,"slug":"budget-entry","pskHash":null,
+                "grantHours":24,"revision":"guard-budget-1"}).to_string(),
+            r#"{"pskEnabled":false,"slugEnabled":false,"slug":null,"pskHash":null,"grantHours":24,"revision":"guard-budget-2"}"#,
+            StatusCode::FORBIDDEN,
+            "",
+        ),
+        (
+            "maintenance.mode.v1",
+            r#"{"enabled":true,"message":"","retryAfterSecs":60}"#.to_owned(),
+            r#"{"enabled":false,"message":"","retryAfterSecs":60}"#,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "maintenance",
+        ),
+    ];
+    for (key, on, off, status_on, code) in cases {
+        for _ in 0..2 {
+            let (status, body, _) = fixture.send(fixture.me()).await;
+            assert_eq!(status, StatusCode::OK, "{} {key} warm: {body}", fixture.label);
+        }
+        let before = fixture.writer.settings_revision().await.unwrap().unwrap();
+        fixture.writer.set_setting(key, &on).await.unwrap();
+        assert!(
+            fixture.writer.settings_revision().await.unwrap().unwrap() > before,
+            "{}: a {key} change must bump settings_revision",
+            fixture.label
+        );
+        let (status, body, _) = fixture.send(fixture.me()).await;
+        assert_eq!(status, status_on, "{} {key} on: {body}", fixture.label);
+        if !code.is_empty() {
+            assert_eq!(body["code"], code, "{} {key}", fixture.label);
+        }
+        fixture.writer.set_setting(key, off).await.unwrap();
+        let (status, body, _) = fixture.send(fixture.me()).await;
+        assert_eq!(status, StatusCode::OK, "{} {key} off: {body}", fixture.label);
+    }
+}
+
 /// Trust-tier keys (setting_policy), resolved by `admin_probe::guard` at the
 /// request's shared revision: a write through another handle is seen by the
 /// next request; inside one request the shared proof is reused.
@@ -367,6 +427,7 @@ fn sqlite_revision_preconditions_for_shared_guard_reads() {
         let fixture = Fixture::new(db.clone(), "sqlite-off").await;
         geography_write_is_seen_by_the_next_request(&fixture).await;
         key_value_guard_inputs_bump_the_revision(&fixture).await;
+        each_guard_key_write_is_seen_by_the_next_request(&fixture).await;
         let reader = Store::open(&db, ServerKey::generate()).await.unwrap();
         trust_policy_follows_the_request_revision(&reader, &fixture.writer, "sqlite").await;
     });
@@ -382,6 +443,7 @@ fn postgres_revision_preconditions_for_shared_guard_reads() {
         let fixture = Fixture::new(url.clone(), "postgres").await;
         geography_write_is_seen_by_the_next_request(&fixture).await;
         key_value_guard_inputs_bump_the_revision(&fixture).await;
+        each_guard_key_write_is_seen_by_the_next_request(&fixture).await;
         let reader = Store::open(&url, ServerKey::generate()).await.unwrap();
         trust_policy_follows_the_request_revision(&reader, &fixture.writer, "postgres").await;
     });

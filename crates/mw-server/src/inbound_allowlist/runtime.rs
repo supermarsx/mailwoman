@@ -78,6 +78,21 @@ impl Runtime {
         admin: bool,
         ip: Option<IpAddr>,
     ) -> Result<bool, ()> {
+        self.admit_at(store, admin, ip, None).await
+    }
+    /// [`Self::admit`] with the request's shared settings revision (t50hp).
+    /// The configuration parsed at that exact revision (0123: every change of
+    /// this key bumps it) is reused only when it equals the runtime snapshot,
+    /// the same rule as the published-input arm; otherwise it is read fresh.
+    pub async fn admit_at(
+        self: &Arc<Self>,
+        store: &mw_store::Store,
+        admin: bool,
+        ip: Option<IpAddr>,
+        revision: Option<&mw_store::settings_policy::SettingsReadRevision>,
+    ) -> Result<bool, ()> {
+        static MEMO: crate::settings_request_revision::RevisionMemo<Config> =
+            crate::settings_request_revision::RevisionMemo::new();
         let prepared=crate::published_guard_context::current_for(store).await.and_then(|current| {
             let value=current.inputs.inbound().ok()?.0.clone();Some((current,value))
         });
@@ -87,13 +102,20 @@ impl Runtime {
             .map_err(|_| ())?;
         // A shared source may not overwrite newer locally CAS-ed runtime/DNS
         // state. Only an already identical configuration takes the no-read arm.
+        let memoised=revision.and_then(|revision| MEMO.hit_at(revision))
+            .filter(|config| snapshot.config.as_ref()==Some(config.as_ref()));
         let config=if let Some((current,config))=prepared.filter(|(_,c)|snapshot.config.as_ref()==Some(c.as_ref())) {
             current.used(crate::published_guard_context::Guard::Inbound);config
+        }else if let Some(config)=memoised {
+            config
         }else {
             let raw = tokio::time::timeout(Duration::from_secs(2), store.get_setting(KEY))
                 .await.map_err(|_| ())?.map_err(|_| ())?;
             let config=Config::parse(raw.as_deref())?;
-            snapshot.replace(config.clone());Arc::new(config)
+            snapshot.replace(config.clone());
+            let config=Arc::new(config);
+            if let Some(revision)=revision { MEMO.put_at(revision, config.clone()); }
+            config
         };
         self.refresh(&mut snapshot, &config);
         Ok(snapshot.allows(

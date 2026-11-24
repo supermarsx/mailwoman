@@ -8,7 +8,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 
-pub(crate) async fn guard(State(state): State<AppState>, request: Request, next: Next) -> Response {
+pub(crate) async fn guard(State(state): State<AppState>, mut request: Request, next: Next) -> Response {
     // Liveness/readiness remain usable by deployment probes, even if their
     // transport address is banned. There is no blanket loopback exemption.
     if matches!(request.uri().path(), "/healthz" | "/readyz") {
@@ -20,7 +20,7 @@ pub(crate) async fn guard(State(state): State<AppState>, request: Request, next:
         // forwarding header as a substitute. Production installs ConnectInfo.
         return next.run(request).await;
     };
-    let status = match banned(&state, &ip.to_string()).await {
+    let status = match banned(&state, &ip.to_string(), &mut request).await {
         Ok(false) => return next.run(request).await,
         Ok(true) => StatusCode::FORBIDDEN,
         Err(_) => StatusCode::SERVICE_UNAVAILABLE,
@@ -39,12 +39,21 @@ pub(crate) async fn guard(State(state): State<AppState>, request: Request, next:
 /// `MW_GUARD_SNAPSHOT=bounded` (t34 step 2): the parsed ban list is reused
 /// while the mirror shows no change to the `protection` global epoch (which
 /// every `v6:admin:bans` write bumps) or any other global/settings revision.
-/// Expiry is still evaluated per request against now. Off mode: unchanged.
-async fn banned(state: &AppState, ip: &str) -> Result<bool, mw_admin::AdminError> {
+/// Expiry is still evaluated per request against now.
+/// Off mode (t50hp): the parsed list is reused while the request's settings
+/// revision is the one it was read under (0123: every change of
+/// `v6:admin:bans` bumps it), see [`crate::settings_request_revision::RevisionMemo`].
+async fn banned(state: &AppState, ip: &str, request: &mut Request) -> Result<bool, mw_admin::AdminError> {
     let Some(worker) = state.native_publication.as_ref()
         .filter(|_| crate::request_inputs::snapshot::mirror(state).is_some())
     else {
-        return state.v6.admin.is_banned(ip).await;
+        static MEMO: crate::settings_request_revision::RevisionMemo<Vec<mw_admin::BanEntry>> =
+            crate::settings_request_revision::RevisionMemo::new();
+        let bans = crate::settings_request_revision::memoised(
+            &MEMO, &state.store, request, state.v6.admin.list_bans(),
+        ).await?;
+        let now = chrono::Utc::now();
+        return Ok(bans.iter().any(|ban| ban.matches_ip(ip) && ban.active_at(now)));
     };
     let bans = Box::pin(worker.source_bans.get_or_load(state, state.v6.admin.list_bans())).await?;
     let now = chrono::Utc::now();

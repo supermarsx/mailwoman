@@ -204,7 +204,7 @@ fn refusal(value: Option<&Config>) -> Response {
     )
         .into_response()
 }
-pub(crate) async fn guard(State(state): State<AppState>, request: Request, next: Next) -> Response {
+pub(crate) async fn guard(State(state): State<AppState>, mut request: Request, next: Next) -> Response {
     // Router middleware sees the application-relative URI after MW_BASE_PATH nesting.
     if !governed(
         request.uri().path(),
@@ -217,7 +217,13 @@ pub(crate) async fn guard(State(state): State<AppState>, request: Request, next:
         let config=current.inputs.maintenance_arc()?;
         current.used(crate::published_guard_context::Guard::Maintenance);Some(config)
     });
-    let config=if let Some(config)=prepared {Ok(config)}else {config(&state).await.map(std::sync::Arc::new)};
+    // t50hp: parsed once per settings revision (0123: every change of this
+    // key bumps it), at the revision this request's middleware share.
+    static MEMO: crate::settings_request_revision::RevisionMemo<Config> =
+        crate::settings_request_revision::RevisionMemo::new();
+    let config=if let Some(config)=prepared {Ok(config)}else {
+        crate::settings_request_revision::memoised(&MEMO, &state.store, &mut request, config(&state)).await
+    };
     match config {
         Ok(value) if !value.enabled => next.run(request).await,
         Ok(value) => crate::request_inputs::terminal(refusal(Some(&value))).await,
