@@ -89,6 +89,24 @@ Reading:
 - Throughput peaks at 8 clients (2 × the CPUs) and falls by 30–45% at 32–64
   clients, with database CPU per transaction rising 1.6–2×.
 
+### Re-measured on top of 0129 and 0130
+
+After t62-n15's 0129 (mail-data triggers per statement) and this change's
+0130, on a fresh schema and seed (one run each, stock then dedicated):
+
+| Script | config | tps at 1 / 8 / 32 / 64 | DB CPU µs/tx at 1 / 8 / 32 / 64 | WAL B/tx at 1 / 8 / 32 / 64 |
+|---|---|---|---|---|
+| bare | stock | 476 / 3,282 / 1,904 / 1,494 | 1,134 / 1,076 / 2,120 / 2,716 | 4,349 / 2,482 / 2,858 / 3,311 |
+| bare | dedicated | 468 / 3,309 / 1,614 / 1,265 | 1,170 / 1,061 / 2,501 / 3,229 | 2,530 / 2,016 / 2,156 / 2,231 |
+| app | stock | 129 / 1,165 / 826 / 716 | 3,627 / 3,044 / 4,887 / 5,643 | 3,737 / 3,126 / 4,110 / 4,698 |
+| app | dedicated | 140 / 945 / 957 / 688 | 3,838 / 3,414 / 4,217 / 4,882 | 3,388 / 2,878 / 3,009 / 3,347 |
+
+The database CPU per single-message flag change is unchanged by 0129 (about
+1.1 ms bare, 3.0–3.8 ms for the store sequence at 1–8 clients): 0129 removes
+the per-row cost that grows with the number of rows in one statement, and
+these are one-row statements. The profile again lowers WAL per transaction
+(by 19–42% here) and leaves throughput within the noise.
+
 ### What limits it
 
 | Clients | Dominant samples (bare / app) | Meaning |
