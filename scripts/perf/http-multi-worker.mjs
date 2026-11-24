@@ -34,7 +34,7 @@ export async function runWorker(path,{prepare,send=message=>process.send(message
    if(message?.type!=='start'||busy||!phase||message.stageId!==phase.stageId||!Number.isSafeInteger(message.startAtMs)||message.startAtMs<Date.now()-1000||message.startAtMs>Date.now()+10000)throw new Error('Invalid worker start');
    busy=true;
    const current=phase;
-   const measurement=await measure({base:base.origin,headers:prepared.headers,requests:prepared.groups[current.endpoint],concurrency:current.concurrency,seconds:current.seconds,timeoutMs:current.timeoutMs,...(current.arrivalRate===undefined?{}:{arrivalRate:current.arrivalRate}),commonStartAtMs:message.startAtMs,includeRawMeasurements:true});
+   const measurement=await measure({base:base.origin,headers:prepared.headers,requests:prepared.groups[current.endpoint],concurrency:current.concurrency,seconds:current.seconds,timeoutMs:current.timeoutMs,...(current.arrivalRate===undefined?{}:{arrivalRate:current.arrivalRate,...(current.latePolicy===undefined?{}:{latePolicy:current.latePolicy})}),commonStartAtMs:message.startAtMs,includeRawMeasurements:true});
    phase=null;busy=false;
    send({type:'result',schema:1,workerIndex:data.workerIndex,partitionCount:data.principals.length,stageId:current.stageId,measurement});
   }catch{send({type:'failed',workerIndex:data.workerIndex,reason:'worker phase failed'});}

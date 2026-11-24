@@ -7,6 +7,7 @@ import {setTimeout as sleep} from 'node:timers/promises';
 
 // Fetch exposes decoded body chunks, never TLS/header/on-wire byte counts.
 // Generator scale limits (t53s). Defaults of every caller are unchanged; only the ceilings moved.
+export const SCHEDULING_LAG_LIMIT_MS=1;
 export const MAX_WORKERS_PER_HOST=64,MAX_WORKERS_TOTAL=256,MAX_OUTSTANDING=20000,MAX_STAGE_SECONDS=3600;
 export function acceptedInScheduledWindow(status,ok,completed,deadline){
  return Boolean(ok&&Number(status)>=200&&Number(status)<300&&completed<=deadline);
@@ -107,10 +108,12 @@ export function mergeLatencyBreakdowns(snapshots,counts,dispatches){
  return timingReport(merged,total);
 }
 
-export async function measure({base,requests,concurrency,seconds,timeoutMs=10000,headers={},arrivalRate,commonStartAtMs,includeRawMeasurements=false}){
+export async function measure({base,requests,concurrency,seconds,timeoutMs=10000,headers={},arrivalRate,commonStartAtMs,includeRawMeasurements=false,latePolicy='drop'}){
   const aggregate=new Measurements(),byRequest=new Map(requests.map(request=>[request.name,new Measurements()]));
   if(!Number.isInteger(concurrency)||concurrency<1||concurrency>MAX_OUTSTANDING||!Number.isFinite(seconds)||seconds<=0||seconds>MAX_STAGE_SECONDS||!requests.length||requests.length>100||!Number.isFinite(timeoutMs)||timeoutMs<1||timeoutMs>120000)throw new Error('Invalid bounded measurement parameters');
   if(typeof includeRawMeasurements!=='boolean')throw new Error('Invalid raw measurement option');
+  if(!['drop','dispatch'].includes(latePolicy)||latePolicy==='dispatch'&&arrivalRate===undefined)throw new Error('Late policy must be drop or dispatch, and dispatch needs an arrival rate');
+  const lateDispatch=latePolicy==='dispatch',acceptedPerSecond=new Array(Math.ceil(seconds)).fill(0);let lateSlotsDispatched=0;
   const wallOrigin=Date.now(),monotonicOrigin=performance.now();
   if(commonStartAtMs!==undefined&&(!Number.isSafeInteger(commonStartAtMs)||Math.abs(commonStartAtMs-wallOrigin)>60000))throw new Error('Common fixture start must be within sixty seconds');
   const start=commonStartAtMs===undefined?monotonicOrigin:monotonicOrigin+(commonStartAtMs-wallOrigin),deadline=start+seconds*1000;
@@ -131,7 +134,7 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
       const index=sequence++,template=requests[index%requests.length],spec=template.materialize?{...template,...template.materialize(index,{requestCount:requests.length}),name:template.name}:template,began=performance.now();
       increment(principals.attempted,spec.principalIndex);increment(clients.attempted,spec.clientIndex);
       peakOutstanding=Math.max(peakOutstanding,++activeCount);
-      scheduling.add(Math.max(0,began-planned),'scheduled',0,true);
+      scheduling.add(Math.max(0,began-planned),'scheduled',0,true);if(lateDispatch&&began-planned>100)lateSlotsDispatched++;
       let status='network',bytes=0,ok=false,timedOut=false;
       const signal=AbortSignal.timeout(timeoutMs);
       let unlock=null,dispatched=false,dispatchAt=null,queueMs=0,validationMs=null,reason503='other503';
@@ -167,7 +170,7 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
         if(spec.statefulMutation&&dispatched&&!ok){mutationStateTainted=true;unknownMutationOutcomes++;if(boundedIndex(spec.principalIndex))taintedPrincipals.add(spec.principalIndex);}
         unlock?.();
       }
-      const completed=performance.now(),elapsed=completed-began,inWindow=acceptedInScheduledWindow(status,ok,completed,deadline);
+      const completed=performance.now(),elapsed=lateDispatch?completed-planned:completed-began,inWindow=acceptedInScheduledWindow(status,ok,completed,deadline);
       if(status==='503')for(const value of [error503,error503ByRequest.get(spec.name)]){value.total++;value.counts[reason503]++;}
       for(const value of [latency,latencyByRequest.get(spec.name)]){
         value.principalQueue.add(queueMs,'scheduled',0,true);
@@ -176,7 +179,7 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
       }
       if(ok&&Number(status)>=200&&Number(status)<300){
         increment(principals.accepted,spec.principalIndex);increment(clients.accepted,spec.clientIndex);
-        if(inWindow){acceptedWithinWindow++;if(boundedIndex(spec.principalIndex))principals.withinWindow.add(spec.principalIndex);if(boundedIndex(spec.clientIndex))clients.withinWindow.add(spec.clientIndex);}
+        if(inWindow){acceptedWithinWindow++;acceptedPerSecond[Math.min(acceptedPerSecond.length-1,Math.max(0,Math.floor((completed-start)/1000)))]++;if(boundedIndex(spec.principalIndex))principals.withinWindow.add(spec.principalIndex);if(boundedIndex(spec.clientIndex))clients.withinWindow.add(spec.clientIndex);}
       }
       aggregate.add(elapsed,status,bytes,ok,timedOut,inWindow);arrivalLatency.add(performance.now()-planned,status,bytes,ok,timedOut,inWindow);byRequest.get(spec.name).add(elapsed,status,bytes,ok,timedOut,inWindow);activeCount--;
   };
@@ -191,10 +194,11 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
       const now=performance.now(),due=start+slot*interval;
       if(now<due){await sleep(Math.max(1,due-now));continue;}
       if(now>=deadline){const missed=total-slot;droppedScheduler+=missed;offered+=missed;break;}
-      const oldest=Math.min(total,Math.max(slot,Math.ceil((now-start-100)/interval)));
+      const oldest=lateDispatch?slot:Math.min(total,Math.max(slot,Math.ceil((now-start-100)/interval)));
       if(oldest>slot){droppedScheduler+=oldest-slot;offered+=oldest-slot;slot=oldest;}
-      const end=Math.min(total,Math.floor((now-start)/interval)+1);
-      const dispatch=Math.min(end-slot,concurrency-pending.size);
+      // late=dispatch: a due slot is never discarded; at the outstanding cap it waits and its lag is measured.
+      const dueEnd=Math.min(total,Math.floor((now-start)/interval)+1);
+      const dispatch=Math.min(dueEnd-slot,concurrency-pending.size),end=lateDispatch?slot+dispatch:dueEnd;
       const skipped=end-slot-dispatch;
       droppedCapacity+=skipped;offered+=end-slot;
       for(let i=0;i<dispatch;i++){
@@ -219,7 +223,7 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
     latencyBreakdown:timingReport(latency,aggregate.count),http503Reasons:error503,
     ...(includeRawMeasurements?{rawMeasurements:{schema:1,aggregate:aggregate.snapshot(),byRequest:Object.fromEntries([...byRequest].map(([name,measurements])=>[name,measurements.snapshot()])),scheduling:scheduling.snapshot(),arrivalLatency:arrivalLatency.snapshot(),http503Reasons:{schema:1,aggregate:error503,byRequest:Object.fromEntries(error503ByRequest)},latencyBreakdown:{schema:1,aggregate:timingSnapshot(latency),byRequest:Object.fromEntries([...latencyByRequest].map(([name,value])=>[name,timingSnapshot(value)]))}}}:{}),
   };
-  return {...hooks,mutationStateTainted,unknownMutationOutcomes,taintedPrincipals:taintedPrincipals.size,httpDispatchAttempts,blockedAfterMutationTaint,abortedUnscheduled,uniquePrincipalsAccepted:principals.accepted.size,uniquePrincipalsAttempted:principals.attempted.size,uniquePrincipalsAcceptedDuringScheduledWindow:principals.withinWindow.size,uniqueClientsAttempted:clients.attempted.size,uniqueClientsAccepted:clients.accepted.size,uniqueClientsAcceptedDuringScheduledWindow:clients.withinWindow.size,participantDistribution:{principals:{attempted:distribution(principals.attempted),accepted:distribution(principals.accepted)},simulatedClients:{attempted:distribution(clients.attempted),accepted:distribution(clients.accepted)}},peakOutstanding,acceptedDuringScheduledWindow:acceptedWithinWindow,acceptedDuringScheduledWindowRps:acceptedWithinWindow/seconds,generator:{cpuUserMs:cpu.user/1000,cpuSystemMs:cpu.system/1000,cpuLogicalCores:(cpu.user+cpu.system)/(cpuElapsed*1000000),rssBeforeBytes:memoryStart.rss,rssAfterBytes:memoryEnd.rss,heapAfterBytes:memoryEnd.heapUsed},concurrency,scheduledSeconds:seconds,elapsedSeconds:elapsed,...(arrivalRate===undefined?{}:{arrivalRate,offered,attempted:aggregate.count,attemptedRequestsPerSecond:aggregate.count/seconds,achievedRequestsPerSecond:aggregate.count/elapsed,droppedCapacity,droppedScheduler,peakOutstanding,schedulingLagMs:scheduling.report(elapsed).latencyMs,plannedArrivalLatencyMs:arrivalLatency.report(elapsed).latencyMs}),...aggregate.report(elapsed),byRequest:Object.fromEntries([...byRequest].map(([key,value])=>[key,{...value.report(elapsed),latencyBreakdown:timingReport(latencyByRequest.get(key),value.count),http503Reasons:error503ByRequest.get(key)}]))};
+  return {...hooks,mutationStateTainted,unknownMutationOutcomes,taintedPrincipals:taintedPrincipals.size,httpDispatchAttempts,blockedAfterMutationTaint,abortedUnscheduled,uniquePrincipalsAccepted:principals.accepted.size,uniquePrincipalsAttempted:principals.attempted.size,uniquePrincipalsAcceptedDuringScheduledWindow:principals.withinWindow.size,uniqueClientsAttempted:clients.attempted.size,uniqueClientsAccepted:clients.accepted.size,uniqueClientsAcceptedDuringScheduledWindow:clients.withinWindow.size,participantDistribution:{principals:{attempted:distribution(principals.attempted),accepted:distribution(principals.accepted)},simulatedClients:{attempted:distribution(clients.attempted),accepted:distribution(clients.accepted)}},peakOutstanding,acceptedDuringScheduledWindow:acceptedWithinWindow,acceptedDuringScheduledWindowRps:acceptedWithinWindow/seconds,acceptedPerSecond,generator:{cpuUserMs:cpu.user/1000,cpuSystemMs:cpu.system/1000,cpuLogicalCores:(cpu.user+cpu.system)/(cpuElapsed*1000000),rssBeforeBytes:memoryStart.rss,rssAfterBytes:memoryEnd.rss,heapAfterBytes:memoryEnd.heapUsed},concurrency,scheduledSeconds:seconds,elapsedSeconds:elapsed,...(arrivalRate===undefined?{}:{arrivalRate,offered,attempted:aggregate.count,attemptedRequestsPerSecond:aggregate.count/seconds,achievedRequestsPerSecond:aggregate.count/elapsed,droppedCapacity,droppedScheduler,peakOutstanding,latePolicy,lateSlotsDispatched,latencyBasis:lateDispatch?'scheduled-slot':'send',generatorLimited:scheduling.percentile(.99)>SCHEDULING_LAG_LIMIT_MS,schedulingLagLimitMs:SCHEDULING_LAG_LIMIT_MS,schedulingLagMs:scheduling.report(elapsed).latencyMs,plannedArrivalLatencyMs:arrivalLatency.report(elapsed).latencyMs}),...aggregate.report(elapsed),byRequest:Object.fromEntries([...byRequest].map(([key,value])=>[key,{...value.report(elapsed),latencyBreakdown:timingReport(latencyByRequest.get(key),value.count),http503Reasons:error503ByRequest.get(key)}]))};
 }
 
 export function markdownReport(report){

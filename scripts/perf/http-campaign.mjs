@@ -13,6 +13,11 @@ function numbers(env,key,fallback,min,max,limit=10){
  if(!values.length||values.length>limit||values.some(v=>!Number.isInteger(v)||v<min||v>max))throw new Error(`Invalid ${key}`);
  return values;
 }
+function latePolicyOption(env){
+ if(env.MW_LOAD_FIXTURE_LATE===undefined)return {};
+ if(!['drop','dispatch'].includes(env.MW_LOAD_FIXTURE_LATE))throw new Error('Invalid MW_LOAD_FIXTURE_LATE');
+ return {latePolicy:env.MW_LOAD_FIXTURE_LATE};
+}
 export function campaignOptions(env=process.env){
  const mode=env.MW_LOAD_FIXTURE_MODE??'smoke';
  if(!['smoke','ramp','capacity'].includes(mode))throw new Error('Invalid MW_LOAD_FIXTURE_MODE');
@@ -31,7 +36,7 @@ export function campaignOptions(env=process.env){
   maxErrorRate:number(env,'MW_LOAD_FIXTURE_MAX_ERROR_RATE',.001,0,1),
   maxThrottleRate:number(env,'MW_LOAD_FIXTURE_MAX_THROTTLE_RATE',0,0,1),
   maxP99Ms:number(env,'MW_LOAD_FIXTURE_MAX_P99_MS',2000,1,120000),
-  allowOverload:env.MW_LOAD_FIXTURE_ALLOW_OVERLOAD==='1',adaptive:env.MW_LOAD_FIXTURE_ADAPTIVE!=='0',...(env.MW_LOAD_FIXTURE_SQLITE_CACHE_EXPECT===undefined?{}:{sqliteCacheExperiment:cacheExperimentFromEnv(env.MW_LOAD_FIXTURE_SQLITE_CACHE_EXPECT)})};
+  allowOverload:env.MW_LOAD_FIXTURE_ALLOW_OVERLOAD==='1',...latePolicyOption(env),adaptive:env.MW_LOAD_FIXTURE_ADAPTIVE!=='0',...(env.MW_LOAD_FIXTURE_SQLITE_CACHE_EXPECT===undefined?{}:{sqliteCacheExperiment:cacheExperimentFromEnv(env.MW_LOAD_FIXTURE_SQLITE_CACHE_EXPECT)})};
 }
 export function stopReason(stage,options){
  if(stage.mutationStateTainted)return 'unknown-mutation-outcome';
@@ -59,7 +64,7 @@ export async function runCampaign({base,headers,groups,options,run=measure,diagn
   const stage=async(concurrency,arrivalRate)=>{
    if(room()<options.seconds+options.timeoutMs/1000+2){deadlineReached=true;return null;}
    const before=await diagnostics('before');
-   const result=await run({base,headers,requests,concurrency,seconds:options.seconds,timeoutMs:options.timeoutMs,...(arrivalRate===undefined?{}:{arrivalRate})});
+   const result=await run({base,headers,requests,concurrency,seconds:options.seconds,timeoutMs:options.timeoutMs,...(arrivalRate===undefined?{}:{arrivalRate,...(options.latePolicy===undefined?{}:{latePolicy:options.latePolicy})})});
    const after=await diagnostics('after');
    stages.push({endpoint,phase:arrivalRate===undefined?'concurrency-ramp':'offered-rate',diagnostics:{before,after},...result,...(options.requestInputsExpected===undefined?{}:{requestInputsWindow:{schema:1,kind:'workload-and-drain-only',eligibleControlRequests:0}})});
    return result;

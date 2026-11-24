@@ -77,7 +77,7 @@ export function failureReportFor(error){
 }
 
 export function qualifiesHttpTarget(campaign,qualified){
- return qualified&&!campaign.mutationStateTainted&&campaign.stages.some(stage=>['mixed','representative'].includes(stage.endpoint)&&stage.phase==='offered-rate'&&stage.arrivalRate>=40000&&stage.acceptedDuringScheduledWindowRps>=40000&&stage.uniquePrincipalsAcceptedDuringScheduledWindow>=10000&&stage.uniqueClientsAcceptedDuringScheduledWindow>=10000&&stage.coordination.valid&&!stage.mutationStateTainted&&stage.scheduledSeconds>=30&&stage.errors===0&&stage.timeouts===0&&stage.throttled===0&&stage.droppedCapacity===0&&stage.droppedScheduler===0&&qualifiesHttpTelemetry(stage.diagnostics)&&qualifiesIndexPublication(stage.diagnostics));
+ return qualified&&!campaign.mutationStateTainted&&campaign.stages.some(stage=>['mixed','representative'].includes(stage.endpoint)&&stage.phase==='offered-rate'&&stage.arrivalRate>=40000&&stage.acceptedDuringScheduledWindowRps>=40000&&stage.uniquePrincipalsAcceptedDuringScheduledWindow>=10000&&stage.uniqueClientsAcceptedDuringScheduledWindow>=10000&&stage.coordination.valid&&!stage.mutationStateTainted&&stage.scheduledSeconds>=30&&stage.errors===0&&stage.timeouts===0&&stage.throttled===0&&stage.droppedCapacity===0&&stage.droppedScheduler===0&&stage.generatorLimited!==true&&qualifiesHttpTelemetry(stage.diagnostics)&&qualifiesIndexPublication(stage.diagnostics));
 }
 
 export async function runMultiCampaign({handoff,workers,options,launch=fork,startLeadMs=2000,maxStartLagMs=50,scannerProbe,isolationProbe}){
@@ -119,7 +119,7 @@ export async function runMultiCampaign({handoff,workers,options,launch=fork,star
    const stage=requestedStage.concurrency<workers&&requestedStage.arrivalRate===undefined
     ?{...requestedStage,concurrency:workers}:requestedStage;
    const endpoint=stage.requests[0].name,budget=validateStage({...stage,workers}),id=stageId++;
-   for(const child of children)child.send({type:'prepare',stageId:id,endpoint,concurrency:budget.concurrency[child.index],seconds:stage.seconds,timeoutMs:stage.timeoutMs,...(stage.arrivalRate===undefined?{}:{arrivalRate:budget.rates[child.index]})});
+   for(const child of children)child.send({type:'prepare',stageId:id,endpoint,concurrency:budget.concurrency[child.index],seconds:stage.seconds,timeoutMs:stage.timeoutMs,...(stage.arrivalRate===undefined?{}:{arrivalRate:budget.rates[child.index],...(stage.latePolicy===undefined?{}:{latePolicy:stage.latePolicy})})});
    const acknowledgments=await Promise.all(children.map(child=>child.wait('stage-ready',id,10000)));
    if(acknowledgments.some((ack,index)=>ack.workerIndex!==index))throw new Error('Worker readiness mismatch');
    const startAtMs=Date.now()+startLeadMs;
