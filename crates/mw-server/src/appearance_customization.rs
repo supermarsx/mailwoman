@@ -272,6 +272,9 @@ async fn user_write(
     {
         return error.into_response();
     }
+    // The client reads this document on a timer only while no push stream is up;
+    // other devices of the account learn of the write through this signal.
+    state.push.preferences_changed(Some(&session.account_id));
     response(
         &state,
         Context::Mailbox,

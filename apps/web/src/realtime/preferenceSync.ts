@@ -4,11 +4,15 @@ import {refreshAccountUiPreferences} from '../api/accountPreferences.ts';
 import {appearanceSync} from '../api/prefs.ts';
 import {SettingsService} from '../screens/Settings/service.ts';
 
+/** Same name as CUSTOMIZATION_CHANGED in AppearanceCustomizationRuntime (a test keeps them equal); not imported, so this module does not load a component. */
+export const CUSTOMIZATION_CHANGED_EVENT='mw-appearance-customization-changed';
 /** How soon after an account became active its stream's first open skips the refresh (t52w). */
 export const FIRST_OPEN_SKIP_MS=10_000;
 /** Coalesce bursts and keep one trailing refresh if a write lands during a read. */
 export function createPreferenceRefresh(work:()=>Promise<unknown>=async()=>{
   await Promise.allSettled([refreshSettings(),refreshAccountUiPreferences(),appearanceSync()?.refresh(),new SettingsService().notifications()]);
+  // The customization document and its policy flags change on the same signal (t52w).
+  window.dispatchEvent(new Event(CUSTOMIZATION_CHANGED_EVENT));
 }) {
   let timer:ReturnType<typeof setTimeout>|undefined,busy=false,again=false,disposed=false;
   const changed=():void=>{

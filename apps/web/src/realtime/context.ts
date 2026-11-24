@@ -25,6 +25,14 @@ export function setGlobalRealtime(controller: RealtimeController): void {
   singleton = controller;
 }
 
+/**
+ * True while the push stream is open. Timers that only back up pushed changes stay quiet then.
+ * Reads the singleton without creating it, so a page that never started realtime is not online.
+ */
+export function pushStreamUp(): boolean {
+  return singleton !== null && singleton.connection.state() === 'online';
+}
+
 /** Resolve the controller from context, falling back to the app singleton. */
 export function useRealtime(): RealtimeController {
   const ctx = useContext(RealtimeContext);

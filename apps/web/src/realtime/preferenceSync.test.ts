@@ -1,6 +1,6 @@
 import {afterEach,expect,it,vi} from 'vitest';
 import {activateAccountPreferences,suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
-import {createPreferenceRefresh} from './preferenceSync.ts';
+import {createPreferenceRefresh,CUSTOMIZATION_CHANGED_EVENT} from './preferenceSync.ts';
 
 afterEach(()=>{suspendAccountPreferences();vi.useRealTimers();});
 it('coalesces bursts and runs one trailing read for changes arriving during a read',async()=>{
@@ -41,4 +41,11 @@ it('refreshes on a first open that comes late, or as a reconnect before any open
     await vi.advanceTimersByTimeAsync(10_000);sync.caughtUp(true);await vi.advanceTimersByTimeAsync(80);expect(work).toHaveBeenCalledTimes(1);
     activateAccountPreferences('two','authority-two');sync.caughtUp(false);await vi.advanceTimersByTimeAsync(80);expect(work).toHaveBeenCalledTimes(2);
   }finally{sync.dispose();}
+});
+it('the default read ends by telling the appearance runtime to read its customization again (t52w)',async()=>{
+  vi.useFakeTimers();activateAccountPreferences('one','authority-one');
+  const heard=vi.fn();window.addEventListener(CUSTOMIZATION_CHANGED_EVENT,heard);
+  const sync=createPreferenceRefresh();
+  try{sync.changed();await vi.advanceTimersByTimeAsync(80);await vi.advanceTimersByTimeAsync(0);expect(heard).toHaveBeenCalledTimes(1);}
+  finally{window.removeEventListener(CUSTOMIZATION_CHANGED_EVENT,heard);sync.dispose();}
 });

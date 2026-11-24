@@ -1,6 +1,7 @@
 import type {WorkspaceLayout} from '../realtime/workspaceLayout.ts';
 import { storageAuthorityHeaders } from './storageAuthority.ts';
 import { createSignal } from 'solid-js';
+import { pushStreamUp } from '../realtime/context.ts';
 import { apiFetch } from './http.ts';
 import { withBase } from './basePath.ts';
 import { onPageHide, pendingWrite, type PendingWriteStore } from './unloadFlush.ts';
@@ -288,7 +289,9 @@ export function startAccountUiPreferences(transport:AccountPreferencesApi=api): 
   const sync = createAccountPreferencesSync(transport, value=>setPreferences(previous=>JSON.stringify(previous)===JSON.stringify(value)?previous:value), setStatus);
   controller = sync;
   const unsubscribe = observePreferenceAccount(account => sync.bind(account));
-  const interval = setInterval(() => { if (preferenceAccount() && document.visibilityState === 'visible') void sync.refresh(); }, 30_000);
+  // Changes arrive as pushed `Settings` signals while the stream is up (store.ts), and the
+  // stream's reconnect runs one catch-up read, so the timer only covers a stream that is not up.
+  const interval = setInterval(() => { if (preferenceAccount() && document.visibilityState === 'visible' && !pushStreamUp()) void sync.refresh(); }, 30_000);
   stop = () => { unsubscribe(); clearInterval(interval); sync.dispose(); controller = undefined; activeTransport=api; stop = undefined; };
   return stop;
 }

@@ -4,6 +4,7 @@ import { loadCustomization, type AppearanceOwner } from '../api/appearanceCustom
 import { mountAppearanceCss, runAppearanceScript, type AppearanceUpdate } from '../theme/appearanceSandbox.ts';
 import { appearanceScriptProperties } from '../theme/appearanceScriptPolicy.ts';
 import { isThemeName } from '../theme/registry.ts';
+import { pushStreamUp } from '../realtime/context.ts';
 
 export const CUSTOMIZATION_CHANGED = 'mw-appearance-customization-changed';
 export function AppearanceCustomizationRuntime(props: {owner: Accessor<AppearanceOwner | null>}): null {
@@ -57,7 +58,10 @@ export function AppearanceCustomizationRuntime(props: {owner: Accessor<Appearanc
     void refresh();
     const changed = () => { lastTag = ''; void refresh(); };
     const visible = () => { if (!document.hidden) void refresh(); };
-    const timer = setInterval(() => { if (!document.hidden) void refresh(); }, 30_000);
+    // A mailbox's customization changes are pushed (a `Settings` signal runs preferenceSync, which
+    // dispatches CUSTOMIZATION_CHANGED), so its timer only covers a stream that is not up. The
+    // admin console's own document has no push signal and keeps the timer.
+    const timer = setInterval(() => { if (!document.hidden && !(owner.kind === 'mailbox' && pushStreamUp())) void refresh(); }, 30_000);
     window.addEventListener(CUSTOMIZATION_CHANGED, changed);
     document.addEventListener('visibilitychange', visible);
     onCleanup(() => {lifetime.abort(); clear(); clearInterval(timer); window.removeEventListener(CUSTOMIZATION_CHANGED, changed); document.removeEventListener('visibilitychange', visible);});
