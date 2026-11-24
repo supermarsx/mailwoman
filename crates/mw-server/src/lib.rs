@@ -128,6 +128,8 @@ pub mod admin;
 pub mod errors;
 pub mod mcp;
 pub mod oauth;
+/// Reverse-proxy settings: start-up validation and the unused-forwarded-header warning (t56).
+pub mod proxy_posture;
 pub mod observability;
 pub mod rest;
 pub mod telemetry_config;

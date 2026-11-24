@@ -268,6 +268,22 @@ pub(super) fn fail2ban_address_status(source: Option<IpAddr>) -> (&'static str, 
     }
 }
 
+/// t56: the process has seen a private peer send a forwarded header it did not
+/// use. That is evidence of an unconfigured reverse proxy even when the current
+/// request (say, from the server itself) looks fine, so a pass becomes a warning.
+pub(super) fn fail2ban_with_forwarded_evidence(
+    current: (&'static str, &'static str),
+    forwarded_ignored: bool,
+) -> (&'static str, &'static str) {
+    match current {
+        ("pass", _) | ("warn", _) if forwarded_ignored => (
+            "warn",
+            "Requests from a private-network peer carry X-Forwarded-For or Forwarded that              is not used (MW_FORWARDED_MODE off, or the peer is not in MW_TRUSTED_PROXIES);              behind a reverse proxy every client is seen as the proxy's address",
+        ),
+        other => other,
+    }
+}
+
 pub(super) async fn security(
     state: &AppState,
     headers: &HeaderMap,
@@ -325,8 +341,10 @@ pub(super) async fn security(
         )
     });
     let start = Instant::now();
-    let (status, summary) =
-        fail2ban_address_status(crate::scope_mw::proxy::client_ip(headers, ext));
+    let (status, summary) = fail2ban_with_forwarded_evidence(
+        fail2ban_address_status(crate::scope_mw::proxy::client_ip(headers, ext)),
+        crate::proxy_posture::forwarded_headers_ignored(),
+    );
     out.push(row(
         "fail2ban-client-address",
         status,
@@ -354,6 +372,17 @@ mod tests {
             fail2ban_address_status(Some("8.8.8.8".parse().unwrap())).0,
             "pass"
         );
+    }
+    #[test]
+    fn unused_forwarded_headers_turn_the_fail2ban_row_into_a_warning() {
+        let public = fail2ban_address_status(Some("8.8.8.8".parse().unwrap()));
+        assert_eq!(fail2ban_with_forwarded_evidence(public, false), public);
+        let warned = fail2ban_with_forwarded_evidence(public, true);
+        assert_eq!(warned.0, "warn");
+        assert!(warned.1.contains("MW_FORWARDED_MODE"), "{}", warned.1);
+        // No client address at all stays a failure.
+        let none = fail2ban_address_status(None);
+        assert_eq!(fail2ban_with_forwarded_evidence(none, true), none);
     }
     #[test]
     fn every_reported_deployment_check_has_a_fixed_summary() {

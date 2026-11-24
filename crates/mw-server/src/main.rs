@@ -790,6 +790,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
     // opens, and log the effective modes once.
     mw_server::t34_modes::validate_startup(&config.db_path, config.mode == ServerMode::Engine)
         .map_err(|e| anyhow::anyhow!("refusing to start: {e}"))?;
+    mw_server::proxy_posture::validate_startup().map_err(|e| anyhow::anyhow!("refusing to start: {e}"))?;
     let app = build_app(config).await?;
     // Keep the engine and protection runtime alive past the HTTP server so the
     // shutdown drain below can finish their queued work.

@@ -14,7 +14,10 @@ use std::net::{IpAddr, SocketAddr};
 /// than falling back to a header.
 pub(crate) fn client_ip(headers: &HeaderMap, ext: &Extensions) -> Option<IpAddr> {
     let peer = peer_ip(ext)?;
-    Some(resolve(&ProxyConfig::from_env(), peer, headers))
+    let cfg = ProxyConfig::from_env();
+    // Report-only (t56): warns when a private peer's forwarded header goes unused.
+    crate::proxy_posture::observe(&cfg, peer, headers);
+    Some(resolve(&cfg, peer, headers))
 }
 
 /// The address actually on the other end of the socket, canonicalised — no header is
