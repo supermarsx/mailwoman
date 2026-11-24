@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import { postgresProfile, postgresArgs, parseBytes } from './postgres-profile.mjs';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 const GiB = 1024 ** 3;
 
@@ -16,6 +21,7 @@ test('16 CPUs / 64 GiB dedicated follows the documented formulas', () => {
   assert.equal(s.max_wal_size, '32768MB');
   assert.equal(s.autovacuum_max_workers, '4');
   assert.equal(s.jit, 'off');
+  assert.equal(s.random_page_cost, undefined, 'random_page_cost stays at the default 4');
 });
 
 test('no profile turns durability off', () => {
@@ -36,7 +42,7 @@ test('a 1 GiB co-located host keeps stock-sized memory settings', () => {
   assert.equal(s.max_connections, '100');
   assert.equal(s.work_mem, '4MB');
   assert.equal(s.maintenance_work_mem, '64MB');
-  assert.equal(s.max_wal_size, '2GB');
+  assert.equal(s.max_wal_size, '1GB');
   assert.equal(s.autovacuum_naptime, '1min');
 });
 
@@ -56,4 +62,17 @@ test('inputs are validated', () => {
   assert.throws(() => postgresProfile({ cpus: 0, memoryBytes: GiB }));
   assert.throws(() => postgresProfile({ cpus: 2, memoryBytes: 100 }));
   assert.throws(() => postgresProfile({ cpus: 2, memoryBytes: GiB, profile: 'fast' }));
+});
+
+test('deploy.sh full stack renders the colocated profile', () => {
+  // Keys the stack leaves at PostgreSQL's defaults (durability, wal_level,
+  // huge_pages) or that only apply to a dedicated server.
+  const notRendered = new Set(['fsync', 'full_page_writes', 'synchronous_commit', 'wal_level', 'huge_pages', 'wal_buffers', 'autovacuum_naptime', 'checkpoint_completion_target']);
+  for (const [kib, cpus] of [[1048576, 1], [4194304, 2], [16777216, 8], [67108864, 16], [268435456, 64]]) {
+    const out = execFileSync('bash', ['-c', `source scripts/deploy-stack.sh; stack_postgres_settings ${kib} ${cpus}`], { cwd: root, encoding: 'utf8' });
+    const lines = out.split(/\s+/).filter(Boolean);
+    const rendered = Object.fromEntries(lines.map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)]));
+    const expected = Object.fromEntries(Object.entries(postgresProfile({ cpus, memoryBytes: kib * 1024, profile: 'colocated' })).filter(([k]) => !notRendered.has(k)));
+    assert.deepEqual(rendered, expected, `${kib} KiB, ${cpus} CPUs`);
+  }
 });

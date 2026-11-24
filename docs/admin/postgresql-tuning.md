@@ -204,16 +204,31 @@ for each of these cases. It never refuses to start.
 
 ## What `deploy.sh` sets
 
-The full stack (`STACK=full`) starts PostgreSQL with the colocated profile,
-computed from the host's memory each time the stack is rendered:
-`shared_buffers` 15%, `effective_cache_size` 50%, `maintenance_work_mem`
-1/16 (64 MB–2 GB), `max_wal_size` 1 GB below 8 GB of host memory and 4 GB from
-8 GB, `checkpoint_timeout` 15 min, `wal_compression` lz4, `jit` off,
-`idle_in_transaction_session_timeout` 10 min,
-`log_lock_waits` on, `log_autovacuum_min_duration` 10 s. On a 1 GB host this is
-close to the stock values. Durability settings keep their defaults. The Helm
-chart does not start PostgreSQL; configure the server you point `MW_DB_PATH`
-at with this page.
+This is the default; there is nothing to enable. The full stack
+(`STACK=full`) starts PostgreSQL with every setting of the colocated profile
+except the durability settings, `wal_level` and `huge_pages` (which keep their
+defaults), computed from the host's memory and CPU count each time the stack is
+rendered (`stack_postgres_settings` in `scripts/deploy-stack.sh`; a test keeps
+it equal to `scripts/perf/postgres-profile.mjs`). Re-running a deploy after
+resizing the host recomputes the values and restarts PostgreSQL with them.
+
+| Host | Main values |
+|---|---|
+| 1 CPU, 1 GiB | `shared_buffers` 153 MB, `effective_cache_size` 512 MB, `work_mem` 4 MB, `maintenance_work_mem` 64 MB, `max_connections` 100, `max_wal_size` 1 GB |
+| 2 CPUs, 4 GiB | 614 MB, 2 GB, 8 MB, 256 MB, 100, 1 GB |
+| 8 CPUs, 16 GiB | 2,457 MB, 8 GB, 34 MB, 1 GB, 100, 4 GB |
+| 16 CPUs, 64 GiB | 9,830 MB, 32 GB, 64 MB, 2 GB, 160, 4 GB |
+
+Plus on every host: `wal_compression` lz4, `checkpoint_timeout` 15 min,
+`jit` off, `default_toast_compression` lz4, the autovacuum settings above,
+`idle_in_transaction_session_timeout` 10 min and the log settings above. On a
+1 GB host the memory values stay close to the stock ones, so nothing here needs
+more memory than a stock server on a small VPS; `max_wal_size` stays at the
+stock 1 GB below 8 GB of memory so disk use for WAL does not grow there.
+
+The Helm chart does not start PostgreSQL (its default database is SQLite);
+configure the server you point `MW_DB_PATH` at with this page, or start it
+with the output of `node scripts/perf/postgres-profile.mjs --cpus N --memory M`.
 
 ## Related
 

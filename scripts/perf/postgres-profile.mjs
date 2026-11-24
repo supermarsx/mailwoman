@@ -53,8 +53,8 @@ export function postgresProfile({ cpus, memoryBytes, profile = 'dedicated' }) {
     synchronous_commit: 'on',
     wal_compression: 'lz4',
     wal_buffers: sharedBuffers >= 4 * GiB ? '64MB' : '-1',
-    max_wal_size: colocated ? '2GB' : mib(clamp(memoryBytes / 2, 2 * GiB, 64 * GiB)),
-    min_wal_size: colocated ? '256MB' : mib(clamp(memoryBytes / 16, 256 * MiB, 8 * GiB)),
+    max_wal_size: colocated ? (memoryBytes < 8 * GiB ? '1GB' : '4GB') : mib(clamp(memoryBytes / 2, 2 * GiB, 64 * GiB)),
+    min_wal_size: colocated ? (memoryBytes < 8 * GiB ? '256MB' : '512MB') : mib(clamp(memoryBytes / 16, 256 * MiB, 8 * GiB)),
     checkpoint_timeout: '15min',
     checkpoint_completion_target: '0.9',
     // I/O on SSD. random_page_cost stays at its default 4: 1.1 changes plan
