@@ -1,3 +1,4 @@
+import {ThemedSelects} from './components/ThemedSelects.tsx';
 import { render } from 'solid-js/web';
 import { App } from './App.tsx';
 import {installPublicPolicyThemeBridge} from './theme/publicPolicyTheme.ts';
@@ -56,6 +57,7 @@ else render(
   () => (
     <LocaleProvider {...(startLocale !== null ? { locale: startLocale } : {})}>
       <App />
+      <ThemedSelects/>
       <TooltipLayer />
       <ConsentLayer />
     </LocaleProvider>
