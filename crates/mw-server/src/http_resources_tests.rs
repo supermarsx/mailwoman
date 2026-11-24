@@ -122,7 +122,10 @@ fn the_pool_term_scales_requests() {
 
 #[test]
 fn pool_estimate_follows_the_store_defaults() {
-    assert_eq!(db_pool_estimate(None, None, 16), 8);
+    // SQLite: 2 per CPU, 2..=64 (mw_store::pool_policy::sqlite_default_maximum).
+    assert_eq!(db_pool_estimate(None, None, 4), 8);
+    assert_eq!(db_pool_estimate(None, None, 16), 32);
+    assert_eq!(db_pool_estimate(None, None, 56), 64);
     assert_eq!(db_pool_estimate(Some("mailwoman.db"), None, 1), 2);
     assert_eq!(db_pool_estimate(Some("postgres://h/d"), None, 16), 64);
     assert_eq!(db_pool_estimate(Some("postgres://h/d"), None, 0), 4);
@@ -130,7 +133,7 @@ fn pool_estimate_follows_the_store_defaults() {
         db_pool_estimate(Some("x.db"), Some(r#"{"sqliteMaxConnections":3}"#), 16),
         3
     );
-    assert_eq!(db_pool_estimate(Some("x.db"), Some("not json"), 16), 8);
+    assert_eq!(db_pool_estimate(Some("x.db"), Some("not json"), 16), 32);
 }
 
 #[test]

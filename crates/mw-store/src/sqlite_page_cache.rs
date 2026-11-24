@@ -23,7 +23,7 @@ pub struct PageCachePlan {
 }
 impl PageCachePlan {
     pub fn new(aggregate_mib: Option<u32>, maximum: u32) -> Result<Self, &'static str> {
-        if !(1..=32).contains(&maximum) || aggregate_mib.is_some_and(|n| !(16..=1024).contains(&n))
+        if !(1..=crate::pool_policy::SQLITE_MAX_CONNECTIONS_LIMIT).contains(&maximum) || aggregate_mib.is_some_and(|n| !(16..=1024).contains(&n))
         {
             return Err("SQLite page-cache target exceeds supported bounds");
         }
@@ -264,7 +264,7 @@ mod tests {
             PageCachePlan::new(None, 8).unwrap().per_connection_kib,
             None
         );
-        for maximum in [1, 8, 32] {
+        for maximum in [1, 8, 32, 64, 128] {
             let p = PageCachePlan::new(Some(256), maximum).unwrap();
             assert_eq!(p.per_connection_kib, Some(256 * 1024 / maximum));
             assert!(p.planned_foreground_bytes.unwrap() <= 256 * 1024 * 1024);
@@ -281,7 +281,8 @@ mod tests {
             assert!(PageCachePlan::new(Some(n), 8).is_err());
         }
         assert!(PageCachePlan::new(None, 0).is_err());
-        assert!(PageCachePlan::new(None, 33).is_err());
+        assert!(PageCachePlan::new(None, 128).is_ok());
+        assert!(PageCachePlan::new(None, 129).is_err());
     }
     #[test]
     fn pool_policy_accepts_legacy_missing_target_and_rejects_invalid_configuration() {

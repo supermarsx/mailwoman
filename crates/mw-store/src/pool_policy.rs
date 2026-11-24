@@ -25,6 +25,39 @@ const SQLITE_IDLE_HEALTH_WINDOW: Duration = Duration::from_secs(1);
 /// Close and Parse round trip on PostgreSQL, a re-prepare on SQLite).
 /// PostgreSQL keeps one server-side plan per cached statement and connection.
 pub const STATEMENT_CACHE_CAPACITY: usize = 100;
+/// Highest SQLite pool maximum the server derives from the CPU count (2 per
+/// CPU, at least 2). It was 8 until t62-n12; 64 lets a process on a large
+/// cpuset run more concurrent readers. Writers are not affected: on a managed
+/// database every write still takes the one in-process write permit
+/// (`MW_SQLITE_WRITER`) and SQLite's single write lock, so there is still
+/// exactly one writer at a time.
+///
+/// Memory per pooled connection (each one is a separate SQLite handle):
+/// - page cache: up to 2,000 KiB with the driver default (`cache_size=-2000`;
+///   it fills as pages are read, decrypted when SQLCipher is on), or the
+///   configured `sqlitePageCacheMiB` divided by the pool maximum, in which
+///   case the total stays fixed and each connection gets a smaller share;
+/// - up to [`STATEMENT_CACHE_CAPACITY`] prepared statements;
+/// - one SQLx worker thread with its stack.
+///
+/// At the derived ceiling of 64 the page caches alone can reach 64 x 2,000 KiB
+/// = 125 MiB with the driver default. More readers also keep more WAL
+/// snapshots open, which can delay a checkpoint until they finish.
+pub const SQLITE_DERIVED_MAX_CONNECTIONS: u32 = 64;
+/// Highest explicit `sqliteMaxConnections` (it was 32).
+pub const SQLITE_MAX_CONNECTIONS_LIMIT: u32 = 128;
+/// SQLite pool maximum when `sqliteMaxConnections` is not set: 2 per CPU,
+/// 2..=[`SQLITE_DERIVED_MAX_CONNECTIONS`].
+pub fn sqlite_default_maximum(cpus: u32) -> u32 {
+    cpus.max(1)
+        .saturating_mul(2)
+        .clamp(2, SQLITE_DERIVED_MAX_CONNECTIONS)
+}
+/// PostgreSQL pool maximum when `postgresMaxConnections` is not set: 4 per
+/// CPU, 4..=64 (before the connection budget is applied).
+pub fn postgres_default_maximum(cpus: u32) -> u32 {
+    cpus.max(1).saturating_mul(4).clamp(4, 64)
+}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct PoolPolicy {
@@ -82,7 +115,7 @@ impl PoolPolicy {
             || self.sqlite_page_cache_mib.is_some_and(|n|!(16..=1024).contains(&n))
             || self
                 .sqlite_max_connections
-                .is_some_and(|n| !(1..=32).contains(&n))
+                .is_some_and(|n| !(1..=SQLITE_MAX_CONNECTIONS_LIMIT).contains(&n))
             || self
                 .postgres_max_connections
                 .is_some_and(|n| !(1..=1024).contains(&n))
@@ -131,7 +164,7 @@ impl PoolPolicy {
         let cpus = cpus.max(1);
         let maximum = self
             .sqlite_max_connections
-            .unwrap_or(cpus.saturating_mul(2).clamp(2, 8));
+            .unwrap_or(sqlite_default_maximum(cpus));
         self.plan(
             cpus,
             maximum,
@@ -156,7 +189,7 @@ impl PoolPolicy {
         }
         let requested = self
             .postgres_max_connections
-            .unwrap_or(cpus.saturating_mul(4).clamp(4, 64));
+            .unwrap_or(postgres_default_maximum(cpus));
         self.plan(
             cpus,
             requested.min(per_replica),
@@ -596,8 +629,33 @@ mod tests {
     #[test]
     fn backend_cpu_and_replica_budgets_are_bounded_and_never_zero() {
         let policy = PoolPolicy::default();
+        // SQLite: 2 per CPU, 2..=64 (the ceiling was 8 before t62-n12).
+        assert_eq!(policy.sqlite_plan(1).unwrap().maximum, 2);
         assert_eq!(policy.sqlite_plan(4).unwrap().maximum, 8);
-        assert_eq!(policy.sqlite_plan(80).unwrap().maximum, 8);
+        assert_eq!(policy.sqlite_plan(16).unwrap().maximum, 32);
+        assert_eq!(policy.sqlite_plan(32).unwrap().maximum, 64);
+        assert_eq!(policy.sqlite_plan(80).unwrap().maximum, 64);
+        assert!(policy.sqlite_plan(80).unwrap().cpu_derived);
+        for cpus in [0, 1, 3, 4, 5, 31, 32, 33, 1000, u32::MAX] {
+            assert_eq!(policy.sqlite_plan(cpus).unwrap().maximum, sqlite_default_maximum(cpus));
+            assert!((2..=SQLITE_DERIVED_MAX_CONNECTIONS).contains(&sqlite_default_maximum(cpus)));
+            assert!((4..=64).contains(&postgres_default_maximum(cpus)));
+        }
+        // An explicit maximum: 1..=128 (it was 1..=32); another value is refused.
+        for n in [1, 33, 128] {
+            let pinned = PoolPolicy { sqlite_max_connections: Some(n), ..policy.clone() };
+            assert_eq!(pinned.sqlite_plan(4).unwrap().maximum, n);
+            assert!(!pinned.sqlite_plan(4).unwrap().cpu_derived);
+        }
+        for n in [0, 129, u32::MAX] {
+            let pinned = PoolPolicy { sqlite_max_connections: Some(n), ..policy.clone() };
+            assert!(pinned.validate().is_err());
+            assert!(PoolPolicy::from_boot_values(None, Some(&format!("{{\"sqliteMaxConnections\":{n}}}"))).is_err());
+        }
+        assert_eq!(
+            PoolPolicy::from_boot_values(None, Some(r#"{"sqliteMaxConnections":96}"#)).unwrap().sqlite_plan(2).unwrap().maximum,
+            96
+        );
         let capacity = PostgresCapacity {
             maximum: 100,
             reserved: 3,

@@ -556,6 +556,14 @@ pub static CATALOGUE: &[Knob] = &[
         "off or on: lower the concurrent-request limit while in-server time degrades, never above MW_HTTP_MAX_REQUESTS (restart required)",
     ),
     boot(
+        "MW_RUNTIME_WORKER_THREADS",
+        Gr::Listener,
+        Plain,
+        R::Boot,
+        "auto",
+        "worker threads of the server's async runtime: auto (the CPUs the process may use, i.e. its cpuset, or its CPU quota if lower; the same as before this setting existed) or 1 to 1024; when unset, TOKIO_WORKER_THREADS is honoured under the same bounds; another value refuses startup",
+    ),
+    boot(
         "MW_REALTIME_FANOUT_CAPACITY",
         Gr::Listener,
         Plain,

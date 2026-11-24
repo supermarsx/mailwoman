@@ -52,13 +52,30 @@ A null maximum derives a conservative startup ceiling from Rust's effective
 
 | Backend | Automatic requested ceiling |
 | --- | --- |
-| SQLite | Twice the effective CPUs, clamped to 2–8 |
+| SQLite | Twice the effective CPUs, clamped to 2–64 (2–8 before 2026-11-24) |
 | PostgreSQL | Four times the effective CPUs, clamped to 4–64 |
 
-An explicit SQLite ceiling supports 1–32; an explicit PostgreSQL ceiling supports
-1–1,024 and is still constrained by the shared budget. More SQLite connections
-permit concurrent WAL readers; they do not create additional concurrent writers.
-SQLite transactions still serialize at the write lock.
+An explicit SQLite ceiling supports 1–128 (1–32 before 2026-11-24); an explicit
+PostgreSQL ceiling supports 1–1,024 and is still constrained by the shared
+budget. More SQLite connections permit concurrent WAL readers; they do not create
+additional concurrent writers. SQLite transactions still serialize at the write
+lock, and on a managed database every writer first takes the one in-process write
+permit (`MW_SQLITE_WRITER`).
+
+Memory per SQLite connection, which is a separate SQLite handle:
+
+- page cache: up to 2,000 KiB with the driver default (`cache_size=-2000`). It
+  fills as pages are read; with SQLCipher it holds decrypted pages. With
+  `sqlitePageCacheMiB` set, that total is divided by the pool maximum, so more
+  connections mean a smaller share each, not more memory;
+- up to 100 prepared statements (the statement cache);
+- one SQLx worker thread and its stack.
+
+So the derived ceiling of 64 can hold up to 64 × 2,000 KiB = 125 MiB of page
+cache with the driver default; 8 connections held up to 15.6 MiB. Each open
+reader also keeps its WAL snapshot until its statement ends, which can delay a
+checkpoint. On a host with up to 4 effective CPUs the derived value is unchanged
+(2 × CPUs ≤ 8).
 
 PostgreSQL also reads its actual `max_connections`, superuser-reserved slots and
 additional reserved slots when the server provides them. The per-replica ceiling

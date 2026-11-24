@@ -27,6 +27,8 @@ MW_RUN_NATIVE_HTTP_LOAD_FIXTURE=1 MW_NATIVE_LOAD_PRINCIPALS=100 MW_LOAD_FIXTURE_
 
 The default is **100 independent users and simulated clients**, in debug and release builds. Use `MW_NATIVE_LOAD_PRINCIPALS=1`, `100`, `1000` or `10000` to compare cardinality; the one-user profile is an explicit diagnostic. `MW_LOAD_REPORT_DIR` chooses the report directory. The Node load generator uses the same bounded campaign controls as the proxy fixture. `MW_LOAD_FIXTURE_DEADLINE_SECONDS` bounds the driver to 10–1,800 seconds; account seeding happens first. The listener binds only to loopback. The private handoff has owner-only permissions on Unix and is removed on normal completion or panic; never publish or commit it. Reports must omit credentials and per-user identifiers.
 
+`MW_LOAD_FIXTURE_WORKERS` sets the fixture's Tokio worker threads: default 4, 1–128 (1–32 before 2026-11-24); another value refuses start-up. Set it to the app cpuset size (the bench rig does, `docs/perf/bench-rig.md`).
+
 The debug runtime gives each Tokio worker an explicit 8 MiB stack budget for
 large unoptimized native futures; release retains the 2 MiB worker default.
 The report records `runtimeWorkerStackBytes`. This is a debug diagnostic setting,

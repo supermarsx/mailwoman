@@ -783,11 +783,8 @@ fn native_multi_principal_http_load_fixture() {
         std::env::var("MW_TRUSTED_PROXIES").as_deref(),
         Ok("127.0.0.1/32")
     );
-    let workers: usize = std::env::var("MW_LOAD_FIXTURE_WORKERS")
-        .unwrap_or_else(|_| "4".into())
-        .parse()
-        .unwrap();
-    assert!((1..=32).contains(&workers));
+    let workers = fixture_workers(std::env::var("MW_LOAD_FIXTURE_WORKERS").ok().as_deref())
+        .unwrap_or_else(|error| panic!("{error}"));
     tokio::runtime::Builder::new_multi_thread()
         .worker_threads(workers)
         // Native debug futures retain substantially larger stack frames than
@@ -797,6 +794,31 @@ fn native_multi_principal_http_load_fixture() {
         .build()
         .unwrap()
         .block_on(run(workers));
+}
+/// Highest MW_LOAD_FIXTURE_WORKERS (tokio worker threads of the fixture
+/// process). It was 32; 128 lets the fixture use a 56-CPU or larger cpuset.
+const FIXTURE_WORKERS_MAX: usize = 128;
+/// MW_LOAD_FIXTURE_WORKERS: unset means 4; otherwise 1..=FIXTURE_WORKERS_MAX.
+fn fixture_workers(value: Option<&str>) -> Result<usize, String> {
+    match value {
+        None => Ok(4),
+        Some(text) => match text.trim().parse::<usize>() {
+            Ok(n) if (1..=FIXTURE_WORKERS_MAX).contains(&n) => Ok(n),
+            _ => Err(format!(
+                "MW_LOAD_FIXTURE_WORKERS must be a whole number from 1 to {FIXTURE_WORKERS_MAX}"
+            )),
+        },
+    }
+}
+#[test]
+fn fixture_worker_count_defaults_to_four_and_is_bounded() {
+    assert_eq!(fixture_workers(None), Ok(4));
+    for n in [1usize, 32, 33, 56, 128] {
+        assert_eq!(fixture_workers(Some(&n.to_string())), Ok(n));
+    }
+    for bad in ["0", "129", "-1", "", "x", "4.0"] {
+        assert!(fixture_workers(Some(bad)).is_err(), "{bad}");
+    }
 }
 fn worker_stack_bytes() -> usize {
     if cfg!(debug_assertions) {

@@ -165,7 +165,7 @@ pub fn streams_for(requests: usize) -> u32 {
 
 /// The database pool maximum the store will use: `MW_DB_POOL`'s explicit maximum
 /// for the backend, else the store's own default (`mw_store::pool_policy`:
-/// PostgreSQL 4 per CPU, 4..=64; SQLite 2 per CPU, 2..=8). A maximum set through
+/// PostgreSQL 4 per CPU, 4..=64; SQLite 2 per CPU, 2..=64). A maximum set through
 /// the stored `database.pool` setting is not visible before the database opens.
 pub fn db_pool_estimate(db_path: Option<&str>, pool_json: Option<&str>, cpus: u32) -> u32 {
     let postgres =
@@ -181,9 +181,9 @@ pub fn db_pool_estimate(db_path: Option<&str>, pool_json: Option<&str>, cpus: u3
         .map(|n| n.min(u64::from(u32::MAX)) as u32);
     let cpus = cpus.max(1);
     pinned.unwrap_or(if postgres {
-        cpus.saturating_mul(4).clamp(4, 64)
+        mw_store::pool_policy::postgres_default_maximum(cpus)
     } else {
-        cpus.saturating_mul(2).clamp(2, 8)
+        mw_store::pool_policy::sqlite_default_maximum(cpus)
     })
 }
 

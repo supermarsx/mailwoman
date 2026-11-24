@@ -461,8 +461,28 @@ struct HealthArgs {
     url: Option<String>,
 }
 
-#[tokio::main]
-async fn main() -> std::process::ExitCode {
+/// The runtime is built here instead of by `#[tokio::main]` so that its worker
+/// count is the bounded `MW_RUNTIME_WORKER_THREADS` knob (default: the CPUs the
+/// process may use; see `mw_server::runtime_workers`). An invalid value refuses
+/// start-up before anything else runs.
+fn main() -> std::process::ExitCode {
+    let plan = match mw_server::runtime_workers::from_env() {
+        Ok(plan) => plan,
+        Err(error) => {
+            eprintln!("Mailwoman refused to start: {error}.");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+    match mw_server::runtime_workers::build(&plan) {
+        Ok(runtime) => runtime.block_on(async_main(plan)),
+        Err(error) => {
+            eprintln!("Mailwoman could not start its runtime: {error}.");
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+async fn async_main(runtime: mw_server::runtime_workers::Plan) -> std::process::ExitCode {
     use tracing_subscriber::prelude::*;
 
     if mw_server::observability::log_files::start_output_worker().is_err() {
@@ -516,6 +536,14 @@ async fn main() -> std::process::ExitCode {
 
     let cli = Cli::parse();
     let was_serving = matches!(&cli.command, Command::Serve(_));
+    if was_serving {
+        tracing::info!(
+            workers = runtime.workers,
+            source = runtime.source.label(),
+            available_cpus = runtime.available_cpus,
+            "tokio runtime worker threads"
+        );
+    }
     let result = match cli.command {
         Command::Serve(args) => run(serve(args).await),
         Command::Fonts(args) => run(fonts_cmd(args).await),

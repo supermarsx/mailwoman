@@ -62,6 +62,7 @@ pub mod knobs;
 mod login_failure;
 mod notification_policy;
 pub mod push;
+pub mod runtime_workers;
 mod websocket_actions;
 pub mod push_relay;
 mod client_errors;
