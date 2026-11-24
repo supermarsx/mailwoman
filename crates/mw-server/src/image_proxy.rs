@@ -1588,8 +1588,15 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
-            let mut request = [0; 2048];
-            stream.read(&mut request).await.unwrap();
+            // Read the whole request head before answering, so the reply is
+            // not sent while the client is still writing.
+            let mut request = Vec::new();
+            let mut chunk = [0; 2048];
+            while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+                let read = stream.read(&mut chunk).await.unwrap();
+                assert!(read > 0, "client closed before the end of the request head");
+                request.extend_from_slice(&chunk[..read]);
+            }
             stream
                 .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
                 .await
