@@ -23,7 +23,7 @@ export const SOURCE_LOCALE = 'en';
  */
 export const ADMIN_NAMESPACES: readonly string[] = [
   'admin', 'admin-admins', 'admin-analytics', 'admin-branding', 'admin-breaches', 'admin-cache',
-  'admin-compliance', 'admin-consents', 'admin-cookies', 'admin-dashboard', 'admin-data-requests',
+  'admin-compliance', 'admin-consents', 'admin-console-url-mail', 'admin-cookies', 'admin-dashboard', 'admin-data-requests',
   'admin-database', 'admin-diagnostics', 'admin-directory', 'admin-domain-backends', 'admin-domain-guided',
   'admin-domains', 'admin-encryption', 'admin-erasure', 'admin-features', 'admin-geoip', 'admin-governance',
   'admin-hosting', 'admin-identity', 'admin-inbound', 'admin-maintenance', 'admin-metrics-persisted',

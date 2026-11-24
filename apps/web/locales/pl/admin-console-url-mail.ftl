@@ -1,5 +1,5 @@
-# Machine translation (t58, 2026-11). Not reviewed by a native speaker.
-# Locale: pl · Module: admin-console-url-mail. Source: ../en/admin-console-url-mail.ftl
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: pl · Module: admin-console-url-mail. Source: ../en/admin-console-url-mail.ftl (t58, 2026-11).
 
 admin-console-url-mail-button = Wyślij e-mailem
 admin-console-url-mail-title = Wyślij adres konsoli e-mailem
