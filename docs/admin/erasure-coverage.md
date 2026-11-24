@@ -268,8 +268,10 @@ index of a restored install.
 | `mdn_sender_schedule` | `account_id=id` | removed with its parent row | - | - |
 | `message_body_cache_lease` | `account_id=id` | removed with its parent row | - | - |
 | `message_embeddings` | `account_id=id` | deleted | - | - |
+| `message_keyword` | `account_id=id` | deleted | - | - |
 | `message_list_envelope` | `account_id=id` | removed with its parent row | - | - |
 | `message_meta` | `stable_id IN (SELECT stable_id FROM messages WHERE account_id=id)` | removed with its parent row | `mailstate` | - |
+| `message_state` | `account_id=id` | deleted | - | - |
 | `messages` | `account_id=id` | removed with its parent row | `mail` (built by code) | - |
 | `metrics_bucket` | - | kept: aggregate metrics, no person identifiers: counts and quantile sketches per instance, metric and time bucket, with fixed role-class dimensions only | - | - |
 | `native_sessions` | `account_id=id` | deleted | `sessions` (built by code) | - |

@@ -13,6 +13,8 @@ pub mod encryption;
 pub mod header_envelope;
 pub mod focus_contacts;
 pub mod index_publication;
+/// t50hp-e30: message_state / message_keyword (0125), query builders and audit.
+pub mod message_projection;
 pub mod mail_data_publication;
 mod settings_limited;
 mod publication_mutations;

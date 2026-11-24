@@ -506,6 +506,10 @@ pub const RULES: &[Rule] = &[
     //0116: index replay hints have no account FK; message-delete triggers may add rows
     // while the account is erased, so they are removed after the sources.
     Rule { last: true, ..del!("index_publication_journal", "account_id", Bind::Account) },
+    //0125: the message projection has no account FK (same lock rule). The message
+    // delete trigger removes each row with its message; these remove anything left.
+    Rule { last: true, ..del!("message_state", "account_id", Bind::Account) },
+    Rule { last: true, ..del!("message_keyword", "account_id", Bind::Account) },
     keep!("index_publication_journal_control", "one global journal switch row; no person data"),
     Rule {
         table: "sessions",
