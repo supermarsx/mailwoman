@@ -341,7 +341,7 @@ async fn scoped(state: AppState, request: Request, next: Next) -> Response {
     // Selector expansion and other credential kinds retain their complete
     // original path. No body is consumed or source work queued here.
     if !eligible_route || request.uri().query().is_some() || state.engine.is_none()
-        || !state.store.uses_sqlite()
+        || !snapshot::published_inputs(&state)
         || crate::session_persistence::flush_seconds() == 0
         || headers.contains_key(header::AUTHORIZATION) || headers.contains_key("x-api-key")
         || headers.contains_key(crate::linked_accounts::SELECTOR)

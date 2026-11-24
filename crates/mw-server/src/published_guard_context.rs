@@ -120,7 +120,7 @@ pub(crate) async fn layer(State(state): State<AppState>, request: Request, next:
         .or_else(|| request.body().size_hint().exact());
     let mut eligible = request.uri().query().is_none()
         && crate::session_persistence::flush_seconds() > 0
-        && state.store.uses_sqlite()
+        && crate::request_inputs::snapshot::declared_read_inputs(&state)
         && !h.contains_key(header::AUTHORIZATION)
         && !h.contains_key("x-api-key")
         && !h.contains_key("x-mailwoman-link")

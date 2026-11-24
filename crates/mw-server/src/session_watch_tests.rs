@@ -569,51 +569,72 @@ fn realtime_change_during_the_recheck_is_never_certified_current() {
     });
 }
 
-/// PostgreSQL: the mirror is inert, so the watch reads exactly as in mode off
-/// and the realtime stamp is never issued. Runs only with `MW_TEST_PG`.
+/// PostgreSQL (t49pg): mode off is today's path (no mirror, no reuse, no
+/// certificate). Bounded mode with a live mirror reuses the alert-preference
+/// rows and issues realtime certificates; a session deleted through another
+/// AppState turns the certificate to `Revalidate` within the bound, with no
+/// expedite. Sign-in writes still never move the settings revision (0119).
+/// Runs only with `MW_TEST_PG`.
 #[test]
-fn postgres_watch_is_inert_in_bounded_mode() {
-    let Some(url) = std::env::var("MW_TEST_PG").ok().filter(|url| !url.is_empty()) else {
-        eprintln!("[session_watch] MW_TEST_PG unset: Postgres leg not run");
-        return;
-    };
-    let pg = url.clone();
+fn postgres_watch_reuses_and_certifies_only_with_a_live_mirror() {
+    use crate::request_inputs::snapshot::pg_tests as pg;
+    let Some(dsn) = pg::pg_dsn() else { return };
     run(move || async move {
-        let (router, _) = crate::build_app_inner(
-            crate::AppConfig {
-                db_path: url,
-                server_key_hex: Some(ServerKey::generate().to_hex()),
-                web_dir: None,
-                cookie_secure: false,
-                mode: crate::ServerMode::Engine,
-                hardening: Default::default(),
-                security: Default::default(),
-            },
-            crate::V6Config { admin_enabled: false, ..Default::default() },
-            crate::sso::SsoProviderSource::Store,
-            None,
-            crate::core_test_build_info::info().unwrap(),
-        )
-        .await
-        .unwrap();
-        let request = || {
-            let mut request = axum::http::Request::builder().method("GET").uri("/api/me")
-                .header("host", "localhost").header("user-agent", CHROME)
-                .header("cookie", "mw_session=no-such-session").body(Body::empty()).unwrap();
-            request.extensions_mut().insert(axum::extract::ConnectInfo(HOME.parse::<SocketAddr>().unwrap()));
-            request
-        };
+        let f = pg::Fixture::new(pg::pg_schema(&dsn).await).await;
+        let state = f.b.state.clone();
+        assert!(!state.store.uses_sqlite());
+        let session = state.store.get_session(&f.session).await.unwrap();
+        // Off: original reads, no mirror, no certificate.
         for _ in 0..3 {
-            let (result, watch, state) =
-                test_control::measure(snap::with_mode(LONG, router.clone().oneshot(request()))).await;
-            assert!(result.is_ok());
-            let state = state.expect("the watch ran");
-            assert!(!state.store.uses_sqlite());
-            assert!(crate::request_inputs::snapshot::mirror(&state).is_none(), "inert on PostgreSQL");
-            assert_eq!(watch.prefs_reused + watch.geo_reused, 0);
+            let reply = pg::send(&f.b, f.me_from(PUBLIC, CHROME), OFF).await;
+            assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+            assert_eq!(reply.watch.prefs_reused + reply.watch.geo_reused, 0);
+            assert_eq!(reply.inputs.first_fences, 0);
         }
-        let pool = sqlx::postgres::PgPoolOptions::new().max_connections(1).connect(&pg).await.unwrap();
-        let triggers: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_class c ON c.oid=t.tgrelid WHERE c.relname='signin_identity' AND NOT t.tgisinternal")
+        assert!(snap::with_mode(OFF, async { crate::request_inputs::snapshot::mirror(&state).is_none() }).await);
+        assert!(certified(&state, &session, false, OFF).await.is_none(), "mode off: no certificate");
+        // Bounded, live mirror: preference rows reused, certificate issued.
+        f.ready(&f.b, pg::SHORT).await;
+        let mirror = f.mirror(&f.b).await;
+        let mut reused = false;
+        for _ in 0..400 {
+            let reply = pg::send(&f.b, f.me_from(PUBLIC, CHROME), pg::SHORT).await;
+            assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+            if reply.watch.prefs_reused + reply.watch.geo_reused > 0 {
+                reused = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(reused, "bounded watch on PostgreSQL reuses settings rows");
+        assert!(certified(&state, &session, true, pg::SHORT).await.is_none(), "bearer: never");
+        let mut cert = None;
+        for _ in 0..40 {
+            cert = certified(&state, &session, false, pg::SHORT).await;
+            if cert.is_some() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let cert = cert.expect("a published engine session certifies on PostgreSQL");
+        let period = Duration::from_secs(30);
+        let (check, sql) = mw_store::pool_telemetry::measure_queries(snap::with_mode(pg::SHORT, async {
+            realtime_check(&state, &cert, period)
+        }))
+        .await;
+        assert_eq!(check, RealtimeCheck::Current);
+        assert_eq!((sql.read.calls, sql.write.calls, sql.other.calls), (0, 0, 0));
+        // Revoked through A (its own Store): B's check, no expedite in B.
+        let expedites = mirror.counters().expedites;
+        f.a.state.store.delete_session(&f.session).await.unwrap();
+        let committed = tokio::time::Instant::now();
+        tokio::time::sleep_until(committed + pg::BOUND).await;
+        let later = snap::with_mode(pg::SHORT, async { realtime_check(&state, &cert, period) }).await;
+        assert_eq!(later, RealtimeCheck::Revalidate, "within the bound, across AppStates");
+        assert_eq!(mirror.counters().expedites, expedites);
+        // 0119: no signin_identity trigger; sign-in writes never move the revision.
+        let pool = sqlx::postgres::PgPoolOptions::new().max_connections(1).connect(&f.url).await.unwrap();
+        let triggers: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_class c ON c.oid=t.tgrelid JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE c.relname='signin_identity' AND n.nspname=current_schema() AND NOT t.tgisinternal")
             .fetch_one(&pool).await.unwrap();
         assert_eq!(triggers, 0, "0119 dropped every signin_identity trigger");
         let mut tx = pool.begin().await.unwrap();

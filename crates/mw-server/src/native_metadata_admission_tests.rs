@@ -127,6 +127,11 @@ async fn policy(store: &Store, key: &str, value: Value) {
 }
 impl Fixture {
     async fn new() -> Self {
+        Self::new_on(None).await
+    }
+    /// `url`: a PostgreSQL URL (t49pg-e2); `None`: a new SQLite file. The raw
+    /// SQLite helpers below are for SQLite fixtures only.
+    async fn new_on(url: Option<String>) -> Self {
         let dir =
             std::env::temp_dir().join(format!("mw-native-composite-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&dir).unwrap();
@@ -137,7 +142,8 @@ impl Fixture {
             .key_for_open(&db)
             .unwrap()
             .cloned();
-        let writer = Store::open(db.to_str().unwrap(), key.clone())
+        let db_path = url.unwrap_or_else(|| db.to_string_lossy().into_owned());
+        let writer = Store::open(&db_path, key.clone())
             .await
             .unwrap();
         let user = "person@native-composite.test";
@@ -239,7 +245,7 @@ impl Fixture {
         let registered = account.clone();
         let (router, _) = crate::build_app_inner(
             crate::AppConfig {
-                db_path: db.to_string_lossy().into_owned(),
+                db_path,
                 server_key_hex: Some(key.to_hex()),
                 web_dir: None,
                 cookie_secure: false,

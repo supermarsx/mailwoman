@@ -945,3 +945,41 @@ fn guard_snapshot_witness_counts_activity_only_in_bounded_mode() {
         assert!(scalars_only(&on));
     });
 }
+
+// t49pg-e2: PostgreSQL. Mode off keeps today's path (the published lookup is
+// never consulted). Bounded mode with a live mirror serves the same reply
+// from the published entry, with a certified reuse once the mirror is fresh.
+#[test]
+fn postgres_bounded_native_admission_uses_published_entries_and_off_does_not() {
+    use crate::request_inputs::snapshot::{pg_tests, test_control as snap};
+    let Some(dsn) = pg_tests::pg_dsn() else { return };
+    run_fixture(move || async move {
+        let f = Fixture::new_on(Some(pg_tests::pg_schema(&dsn).await)).await;
+        assert!(!f.measured.uses_sqlite());
+        let original = f.send(true).await;
+        assert_eq!(original.0, StatusCode::OK);
+        for _ in 0..4 {
+            let off = snap::with_mode(snapcase::OFF, f.send_published()).await;
+            assert_eq!(off.0, StatusCode::OK, "{}", off.1);
+            assert_eq!(off.1, original.1);
+            assert_eq!(off.2.fences, 0, "off: no published fence on PostgreSQL");
+            assert!(off.2.observations > 0, "off: the original cold observation");
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        let mut published = false;
+        let mut reused = false;
+        for _ in 0..400 {
+            let (reply, counts) = snap::measure(snap::with_mode(snapcase::SHORT, f.send_published())).await;
+            assert_eq!(reply.0, StatusCode::OK, "{}", reply.1);
+            assert_eq!(reply.1, original.1, "same reply as the original path");
+            if reply.2.observations == 0 && reply.2.fences + counts.reused >= 2 {
+                published = true;
+                reused |= counts.reused > 0;
+                if reused { break; }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(published, "bounded mode used the published entry on PostgreSQL");
+        assert!(reused, "a certified fence was reused on PostgreSQL");
+    });
+}

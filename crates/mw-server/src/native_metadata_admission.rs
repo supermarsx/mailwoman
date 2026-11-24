@@ -565,7 +565,7 @@ pub(crate) async fn try_dispatch(
     let mut first=None;
     let mut published_current=false;
     let mut observed_published=false;
-    if state.store.uses_sqlite() && publication_enabled() {
+    if crate::request_inputs::snapshot::published_inputs(state) && publication_enabled() {
         if let Some(worker)=&state.native_publication {
             #[cfg(test)] test_control::wait(test_control::Stage::BeforePublishedLookup,&id).await;
             // After outer guards consumed published inputs a miss below refuses

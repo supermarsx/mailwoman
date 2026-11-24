@@ -11,9 +11,10 @@
 //! evaluation) still runs per request on the reused DATA exactly as on a fresh
 //! fence. Anything the mirror cannot certify takes the existing fresh SQL path.
 //!
-//! Scope (enforced by the callers, not here): SQLite only (the mirror is inert on
-//! PostgreSQL), cookie sessions on the ordinary published request-input routes and
-//! the declared native metadata read. Bearer, API-key, selector/linked, admin and
+//! Scope (enforced by the callers, not here): SQLite, and PostgreSQL in bounded
+//! mode with a live mirror ([`published_inputs`]); cookie sessions on the
+//! ordinary published request-input routes and the declared native metadata read
+//! (SQLite only, [`declared_read_inputs`]). Bearer, API-key, selector/linked, admin and
 //! WebSocket-frame requests never reach these callers. The final mail-DATA fence
 //! (`native_publication_fence_with_mail_data`) and cold publication builds always
 //! read fresh.
@@ -112,14 +113,51 @@ pub(crate) fn mode() -> Mode {
 }
 
 /// The live mirror for this AppState, started on first use in `bounded` mode.
-/// The publication worker that AppState owns keeps the `Arc` alive.
+/// The publication worker that AppState owns keeps the `Arc` alive. Live on
+/// SQLite and PostgreSQL (`EpochMirror::for_store`); `None` in mode off, without
+/// a publication worker, or when the mirror is inert (no runtime, full registry).
+/// Live does not mean fresh: every reuse is still decided by `still_valid` /
+/// `globals_unchanged`, which fail while the mirror is not fresh.
 pub(crate) fn mirror(state: &AppState) -> Option<Arc<EpochMirror>> {
     let Mode::Bounded(bound) = mode() else { return None };
-    if !state.store.uses_sqlite() {
-        return None;
-    }
     let mirror = state.native_publication.as_ref()?.guard_mirror(&state.store, bound);
     mirror.is_live().then_some(mirror)
+}
+
+/// Whether the request layers may use published request inputs
+/// (`request_inputs` and the native metadata admission lookup). The single rule
+/// for both, so the backend is tested in one place:
+///
+/// * SQLite: always, in every mode (the reviewed fresh-fence path; bounded
+///   mode adds certified reuse on top).
+/// * PostgreSQL: only in bounded mode with a LIVE mirror. Mode off (or an inert
+///   mirror) keeps every PostgreSQL request on its original readers, exactly as
+///   before t49pg. While the live mirror is not fresh, entries are still used
+///   but every fence is read fresh (`Slot::read` reuses nothing then).
+///
+/// What the published path assumes and why each holds on PostgreSQL
+/// (t49pg-e2): every use of an entry compares it with a fence that is either
+/// read in one statement (one snapshot on both backends) or certified by the
+/// mirror, whose PostgreSQL change source covers every process's commits; the
+/// outbox claim, which only one process receives, only evicts memory and never
+/// validates; `versions.generation` is `None` on PostgreSQL on both sides of
+/// every comparison; the process session map, session touch and clock checks
+/// run exactly as on the original path. Nothing here assumes that this process
+/// saw every write.
+pub(crate) fn published_inputs(state: &AppState) -> bool {
+    state.store.uses_sqlite() || mirror(state).is_some()
+}
+
+/// Whether the DECLARED native metadata read (`x-mailwoman-read-shape`,
+/// `published_guard_context`) may consume published guard inputs. SQLite only,
+/// in every mode: once its outer guards have consumed inputs, a due session
+/// touch is settled by `Store::settle_native_last_seen`, which is implemented
+/// for SQLite only (it returns an error on PostgreSQL, which would refuse the
+/// read with 503 until some other request touched the session). On PostgreSQL
+/// the declared read keeps its original outer guards; its inner native
+/// admission still follows [`published_inputs`] without consuming anything.
+pub(crate) fn declared_read_inputs(state: &AppState) -> bool {
+    state.store.uses_sqlite()
 }
 
 /// Local revocation committed: no cached fence validates until a poll that
@@ -171,20 +209,22 @@ pub(crate) fn may_have_committed(status: axum::http::StatusCode) -> bool {
 static WITNESS_REUSED: AtomicU64 = AtomicU64::new(0);
 static WITNESS_FRESH: AtomicU64 = AtomicU64::new(0);
 static WITNESS_GLOBALS_REUSED: AtomicU64 = AtomicU64::new(0);
-static WITNESS_MIRRORS: Mutex<Vec<std::sync::Weak<EpochMirror>>> = Mutex::new(Vec::new());
+/// Started mirrors and whether each polls a SQLite Store (else PostgreSQL).
+static WITNESS_MIRRORS: Mutex<Vec<(std::sync::Weak<EpochMirror>, bool)>> = Mutex::new(Vec::new());
 
 /// Called once per started mirror (the publication worker's `guard_mirror`).
-pub(crate) fn register_for_witness(mirror: &Arc<EpochMirror>) {
+pub(crate) fn register_for_witness(mirror: &Arc<EpochMirror>, store: &Store) {
     if let Ok(mut mirrors) = WITNESS_MIRRORS.lock() {
-        mirrors.retain(|weak| weak.strong_count() > 0);
+        mirrors.retain(|(weak, _)| weak.strong_count() > 0);
         if mirrors.len() < 64 {
-            mirrors.push(Arc::downgrade(mirror));
+            mirrors.push((Arc::downgrade(mirror), store.uses_sqlite()));
         }
     }
 }
 
 /// Load-fixture evidence that the bounded snapshot really ran: the effective
-/// mode, the summed `EpochMirror` counters of every live mirror in this process,
+/// mode, how many live mirrors poll each backend (`liveByBackend`), the summed
+/// `EpochMirror` counters of every started mirror in this process,
 /// and how many authority fences / global ban lists were reused or read fresh in
 /// bounded mode. Counts and booleans only. Off mode never starts a mirror and
 /// never counts, so every number stays 0.
@@ -194,8 +234,12 @@ pub(crate) fn witness() -> serde_json::Value {
         Mode::Off => ("off", None),
         Mode::Bounded(bound) => ("bounded", Some(bound.as_millis() as u64)),
     };
-    let mirrors = WITNESS_MIRRORS.lock().map(|mirrors| mirrors.iter()
-        .filter_map(std::sync::Weak::upgrade).collect::<Vec<_>>()).unwrap_or_default();
+    let started = WITNESS_MIRRORS.lock().map(|mirrors| mirrors.iter()
+        .filter_map(|(weak, sqlite)| weak.upgrade().map(|mirror| (mirror, *sqlite))).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let live = |sqlite: bool| started.iter().filter(|(mirror, is)| *is == sqlite && mirror.is_live()).count();
+    let backends = serde_json::json!({"sqlite": live(true), "postgres": live(false)});
+    let mirrors = started.into_iter().map(|(mirror, _)| mirror).collect::<Vec<_>>();
     let mut sum = mirror::MirrorCounters::default();
     for counters in mirrors.iter().map(|mirror| mirror.counters()) {
         sum.polls += counters.polls;
@@ -209,17 +253,22 @@ pub(crate) fn witness() -> serde_json::Value {
         sum.expedites += counters.expedites;
         sum.hits += counters.hits;
         sum.misses += counters.misses;
+        sum.gap_flushes += counters.gap_flushes;
+        sum.connects += counters.connects;
+        sum.pruned_rows += counters.pruned_rows;
+        sum.prune_failures += counters.prune_failures;
     }
     serde_json::json!({
         "supported": true, "mode": mode, "maxStalenessMs": bound,
-        "mirrors": mirrors.len(),
+        "mirrors": mirrors.len(), "liveByBackend": backends,
         "live": mirrors.iter().any(|mirror| mirror.is_live()),
         "fresh": mirrors.iter().any(|mirror| mirror.is_fresh()),
         "polls": sum.polls, "failures": sum.failures, "rowsApplied": sum.rows_applied,
         "hits": sum.hits, "misses": sum.misses, "expedites": sum.expedites,
         "flushes": {"overflow": sum.overflow_flushes, "horizon": sum.horizon_flushes,
             "schema": sum.schema_flushes, "generation": sum.generation_flushes,
-            "capacity": sum.capacity_flushes},
+            "capacity": sum.capacity_flushes, "gap": sum.gap_flushes},
+        "pollConnects": sum.connects, "prunedRows": sum.pruned_rows, "pruneFailures": sum.prune_failures,
         "fenceReuses": WITNESS_REUSED.load(Ordering::Relaxed),
         "fenceFreshReads": WITNESS_FRESH.load(Ordering::Relaxed),
         "globalReuses": WITNESS_GLOBALS_REUSED.load(Ordering::Relaxed),
@@ -411,6 +460,10 @@ pub(crate) mod test_control {
 }
 
 #[cfg(test)]
+#[path = "guard_snapshot_pg_tests.rs"]
+pub(crate) mod pg_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     #[test]
@@ -424,22 +477,30 @@ mod tests {
         assert!(parse(Some("bounded"), Some("5001")).is_err());
         assert!(parse(Some("off"), Some("1s")).is_err(), "an invalid bound fails even when off");
     }
-    /// PostgreSQL: the mirror is inert (no commit-ordered change log), so no
-    /// fence can ever be certified and every caller reads fresh. Runs only
-    /// with `MW_TEST_PG` (the request layers are SQLite-gated as well).
+    /// PostgreSQL (t49pg): `for_store` is live; a fresh mirror stamps a
+    /// generation. Outside a runtime or with an invalid bound it stays inert.
+    /// The request-level legs are in `guard_snapshot_pg_tests.rs`. Runs only
+    /// with `MW_TEST_PG`.
     #[tokio::test]
-    async fn postgres_store_never_gets_a_live_mirror() {
-        let Some(url) = std::env::var("MW_TEST_PG").ok().filter(|url| !url.is_empty()) else {
-            eprintln!("[guard_snapshot] MW_TEST_PG unset: Postgres leg not run");
-            return;
-        };
-        let store = Store::open(&url, mw_store::ServerKey::generate()).await.unwrap();
+    async fn postgres_store_gets_a_live_mirror() {
+        let Some(dsn) = pg_tests::pg_dsn() else { return };
+        let store = Store::open(&pg_tests::pg_schema(&dsn).await, mw_store::ServerKey::generate()).await.unwrap();
         assert!(!store.uses_sqlite());
+        let inert = EpochMirror::for_store(&store, Duration::from_millis(99));
+        assert!(!inert.is_live() && inert.stamp_gen().is_none(), "invalid bound: inert");
         let mirror = EpochMirror::for_store(&store, Duration::from_millis(100));
-        assert!(!mirror.is_live());
-        assert!(mirror.poll_now().await.is_ok_and(|flushed| !flushed));
-        assert!(!mirror.is_fresh());
-        assert!(mirror.stamp_gen().is_none());
+        assert!(mirror.is_live());
+        // The first poll flushes (nothing cached before it validates); the
+        // next one stamps.
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while mirror.stamp_gen().is_none() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("a live PostgreSQL mirror polls and stamps");
+        assert!(mirror.is_fresh() && mirror.counters().connects >= 1);
+        drop(mirror);
         store.close().await;
     }
     // ---- t34 frozen process environment (request_inputs::freeze_environment) ----
