@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, devices } from '@playwright/test';
+import { chromiumAs } from '../chromiumUserAgent.ts';
 
 /**
  * Playwright config for the t32 feature specs (t32-admin §11 M7, t32-fast R-F4).
@@ -58,7 +59,8 @@ export default defineConfig({
     {
       name: 'engine',
       grepInvert: /@mock/,
-      use: { ...devices['Desktop Chrome'], baseURL: engineBaseURL },
+      // Worker requests carry the process User-Agent (see e2e/chromiumUserAgent.ts).
+      use: { ...chromiumAs(devices['Desktop Chrome']), baseURL: engineBaseURL },
     },
     {
       name: 'engine-firefox',
@@ -69,12 +71,12 @@ export default defineConfig({
       name: 'phone',
       grep: /@phone/,
       grepInvert: /@mock/,
-      use: { ...devices['Pixel 7'], baseURL: engineBaseURL },
+      use: { ...chromiumAs(devices['Pixel 7']), baseURL: engineBaseURL },
     },
     {
       name: 'mock',
       grep: /@mock/,
-      use: { ...devices['Desktop Chrome'], baseURL: mockBaseURL },
+      use: { ...chromiumAs(devices['Desktop Chrome']), baseURL: mockBaseURL },
     },
   ],
 });

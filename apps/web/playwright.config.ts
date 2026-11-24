@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { chromiumAs } from './e2e/chromiumUserAgent.ts';
 
 /**
  * Playwright E2E config for Mailwoman.
@@ -96,7 +97,8 @@ export default defineConfig({
     {
       name: 'mock',
       testMatch: ['happy-path.spec.ts', 'sanitizer.spec.ts', 'settings-optional-methods.spec.ts', 'csrf-strict.spec.ts', 't32-h10-errors.spec.ts', 'pdf-attachment.spec.ts', 'folder-dnd.spec.ts'],
-      use: { ...devices['Desktop Chrome'], baseURL: mockBaseURL },
+      // Worker requests carry the process User-Agent (see e2e/chromiumUserAgent.ts).
+      use: { ...chromiumAs(devices['Desktop Chrome']), baseURL: mockBaseURL },
     },
     {
       name: 'mock-firefox',
@@ -142,7 +144,7 @@ export default defineConfig({
       ],
       // SharedWorker requests inherit Chromium's process UA, not the context's
       // device UA. Keep both aligned so bot protection is tested separately.
-      use: { ...devices['Desktop Chrome'], baseURL: engineBaseURL, channel:'chromium', launchOptions:{args:[`--user-agent=${devices['Desktop Chrome'].userAgent}`]} },
+      use: { ...chromiumAs(devices['Desktop Chrome']), baseURL: engineBaseURL, channel:'chromium' },
     },
     {
       name:'realtime-firefox',testMatch:['realtime-push.spec.ts'],
@@ -158,7 +160,7 @@ export default defineConfig({
       // `engine` specs and their shared helpers assume the desktop sidebar is on
       // screen, which at this width it is not (it is a drawer).
       testMatch: ['narrow.spec.ts'],
-      use: { ...devices['Pixel 7'], baseURL: engineBaseURL },
+      use: { ...chromiumAs(devices['Pixel 7']), baseURL: engineBaseURL },
     },
     {
       name: 'pim',
@@ -167,7 +169,7 @@ export default defineConfig({
       // auto-seeded native collections. Adding a `pim-*.spec.ts` slots into the CI
       // `e2e-pim` job (boots greenmail + mailwoman-engine, runs `--project=pim`).
       testMatch: ['pim-*.spec.ts', 'csrf-strict.spec.ts'],
-      use: { ...devices['Desktop Chrome'], baseURL: engineBaseURL },
+      use: { ...chromiumAs(devices['Desktop Chrome']), baseURL: engineBaseURL },
     },
     {
       name: 'pim-firefox',
@@ -210,7 +212,7 @@ export default defineConfig({
       // via the docker-compose.crypto.yml override). Sibling of the `e2e` /
       // `e2e-engine` / `e2e-pim` projects; all must stay green.
       testMatch: ['crypto-*.spec.ts', 'csrf-strict.spec.ts'],
-      use: { ...devices['Desktop Chrome'], baseURL: engineBaseURL },
+      use: { ...chromiumAs(devices['Desktop Chrome']), baseURL: engineBaseURL },
     },
     {
       name: 'push',
