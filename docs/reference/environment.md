@@ -158,14 +158,18 @@ Connection, request and handshake ceilings. Each is read when the server starts.
 
 | Variable | Purpose |
 |---|---|
-| [`MW_HTTP_MAX_CONNECTIONS`](../admin/configuration.md#mw-http-max-connections) | concurrent HTTP connections including upgraded WebSockets (16..8192; restart required) |
-| [`MW_HTTP_MAX_REQUESTS`](../admin/configuration.md#mw-http-max-requests) | concurrent HTTP requests through response-body completion (1..4096; restart required) |
+| [`MW_HTTP_MAX_CONNECTIONS`](../admin/configuration.md#server.http.maxconnections) | concurrent HTTP connections including upgraded WebSockets (16..65536; unset = Auto, derived from the open-file limit and memory, at least 1024; pins `server.http.maxConnections`) |
+| [`MW_HTTP_MAX_REQUESTS`](../admin/configuration.md#server.http.maxrequests) | concurrent HTTP requests through response-body completion (1..16384; unset = Auto, from CPUs, the database pool and memory, at least 256; pins `server.http.maxRequests`) |
 | [`MW_HTTP_MAX_HEADER_BYTES`](../admin/configuration.md#mw-http-max-header-bytes) | HTTP request header budget in bytes (8192..65536; restart required) |
 | [`MW_HTTP_MAX_HEADERS`](../admin/configuration.md#mw-http-max-headers) | HTTP request header count (16..256; restart required) |
 | [`MW_HTTP_HEADER_TIMEOUT_MS`](../admin/configuration.md#mw-http-header-timeout-ms) | HTTP opening and HTTP1 header deadline in milliseconds (1000..60000; restart required) |
 | [`MW_HTTP_BODY_TIMEOUT_MS`](../admin/configuration.md#mw-http-body-timeout-ms) | request-body ingress deadline in milliseconds (1000..300000; response streams are not timed out) |
-| [`MW_HTTP2_MAX_STREAMS`](../admin/configuration.md#mw-http2-max-streams) | maximum HTTP2 streams per connection (1..128; restart required) |
+| [`MW_HTTP2_MAX_STREAMS`](../admin/configuration.md#server.http.http2maxstreams) | maximum HTTP2 streams per connection (1..128; unset = Auto, an eighth of the request limit, 32..100; pins `server.http.http2MaxStreams`) |
 | [`MW_HTTP_SHUTDOWN_TIMEOUT_MS`](../admin/configuration.md#mw-http-shutdown-timeout-ms) | graceful HTTP drain deadline in milliseconds (1000..120000; restart required) |
+| [`MW_HTTP_REQUEST_QUEUE_MS`](../admin/configuration.md#server.http.requestqueuems) | wait for a free request slot before 503, in milliseconds (0..2000, default 200; 0 = 503 at once; pins `server.http.requestQueueMs`) |
+| [`MW_HTTP_REQUEST_QUEUE_MAX`](../admin/configuration.md#server.http.requestqueuemax) | requests that may wait for a slot at once (1..65536; unset = the request limit; pins `server.http.requestQueueMax`) |
+| [`MW_HTTP_ADAPTIVE_CONCURRENCY`](../admin/configuration.md#mw-http-adaptive-concurrency) | `off` (default) or `on`: lower the request limit while requests slow down; wins over `server.http.adaptiveConcurrency` |
+| [`MW_HTTP_RAISE_OPEN_FILES`](../admin/configuration.md#mw-http-raise-open-files) | `on` (default) or `off`: raise the soft open-file limit at start when the connection limit is Auto; wins over `server.http.raiseOpenFileLimit` |
 
 ## Features and integrations
 

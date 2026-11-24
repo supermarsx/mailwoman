@@ -119,7 +119,7 @@ pub(crate) async fn checks(
                 "admission":admission,
                 "source":"built-in-listener-startup-configuration",
             }),
-            &[],
+            &crate::inbound_http::live::KEYS,
         ),
         row(
             "connectionNegotiation",

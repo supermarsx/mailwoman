@@ -739,7 +739,7 @@ admin-deployment-value-connectionNegotiation = 内置监听器启动配置：TLS
 admin-deployment-check-httpAdmission = HTTP 准入和请求限制
 
 # -- Machine translation (2026-11): added to match en ---------------------
-admin-deployment-value-httpAdmission = 内置监听器启动配置：{ $connections } 个连接、{ $requests } 个请求（直至响应完成）、{ $headerBytes } 字节的头部和 { $headers } 个头部。HTTP 开启及 HTTP/1 头部期限 { $headerTimeoutMs } 毫秒；请求体期限 { $bodyTimeoutMs } 毫秒；每个连接 { $http2Streams } 个 HTTP/2 流；平滑退出 { $shutdownTimeoutMs } 毫秒。固定限制需要重启才能更改。响应流不受请求体期限约束。
+admin-deployment-value-httpAdmission = 内置监听器启动配置：{ $connections } 个连接、{ $requests } 个请求（直至响应完成）、{ $headerBytes } 字节的头部和 { $headers } 个头部。HTTP 开启及 HTTP/1 头部期限 { $headerTimeoutMs } 毫秒；请求体期限 { $bodyTimeoutMs } 毫秒；每个连接 { $http2Streams } 个 HTTP/2 流；平滑退出 { $shutdownTimeoutMs } 毫秒。请求头限制和超时需要重启；连接、请求和流的限制可在“设置 → 维护”中更改。响应流不受请求体期限约束。
 admin-personal-dashboard-keep-checklist = 保持已完成的设置清单显眼
 admin-personal-dashboard-keep-checklist-help = 否则，完成所有项目后，清单会折叠到其他仪表板小组件下方。有未完成的项目时会恢复到通常位置。
 admin-protection-title = 聚合与自适应防护

@@ -3,19 +3,31 @@ import { createSignal, onMount, Show, For, useContext, type JSX } from 'solid-js
 import { adminRequest } from './shell/adminApi.ts';
 import { describeAdminError } from './shell/Feedback.tsx';
 import { DataTable } from './shell/DataTable.tsx';
-import { t } from '../../i18n';
+import { loadCatalog, t } from '../../i18n';
 import { ShellContext } from './shell/context.ts';
 import * as css from './admin.css.ts';
 import * as ux from './shell/ux.css.ts';
 
 export interface DeploymentCheck { id: string; status: 'pass'|'warning'|'info'; value: unknown; settings: string[] }
 export interface DeploymentAssessment { generatedAt: string; scope: string; checks: DeploymentCheck[]; limitations: string[] }
+/** The HTTP admission row's values in force now (console, environment or Auto), when the listener reports them. */
+function httpInForce(value: unknown): string {
+  type Entry = { value?: number; source?: string };
+  const e = (value as { admission?: { effective?: Record<string, Entry> } | null })?.admission?.effective;
+  if (!e) return '';
+  const source = (s?: string): string => s ?? 'default';
+  return t('admin-http-limits-deployment', {
+    connections: e.connections?.value ?? '', connectionsSource: source(e.connections?.source),
+    requests: e.requests?.value ?? '', requestsSource: source(e.requests?.source),
+    streams: e.http2Streams?.value ?? '', queueWaitMs: e.queueWaitMs?.value ?? '', queueMax: e.queueMax?.value ?? '',
+  });
+}
 export function DeploymentSecurity(props: { load?: () => Promise<DeploymentAssessment> }): JSX.Element {
   const shell=useContext(ShellContext);
   const [report,setReport]=createSignal<DeploymentAssessment>();
   const [busy,setBusy]=createSignal(true);const [error,setError]=createSignal('');
   const [query,setQuery]=createSignal('');const [status,setStatus]=createSignal('all');
-  async function reload():Promise<void>{setBusy(true);try{setReport(await(props.load??(async()=>(await adminRequest<DeploymentAssessment>('/security/deployment')).data))());setError('');}catch(e){setError(describeAdminError(e));}finally{setBusy(false);}}
+  async function reload():Promise<void>{setBusy(true);try{await loadCatalog('admin-http-limits');setReport(await(props.load??(async()=>(await adminRequest<DeploymentAssessment>('/security/deployment')).data))());setError('');}catch(e){setError(describeAdminError(e));}finally{setBusy(false);}}
   onMount(()=>void reload());
   const title=(id:string):string=>t(`admin-deployment-check-${id}`);
   const rows=():DeploymentCheck[] => report()?.checks.filter(row=>(status()==='all'||row.status===status())&&title(row.id).toLowerCase().includes(query().toLowerCase()))??[];
@@ -23,7 +35,8 @@ export function DeploymentSecurity(props: { load?: () => Promise<DeploymentAsses
     const v=row.value as Record<string, string|number|boolean>;
     if(typeof row.value==='boolean')return t(row.value?'admin-deployment-yes':'admin-deployment-no');
     if(typeof row.value==='number')return String(row.value);
-    return t(`admin-deployment-value-${row.id}`,Object.fromEntries(Object.entries(v).map(([key,value])=>[key,typeof value==='boolean'?t(value?'admin-deployment-yes':'admin-deployment-no'):value])));
+    const text=t(`admin-deployment-value-${row.id}`,Object.fromEntries(Object.entries(v).map(([key,value])=>[key,typeof value==='boolean'?t(value?'admin-deployment-yes':'admin-deployment-no'):value])));
+    return row.id==='httpAdmission'?`${text} ${httpInForce(row.value)}`.trim():text;
   };
   return <section class={css.section} aria-label={t('admin-deployment-title')}>
     <div class={ux.pageHead}><h2 class={css.heading}>{t('admin-deployment-title')}</h2><div class={ux.pageActions}><a class="btn btn--ghost" href="#/diagnostics">{t('admin-deployment-back')}</a><button class="btn" disabled={busy()} onClick={()=>void reload()}>{t('admin-deployment-refresh')}</button></div></div>

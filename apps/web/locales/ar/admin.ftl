@@ -714,7 +714,7 @@ admin-deployment-value-connectionNegotiation = إعداد بدء المستمع 
 admin-deployment-check-httpAdmission = قبول HTTP وحدود الطلبات
 
 # -- Machine translation (2026-11): added to match en ---------------------
-admin-deployment-value-httpAdmission = إعداد بدء المستمع المدمج: { $connections } اتصالًا و{ $requests } طلبًا حتى اكتمال الاستجابة و{ $headerBytes } بايت من الترويسات و{ $headers } ترويسة. مهلة فتح HTTP وترويسة HTTP/1: { $headerTimeoutMs } مللي ثانية؛ مهلة جسم الطلب: { $bodyTimeoutMs } مللي ثانية؛ { $http2Streams } تدفق HTTP/2 لكل اتصال؛ مهلة التصريف السلس { $shutdownTimeoutMs } مللي ثانية. تتطلب الحدود الثابتة إعادة التشغيل. لا تخضع تدفقات الاستجابة لمهلة جسم الطلب.
+admin-deployment-value-httpAdmission = إعداد بدء المستمع المدمج: { $connections } اتصالًا و{ $requests } طلبًا حتى اكتمال الاستجابة و{ $headerBytes } بايت من الترويسات و{ $headers } ترويسة. مهلة فتح HTTP وترويسة HTTP/1: { $headerTimeoutMs } مللي ثانية؛ مهلة جسم الطلب: { $bodyTimeoutMs } مللي ثانية؛ { $http2Streams } تدفق HTTP/2 لكل اتصال؛ مهلة التصريف السلس { $shutdownTimeoutMs } مللي ثانية. تتطلب حدود الترويسات والمهل إعادة التشغيل؛ ويمكن تغيير حدود الاتصالات والطلبات والتدفقات في الإعدادات ← الصيانة. لا تخضع تدفقات الاستجابة لمهلة جسم الطلب.
 admin-personal-dashboard-keep-checklist = إبقاء قائمة الإعداد المكتملة بارزة
 admin-personal-dashboard-keep-checklist-help = وإلا فإن إكمال كل البنود يطوي القائمة أسفل عناصر لوحة المعلومات الأخرى. ويعيدها أي بند غير مكتمل إلى موضعها المعتاد.
 admin-protection-title = الحماية التجميعية والتكيفية

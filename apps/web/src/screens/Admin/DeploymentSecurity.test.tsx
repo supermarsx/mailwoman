@@ -8,7 +8,18 @@ describe('deployment assessment',()=>{
   const snapshot={...report,checks:[{id:'httpAdmission',status:'info' as const,value:{connections:1024,requests:256,headerBytes:32768,headers:100,headerTimeoutMs:10000,bodyTimeoutMs:60000,http2Streams:32,shutdownTimeoutMs:30000},settings:[]}]};
   renderInShell(()=><DeploymentSecurity load={async()=>snapshot}/>);
   expect(await screen.findByText('HTTP admission and request limits')).toBeInTheDocument();
-  expect(screen.getByText(/Response streams are not subject/)).toHaveTextContent('Fixed limits require restart');
+  expect(screen.getByText(/Response streams are not subject/)).toHaveTextContent('Header limits and timeouts require a restart');
+ });
+
+ it('adds the HTTP limits in force and where they came from when the listener reports them',async()=>{
+  const value={connections:1024,requests:256,headerBytes:32768,headers:100,headerTimeoutMs:10000,bodyTimeoutMs:60000,http2Streams:32,shutdownTimeoutMs:30000,
+   admission:{effective:{connections:{value:4096,source:'auto'},requests:{value:600,source:'console'},http2Streams:{value:75,source:'auto'},queueWaitMs:{value:0,source:'explicit'},queueMax:{value:600,source:'auto'}}}};
+  const snapshot={...report,checks:[{id:'httpAdmission',status:'info' as const,value,settings:['server.http.maxRequests']}]};
+  renderInShell(()=><DeploymentSecurity load={async()=>snapshot}/>);
+  const cell=await screen.findByText(/In force now:/);
+  expect(cell).toHaveTextContent(/4,?096 connections \(Auto\)/);
+  expect(cell).toHaveTextContent(/600 requests at once \(set in the console\)/);
+  expect(cell).toHaveTextContent(/waits up to 0 ms/);
  });
 
  it('describes startup connection limits without claiming an external TLS probe',async()=>{

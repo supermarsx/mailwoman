@@ -5,7 +5,7 @@
 // not report.
 
 import { createResource, For, Show, type JSX } from 'solid-js';
-import { formatNumber, t } from '../../../i18n';
+import { formatNumber, loadCatalog, t } from '../../../i18n';
 import { adminRequest } from '../shell/adminApi.ts';
 import { keySlug } from './keys.ts';
 
@@ -24,7 +24,7 @@ export interface HttpLimitsEffective {
   adaptiveFloor?: Entry;
 }
 interface Assessment {
-  checks?: { id?: string; value?: { admission?: { effective?: HttpLimitsEffective; inputs?: string } | null } }[];
+  checks?: { id?: string; value?: { admission?: { effective?: HttpLimitsEffective; inputs?: string; warnings?: string[] } | null } }[];
 }
 
 const ROWS: [keyof HttpLimitsEffective, string][] = [
@@ -53,7 +53,7 @@ const source = (s: string | undefined): string => {
 };
 
 export function HttpLimitsReadout(props: { load?: () => Promise<Assessment> }): JSX.Element {
-  const [data] = createResource<Assessment | undefined>(async () => (await (props.load ?? (async () => (await adminRequest<Assessment>('/security/deployment')).data))()));
+  const [data] = createResource<Assessment | undefined>(async () => (await loadCatalog('admin-http-limits'), await (props.load ?? (async () => (await adminRequest<Assessment>('/security/deployment')).data))()));
   const admission = () => (data.error ? undefined : data.latest?.checks?.find((c) => c.id === 'httpAdmission')?.value?.admission ?? undefined);
   return (
     <section data-testid="http-limits-readout" aria-label={t('admin-http-limits-title')}>
@@ -75,6 +75,7 @@ export function HttpLimitsReadout(props: { load?: () => Promise<Assessment> }): 
                 )}
               </For>
             </ul>
+            <For each={admission()?.warnings ?? []}>{(text) => <p role="note" data-testid="http-limits-warning">{t('admin-http-limits-warning', { text })}</p>}</For>
             <Show when={admission()?.inputs}>{(inputs) => <p data-testid="http-limits-inputs">{t('admin-http-limits-inputs', { inputs: inputs() })}</p>}</Show>
             <p>{t('admin-http-limits-per-process')}</p>
           </>

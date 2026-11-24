@@ -50,27 +50,20 @@ pub enum Pool {
     Requests,
     Streams,
     Probes,
-    /// The admin console: request pool first, then its reserve.
-    Admin,
 }
 
 /// Which pool a path uses, and whether its in-server time feeds the adaptive
 /// limiter. Not sampled: transfers whose time follows their size or a remote party
 /// rather than server load (downloads, uploads, exports, imports, previews, the
-/// image proxy, DAV feeds, mail refresh), upgrades and streams, probes and the
-/// admin console. `admin` is the admin path (`mw_admin::config::admin_path`).
-pub fn classify(path: &str, admin: &str) -> (Pool, bool) {
+/// image proxy, DAV feeds, mail refresh), upgrades and streams, and probes. Whether a
+/// request is an admin-console request is decided only when it matters (a full
+/// request pool), against the admin path in force then ([`is_admin_path`]).
+pub fn classify(path: &str) -> (Pool, bool) {
     if path.ends_with("/jmap/eventsource") {
         return (Pool::Streams, false);
     }
     if path == "/healthz" || path == "/readyz" {
         return (Pool::Probes, false);
-    }
-    if !admin.is_empty()
-        && path.starts_with(admin)
-        && matches!(path.as_bytes().get(admin.len()), None | Some(b'/'))
-    {
-        return (Pool::Admin, false);
     }
     const UNSAMPLED: [&str; 11] = [
         "/jmap/download/",
@@ -88,6 +81,14 @@ pub fn classify(path: &str, admin: &str) -> (Pool, bool) {
     let unsampled = UNSAMPLED.iter().any(|prefix| path.starts_with(prefix))
         || (path.starts_with("/api/privacy/requests/") && path.ends_with("/download"));
     (Pool::Requests, !unsampled)
+}
+
+/// `path` is the admin path itself or below it (`/admin`, `/admin/…`), never a
+/// path that merely shares its prefix (`/administrator`).
+pub fn is_admin_path(path: &str, admin: &str) -> bool {
+    !admin.is_empty()
+        && path.starts_with(admin)
+        && matches!(path.as_bytes().get(admin.len()), None | Some(b'/'))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -122,7 +123,8 @@ pub struct Admission {
     streams: Arc<Resizable>,
     probes: Arc<Semaphore>,
     admin: Arc<Semaphore>,
-    admin_path: String,
+    /// Tests fix the admin path; otherwise it is read when needed.
+    admin_path: Option<String>,
     queue_wait_ms: AtomicU64,
     queue_max: AtomicUsize,
     http2_streams: AtomicU32,
@@ -164,10 +166,15 @@ fn metric(outcome: &'static str) {
 
 impl Admission {
     pub fn new(limits: &HttpLimits) -> Arc<Self> {
-        Self::with_admin_path(limits, mw_admin::config::admin_path())
+        Self::build(limits, None)
     }
 
+    /// With a fixed admin path (tests).
     pub fn with_admin_path(limits: &HttpLimits, admin_path: String) -> Arc<Self> {
+        Self::build(limits, Some(admin_path))
+    }
+
+    fn build(limits: &HttpLimits, admin_path: Option<String>) -> Arc<Self> {
         let (live, sources) = live::resolve(limits, &Console::default());
         let admission = Arc::new(Self {
             limits: *limits,
@@ -240,7 +247,17 @@ impl Admission {
             return;
         };
         if let Some((revision, console)) = live::read_console(store).await {
-            self.apply(console);
+            // The revision also moves for unrelated settings: resize and log only
+            // when one of these keys' values changed.
+            let before = self.live.lock().unwrap_or_else(|p| p.into_inner()).2;
+            if console != before {
+                self.apply(console);
+                let (live, sources) = self.live();
+                tracing::info!(
+                    "HTTP limits changed from the admin console: {}",
+                    live::describe(&live, &sources)
+                );
+            }
             *self.revision.lock().unwrap_or_else(|p| p.into_inner()) = Some(revision);
         }
     }
@@ -304,9 +321,12 @@ impl Admission {
         self.waiting.load(Ordering::Relaxed)
     }
 
-    /// The admin path this listener reserves slots for.
-    pub fn admin_path(&self) -> &str {
-        &self.admin_path
+    /// The admin path in force now (`mw_admin::config::admin_path`, which the
+    /// server sets at start from its configuration).
+    pub fn admin_path(&self) -> String {
+        self.admin_path
+            .clone()
+            .unwrap_or_else(mw_admin::config::admin_path)
     }
 
     fn lease(
@@ -331,8 +351,13 @@ impl Admission {
         }
     }
 
-    /// Admit a request to `pool`, waiting if the request pool is full.
-    pub async fn admit(self: &Arc<Self>, pool: Pool, sampled: bool) -> Result<Lease, Refusal> {
+    /// Admit a request for `path` to `pool`, waiting if the request pool is full.
+    pub async fn admit(
+        self: &Arc<Self>,
+        pool: Pool,
+        sampled: bool,
+        path: &str,
+    ) -> Result<Lease, Refusal> {
         self.maybe_refresh();
         match pool {
             Pool::Streams => {
@@ -365,14 +390,14 @@ impl Admission {
                     }
                 };
             }
-            Pool::Requests | Pool::Admin => {}
+            Pool::Requests => {}
         }
         if let Some(permit) = self.requests.try_acquire() {
             self.counters.immediate.fetch_add(1, Ordering::Relaxed);
             metric("immediate");
             return Ok(self.lease(permit, true, sampled));
         }
-        if pool == Pool::Admin
+        if is_admin_path(path, &self.admin_path())
             && let Ok(permit) = self.admin.clone().try_acquire_owned()
         {
             self.counters.admin_reserve.fetch_add(1, Ordering::Relaxed);
@@ -467,6 +492,7 @@ impl Admission {
                 "requests": live::requests_cap(&self.limits),
             },
             "inputs": self.limits.inputs(),
+            "warnings": self.limits.warnings(),
             "admittedImmediately": load(&c.immediate),
             "admittedAfterWait": load(&c.after_wait),
             "admittedFromAdminReserve": load(&c.admin_reserve),

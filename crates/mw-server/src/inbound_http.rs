@@ -150,23 +150,24 @@ where
                     // At the request limit this waits (bounded, FIFO) for a slot;
                     // a client that goes away while waiting drops this future and
                     // with it its place in the queue.
-                    let (pool, sampled) =
-                        admission::classify(request.uri().path(), admission.admin_path());
-                    let mut permit = match admission.admit(pool, sampled).await {
-                        Ok(permit) => permit,
-                        // Deadline, full queue, or a full stream or probe pool.
-                        Err(_) => {
-                            let mut response = refusal(
-                                StatusCode::SERVICE_UNAVAILABLE,
-                                "Server request capacity reached",
-                                version,
-                            );
-                            response
-                                .headers_mut()
-                                .insert(header::RETRY_AFTER, header::HeaderValue::from_static("1"));
-                            return Ok(response);
-                        }
-                    };
+                    let (pool, sampled) = admission::classify(request.uri().path());
+                    let mut permit =
+                        match admission.admit(pool, sampled, request.uri().path()).await {
+                            Ok(permit) => permit,
+                            // Deadline, full queue, or a full stream or probe pool.
+                            Err(_) => {
+                                let mut response = refusal(
+                                    StatusCode::SERVICE_UNAVAILABLE,
+                                    "Server request capacity reached",
+                                    version,
+                                );
+                                response.headers_mut().insert(
+                                    header::RETRY_AFTER,
+                                    header::HeaderValue::from_static("1"),
+                                );
+                                return Ok(response);
+                            }
+                        };
                     let (mut parts, body) = request.into_parts();
                     parts.extensions.insert(ConnectInfo(peer));
                     let complete = Arc::new(AtomicBool::new(body.is_end_stream()));

@@ -26,7 +26,7 @@ export const ADMIN_NAMESPACES: readonly string[] = [
   'admin-compliance', 'admin-consents', 'admin-console-url-mail', 'admin-cookies', 'admin-dashboard', 'admin-data-requests',
   'admin-database', 'admin-diagnostics', 'admin-directory', 'admin-domain-backends', 'admin-domain-guided',
   'admin-domains', 'admin-encryption', 'admin-erasure', 'admin-features', 'admin-geoip', 'admin-governance',
-  'admin-hosting', 'admin-identity', 'admin-inbound', 'admin-maintenance', 'admin-metrics-persisted',
+  'admin-hosting', 'admin-http-limits', 'admin-identity', 'admin-inbound', 'admin-maintenance', 'admin-metrics-persisted',
   'admin-passkeys', 'admin-personal', 'admin-policy', 'admin-privacy-speed', 'admin-requests',
   'admin-restrictions', 'admin-retention', 'admin-role-purpose', 'admin-security', 'admin-settings', 'admin-ssh', 'admin-stats',
   'admin-telemetry', 'admin-users', 'admin-ux', 'admin-webhooks',

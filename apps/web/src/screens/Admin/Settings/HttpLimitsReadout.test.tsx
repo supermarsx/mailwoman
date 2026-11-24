@@ -26,6 +26,7 @@ it('shows what each limit resolved to, where it came from, and the readings Auto
                   adaptiveFloor: { value: 256, source: 'auto' },
                 },
                 inputs: 'from cpus C 16, memory M bytes unknown (term dropped)',
+                warnings: ['the open-file limit (1024) leaves room for 124 connections after a reserve of 776'],
               },
             },
           },
@@ -39,6 +40,7 @@ it('shows what each limit resolved to, where it came from, and the readings Auto
   expect(screen.getByTestId('http-limits-queueWaitMs')).toHaveTextContent('set by the environment');
   expect(screen.getByTestId('http-limits-adaptive')).toHaveTextContent('off');
   expect(screen.getByTestId('http-limits-inputs')).toHaveTextContent('term dropped');
+  expect(screen.getByTestId('http-limits-warning')).toHaveTextContent('Warning: the open-file limit (1024) leaves room for 124 connections');
 });
 
 it('says the values are not available when the listener reports none', async () => {

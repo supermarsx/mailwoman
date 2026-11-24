@@ -708,7 +708,7 @@ admin-deployment-value-connectionNegotiation = 組み込みリスナーの起動
 admin-deployment-check-httpAdmission = HTTP 受け付けとリクエストの上限
 
 # -- Machine translation (2026-11): added to match en ---------------------
-admin-deployment-value-httpAdmission = 組み込みリスナーの起動設定： 接続 { $connections } 件、レスポンス完了までのリクエスト { $requests } 件、ヘッダー { $headerBytes } バイト、ヘッダー { $headers } 個。HTTP の開始と HTTP/1 ヘッダーの期限 { $headerTimeoutMs } ms、リクエスト本文の期限 { $bodyTimeoutMs } ms、接続あたりの HTTP/2 ストリーム { $http2Streams } 個、グレースフルドレイン { $shutdownTimeoutMs } ms。固定の上限の変更には再起動が必要です。レスポンスストリームにはリクエスト本文の期限は適用されません。
+admin-deployment-value-httpAdmission = 組み込みリスナーの起動設定： 接続 { $connections } 件、レスポンス完了までのリクエスト { $requests } 件、ヘッダー { $headerBytes } バイト、ヘッダー { $headers } 個。HTTP の開始と HTTP/1 ヘッダーの期限 { $headerTimeoutMs } ms、リクエスト本文の期限 { $bodyTimeoutMs } ms、接続あたりの HTTP/2 ストリーム { $http2Streams } 個、グレースフルドレイン { $shutdownTimeoutMs } ms。ヘッダーの上限とタイムアウトの変更には再起動が必要です。接続・リクエスト・ストリームの上限は「設定 → メンテナンス」で変更できます。レスポンスストリームにはリクエスト本文の期限は適用されません。
 admin-personal-dashboard-keep-checklist = 完了したセットアップチェックリストを目立つ位置に保つ
 admin-personal-dashboard-keep-checklist-help = オフの場合、すべての項目が完了するとチェックリストは他のダッシュボードウィジェットの下に折りたたまれます。未完了の項目があれば通常の位置に戻ります。
 admin-protection-title = 集計型・適応型の保護
