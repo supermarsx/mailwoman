@@ -12,7 +12,7 @@ test('cluster authority and phase options remain private literal-loopback and bo
  assert.equal(clusterAuthority(authority,0).serverWorkers,2);
  for(const patch of [{controlBase:'http://remote.invalid'},{dataBases:['http://localhost:11001','http://127.0.0.1:11002']},{dataBases:['http://127.0.0.1:11000','http://127.0.0.1:11002']},{serverWorkers:17},{token:'invalid'},{expiresAtMs:0},{expiresAtMs:1000000}])assert.throws(()=>clusterAuthority({...authority,...patch},0));
  const base={handoff:'private.json',output:'report.json'};assert.equal(clusterOptions(base).workers,4);
- for(const patch of [{workers:17},{workers:0},{seconds:.5},{seconds:31},{rates:'100001'},{rates:'100,100'},{concurrency:4097},{workers:8,concurrency:7},{target:'http://external.invalid'}])assert.throws(()=>clusterOptions({...base,...patch}));
+ for(const patch of [{workers:65},{workers:0},{seconds:.5},{seconds:3601},{rates:'100001'},{rates:'100,100'},{concurrency:20001},{workers:8,concurrency:7},{target:'http://external.invalid'}])assert.throws(()=>clusterOptions({...base,...patch}));
  const split=calibrationStageBudget({workers:3,concurrency:7},100);assert.deepEqual(split,{concurrency:[3,2,2],rates:[34,33,33]});
 });
 

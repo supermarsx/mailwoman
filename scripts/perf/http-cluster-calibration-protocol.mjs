@@ -16,19 +16,19 @@ export function clusterAuthority(value,now=Date.now()){
 export function clusterOptions(args){
  if(Object.keys(args).some(key=>!['handoff','output','seconds','rates','concurrency','workers'].includes(key))||!args.handoff||!args.output)throw new Error('Explicit private handoff and report required');
  const workers=Number(args.workers??4),seconds=Number(args.seconds??3),concurrency=Number(args.concurrency??256),rates=String(args.rates??'10000,20000,40000,60000,80000').split(',').map(Number);
- if(!Number.isInteger(workers)||workers<1||workers>16||!Number.isInteger(seconds)||seconds<1||seconds>30||!Number.isInteger(concurrency)||concurrency<workers||concurrency>4096||!rates.length||rates.length>5||new Set(rates).size!==rates.length||rates.some(rate=>!Number.isInteger(rate)||rate<100||rate<workers||rate>100000))throw new Error('Cluster calibration limits exceeded');
+ if(!Number.isInteger(workers)||workers<1||workers>64||!Number.isInteger(seconds)||seconds<1||seconds>3600||!Number.isInteger(concurrency)||concurrency<workers||concurrency>20000||!rates.length||rates.length>5||new Set(rates).size!==rates.length||rates.some(rate=>!Number.isInteger(rate)||rate<100||rate<workers||rate>100000))throw new Error('Cluster calibration limits exceeded');
  return {workers,seconds,concurrency,rates};
 }
 export function calibrationStageBudget(options,rate){return {concurrency:splitBudget(options.concurrency,options.workers),rates:splitBudget(rate,options.workers)};}
 export function clusterRequest(endpoint,dataBases,index){
  const spec=calibrationRequests().find(spec=>spec.name===endpoint);
- if(!spec||!Number.isInteger(index)||index<0||index>15||!Array.isArray(dataBases)||!dataBases.length||dataBases.length>16)throw new Error('Invalid synthetic request assignment');
+ if(!spec||!Number.isInteger(index)||index<0||index>63||!Array.isArray(dataBases)||!dataBases.length||dataBases.length>16)throw new Error('Invalid synthetic request assignment');
  const origins=dataBases.map(loopbackOrigin);
  return {...spec,materialize:sequence=>({path:new URL(spec.path,origins[(sequence+index)%origins.length]).href})};
 }
 export function aggregateCalibrationWorkers(results,{workers,seconds,concurrency,rate,endpoint,startAtMs,maxStartLagMs=50,observedAtMs=Date.now()}){
  const budget=calibrationStageBudget({workers,concurrency},rate),ordered=new Map();
- if(!Array.isArray(results)||results.length!==workers||!Number.isInteger(seconds)||seconds<1||seconds>30||!Number.isSafeInteger(observedAtMs))throw new Error('Incomplete calibration worker results');
+ if(!Array.isArray(results)||results.length!==workers||!Number.isInteger(seconds)||seconds<1||seconds>3600||!Number.isSafeInteger(observedAtMs))throw new Error('Incomplete calibration worker results');
  for(const result of results){if(!Number.isInteger(result?.index)||ordered.has(result.index))throw new Error('Duplicate calibration worker');ordered.set(result.index,result);}
  const samples=Array.from({length:workers},(_,index)=>{
   const result=ordered.get(index),sample=result?.measurement,window=sample?.window,raw=sample?.rawMeasurements;

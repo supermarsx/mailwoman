@@ -10,7 +10,7 @@ The server provides a JSON response with 4,096 padding characters and a 65,536-b
 binary response. The client uses the same `measure()` scheduler, fetch pipeline,
 bounded response buffering and content validators as application campaigns.
 Each endpoint receives up to five offered-rate phases, with 100–80,000 offered
-requests/second, 0.1–30 seconds per phase, and at most 1,024 outstanding requests.
+requests/second, 0.1–3,600 seconds per phase, and at most 20,000 outstanding requests.
 Defaults are 10k/20k/40k/60k/80k, three seconds per phase, and 256 outstanding.
 Longer phases should be used for evidence beyond an initial smoke check.
 

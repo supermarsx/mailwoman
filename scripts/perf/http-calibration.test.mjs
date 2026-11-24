@@ -12,7 +12,7 @@ test('calibration accepts only bounded private owned-loopback handoffs',()=>{
 test('calibration phases, rates and outstanding requests stay bounded',()=>{
  const base={handoff:'private.json',output:'report.json'};
  assert.deepEqual(calibrationOptions(base),{seconds:3,concurrency:256,rates:[10000,20000,40000,60000,80000]});
- for(const patch of [{seconds:31},{seconds:0},{rates:'0'},{rates:'100001'},{rates:'100,100'},{rates:'100,200,300,400,500,600'},{concurrency:1025},{base:'http://arbitrary.test'}])assert.throws(()=>calibrationOptions({...base,...patch}));
+ for(const patch of [{seconds:3601},{seconds:0},{rates:'0'},{rates:'100001'},{rates:'100,100'},{rates:'100,200,300,400,500,600'},{concurrency:20001},{base:'http://arbitrary.test'}])assert.throws(()=>calibrationOptions({...base,...patch}));
 });
 test('synthetic validators require exact JSON contents and binary bytes',()=>{
  const [json,binary]=calibrationRequests();
