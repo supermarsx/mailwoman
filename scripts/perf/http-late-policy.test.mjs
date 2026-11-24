@@ -16,10 +16,11 @@ async function blocked(policy){
 }
 test('drop policy discards slots over 100 ms late, dispatch policy dispatches every slot in the window',async()=>{
  const drop=await blocked('drop'),dispatch=await blocked('dispatch');
- assert.equal(drop.latePolicy,'drop');assert.ok(drop.droppedScheduler>100,`dropped ${drop.droppedScheduler}`);
+ assert.equal(drop.latePolicy,'drop');
  assert.equal(dispatch.latePolicy,'dispatch');assert.equal(dispatch.droppedCapacity,0);
  // Only slots still unissued when the window closes (timer overshoot at the very end) can be missing; no late slot is discarded.
- assert.ok(dispatch.droppedScheduler<=50,`unissued ${dispatch.droppedScheduler}`);assert.equal(dispatch.requests+dispatch.droppedScheduler,1000);assert.equal(dispatch.offered,1000);assert.ok(dispatch.lateSlotsDispatched>0);
+ assert.equal(dispatch.droppedLateSlots,0);assert.ok(drop.droppedLateSlots>100,`late drops ${drop.droppedLateSlots}`);
+ assert.equal(dispatch.unissuedAtWindowEnd,dispatch.droppedScheduler);assert.equal(drop.droppedLateSlots+drop.unissuedAtWindowEnd,drop.droppedScheduler);assert.equal(dispatch.requests+dispatch.droppedScheduler,1000);assert.equal(dispatch.offered,1000);assert.ok(dispatch.lateSlotsDispatched>0);
  assert.equal(dispatch.latencyBasis,'scheduled-slot');assert.equal(drop.latencyBasis,'send');
  // The queue the drop policy hides shows up in latency from the slot and in the lag distribution.
  assert.ok(dispatch.latencyMs.max>=100,`max ${dispatch.latencyMs.max}`);assert.ok(dispatch.schedulingLagMs.max>=100);
@@ -71,4 +72,12 @@ test('multi-worker merge keeps per-worker scheduling lag, flags a lagging worker
 test('a series that disagrees with the window count or has the wrong length is rejected',()=>{
  assert.throws(()=>aggregateWorkers({results:[worker(0,0,[25,26]),worker(1,0)],partitions:parts,stage,startAtMs}),/series/);
  assert.throws(()=>aggregateWorkers({results:[worker(0,0,[50]),worker(1,0)],partitions:parts,stage,startAtMs}),/series/);
+});
+
+test('the Markdown report names generator-limited stages and stays unchanged otherwise',async()=>{
+ const {markdownReport}=await import('./http-load.mjs');
+ const stage={phase:'offered-rate',endpoint:'mixed',concurrency:4,arrivalRate:40000,requests:1,accepted:1,requestsPerSecond:1,acceptedRequestsPerSecond:1,latencyMs:{p50:1,p95:1,p99:1},errors:0,throttled:0,timeouts:0};
+ const base={target:'t',scenario:'s',runtime:'r',model:'m',stages:[stage]};
+ assert.ok(!markdownReport(base).includes('Generator-limited'));
+ assert.match(markdownReport({...base,stages:[{...stage,generatorLimited:true}]}),/Generator-limited stages .*offered-rate \/ mixed \/ 40000/);
 });
