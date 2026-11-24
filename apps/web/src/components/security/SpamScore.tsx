@@ -35,7 +35,7 @@ export function SpamScore(props: { url: string; sent?: boolean; onHeaders?: (raw
   // The header is always fetched (the notice bars wait for it); `mail.badge.spam` only decides which chips show.
   const ready=()=>scores.state==='ready'?(scores.latest??[]).filter(score=>classificationBadgeVisible('spam',props.sent===true,spamBand(score)!=='ham')):[];
   return <Show when={classificationBadgeMode('spam',props.sent===true)!=='never'}><div class="spam-score" role="group" aria-label={t('mail-spam-score')}>
-    <Show when={ready()?.length} fallback={<Show when={classificationBadgeMode('spam',props.sent===true)==='always'}><span class="spam-score__empty">{t(scores.loading?'mail-spam-score-loading':'mail-spam-score-unavailable')}</span></Show>}>
+    <Show when={ready()?.length} fallback={<Show when={classificationBadgeMode('spam',props.sent===true)==='always'}><span class="mw-badge spam-score__chip spam-score__empty"><Icon name="shield"/><span class="mw-badge__label">{t(scores.loading?'mail-spam-score-loading':'mail-spam-score-unavailable')}</span></span></Show>}>
       {(props.menu??(chips=>chips))(<For each={ready()}>{score=><SpamScoreChip score={score}/>}</For>)}
     </Show>
   </div></Show>;

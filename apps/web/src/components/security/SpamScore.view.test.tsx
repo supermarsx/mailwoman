@@ -50,7 +50,8 @@ it('keeps the breakdown out of the reader until the chip opens it in the shared 
 it('does not invent a zero score when headers cannot be retrieved',async()=>{
   vi.mocked(fetchMailHeaders).mockRejectedValue(new Error('offline'));
   render(()=><SpamScore url="/mail/raw"/>);
-  expect(await screen.findByText('Spam score unavailable')).toBeVisible();
+  const unavailable=await screen.findByText('Spam score unavailable');
+  expect(unavailable).toBeVisible();expect(unavailable.closest('.mw-badge')).not.toBeNull();
   expect(screen.queryByText('0 / 5')).toBeNull();
 });
 
