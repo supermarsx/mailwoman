@@ -1,6 +1,10 @@
 import {apiFetch,type MailboxTarget} from './http.ts';
 import {preferenceAccount,preferenceAccountIsCurrent} from './accountPreferenceLifecycle.ts';
 import {createLinkedAccountsApi} from './linkedAccounts.ts';
+import {activeLinkedMailbox} from './linkedMailboxSession.ts';
+import {recentNotifications} from '../screens/Settings/service.ts';
+/** How old the shell's read of the active mailbox's notification policy may be to stand in (t52w). */
+const RECENT_NOTIFICATIONS_MS=10_000;
 import {withBase} from './basePath.ts';
 import {CAP_CORE,CAP_MAIL,type Email,type JmapRequest,type JmapResponse,type Mailbox} from './jmap-types.ts';
 import {listHeaderProperties,responseFor} from './jmap.ts';
@@ -175,6 +179,16 @@ export async function transferWorkspaceMessage(input:{
 /** Read an inactive mailbox's policy without changing the active mailbox's
  * runtime notification preferences. */
 export async function readWorkspaceNotifications(target:WorkspaceMailbox):Promise<import('../screens/Settings/types.ts').NotificationConfig>{
+ // t52w: the active mailbox's policy was usually just read by the shell (App.tsx);
+ // use that read instead of asking again.
+ const account=preferenceAccount();
+ if(target.current&&account&&preferenceAccountIsCurrent(target.owner)&&account.id===target.accountId&&account.storageAuthority===target.storageAuthority
+   &&(activeLinkedMailbox()?.linkId??null)===target.linkId){
+  const recent=recentNotifications(account,target.linkId,RECENT_NOTIFICATIONS_MS);
+  // A failed shared read falls through to this mailbox's own request below.
+  const config=recent?await recent.catch(()=>undefined):undefined;
+  if(config){if(!preferenceAccountIsCurrent(target.owner))throw new DOMException('Mailbox changed','AbortError');return config;}
+ }
  const response=await apiFetch(withBase('/api/account/notifications'),{mailboxTarget:target,credentials:'same-origin',cache:'no-store',redirect:'error',pace:'background'});
  const config=await json<import('../screens/Settings/types.ts').NotificationConfig>(response);
  if(!preferenceAccountIsCurrent(target.owner))throw new DOMException('Mailbox changed','AbortError');

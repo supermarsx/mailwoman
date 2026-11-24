@@ -1,6 +1,8 @@
 import {configureNotificationRuntime} from '../../api/notificationRuntime.ts';
 import { storageAuthorityHeaders } from '../../api/storageAuthority.ts';
 import { preferenceAccount, preferenceAccountIsCurrent, observePreferenceAccount } from '../../api/accountPreferenceLifecycle.ts';
+import { activeLinkedMailbox } from '../../api/linkedMailboxSession.ts';
+import { swrCachesEnabled } from '../../api/swrCache.ts';
 // Settings-surface server I/O (t16 e15). One service over an injectable `Fetcher`
 // so every component unit-tests without a live server. Same-origin cookie auth,
 // byte-identical to the passwd/apikeys services (SPEC §7.4/§19, W12/W13/W15).
@@ -121,6 +123,26 @@ function postJson(fetcher: Fetcher, url: string, body?: unknown, recovery?: Reco
     init.body = JSON.stringify(body);
   }
   return fetcher(url, init);
+}
+
+// t52w: the last notification policy read for the active mailbox (see `notifications`).
+let notificationsRead:{key:string;inflight?:Promise<NotificationConfig>;value?:NotificationConfig;at:number}|undefined;
+function notificationsKey(account:ReturnType<typeof preferenceAccount>,linkId:string|null):string|null {
+  return account?JSON.stringify([account.id,account.generation,account.storageAuthority??null,linkId]):null;
+}
+observePreferenceAccount(()=>{notificationsRead=undefined;});
+/**
+ * The active mailbox's notification policy when a read of it is in flight or
+ * answered less than `maxAgeMs` ago, else `undefined`. For a second boot-time
+ * reader of the same mailbox (`readWorkspaceNotifications`), so one page load
+ * asks once; `account` and `linkId` must be the active mailbox's.
+ */
+export function recentNotifications(account:ReturnType<typeof preferenceAccount>,linkId:string|null,maxAgeMs:number):Promise<NotificationConfig>|undefined {
+  const key=notificationsKey(account,linkId);
+  if(key===null||notificationsRead?.key!==key||key!==notificationsKey(preferenceAccount(),activeLinkedMailbox()?.linkId??null))return undefined;
+  if(notificationsRead.inflight)return notificationsRead.inflight.then(value=>structuredClone(value));
+  if(notificationsRead.value!==undefined&&Date.now()-notificationsRead.at<maxAgeMs)return Promise.resolve(structuredClone(notificationsRead.value));
+  return undefined;
 }
 
 export class SettingsService {
@@ -319,12 +341,24 @@ export class SettingsService {
 
   async notifications(): Promise<NotificationConfig> {
     const owner=preferenceAccount();
-    const value=await jsonOrThrow<NotificationConfig>(await this.personalRecordFetch.bind(this)(withBase('/api/account/notifications')));
-    if(owner&&preferenceAccountIsCurrent(owner))configureNotificationRuntime(value);
-    return value;
+    const read=async():Promise<NotificationConfig>=>{
+      const value=await jsonOrThrow<NotificationConfig>(await this.personalRecordFetch.bind(this)(withBase('/api/account/notifications')));
+      if(owner&&preferenceAccountIsCurrent(owner))configureNotificationRuntime(value);
+      return value;
+    };
+    // t52w: every call still asks the server (a pushed change must be read anew);
+    // the read is left for `recentNotifications`. Off with an injected fetcher and
+    // wherever the module caches are off (the unit-test runner).
+    const key=this.fetcher===defaultFetcher&&swrCachesEnabled()?notificationsKey(owner,activeLinkedMailbox()?.linkId??null):null;
+    if(key===null)return read();
+    const entry:{key:string;inflight?:Promise<NotificationConfig>;value?:NotificationConfig;at:number}={key,at:0};
+    entry.inflight=read().then(value=>{if(notificationsRead===entry){entry.value=value;entry.at=Date.now();}return value;}).finally(()=>{delete entry.inflight;});
+    notificationsRead=entry;
+    return entry.inflight;
   }
 
   async saveNotifications(config: NotificationConfig): Promise<void> {
+    notificationsRead=undefined;
     await okOrThrow(
       await this.personalRecordFetch.bind(this)(withBase('/api/account/notifications'), {
         method: 'PUT',
