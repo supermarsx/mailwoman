@@ -298,3 +298,4 @@ ce-copied = Copied
 ce-send = Send report
 ce-send-retry = Retry sending
 ce-report-help = Administrators can find sent reports in Observability → Client errors using this reference.
+common-signed-out = Signed out successfully

@@ -384,7 +384,7 @@ export interface MailSlice {
 
   init(): Promise<void>;
   login(input: LoginInput): Promise<void>;
-  logout(): Promise<void>;
+  logout(reason?: 'user' | 'expired'): Promise<void>;
   selectMailbox(id: Id): Promise<void>;
   prefetchMailbox(id: Id, trigger: PrefetchTrigger): () => void;
   prefetchMessage(id: Id, trigger: PrefetchTrigger): () => void;

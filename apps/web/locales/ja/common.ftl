@@ -265,3 +265,4 @@ ce-status-reported = 報告済み
 ce-send = レポートを送信
 ce-send-retry = 送信を再試行
 ce-report-help = 管理者はこの参照番号を使い、「オブザーバビリティ → クライアントエラー」で送信済みレポートを検索できます。
+common-signed-out = ログアウトしました

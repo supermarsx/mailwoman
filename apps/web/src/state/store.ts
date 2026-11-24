@@ -264,6 +264,13 @@ export function createAppState(client: Client, deps: AppStateDeps = {}): AppStat
     ...tags,
     ...outbox,
     ...realtime,
+    async logout(reason: 'user' | 'expired' = 'user') {
+      // Stop monitoring before revoking the session: pending requests and push
+      // disconnects during an intentional sign-out are not session expiry.
+      incoming.stop();familyIncoming.stop();realtime.stopRealtime();
+      await mail.logout();
+      if(reason==='user')core.showToast('success',t('common-signed-out'));
+    },
     startRealtime(){incoming.start();familyIncoming.start();realtime.startRealtime();},
     stopRealtime(){incoming.stop();familyIncoming.stop();realtime.stopRealtime();},
     onIncomingMail(handler){incomingListeners.add(handler);return()=>incomingListeners.delete(handler);},

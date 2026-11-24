@@ -1,3 +1,4 @@
+import {toasts,resetToasts} from '../components/toast/index.ts';
 import {createRoot} from 'solid-js';
 import {afterEach,expect,it,vi} from 'vitest';
 import {createAppState} from './store.ts';
@@ -21,4 +22,21 @@ it('settles interrupted background Outbox refreshes for primary and linked pushe
   expect(app.outbox()).toEqual([]);expect(app.outboxLoading()).toBe(false);
   await expect(app.refreshOutbox()).rejects.toBe(failure);
  }finally{dispose();}});
+});
+
+it.each(['user','expired','failed'] as const)('stops session monitoring before %s sign-out and only confirms successful user sign-out',async reason=>{
+ const client=makeClient();let expired=()=>{};
+ client.onUnauthenticated=vi.fn(listener=>{expired=listener;return()=>{};});
+ await createRoot(async dispose=>{try{
+  resetToasts();const app=createAppState(client);await app.login({username:'me@example.org',password:'p'});
+  app.startRealtime();expect(app.connectionState()).not.toBe('idle');
+  vi.mocked(client.logout).mockImplementation(async()=>{
+   expect(app.connectionState()).toBe('idle');expired();expect(app.connectionState()).toBe('idle');
+   if(reason==='failed')throw new Error('server unavailable');
+  });
+  if(reason==='failed')await expect(app.logout()).rejects.toThrow('server unavailable');
+  else await app.logout(reason);
+  expect(app.me()).toBeNull();expired();expect(app.connectionState()).toBe('idle');
+  expect(toasts().some(row=>row.message==='Signed out successfully')).toBe(reason==='user');
+ }finally{dispose();resetToasts();}});
 });

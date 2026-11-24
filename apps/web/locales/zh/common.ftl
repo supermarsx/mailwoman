@@ -279,3 +279,4 @@ ce-status-reported = 已报道
 ce-send = 发送报告
 ce-send-retry = 重试发送
 ce-report-help = 管理员可使用此参考编号，在“可观测性 → 客户端错误”中查找已发送的报告。
+common-signed-out = 已成功退出登录

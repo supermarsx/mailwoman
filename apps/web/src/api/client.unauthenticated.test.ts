@@ -83,3 +83,8 @@ describe('client — onUnauthenticated', () => {
     expect(listener).not.toHaveBeenCalled();
   });
 });
+
+it('does not report logout success when the server refuses the request',async()=>{
+ stub(()=>json(503,{error:'temporarily unavailable'}));
+ await expect(createClient('').logout()).rejects.toMatchObject({status:503});
+});

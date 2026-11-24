@@ -270,3 +270,4 @@ ce-status-reported = Signalé
 ce-send = Envoyer le rapport
 ce-send-retry = Réessayer l’envoi
 ce-report-help = Les administrateurs peuvent retrouver les rapports envoyés dans Observabilité → Erreurs du client à l’aide de cette référence.
+common-signed-out = Déconnexion réussie

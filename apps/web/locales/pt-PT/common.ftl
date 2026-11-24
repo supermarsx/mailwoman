@@ -285,3 +285,4 @@ ce-copied = Copiado
 ce-send = Enviar relatório
 ce-send-retry = Tentar enviar novamente
 ce-report-help = Os administradores podem encontrar os relatórios enviados em Observabilidade → Erros do cliente através desta referência.
+common-signed-out = Sessão terminada com sucesso

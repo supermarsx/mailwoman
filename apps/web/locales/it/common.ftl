@@ -266,3 +266,4 @@ ce-status-reported = Segnalato
 ce-send = Invia rapporto
 ce-send-retry = Riprova invio
 ce-report-help = Gli amministratori possono trovare i rapporti inviati in Osservabilità → Errori del client usando questo riferimento.
+common-signed-out = Disconnessione riuscita

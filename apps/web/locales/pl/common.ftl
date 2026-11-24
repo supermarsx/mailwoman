@@ -285,3 +285,4 @@ ce-status-reported = Zgłoszono
 ce-send = Wyślij raport
 ce-send-retry = Ponów wysyłanie
 ce-report-help = Administratorzy mogą znaleźć wysłane raporty w sekcji Obserwowalność → Błędy klienta, używając tego identyfikatora.
+common-signed-out = Wylogowano pomyślnie

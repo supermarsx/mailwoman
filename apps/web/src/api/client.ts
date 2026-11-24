@@ -446,7 +446,8 @@ export function createClient(base: ClientBase = basePath(), auth?: ClientAuth): 
     logout() {
       return guarded(async () => {
         try {
-          await req(`/api/logout`, { method: 'POST' });
+          const res = await req(`/api/logout`, { method: 'POST' });
+          if (!res.ok) await jsonOrThrow<void>(res);
         } finally {
           await auth?.clearToken?.();
         }

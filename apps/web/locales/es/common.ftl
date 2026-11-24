@@ -270,3 +270,4 @@ ce-status-reported = Reportado
 ce-send = Enviar informe
 ce-send-retry = Reintentar envío
 ce-report-help = Los administradores pueden encontrar los informes enviados en Observabilidad → Errores del cliente mediante esta referencia.
+common-signed-out = Sesión cerrada correctamente

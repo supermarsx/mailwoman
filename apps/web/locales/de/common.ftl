@@ -270,3 +270,4 @@ ce-status-reported = Gemeldet
 ce-send = Bericht senden
 ce-send-retry = Erneut senden
 ce-report-help = Administratoren finden gesendete Berichte unter Beobachtbarkeit → Clientfehler anhand dieser Referenz.
+common-signed-out = Erfolgreich abgemeldet

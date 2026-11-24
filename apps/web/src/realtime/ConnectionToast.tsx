@@ -60,7 +60,7 @@ export function ConnectionToast(): JSX.Element {
   function signInAgain(): void {
     // The server may refuse the logout request of a session it already ended;
     // `logout()` clears the local session either way, which is the point here.
-    void app?.logout().catch(() => undefined);
+    void app?.logout('expired').catch(() => undefined);
   }
   const state = rt.connection.state;
   const unstable=()=>rt.connection.unstable()||actionConnectionUnstable();

@@ -280,3 +280,4 @@ ce-status-reported = Gerapporteerd
 ce-send = Rapport verzenden
 ce-send-retry = Opnieuw verzenden
 ce-report-help = Beheerders kunnen verzonden rapporten met deze referentie vinden onder Waarneembaarheid → Clientfouten.
+common-signed-out = Succesvol afgemeld

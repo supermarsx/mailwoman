@@ -115,7 +115,7 @@ describe('ConnectionToast', () => {
     // Reconnecting cannot revive an ended session, so it is not offered.
     expect(screen.queryByRole('button', { name: 'Reconnect' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Sign in again' }));
-    expect(logout).toHaveBeenCalledTimes(1);
+    expect(logout).toHaveBeenCalledWith('expired');
     expect(reconnect).not.toHaveBeenCalled();
   });
 
