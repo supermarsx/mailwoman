@@ -17,3 +17,12 @@ it('a restored session read that meets an account activation mid-handshake is an
  expect(response.status).toBe(200);expect(await response.json()).toEqual({brandName:'Mail'});
  expect(http).toHaveBeenCalledTimes(1);expect(Socket.all.every(socket=>socket.sent.length===0)).toBe(true);
 });
+it('a public read in flight when init() reinstalls the sign-in context still answers; a mailbox read is dropped',async()=>{
+ const {installLinkedMailbox}=await import('./linkedMailboxSession.ts');
+ let release!:()=>void;const gate=new Promise<void>(resolve=>{release=resolve;});
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>{await gate;return Response.json({url});}));
+ const config=apiFetch('/api/public-config',{cache:'no-store'});const settings=apiFetch('/api/settings');
+ await Promise.resolve();installLinkedMailbox(null);release();
+ expect((await config).status).toBe(200);
+ await expect(settings).rejects.toMatchObject({name:'AbortError'});
+});

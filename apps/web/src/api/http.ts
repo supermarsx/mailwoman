@@ -358,6 +358,11 @@ export async function apiFetch(input: string, options?: ApiRequestInit): Promise
     if(target.origin!==scopedOrigin||admin||!allowed||mailboxContext!==undefined||!mailboxTarget.accountId||!mailboxTarget.storageAuthority)throw new LinkedContextUnsupportedError();
   }
   let selected:string|null=null;
+  // t52w: a public route (public-config, the sign-in challenge…) answers every
+  // visitor alike and never carries a link selector, so a linked-mailbox change
+  // while it is in flight (init() reinstalls the sign-in context at boot) does
+  // not make its answer belong to someone else: it is not aborted for that.
+  const publicRoute=ownServer&&!admin&&linkedRoute(routePath)==='public';
   if(ownServer&&!admin){
     const scope=linkedRoute(routePath);
     if(mailboxContext!==undefined&&routePath!=='/api/me'&&routePath!=='/jmap/session'&&routePath!=='/.well-known/jmap')throw new LinkedContextUnsupportedError();
@@ -381,7 +386,7 @@ export async function apiFetch(input: string, options?: ApiRequestInit): Promise
   const account=preferenceAccount();
   const expectedAccount=new Headers(given?.headers).get('X-Mailwoman-Account');
   const assertAuthority=():void=>{
-    if(given?.signal?.aborted||(!admin&&ownServer&&contextEpoch!==linkedMailboxEpoch())||(admin&&adminEpoch!==adminSessionGeneration())||(mailboxTarget&&!preferenceAccountIsCurrent(mailboxTarget.owner))||(!mailboxTarget&&expectedAccount!==null&&account!==null&&(!preferenceAccountIsCurrent(account)||account.id!==expectedAccount)))throw new DOMException('Authentication changed before dispatch','AbortError');
+    if(given?.signal?.aborted||(!admin&&ownServer&&!publicRoute&&contextEpoch!==linkedMailboxEpoch())||(admin&&adminEpoch!==adminSessionGeneration())||(mailboxTarget&&!preferenceAccountIsCurrent(mailboxTarget.owner))||(!mailboxTarget&&expectedAccount!==null&&account!==null&&(!preferenceAccountIsCurrent(account)||account.id!==expectedAccount)))throw new DOMException('Authentication changed before dispatch','AbortError');
   };
   const originalNative = native;
   const originalToken = originalNative === null ? null : await originalNative.token();
