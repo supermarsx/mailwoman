@@ -7,7 +7,7 @@ import type {JmapRequest,JmapResponse,JmapSession} from '../api/jmap-types.ts';
 import {activeLinkedMailbox,primaryMailboxAuthority} from '../api/linkedMailboxSession.ts';
 import {preferenceAccount} from '../api/accountPreferenceLifecycle.ts';
 import {basePath} from '../api/basePath.ts';
-import {createPushClient,type PushClientOptions,type PushClientImpl,type PushStatus} from '../realtime/pushClient.ts';
+import {createPushClient,type PushClientOptions,type PushClientImpl,type PushStatus,type PushStatusDetail} from '../realtime/pushClient.ts';
 import type {StateChange,MailboxChange,PushTransport} from '../contracts/push.ts';
 import type {NetworkContext,NetworkRequest,NetworkReply} from './networkCore.ts';
 
@@ -112,7 +112,7 @@ export function createSharedPushClient(options:PushClientOptions):PushClientImpl
  channel.subscribe((event,value)=>{
   if(!active)return;
   if(event==='coordinator-reconnected'){options.onStatus?.('reconnecting','offline');void start('push.start');}
-  else if(event==='status'){const status=value as {status:PushStatus;transport:PushTransport};transport=status.transport;options.onStatus?.(status.status,transport);}
+  else if(event==='status'){const status=value as {status:PushStatus;transport:PushTransport;detail?:PushStatusDetail};transport=status.transport;if(status.detail)options.onStatus?.(status.status,transport,status.detail);else options.onStatus?.(status.status,transport);}
   else if(event==='invalidate'){const owner=preferenceAccount();if(owner){const state=`local:${Date.now()}`;for(const listener of states)listener({'@type':'StateChange',changed:{[owner.id]:{Email:state,Mailbox:state,Thread:state,EmailSubmission:state,Calendar:state,CalendarEvent:state,Task:state,Note:state,AddressBook:state,ContactCard:state,ContactGroup:state}}});}}
   else if(event==='change')for(const listener of states)listener(value as StateChange);
   else if(event==='mailbox')for(const listener of mailboxes)listener(value as MailboxChange);

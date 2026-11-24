@@ -57,6 +57,26 @@ export type PushTransport = 'ws' | 'sse' | 'poll' | 'offline';
 /** Heartbeat/keepalive interval and reconnect policy (plan §2.2). */
 export const HEARTBEAT_MS = 30_000;
 
+/**
+ * Reconnect policy (t35-e4). Delays use full jitter: uniform in [0, ceiling],
+ * ceiling = min(cap, base * 2^(consecutive failures - 1)). Close 1012 (server
+ * restarting) spreads the first retry over RESTART_SPREAD_MS; close 1013 (try
+ * again later) waits at least that long. A connection that stayed open for
+ * RECONNECT_STABLE_MS starts the count again.
+ */
+export const RECONNECT_BASE_MS = 1_000;
+export const RECONNECT_CAP_MS = 60_000;
+export const RESTART_SPREAD_MS = 15_000;
+export const RECONNECT_STABLE_MS = 30_000;
+/** Largest failure count kept; 2^(n-1) * base is far above the cap by then. */
+export const RECONNECT_MAX_FAILURES = 16;
+/** The session check after a drop runs at most this often. */
+export const SESSION_CHECK_MIN_MS = 30_000;
+/** A catch-up that follows a restart or repeated failures starts within this window. */
+export const CATCHUP_SPREAD_MS = 2_000;
+/** Poll-rung interval jitter, as a fraction either side (0.2 = plus or minus 20 %). */
+export const POLL_JITTER = 0.2;
+
 /** The fallback ladder when a transport fails: WS → SSE → poll. */
 export const TRANSPORT_LADDER: readonly PushTransport[] = ['ws', 'sse', 'poll'];
 

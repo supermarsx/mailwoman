@@ -102,18 +102,24 @@ describe('push client — session ended by the server', () => {
     h.ws[0]!.open();
     h.ws[0]!.closeWith(1006);
     await vi.advanceTimersByTimeAsync(0);
+    expect(h.checkSession).not.toHaveBeenCalled(); // one drop is not yet a reason to ask
+    await vi.advanceTimersByTimeAsync(500);
+    h.ws[1]!.closeWith(1006); // the reconnect is refused too
+    await vi.advanceTimersByTimeAsync(0);
     expect(h.checkSession).toHaveBeenCalledTimes(1);
     expect(h.statuses.at(-1)).toBe('unauthorized');
-    expect(await attemptsOverAMinute(h)).toBe(1);
+    expect(await attemptsOverAMinute(h)).toBe(2);
   });
 
   it('stops when the first connection attempt is refused and the session is gone', async () => {
     const h = harness(async () => 'unauthorized');
     h.client.connect();
     h.ws[0]!.closeWith(1006); // handshake refused (the browser hides the 401)
+    await vi.advanceTimersByTimeAsync(500);
+    h.ws[1]!.closeWith(1006); // refused again: now the session is asked about
     await vi.advanceTimersByTimeAsync(0);
     expect(h.statuses.at(-1)).toBe('unauthorized');
-    expect(await attemptsOverAMinute(h)).toBe(1);
+    expect(await attemptsOverAMinute(h)).toBe(2);
   });
 
   it('keeps reconnecting after a plain drop while the session is valid', async () => {
@@ -177,6 +183,8 @@ describe('push client — session ended by the server', () => {
       });
       client.connect();
       ws[0]!.closeWith(1006);
+      await vi.advanceTimersByTimeAsync(60_000);
+      ws[1]!.closeWith(1006);
       await vi.advanceTimersByTimeAsync(0);
       expect(fetchMock).toHaveBeenCalledTimes(1);
       const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];

@@ -20,6 +20,10 @@
 
 import {
   HEARTBEAT_MS,
+  POLL_JITTER,
+  RECONNECT_MAX_FAILURES,
+  RECONNECT_STABLE_MS,
+  SESSION_CHECK_MIN_MS,
   TRANSPORT_LADDER,
   type MailboxChange,
   type PushClient,
@@ -27,6 +31,7 @@ import {
   type StateChange,
 } from '../contracts/push.ts';
 import { withBase } from '../api/basePath.ts';
+import { closeKind, jittered, reconnectDelay, type BackoffConfig, type CloseKind } from './reconnectPolicy.ts';
 
 /** Lifecycle signal the connection model maps to a `ConnectionState`. */
 export type PushStatus =
@@ -42,6 +47,12 @@ export type SessionCheck = 'ok' | 'unauthorized' | 'unknown';
 
 /** WS close code the server sends when its re-check finds the session ended. */
 export const WS_CLOSE_SESSION_ENDED = 1008;
+
+/** Extra facts about a status; present on 'open'. */
+export interface PushStatusDetail {
+  /** The drop was a restart/busy close or followed two or more failures: stagger the catch-up read. */
+  spreadCatchUp: boolean;
+}
 
 /** Minimal structural view of the DOM `WebSocket` this client relies on. */
 export interface WebSocketLike {
@@ -84,11 +95,26 @@ export interface PushClientOptions {
   heartbeatMs?: number;
   /** Maximum time for a WS/SSE opening handshake (default 10 s). */
   connectTimeoutMs?: number;
-  /** Reconnect backoff schedule (ms); the last value repeats. */
+  /**
+   * Fixed reconnect schedule (ms), the last value repeating, with no jitter. For
+   * tests; when omitted the client uses full-jitter exponential backoff
+   * (`backoffBaseMs`, `backoffCapMs`, `restartSpreadMs`).
+   */
   backoff?: number[];
+  /** Full-jitter base (default 1 s) and cap (default 60 s). */
+  backoffBaseMs?: number;
+  backoffCapMs?: number;
+  /** First retry after close 1012 is uniform in [0, this] (default 15 s). */
+  restartSpreadMs?: number;
+  /** A connection open this long counts as stable and resets the failure count (default 30 s). */
+  stableAfterMs?: number;
+  /** Minimum gap between session checks (default 30 s). */
+  sessionCheckMinMs?: number;
+  /** Random source in [0, 1), injectable for tests. */
+  random?: () => number;
   /** Attempts on one rung before falling to the next (default 2). */
   maxAttemptsPerRung?: number;
-  /** Delay before trying the next rung down (default 100 ms). */
+  /** Delay before trying the next rung down; fixed when given, else the jittered backoff (100 ms with a fixed `backoff`). */
   rungDelayMs?: number;
   /** Initial wait on 'poll' before retrying the ladder (default 30 s, then exponential backoff). */
   upgradeIntervalMs?: number;
@@ -97,7 +123,7 @@ export interface PushClientOptions {
   /** Wall clock (default `Date.now`), injectable for fake-timer tests. */
   now?: () => number;
   /** Lifecycle callback for the connection model / toast. */
-  onStatus?: (status: PushStatus, transport: PushTransport) => void;
+  onStatus?: (status: PushStatus, transport: PushTransport, detail?: PushStatusDetail) => void;
   /**
    * Asks the server whether the session still exists, after a drop. Defaults to
    * a GET of the JMAP session resource (`/jmap/session`) with the cookie or the
@@ -156,9 +182,16 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
     opts.EventSourceImpl ?? (globalThis.EventSource as unknown as EventSourceCtor | undefined);
   const heartbeatMs = opts.heartbeatMs ?? HEARTBEAT_MS;
   const connectTimeoutMs = opts.connectTimeoutMs ?? 10_000;
-  const backoff = opts.backoff ?? [500, 1000, 2000, 4000, 8000];
   const maxAttemptsPerRung = opts.maxAttemptsPerRung ?? 2;
   const rungDelayMs = opts.rungDelayMs ?? 100;
+  const random = opts.random ?? Math.random;
+  const backoffConfig: BackoffConfig = {
+    ...(opts.backoffBaseMs !== undefined ? { baseMs: opts.backoffBaseMs } : {}),
+    ...(opts.backoffCapMs !== undefined ? { capMs: opts.backoffCapMs } : {}),
+    ...(opts.restartSpreadMs !== undefined ? { restartSpreadMs: opts.restartSpreadMs } : {}),
+  };
+  const stableAfterMs = opts.stableAfterMs ?? RECONNECT_STABLE_MS;
+  const sessionCheckMinMs = opts.sessionCheckMinMs ?? SESSION_CHECK_MIN_MS;
   const upgradeIntervalMs = opts.upgradeIntervalMs ?? 30_000;
   const maxAutomaticUpgrades = Math.max(0, Math.min(10, Math.floor(opts.maxAutomaticUpgrades ?? 3)));
   const nowFn = opts.now ?? Date.now;
@@ -171,6 +204,16 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
   let ladderIndex = 0;
   let attemptsOnRung = 0;
   let automaticUpgrades = 0;
+  // Consecutive failed attempts across every rung; the backoff exponent. Bounded
+  // by RECONNECT_MAX_FAILURES, reset by a stable connection or an explicit connect.
+  let failures = 0;
+  // Kind of the latest drop; 'busy' stays until a stream opens. `restarted`
+  // records a restart/busy close since the last open (it staggers the catch-up).
+  let lastCloseKind: CloseKind = 'drop';
+  let restarted = false;
+  let openedAt: number | undefined;
+  let lastCheckAt = Number.NEGATIVE_INFINITY;
+  let checking = false;
   let closed = true;
   let lastActivity = 0;
   let hb: ReturnType<typeof setInterval> | undefined;
@@ -181,8 +224,18 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
   // answers after any of those is ignored.
   let generation = 0;
 
-  function status(s: PushStatus): void {
-    opts.onStatus?.(s, transport);
+  function status(s: PushStatus, detail?: PushStatusDetail): void {
+    if (detail === undefined) opts.onStatus?.(s, transport);
+    else opts.onStatus?.(s, transport, detail);
+  }
+
+  /** The stream opened: report it, naming whether the catch-up should be staggered. */
+  function reportOpen(): void {
+    const spreadCatchUp = failures >= 2 || restarted;
+    restarted = false;
+    lastCloseKind = 'drop';
+    openedAt = nowFn();
+    status('open', { spreadCatchUp });
   }
 
   function emit(c: StateChange): void {
@@ -274,12 +327,26 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
     }
   }
 
-  function backoffFor(attempt: number): number {
-    const i = Math.min(Math.max(attempt - 1, 0), backoff.length - 1);
-    const base = backoff[i] ?? 0;
-    // Jitter only on the default schedule, so many tabs and clients do not all
-    // reconnect to a restarting server in the same instant.
-    return opts.backoff === undefined ? Math.round(base * (0.75 + Math.random() * 0.5)) : base;
+  /** Delay before the next attempt. A fixed `backoff` schedule (tests) is not jittered. */
+  function nextDelay(attempt: number, rungSwitch: boolean): number {
+    if (rungSwitch && opts.rungDelayMs !== undefined) return opts.rungDelayMs;
+    if (opts.backoff !== undefined) {
+      if (rungSwitch) return rungDelayMs;
+      const i = Math.min(Math.max(attempt - 1, 0), opts.backoff.length - 1);
+      return opts.backoff[i] ?? 0;
+    }
+    // Full jitter on the count of failures across all rungs, so thousands of
+    // clients do not reconnect to a restarting server in the same second.
+    return reconnectDelay(lastCloseKind, failures, random, backoffConfig);
+  }
+
+  /** An explicit connect/reconnect starts a fresh retry budget. */
+  function resetFailures(): void {
+    failures = 0;
+    restarted = false;
+    lastCloseKind = 'drop';
+    openedAt = undefined;
+    lastCheckAt = Number.NEGATIVE_INFINITY;
   }
 
   /** The server ended the session: stop, and do not reconnect. */
@@ -295,27 +362,45 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
     status('unauthorized');
   }
 
-  /** Ask whether the session survived the drop; the reconnect proceeds meanwhile. */
+  /**
+   * Ask whether the session survived; the reconnect proceeds meanwhile. Runs only
+   * from the second consecutive failure, one at a time, and at most once per
+   * `sessionCheckMinMs`, so a restart does not send every client an extra request.
+   */
   function verifySession(): void {
+    if (failures < 2 || checking) return;
+    const at = nowFn();
+    if (at - lastCheckAt < sessionCheckMinMs) return;
+    lastCheckAt = at;
+    checking = true;
     const asked = generation;
     checkSession().then(
       (result) => {
+        checking = false;
         if (result === 'unauthorized' && asked === generation) endUnauthorized();
       },
-      () => undefined,
+      () => {
+        checking = false;
+      },
     );
   }
 
   /** A transport dropped (failed to open or closed after opening). */
-  function handleDrop(): void {
+  function handleDrop(kind: CloseKind = 'drop'): void {
     if (closed) return;
     stopHeartbeat();
     clearCurrent();
+    if (openedAt !== undefined && nowFn() - openedAt >= stableAfterMs) failures = 0;
+    openedAt = undefined;
+    failures = Math.min(failures + 1, RECONNECT_MAX_FAILURES);
+    if (kind === 'restart' || kind === 'busy') restarted = true;
+    // A refused handshake after 1013 is still the server asking for time.
+    lastCloseKind = kind === 'drop' && lastCloseKind === 'busy' ? 'busy' : kind;
     verifySession();
     status('reconnecting');
     attemptsOnRung += 1;
     if (attemptsOnRung < maxAttemptsPerRung) {
-      const delay = backoffFor(attemptsOnRung);
+      const delay = nextDelay(attemptsOnRung, false);
       clearReconnect();
       reconnectTimer = setTimeout(() => openRung(ladderIndex), delay);
       return;
@@ -323,8 +408,9 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
     attemptsOnRung = 0;
     if (ladderIndex < TRANSPORT_LADDER.length - 1) {
       const next = ladderIndex + 1;
+      const delay = nextDelay(attemptsOnRung, true);
       clearReconnect();
-      reconnectTimer = setTimeout(() => openRung(next), rungDelayMs);
+      reconnectTimer = setTimeout(() => openRung(next), delay);
     } else {
       openRung(ladderIndex); // terminal 'poll'
     }
@@ -358,7 +444,7 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
       clearOpening();
       generation += 1;
       transport = 'ws';
-      status('open');
+      reportOpen();
       startHeartbeat();
     };
     ws.onmessage = (ev) => handleData(ev.data);
@@ -366,8 +452,9 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
       /* onclose follows */
     };
     ws.onclose = (ev) => {
-      if ((ev as { code?: unknown } | null)?.code === WS_CLOSE_SESSION_ENDED) endUnauthorized();
-      else handleDrop();
+      const kind = closeKind((ev as { code?: unknown } | null)?.code);
+      if (kind === 'ended') endUnauthorized();
+      else handleDrop(kind);
     };
   }
 
@@ -390,7 +477,7 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
       clearOpening();
       generation += 1;
       transport = 'sse';
-      status('open');
+      reportOpen();
       startHeartbeat();
     };
     es.onmessage = (ev) => handleData(ev.data);
@@ -404,7 +491,7 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
     // An explicit reconnect (or new sign-in) starts a fresh recovery budget.
     clearUpgrade();
     if (automaticUpgrades >= maxAutomaticUpgrades) return;
-    const delay = Math.min(upgradeIntervalMs * 2 ** automaticUpgrades, 300_000);
+    const delay = jittered(Math.min(upgradeIntervalMs * 2 ** automaticUpgrades, 300_000), POLL_JITTER, random);
     upgradeTimer = setTimeout(() => {
       automaticUpgrades += 1;
       attemptsOnRung = 0;
@@ -417,6 +504,7 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
       if (!closed) return;
       closed = false;
       automaticUpgrades = 0;
+      resetFailures();
       generation += 1;
       attemptsOnRung = 0;
       ladderIndex = 0;
@@ -425,6 +513,7 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
     reconnect(): void {
       closed = false;
       automaticUpgrades = 0;
+      resetFailures();
       generation += 1;
       stopHeartbeat();
       clearReconnect();

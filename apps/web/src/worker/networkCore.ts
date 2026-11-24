@@ -6,7 +6,7 @@ import {ApiError,terminalActionError} from '../api/errors.ts';
 import type {Me} from '../api/client.ts';
 import type {JmapRequest,JmapResponse,JmapSession} from '../api/jmap-types.ts';
 import {jmapApiPath} from '../api/jmapDiscovery.ts';
-import {createPushClient,type PushClientImpl,type PushStatus} from '../realtime/pushClientCore.ts';
+import {createPushClient,type PushClientImpl,type PushStatus,type PushStatusDetail} from '../realtime/pushClientCore.ts';
 import type {PushTransport} from '../contracts/push.ts';
 
 export interface NetworkContext {preferWebSocket?:boolean;base:string;linkId:string|null;owner?:{accountId:string;storageAuthority:string}}
@@ -20,7 +20,7 @@ export function createNetworkCore(){
  const peers=new Map<string,Peer>(),pending=new Map<string,Promise<unknown>>();
  const snapshots=new Map<string,{value:unknown;at:number;bytes:number}>();let bytes=0,generation=0,dataEpoch=0;
  let push:PushClientImpl|undefined,primary:string|undefined,root:string|undefined;
- let status:{status:PushStatus;transport:PushTransport}={status:'closed',transport:'offline'};
+ let status:{status:PushStatus;transport:PushTransport;detail?:PushStatusDetail}={status:'closed',transport:'offline'};
  function clear(){dataEpoch++;snapshots.clear();pending.clear();bytes=0;}
  function broadcast(event:string,value:unknown){for(const peer of peers.values())if(peer.push&&peer.authority===primary)peer.send({event,value});}
  function stopUnused(){if(![...peers.values()].some(peer=>peer.push&&peer.authority===primary)){push?.close();push=undefined;}}
@@ -86,7 +86,7 @@ export function createNetworkCore(){
    peer.authority=primary;peer.push=true;
    if(!push){
     const ws=new URL(`${prefix}/jmap/ws`,base.origin);ws.protocol=base.protocol==='https:'?'wss:':'ws:';
-    push=createPushClient({wsUrl:ws.href,sseUrl:`${prefix}/jmap/eventsource`,checkSession:async()=>{try{await identity({base:context.base,linkId:null},true);return 'ok';}catch(error){return error instanceof ApiError&&[401,403,409].includes(error.status)?'unauthorized':'unknown';}},onStatus:(next,transport)=>{status={status:next,transport};broadcast('status',status);}});
+    push=createPushClient({wsUrl:ws.href,sseUrl:`${prefix}/jmap/eventsource`,checkSession:async()=>{try{await identity({base:context.base,linkId:null},true);return 'ok';}catch(error){return error instanceof ApiError&&[401,403,409].includes(error.status)?'unauthorized':'unknown';}},onStatus:(next,transport,detail)=>{status={status:next,transport,...(detail?{detail}:{})};broadcast('status',status);}});
     push.onStateChange(change=>{clear();broadcast('change',change);});
     push.onMailboxChange?.(change=>{clear();broadcast('mailbox',change);});
     push.connect();

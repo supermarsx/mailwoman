@@ -14,7 +14,8 @@ import {
   type ChangeReconciler,
   type ReconcileHandler,
 } from './changes.ts';
-import type { MailboxChange, StateChange } from '../contracts/push.ts';
+import { CATCHUP_SPREAD_MS, POLL_JITTER, type MailboxChange, type StateChange } from '../contracts/push.ts';
+import { jittered } from './reconnectPolicy.ts';
 
 export interface RealtimeController {
   connection: ConnectionModel;
@@ -43,6 +44,8 @@ export interface RealtimeControllerOptions {
    *  `open`: the stream opened without having been down (the page's first connect);
    *  `resync`: a reconnect, the poll fallback or a wake (t52w). */
   onCatchUp?: (reason?: 'open' | 'resync') => void;
+  /** Random source in [0, 1) for the catch-up spread and poll jitter (tests inject). */
+  random?: () => number;
 }
 
 export function createRealtimeController(
@@ -56,24 +59,45 @@ export function createRealtimeController(
   // was pushed while it was down, so re-read once instead of waiting for the next
   // change to arrive.
   let wasDown = false;
-  let polling: ReturnType<typeof setInterval> | undefined;
-  const stopPolling=():void=>{if(polling!==undefined){clearInterval(polling);polling=undefined;}};
-  const catchUp=():void=>{reconciler.resync();opts.onCatchUp?.('resync');};
+  const random = opts.random ?? Math.random;
+  let polling: ReturnType<typeof setTimeout> | undefined;
+  let polled = false;
+  let pending: ReturnType<typeof setTimeout> | undefined;
+  const stopPolling=():void=>{if(polling!==undefined){clearTimeout(polling);polling=undefined;}polled=false;};
+  const cancelPending=():void=>{if(pending!==undefined){clearTimeout(pending);pending=undefined;}};
+  const run=():void=>{reconciler.resync();opts.onCatchUp?.('resync');};
+  // One catch-up per tab. An immediate one replaces a staggered one still waiting.
+  const catchUp=():void=>{cancelPending();run();};
+  // After a restart or repeated failures the tabs of every client reconnect
+  // together; their catch-up reads start at a random point in a short window.
+  const staggeredCatchUp=():void=>{
+    if(pending!==undefined)return;
+    pending=setTimeout(()=>{pending=undefined;run();},Math.floor(random()*CATCHUP_SPREAD_MS));
+  };
+  const schedulePoll=():void=>{
+    polling=setTimeout(()=>{catchUp();schedulePoll();},jittered(30000,POLL_JITTER,random));
+  };
   const push =
     opts.pushClient ??
     createSharedPushClient({
       ...opts.push,
-      onStatus: (status, transport) => {
+      onStatus: (status, transport, detail) => {
         connection.report(status, transport);
         opts.push?.onStatus?.(status, transport);
-        if(status==='degraded'&&transport==='poll'&&polling===undefined){catchUp();polling=setInterval(catchUp,30000);}
+        if(status==='degraded'&&transport==='poll'&&!polled){polled=true;catchUp();schedulePoll();}
         if(status==='open'||status==='closed'||status==='unauthorized')stopPolling();
-        if (status === 'reconnecting') wasDown = true;
-        else if (status === 'open' && wasDown) {
+        if (status === 'reconnecting') {
+          wasDown = true;
+          cancelPending();
+        } else if (status === 'open' && wasDown) {
           wasDown = false;
-          catchUp();
+          if (detail?.spreadCatchUp === true) staggeredCatchUp();
+          else catchUp();
         } else if (status === 'open') opts.onCatchUp?.('open');
-        else if (status === 'closed' || status === 'unauthorized') wasDown = false;
+        else if (status === 'closed' || status === 'unauthorized') {
+          wasDown = false;
+          cancelPending();
+        }
       },
     });
 
@@ -90,6 +114,7 @@ export function createRealtimeController(
     },
     stop(): void {
       stopPolling();
+      cancelPending();
       push.close();
       reconciler.reset();
     },
