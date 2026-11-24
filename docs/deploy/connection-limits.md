@@ -54,6 +54,7 @@ These apply to HTTP/1.1 and HTTP/2, with or without TLS.
 | `MW_HTTP_SHUTDOWN_TIMEOUT_MS` | Time requests in progress get to finish when the server stops | 30000 | 1000–120000 |
 | `MW_HTTP_REQUEST_QUEUE_MS` | How long a request at the request limit waits for a slot; `0` refuses at once | 200 | 0–2000 |
 | `MW_HTTP_REQUEST_QUEUE_MAX` | Requests that may wait for a slot at once | the request limit | 1–65536 |
+| `MW_HTTP_ADAPTIVE_CONCURRENCY` | `on` lowers the request limit while requests slow down (see below) | `off` | `off`, `on` |
 
 ### Derived limits
 
@@ -113,6 +114,18 @@ What happens at each limit:
   `/healthz` and `/readyz` have their own pool of 8 and do not wait, so a full request
   pool does not delay them. A WebSocket counts as a request only until its `101`
   response.
+- **Adaptive concurrency (off by default).** With
+  `MW_HTTP_ADAPTIVE_CONCURRENCY=on`, the server measures how long each request
+  takes until its response headers are ready. When the slowest tenth of the last 64
+  requests take more than twice the usual time (and at least 2 ms more), it lowers
+  the request limit by a tenth; while requests are fast and the limit is in use, it
+  raises it by a twentieth. The limit stays between max(256, 16 × CPUs) and
+  `MW_HTTP_MAX_REQUESTS`, never above it. Requests over the lowered limit wait and
+  are refused as above. Downloads, uploads, exports, imports, attachment previews,
+  the image proxy, DAV feeds, mail refresh, WebSocket upgrades, event streams and
+  probes are not measured, because their time follows their size or a remote
+  server. The current limit is shown under `admission.adaptive` in the HTTP
+  admission check.
 - **Headers too large or too many.** The request is answered `431` before it reaches
   the application.
 - **Slow request body.** A body that does not arrive within

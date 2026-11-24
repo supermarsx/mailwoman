@@ -159,6 +159,14 @@ fn streams_are_an_eighth_of_requests_within_bounds() {
 }
 
 #[test]
+fn adaptive_floor_is_the_higher_of_256_and_16_per_cpu_capped_at_the_ceiling() {
+    assert_eq!(adaptive_floor(None, 1024), 256);
+    assert_eq!(adaptive_floor(Some(32), 4096), 512);
+    assert_eq!(adaptive_floor(Some(32), 300), 300);
+    assert_eq!(adaptive_floor(Some(1), 8), 8);
+}
+
+#[test]
 fn probing_the_running_system_does_not_fail() {
     let resources = Resources::probe(false);
     assert!(resources.cpus.is_some_and(|n| n >= 1));

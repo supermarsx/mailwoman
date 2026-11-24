@@ -48,6 +48,11 @@ fn startup_values_are_bounded_and_malformed_values_refuse_startup() {
         let zero = HttpLimits::read(|name| (name == key).then(|| "0".into()), None);
         assert_eq!(zero.is_ok(), key == "MW_HTTP_REQUEST_QUEUE_MS", "{key}=0");
     }
+    for value in ["", "yes", "ON", "1"] {
+        assert!(
+            HttpLimits::validate_env(|name| (name == ADAPTIVE_VAR).then(|| value.into())).is_err()
+        );
+    }
     assert!(HttpLimits::validate_env(|_| None).is_ok());
 }
 
@@ -64,6 +69,7 @@ fn without_readings_the_values_are_todays() {
         (1024, 256, 32, 256)
     );
     assert_eq!(limits.queue_wait, Duration::from_millis(200));
+    assert!(!limits.adaptive);
     assert_eq!(limits.derivation.connections, Source::Default);
     // A probe that read nothing derives the same values.
     let limits = HttpLimits::read(|_| None, Some(Resources::default())).unwrap();
@@ -118,6 +124,8 @@ fn unset_values_are_derived_and_explicit_values_win() {
     top.validate().unwrap();
     assert!(HttpLimits::validate_env(env(&[("MW_HTTP_MAX_CONNECTIONS", "65537")])).is_err());
     assert!(HttpLimits::validate_env(env(&[("MW_HTTP_MAX_REQUESTS", "16385")])).is_err());
+    let adaptive = HttpLimits::read(env(&[(ADAPTIVE_VAR, "on")]), None).unwrap();
+    assert!(adaptive.adaptive);
 }
 
 #[test]
@@ -156,4 +164,5 @@ fn summary_names_each_source() {
     let line = limits.summary();
     assert!(line.contains("requests 300 (explicit)"), "{line}");
     assert!(line.contains("connections 32768 (auto)"), "{line}");
+    assert!(line.contains("adaptive concurrency off"), "{line}");
 }

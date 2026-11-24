@@ -107,7 +107,7 @@ pub(crate) async fn checks(
                 "headerTimeoutMs":http.header_timeout.as_millis(),"bodyTimeoutMs":http.body_timeout.as_millis(),
                 "http2Streams":http.http2_streams,"shutdownTimeoutMs":http.shutdown_timeout.as_millis(),
                 "queueWaitMs":http.queue_wait.as_millis(),"queueMax":http.queue_max,
-                "requiresRestart":true,"adaptive":false,
+                "requiresRestart":true,"adaptive":http.adaptive,
                 "derivedFrom":{
                     "connections":derivation.connections.as_str(),"requests":derivation.requests.as_str(),
                     "http2Streams":derivation.http2_streams.as_str(),"queueMax":derivation.queue_max.as_str(),

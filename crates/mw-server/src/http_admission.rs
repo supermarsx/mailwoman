@@ -1,5 +1,6 @@
 //! Request admission for the built-in listener: the request pool with its bounded
-//! FIFO wait, the event-stream pool, the probe pool and the counters.
+//! FIFO wait, the event-stream pool, the probe pool, the counters, and the
+//! optional adaptive limit.
 //!
 //! * Request pool: `requests` permits. A request that finds none waits in FIFO
 //!   order (tokio's semaphore is fair: a freed permit goes to the oldest waiter, and
@@ -12,6 +13,7 @@
 //!   wait, so a full request pool or queue never delays them.
 //! * WebSocket upgrades take a request permit only until the `101` response; the
 //!   socket afterwards holds its connection permit and nothing in this module.
+use super::adaptive::Limiter;
 use super::limits::HttpLimits;
 use serde_json::{Value, json};
 use std::{
@@ -35,15 +37,33 @@ pub enum Pool {
     Probes,
 }
 
-/// Which pool a path uses.
-pub fn classify(path: &str) -> Pool {
+/// Which pool a path uses, and whether its in-server time feeds the adaptive
+/// limiter. Not sampled: transfers whose time follows their size or a remote party
+/// rather than server load (downloads, uploads, exports, imports, previews, the
+/// image proxy, DAV feeds, mail refresh), upgrades and streams, and probes.
+pub fn classify(path: &str) -> (Pool, bool) {
     if path.ends_with("/jmap/eventsource") {
-        Pool::Streams
-    } else if path == "/healthz" || path == "/readyz" {
-        Pool::Probes
-    } else {
-        Pool::Requests
+        return (Pool::Streams, false);
     }
+    if path == "/healthz" || path == "/readyz" {
+        return (Pool::Probes, false);
+    }
+    const UNSAMPLED: [&str; 11] = [
+        "/jmap/download/",
+        "/jmap/upload/",
+        "/jmap/ws",
+        "/jmap/actions",
+        "/api/export/",
+        "/api/import/",
+        "/api/attachments/preview",
+        "/api/image-proxy",
+        "/api/mail/refresh",
+        "/dav/",
+        "/.well-known/caldav",
+    ];
+    let unsampled = UNSAMPLED.iter().any(|prefix| path.starts_with(prefix))
+        || (path.starts_with("/api/privacy/requests/") && path.ends_with("/download"));
+    (Pool::Requests, !unsampled)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -70,6 +90,14 @@ struct Counters {
     connections_refused: AtomicU64,
 }
 
+struct Adaptive {
+    limiter: Limiter,
+    /// Permits taken out of the pool to enforce the limit.
+    withheld: usize,
+    /// Permits still to take out, as admitted requests finish.
+    debt: usize,
+}
+
 pub struct Admission {
     requests: Arc<Semaphore>,
     streams: Arc<Semaphore>,
@@ -79,6 +107,7 @@ pub struct Admission {
     waiting: AtomicUsize,
     inflight: AtomicUsize,
     counters: Counters,
+    adaptive: Option<Mutex<Adaptive>>,
 }
 
 /// A held admission; the slot frees when this drops (with the response body).
@@ -86,6 +115,9 @@ pub struct Lease {
     permit: Option<OwnedSemaphorePermit>,
     admission: Arc<Admission>,
     pool: Pool,
+    admitted: Instant,
+    inflight: usize,
+    sampled: bool,
 }
 
 fn metric(outcome: &'static str) {
@@ -94,6 +126,19 @@ fn metric(outcome: &'static str) {
 
 impl Admission {
     pub fn new(limits: &HttpLimits) -> Arc<Self> {
+        let adaptive = limits.adaptive.then(|| {
+            Mutex::new(Adaptive {
+                limiter: Limiter::new(
+                    super::resources::adaptive_floor(
+                        limits.derivation.resources.cpus,
+                        limits.requests,
+                    ),
+                    limits.requests,
+                ),
+                withheld: 0,
+                debt: 0,
+            })
+        });
         Arc::new(Self {
             requests: Arc::new(Semaphore::new(limits.requests)),
             // A push stream holds its permit for as long as the client stays
@@ -107,6 +152,7 @@ impl Admission {
             waiting: AtomicUsize::new(0),
             inflight: AtomicUsize::new(0),
             counters: Counters::default(),
+            adaptive,
         })
     }
 
@@ -124,11 +170,14 @@ impl Admission {
     }
 
     /// Admit a request to `pool`, waiting if the request pool is full.
-    pub async fn admit(self: &Arc<Self>, pool: Pool) -> Result<Lease, Refusal> {
-        let lease = |permit| Lease {
+    pub async fn admit(self: &Arc<Self>, pool: Pool, sampled: bool) -> Result<Lease, Refusal> {
+        let lease = |permit, inflight| Lease {
             permit: Some(permit),
             admission: self.clone(),
             pool,
+            admitted: Instant::now(),
+            inflight,
+            sampled,
         };
         let semaphore = match pool {
             Pool::Streams => &self.streams,
@@ -137,12 +186,12 @@ impl Admission {
         };
         if let Ok(permit) = semaphore.clone().try_acquire_owned() {
             if pool != Pool::Requests {
-                return Ok(lease(permit));
+                return Ok(lease(permit, 0));
             }
             self.counters.immediate.fetch_add(1, Ordering::Relaxed);
             metric("immediate");
-            self.inflight.fetch_add(1, Ordering::Relaxed);
-            return Ok(lease(permit));
+            let inflight = self.inflight.fetch_add(1, Ordering::Relaxed) + 1;
+            return Ok(lease(permit, inflight));
         }
         match pool {
             Pool::Streams => {
@@ -190,8 +239,8 @@ impl Admission {
                     .position(|&top| ms <= top)
                     .unwrap_or(WAIT_BUCKETS_MS.len());
                 self.counters.wait_buckets[bucket].fetch_add(1, Ordering::Relaxed);
-                self.inflight.fetch_add(1, Ordering::Relaxed);
-                Ok(lease(permit))
+                let inflight = self.inflight.fetch_add(1, Ordering::Relaxed) + 1;
+                Ok(lease(permit, inflight))
             }
             // A closed semaphore cannot happen (it is never closed); treat as refused.
             Ok(Err(_)) | Err(_) => Err(self.refuse_deadline()),
@@ -206,7 +255,36 @@ impl Admission {
         Refusal::Deadline
     }
 
-    /// Effective counters, for diagnostics.
+    /// Move the pool to `target` permits by withholding or returning permits.
+    /// Never returns more than were withheld, so the pool never exceeds its
+    /// configured size.
+    fn retarget(&self, state: &mut Adaptive, target: usize) {
+        let ceiling = state.limiter.ceiling();
+        let want_withheld = ceiling.saturating_sub(target);
+        let planned = state.withheld + state.debt;
+        if want_withheld > planned {
+            state.debt += want_withheld - planned;
+            // Take idle permits now; the rest as requests finish.
+            while state.debt > 0 {
+                let Ok(permit) = self.requests.try_acquire() else {
+                    break;
+                };
+                permit.forget();
+                state.debt -= 1;
+                state.withheld += 1;
+            }
+        } else {
+            let mut give = planned - want_withheld;
+            let cancel = give.min(state.debt);
+            state.debt -= cancel;
+            give -= cancel;
+            let give = give.min(state.withheld);
+            state.withheld -= give;
+            self.requests.add_permits(give);
+        }
+    }
+
+    /// Effective counters and adaptive state, for diagnostics.
     pub fn snapshot(&self) -> Value {
         let c = &self.counters;
         let load = |n: &AtomicU64| n.load(Ordering::Relaxed);
@@ -218,6 +296,17 @@ impl Admission {
             "over2000ms".into(),
             json!(load(&c.wait_buckets[WAIT_BUCKETS_MS.len()])),
         );
+        let adaptive = self.adaptive.as_ref().and_then(|state| {
+            let state = state.lock().ok()?;
+            Some(json!({
+                "limit": state.limiter.limit(),
+                "floor": state.limiter.floor(),
+                "ceiling": state.limiter.ceiling(),
+                "baselineUs": state.limiter.baseline().map(|d| d.as_micros() as u64),
+                "decreases": state.limiter.decreases(),
+                "increases": state.limiter.increases(),
+            }))
+        });
         json!({
             "admittedImmediately": load(&c.immediate),
             "admittedAfterWait": load(&c.after_wait),
@@ -229,7 +318,32 @@ impl Admission {
             "connectionsRefused": load(&c.connections_refused),
             "waitingNow": self.waiting(),
             "inFlight": self.inflight.load(Ordering::Relaxed),
+            "adaptive": adaptive,
         })
+    }
+
+    /// The adaptive limit now, when the limiter is on.
+    pub fn adaptive_limit(&self) -> Option<usize> {
+        let state = self.adaptive.as_ref()?.lock().ok()?;
+        Some(state.limiter.limit())
+    }
+}
+
+impl Lease {
+    /// The response headers are ready: feed the in-server time to the limiter.
+    pub fn headers_ready(&mut self) {
+        if !std::mem::take(&mut self.sampled) || self.pool != Pool::Requests {
+            return;
+        }
+        let Some(adaptive) = &self.admission.adaptive else {
+            return;
+        };
+        let latency = self.admitted.elapsed();
+        if let Ok(mut state) = adaptive.lock()
+            && let Some(target) = state.limiter.sample(latency, self.inflight)
+        {
+            self.admission.retarget(&mut state, target);
+        }
     }
 }
 
@@ -239,7 +353,19 @@ impl Drop for Lease {
             return;
         }
         self.admission.inflight.fetch_sub(1, Ordering::Relaxed);
-        drop(self.permit.take());
+        let Some(permit) = self.permit.take() else {
+            return;
+        };
+        if let Some(adaptive) = &self.admission.adaptive
+            && let Ok(mut state) = adaptive.lock()
+            && state.debt > 0
+        {
+            state.debt -= 1;
+            state.withheld += 1;
+            permit.forget();
+            return;
+        }
+        drop(permit);
     }
 }
 

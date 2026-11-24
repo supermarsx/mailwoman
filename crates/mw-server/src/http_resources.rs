@@ -126,6 +126,14 @@ pub fn db_pool_estimate(db_path: Option<&str>, pool_json: Option<&str>, cpus: u3
     })
 }
 
+/// The adaptive limiter's floor: max(256, 16·C), never above `ceiling`.
+pub fn adaptive_floor(cpus: Option<u32>, ceiling: usize) -> usize {
+    (16 * cpus.unwrap_or(0) as usize)
+        .max(REQUESTS_FLOOR)
+        .min(ceiling)
+        .max(1)
+}
+
 impl Resources {
     /// Read the running system. With `raise_open_files`, the soft open-file limit
     /// is first raised to min(hard limit, [`OPEN_FILES_RAISE_CAP`]) where the

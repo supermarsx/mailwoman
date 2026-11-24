@@ -16,13 +16,13 @@ fn count(admission: &Admission, key: &str) -> u64 {
 #[tokio::test]
 async fn waiters_are_served_in_arrival_order() {
     let admission = admission(1, 2000, 16);
-    let first = admission.admit(Pool::Requests).await.unwrap();
+    let first = admission.admit(Pool::Requests, true).await.unwrap();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     for i in 0..5 {
         let waiter = admission.clone();
         let tx = tx.clone();
         tokio::spawn(async move {
-            let lease = waiter.admit(Pool::Requests).await.unwrap();
+            let lease = waiter.admit(Pool::Requests, true).await.unwrap();
             tx.send(i).unwrap();
             tokio::time::sleep(Duration::from_millis(5)).await;
             drop(lease);
@@ -45,10 +45,10 @@ async fn waiters_are_served_in_arrival_order() {
 #[tokio::test]
 async fn a_newcomer_cannot_take_a_permit_freed_for_a_waiter() {
     let admission = admission(1, 2000, 16);
-    let held = admission.admit(Pool::Requests).await.unwrap();
+    let held = admission.admit(Pool::Requests, true).await.unwrap();
     let waiter = {
         let admission = admission.clone();
-        tokio::spawn(async move { admission.admit(Pool::Requests).await.map(drop) })
+        tokio::spawn(async move { admission.admit(Pool::Requests, true).await.map(drop) })
     };
     while admission.waiting() == 0 {
         tokio::task::yield_now().await;
@@ -62,10 +62,10 @@ async fn a_newcomer_cannot_take_a_permit_freed_for_a_waiter() {
 #[tokio::test]
 async fn the_deadline_refuses_and_zero_wait_refuses_at_once() {
     let admission_ = admission(1, 50, 16);
-    let _held = admission_.admit(Pool::Requests).await.unwrap();
+    let _held = admission_.admit(Pool::Requests, true).await.unwrap();
     let started = Instant::now();
     assert_eq!(
-        admission_.admit(Pool::Requests).await.err(),
+        admission_.admit(Pool::Requests, true).await.err(),
         Some(Refusal::Deadline)
     );
     assert!(started.elapsed() >= Duration::from_millis(45));
@@ -73,10 +73,10 @@ async fn the_deadline_refuses_and_zero_wait_refuses_at_once() {
     assert_eq!(count(&admission_, "refusedOnDeadline"), 1);
 
     let immediate = admission(1, 0, 16);
-    let _held = immediate.admit(Pool::Requests).await.unwrap();
+    let _held = immediate.admit(Pool::Requests, true).await.unwrap();
     let started = Instant::now();
     assert_eq!(
-        immediate.admit(Pool::Requests).await.err(),
+        immediate.admit(Pool::Requests, true).await.err(),
         Some(Refusal::Deadline)
     );
     assert!(started.elapsed() < Duration::from_millis(40));
@@ -85,12 +85,12 @@ async fn the_deadline_refuses_and_zero_wait_refuses_at_once() {
 #[tokio::test]
 async fn a_full_queue_refuses_at_once() {
     let admission = admission(1, 2000, 2);
-    let _held = admission.admit(Pool::Requests).await.unwrap();
+    let _held = admission.admit(Pool::Requests, true).await.unwrap();
     let mut waiters = Vec::new();
     for _ in 0..2 {
         let admission = admission.clone();
         waiters.push(tokio::spawn(async move {
-            admission.admit(Pool::Requests).await.map(drop)
+            admission.admit(Pool::Requests, true).await.map(drop)
         }));
     }
     while admission.waiting() < 2 {
@@ -98,7 +98,7 @@ async fn a_full_queue_refuses_at_once() {
     }
     let started = Instant::now();
     assert_eq!(
-        admission.admit(Pool::Requests).await.err(),
+        admission.admit(Pool::Requests, true).await.err(),
         Some(Refusal::QueueFull)
     );
     assert!(started.elapsed() < Duration::from_millis(40));
@@ -112,10 +112,10 @@ async fn a_full_queue_refuses_at_once() {
 #[tokio::test]
 async fn a_cancelled_wait_frees_its_slot_and_its_place() {
     let admission = admission(1, 2000, 1);
-    let held = admission.admit(Pool::Requests).await.unwrap();
+    let held = admission.admit(Pool::Requests, true).await.unwrap();
     let cancelled = {
         let admission = admission.clone();
-        tokio::spawn(async move { admission.admit(Pool::Requests).await.map(drop) })
+        tokio::spawn(async move { admission.admit(Pool::Requests, true).await.map(drop) })
     };
     while admission.waiting() == 0 {
         tokio::task::yield_now().await;
@@ -126,7 +126,7 @@ async fn a_cancelled_wait_frees_its_slot_and_its_place() {
     // The slot is free again: a new waiter is accepted and gets the permit.
     let next = {
         let admission = admission.clone();
-        tokio::spawn(async move { admission.admit(Pool::Requests).await.map(drop) })
+        tokio::spawn(async move { admission.admit(Pool::Requests, true).await.map(drop) })
     };
     while admission.waiting() == 0 {
         tokio::task::yield_now().await;
@@ -139,33 +139,110 @@ async fn a_cancelled_wait_frees_its_slot_and_its_place() {
 #[tokio::test]
 async fn probes_and_streams_are_not_starved_by_a_full_request_pool() {
     let admission = admission(1, 2000, 1);
-    let _held = admission.admit(Pool::Requests).await.unwrap();
+    let _held = admission.admit(Pool::Requests, true).await.unwrap();
     let _queued = {
         let admission = admission.clone();
-        tokio::spawn(async move { admission.admit(Pool::Requests).await.map(drop) })
+        tokio::spawn(async move { admission.admit(Pool::Requests, true).await.map(drop) })
     };
     while admission.waiting() == 0 {
         tokio::task::yield_now().await;
     }
     let started = Instant::now();
-    let probes: Vec<_> =
-        futures_util::future::join_all((0..PROBE_PERMITS).map(|_| admission.admit(Pool::Probes)))
-            .await;
+    let probes: Vec<_> = futures_util::future::join_all(
+        (0..PROBE_PERMITS).map(|_| admission.admit(Pool::Probes, false)),
+    )
+    .await;
     assert!(probes.iter().all(Result::is_ok));
-    assert!(admission.admit(Pool::Streams).await.is_ok());
+    assert!(admission.admit(Pool::Streams, false).await.is_ok());
     assert!(started.elapsed() < Duration::from_millis(40));
     // The probe pool itself is bounded.
     assert_eq!(
-        admission.admit(Pool::Probes).await.err(),
+        admission.admit(Pool::Probes, false).await.err(),
         Some(Refusal::Probes)
     );
 }
 
 #[test]
 fn classification() {
-    assert_eq!(classify("/jmap/eventsource"), Pool::Streams);
-    assert_eq!(classify("/healthz"), Pool::Probes);
-    assert_eq!(classify("/readyz"), Pool::Probes);
-    assert_eq!(classify("/x/healthz"), Pool::Requests);
-    assert_eq!(classify("/jmap/api"), Pool::Requests);
+    assert_eq!(classify("/jmap/eventsource"), (Pool::Streams, false));
+    assert_eq!(classify("/healthz"), (Pool::Probes, false));
+    assert_eq!(classify("/readyz"), (Pool::Probes, false));
+    assert_eq!(classify("/x/healthz"), (Pool::Requests, true));
+    assert_eq!(classify("/jmap/api"), (Pool::Requests, true));
+    for slow in [
+        "/jmap/download/a/b/c",
+        "/jmap/upload/a",
+        "/jmap/ws",
+        "/jmap/actions",
+        "/api/export/1",
+        "/api/import/mbox",
+        "/api/attachments/preview",
+        "/api/image-proxy",
+        "/api/mail/refresh",
+        "/dav/calendars/a/b",
+        "/api/privacy/requests/7/download",
+    ] {
+        assert_eq!(classify(slow), (Pool::Requests, false), "{slow}");
+    }
+}
+
+#[tokio::test]
+async fn the_adaptive_limit_withholds_permits_and_never_exceeds_the_ceiling() {
+    let admission = Admission::new(&HttpLimits {
+        requests: 10,
+        adaptive: true,
+        ..HttpLimits::default()
+    });
+    {
+        let mut state = admission.adaptive.as_ref().unwrap().lock().unwrap();
+        admission.retarget(&mut state, 4);
+        assert_eq!((state.withheld, state.debt), (6, 0));
+    }
+    assert_eq!(admission.requests.available_permits(), 4);
+    // Lower with every permit in use: the debt is paid as requests finish.
+    let leases: Vec<_> =
+        futures_util::future::join_all((0..4).map(|_| admission.admit(Pool::Requests, false)))
+            .await
+            .into_iter()
+            .map(Result::unwrap)
+            .collect();
+    {
+        let mut state = admission.adaptive.as_ref().unwrap().lock().unwrap();
+        admission.retarget(&mut state, 2);
+        assert_eq!((state.withheld, state.debt), (6, 2));
+    }
+    drop(leases);
+    assert_eq!(admission.requests.available_permits(), 2);
+    // Raising past the ceiling returns only what was withheld.
+    {
+        let mut state = admission.adaptive.as_ref().unwrap().lock().unwrap();
+        admission.retarget(&mut state, 1000);
+        assert_eq!((state.withheld, state.debt), (0, 0));
+    }
+    assert_eq!(admission.requests.available_permits(), 10);
+    // Lower then raise before the debt is paid: the debt is cancelled first.
+    let leases: Vec<_> =
+        futures_util::future::join_all((0..10).map(|_| admission.admit(Pool::Requests, false)))
+            .await
+            .into_iter()
+            .map(Result::unwrap)
+            .collect();
+    {
+        let mut state = admission.adaptive.as_ref().unwrap().lock().unwrap();
+        admission.retarget(&mut state, 5);
+        assert_eq!((state.withheld, state.debt), (0, 5));
+        admission.retarget(&mut state, 8);
+        assert_eq!((state.withheld, state.debt), (0, 2));
+    }
+    drop(leases);
+    assert_eq!(admission.requests.available_permits(), 8);
+}
+
+#[tokio::test]
+async fn adaptive_off_has_no_state_and_samples_nothing() {
+    let admission = admission(4, 100, 4);
+    let mut lease = admission.admit(Pool::Requests, true).await.unwrap();
+    lease.headers_ready();
+    assert!(admission.adaptive_limit().is_none());
+    assert!(admission.snapshot()["adaptive"].is_null());
 }

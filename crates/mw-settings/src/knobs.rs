@@ -588,6 +588,14 @@ pub static CATALOGUE: &[Knob] = &[
         "requests that may wait for a slot at once (1..65536; unset = the request limit; restart required)",
     ),
     boot(
+        "MW_HTTP_ADAPTIVE_CONCURRENCY",
+        Gr::Listener,
+        Plain,
+        R::Boot,
+        "off",
+        "off or on: lower the concurrent-request limit while in-server time degrades, never above MW_HTTP_MAX_REQUESTS (restart required)",
+    ),
+    boot(
         "MW_HTTP_SHUTDOWN_TIMEOUT_MS",
         Gr::Listener,
         Plain,

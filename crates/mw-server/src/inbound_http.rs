@@ -41,6 +41,8 @@ use tokio::{
     task::JoinSet,
     time::Sleep,
 };
+#[path = "http_adaptive.rs"]
+pub mod adaptive;
 #[path = "http_admission.rs"]
 pub mod admission;
 #[path = "http_limits.rs"]
@@ -142,8 +144,8 @@ where
                     // At the request limit this waits (bounded, FIFO) for a slot;
                     // a client that goes away while waiting drops this future and
                     // with it its place in the queue.
-                    let pool = admission::classify(request.uri().path());
-                    let permit = match admission.admit(pool).await {
+                    let (pool, sampled) = admission::classify(request.uri().path());
+                    let mut permit = match admission.admit(pool, sampled).await {
                         Ok(permit) => permit,
                         // Deadline, full queue, or a full stream or probe pool.
                         Err(_) => {
@@ -173,6 +175,7 @@ where
                     let mut response = service
                         .call(Request::from_parts(parts, Body::new(body)))
                         .await?;
+                    permit.headers_ready();
                     if expired.load(Ordering::Acquire) {
                         response = refusal(
                             StatusCode::REQUEST_TIMEOUT,

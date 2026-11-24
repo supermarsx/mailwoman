@@ -57,12 +57,15 @@ pub struct HttpLimits {
     pub queue_wait: Duration,
     /// Requests that may wait at once; beyond it, 503 at once.
     pub queue_max: usize,
+    /// Adaptive concurrency (`MW_HTTP_ADAPTIVE_CONCURRENCY=on`).
+    pub adaptive: bool,
     pub derivation: Derivation,
 }
 
 pub const QUEUE_WAIT_DEFAULT_MS: u64 = 200;
 pub const QUEUE_WAIT_MAX_MS: u64 = 2000;
 pub const QUEUE_MAX_CEILING: usize = 65536;
+pub const ADAPTIVE_VAR: &str = "MW_HTTP_ADAPTIVE_CONCURRENCY";
 
 impl Default for HttpLimits {
     fn default() -> Self {
@@ -77,6 +80,7 @@ impl Default for HttpLimits {
             shutdown_timeout: Duration::from_secs(30),
             queue_wait: Duration::from_millis(QUEUE_WAIT_DEFAULT_MS),
             queue_max: resources::REQUESTS_FLOOR,
+            adaptive: false,
             derivation: Derivation::default(),
         }
     }
@@ -94,6 +98,15 @@ fn number(raw: Option<String>, key: &str, min: u64, max: u64) -> io::Result<Opti
         .filter(|n| (min..=max).contains(n))
         .map(Some)
         .ok_or_else(|| invalid(format!("{key} must be an integer between {min} and {max}")))
+}
+
+/// `off` (default) or `on`.
+pub fn parse_adaptive(raw: Option<&str>) -> Result<bool, String> {
+    match raw.map(str::trim) {
+        None | Some("off") => Ok(false),
+        Some("on") => Ok(true),
+        Some(_) => Err(format!("{ADAPTIVE_VAR} must be off or on")),
+    }
 }
 
 impl HttpLimits {
@@ -175,6 +188,7 @@ impl HttpLimits {
             1,
             QUEUE_MAX_CEILING as u64,
         )?;
+        let adaptive = parse_adaptive(get(ADAPTIVE_VAR).as_deref()).map_err(invalid)?;
 
         let base = Self::default();
         let mut derivation = Derivation::default();
@@ -244,6 +258,7 @@ impl HttpLimits {
             shutdown_timeout: shutdown_timeout.map_or(base.shutdown_timeout, Duration::from_millis),
             queue_wait: queue_wait.map_or(base.queue_wait, Duration::from_millis),
             queue_max: queue_max as usize,
+            adaptive,
             derivation,
         })
     }
@@ -274,7 +289,7 @@ impl HttpLimits {
             |value: Option<u64>| value.map_or_else(|| "unknown".to_owned(), |n| n.to_string());
         let mut line = format!(
             "HTTP limits: connections {} ({}), requests {} ({}), HTTP/2 streams {} ({}), \
-             queue {} for up to {} ms ({})",
+             queue {} for up to {} ms ({}), adaptive concurrency {}",
             self.connections,
             d.connections.as_str(),
             self.requests,
@@ -284,6 +299,7 @@ impl HttpLimits {
             self.queue_max,
             self.queue_wait.as_millis(),
             d.queue_max.as_str(),
+            if self.adaptive { "on" } else { "off" },
         );
         if d.db_pool.is_some() {
             line.push_str(&format!(
