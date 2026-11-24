@@ -1137,9 +1137,10 @@ pub(crate) struct V6State {
     pub(crate) admin_enabled: bool,
     pub(crate) admin_username: Option<String>,
     pub(crate) admin_password: Option<String>,
-    /// Ephemeral device-pairing relay (zero-access §9.1): `pairingId → envelopeB64`.
+    /// Ephemeral device-pairing relay (zero-access §9.1): `pairingId → envelopeB64`,
+    /// bound to the offering account and session, with a TTL and a size bound.
     /// The server relays ciphertext only; it never sees a plaintext key.
-    pub(crate) pairing: std::sync::Mutex<std::collections::HashMap<String, String>>,
+    pub(crate) pairing: oauth::pairing_relay::PairingRelay,
 }
 
 // Direct implementation-crate hosts must supply complete immutable build facts.
@@ -1492,7 +1493,7 @@ async fn build_app_inner(
         admin_enabled: v6config.admin_enabled,
         admin_username: v6config.admin_username,
         admin_password: v6config.admin_password,
-        pairing: std::sync::Mutex::new(std::collections::HashMap::new()),
+        pairing: Default::default(),
     });
 
     // t20 (26.19, e3): resolve the public-origin posture once at boot.

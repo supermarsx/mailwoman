@@ -26,6 +26,8 @@ fn token_hash(token: &str) -> String {
         .collect()
 }
 
+pub(crate) mod pairing_relay;
+
 use crate::AppState;
 use crate::admin_ctx::AdminCtx;
 use crate::admin_router::AdminRegistrar;
@@ -852,13 +854,35 @@ async fn pair_offer(
     headers: axum::http::HeaderMap,
     Json(_body): Json<PairOfferReq>,
 ) -> Response {
-    if let Err(resp) = crate::authed(&state, &headers).await {
-        return resp;
-    }
+    let session = match crate::authed(&state, &headers).await {
+        Ok(session) => session,
+        Err(resp) => return resp,
+    };
     // The server relays ciphertext only; it mints an opaque pairing id and never
     // persists a plaintext key. The scanned QR carries the public point out-of-band.
+    // The id is bound to this account and session (`pairing_relay`).
     let pairing_id = mw_store::ServerKey::generate().to_hex();
-    Json(json!({ "pairingId": pairing_id })).into_response()
+    match state.v6.pairing.offer(
+        pairing_id.clone(),
+        &session.account_id,
+        &session.id,
+        std::time::Instant::now(),
+    ) {
+        Ok(()) => Json(json!({ "pairingId": pairing_id })).into_response(),
+        Err(e) => pairing_error(e),
+    }
+}
+
+/// Unknown, expired, foreign and already-read ids are one 404, which the client
+/// treats as "nothing yet" (`zeroaccess/pairing.ts`).
+fn pairing_error(e: pairing_relay::PairingError) -> Response {
+    use pairing_relay::PairingError;
+    let (status, code) = match e {
+        PairingError::NotFound => (StatusCode::NOT_FOUND, "pairingNotFound"),
+        PairingError::Full => (StatusCode::SERVICE_UNAVAILABLE, "pairingRelayFull"),
+        PairingError::TooLarge => (StatusCode::PAYLOAD_TOO_LARGE, "pairingEnvelopeTooLarge"),
+    };
+    (status, Json(json!({ "error": code }))).into_response()
 }
 
 #[derive(Deserialize)]
@@ -873,16 +897,19 @@ async fn pair_envelope(
     headers: axum::http::HeaderMap,
     Json(body): Json<PairEnvelopeReq>,
 ) -> Response {
-    if let Err(resp) = crate::authed(&state, &headers).await {
-        return resp;
+    let session = match crate::authed(&state, &headers).await {
+        Ok(session) => session,
+        Err(resp) => return resp,
+    };
+    match state.v6.pairing.deposit(
+        &body.pairing_id,
+        &session.account_id,
+        body.envelope_b64,
+        std::time::Instant::now(),
+    ) {
+        Ok(()) => Json(json!({ "ok": true })).into_response(),
+        Err(e) => pairing_error(e),
     }
-    state
-        .v6
-        .pairing
-        .lock()
-        .expect("pairing lock")
-        .insert(body.pairing_id, body.envelope_b64);
-    Json(json!({ "ok": true })).into_response()
 }
 
 async fn pair_envelope_get(
@@ -890,17 +917,14 @@ async fn pair_envelope_get(
     headers: axum::http::HeaderMap,
     UrlPath(id): UrlPath<String>,
 ) -> Response {
-    if let Err(resp) = crate::authed(&state, &headers).await {
-        return resp;
+    let session = match crate::authed(&state, &headers).await {
+        Ok(session) => session,
+        Err(resp) => return resp,
+    };
+    match state.v6.pairing.take(&id, &session.id, std::time::Instant::now()) {
+        Ok(envelope) => Json(json!({ "envelopeB64": envelope })).into_response(),
+        Err(e) => pairing_error(e),
     }
-    let envelope = state
-        .v6
-        .pairing
-        .lock()
-        .expect("pairing lock")
-        .get(&id)
-        .cloned();
-    Json(json!({ "envelopeB64": envelope })).into_response()
 }
 
 // ─── OAuth Dynamic Client Registration (RFC 7591 / RFC 7592) — t10 e8 ─────────
