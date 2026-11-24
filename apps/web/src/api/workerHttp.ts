@@ -32,6 +32,8 @@ export async function workerHttp(base:string,path:string,init:RequestInit&{allow
    response=await fetch(target.href,{...request,credentials:'same-origin',redirect:'error',cache:'no-store'});
   }
  }catch(error){if(error instanceof ApiError)throw error;throw new NetworkError('Worker connection unavailable');}
- if(!response.ok){const body=await response.clone().json().catch(()=>({})) as {error?:string;code?:string};throw new ApiError(response.status,body.error??'Worker request refused',{...(body.code?{code:body.code}:{}),...(/^\d+$/.test(response.headers.get('retry-after')??'')?{retryAfterSecs:Number(response.headers.get('retry-after'))}:{})});}
+ // A 304 answers a conditional request the caller made (t52w: the worker's
+ // session revalidation); without If-None-Match it stays a refusal.
+ if(!response.ok&&!(response.status===304&&new Headers(init.headers).has('if-none-match'))){const body=await response.clone().json().catch(()=>({})) as {error?:string;code?:string};throw new ApiError(response.status,body.error??'Worker request refused',{...(body.code?{code:body.code}:{}),...(/^\d+$/.test(response.headers.get('retry-after')??'')?{retryAfterSecs:Number(response.headers.get('retry-after'))}:{})});}
  return response;
 }

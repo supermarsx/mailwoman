@@ -140,3 +140,21 @@ it('reads the session document again after a pushed change',async()=>{
  await core.receive('left',request('2','jmap',{body:readBody('2')}));
  expect(sessionCalls()).toBe(2);
 });
+it('revalidates the session document with its ETag after a pushed change and keeps it on 304',async()=>{
+ const seen:(string|null)[]=[];
+ vi.mocked(workerHttp).mockImplementation(async(_base,path,init)=>{
+  if(path.endsWith('/api/me'))return json(me);
+  if(path.endsWith('/jmap/session')){const tag=new Headers(init?.headers).get('if-none-match');seen.push(tag);
+   if(tag==='"s1"')return new Response(null,{status:304,headers:{etag:'"s1"'}});
+   return new Response(JSON.stringify({apiUrl:'/jmap/api'}),{headers:{'content-type':'application/json',etag:'"s1"'}});}
+  return json({sessionState:'s',methodResponses:[]});
+ });
+ await core.receive('left',request('push','push.start'));
+ await core.receive('left',request('1','jmap',{body:readBody('1')}));
+ Socket.all[0]!.onmessage?.({data:JSON.stringify({'@type':'StateChange',changed:{a:{Email:'next'}}})});
+ await core.receive('left',request('2','jmap',{body:readBody('2')}));
+ expect(seen).toEqual([null,'"s1"']);expect(left.at(-1)).toMatchObject({id:'2',result:{sessionState:'s'}});
+ // A reset forgets the validator.
+ await core.receive('left',request('reset','reset'));await core.receive('left',request('3','jmap',{body:readBody('3')}));
+ expect(seen.at(-1)).toBeNull();
+});

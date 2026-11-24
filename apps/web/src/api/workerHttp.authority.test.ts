@@ -1,6 +1,6 @@
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {workerHttp} from './workerHttp.ts';
-import {clearWebSocketActions} from './websocketActions.ts';
+import {clearWebSocketActions,resetActionBackoff} from './websocketActions.ts';
 import {ApiError} from './errors.ts';
 class Socket {
  static latest:Socket;onmessage:((event:{data:string})=>void)|null=null;onclose:(()=>void)|null=null;onerror:(()=>void)|null=null;sent:string[]=[];
@@ -8,7 +8,7 @@ class Socket {
 }
 const flush=async()=>{for(let i=0;i<12;i++)await Promise.resolve();};
 beforeEach(()=>{clearWebSocketActions();vi.stubGlobal('WebSocket',Socket);});
-afterEach(()=>{clearWebSocketActions();vi.unstubAllGlobals();});
+afterEach(()=>{clearWebSocketActions();resetActionBackoff();vi.unstubAllGlobals();});
 it('refuses HTTP fallback after authority changes while an unsent handshake is waiting',async()=>{
  let epoch=1;const fetch=vi.fn();vi.stubGlobal('fetch',fetch);
  const changed=new ApiError(409,'Shared session changed',{code:'actionNotDispatched'});
@@ -35,4 +35,9 @@ it('never fetches or replays after a sent unknown action rejection',async()=>{
  expect(Socket.latest.sent).toHaveLength(1);const before=check.mock.calls.length;
  const unknown=expect(request).rejects.toMatchObject({code:'outcomeUnknown'});Socket.latest.onclose?.();await unknown;
  expect(fetch).not.toHaveBeenCalled();expect(check).toHaveBeenCalledTimes(before);
+});
+it('passes a 304 through only to a conditional request (t52w)',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async()=>new Response(null,{status:304})));
+ expect((await workerHttp(location.origin,'/jmap/session',{headers:{'If-None-Match':'"s1"'}})).status).toBe(304);
+ await expect(workerHttp(location.origin,'/jmap/session',{})).rejects.toMatchObject({status:304});
 });

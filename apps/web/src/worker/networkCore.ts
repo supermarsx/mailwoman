@@ -36,16 +36,19 @@ export function createNetworkCore(){
  // shared), a push account change, an owner the cached answer does not match
  // (asked again before refusing), and any 401/403/409 from any request, so a
  // revoked cookie is noticed on its next request rather than after 5 s.
- // Writes and the push session probe always ask the server.
+ // Writes, the window's own 'me' and the push session probe always ask the server.
  const IDENTITY_REUSE_MS=5000;
  const identities=new Map<string,{generation:number;at:number;value:Promise<Me&{csrfToken?:string}>}>();
  // t52w: the JMAP session document per (authority, link, data epoch) for
  // SESSION_REUSE_MS (the page's session cache keeps it as long). A pushed
- // change bumps the epoch, an identity drop clears it. Not revalidated with
- // If-None-Match: workerHttp treats a 304 as a refusal.
+ // change bumps the epoch, an identity drop clears it. After either, the
+ // document is asked again with If-None-Match (the route's ETag) and a 304
+ // keeps the last one; `validated` holds it across epochs per (base,
+ // authority, link, generation).
  const SESSION_REUSE_MS=60_000;
  const sessions=new Map<string,{at:number;value:Promise<JmapSession>}>();
- function forgetIdentity(){identities.clear();sessions.clear();}
+ const validated=new Map<string,{etag:string;value:JmapSession}>();
+ function forgetIdentity(){identities.clear();sessions.clear();validated.clear();}
  async function liveIdentity(context:NetworkContext):Promise<Me&{csrfToken?:string}>{
   const headers=context.linkId?{'X-Mailwoman-Link':context.linkId}:{};
   return await (await workerHttp(context.base,`${new URL(context.base).pathname.replace(/\/$/,'')}/api/me`,{headers})).json() as Me&{csrfToken?:string};
@@ -76,7 +79,8 @@ export function createNetworkCore(){
   if(message.method==='reset'){clearWebSocketActions();generation++;forgetIdentity();views.clear();clear();push?.close();push=undefined;for(const value of peers.values()){value.push=false;value.send({event:'reset',value:null});}return true;}
   if(message.method==='push.stop'){peer.push=false;stopUnused();return true;}
   if(message.method.startsWith('push.')){
-   const live=await identity({base:context.base,linkId:null},true);
+   // A push subscription is a read of who the cookie names: a kept answer (<= 5 s) serves.
+   const live=await identity({base:context.base,linkId:null});
    if(!live.storageAuthority||message.primaryAuthority&&message.primaryAuthority!==live.storageAuthority)throw new ApiError(409,'Push account changed');
    if(primary!==live.storageAuthority||root!==context.base){
     if(primary)broadcast('status',{status:'unauthorized',transport:'offline'});
@@ -123,7 +127,16 @@ export function createNetworkCore(){
     const key=JSON.stringify([context.base,live.storageAuthority??live.accountId,context.linkId,epoch,generation]);
     const kept=sessions.get(key);
     if(kept&&Date.now()-kept.at<SESSION_REUSE_MS)return kept.value;
-    const value=(async()=>await (await workerHttp(context.base,`${prefix}/jmap/session`,{headers,allowWebSocket:context.preferWebSocket===true,assertAuthority:()=>{if(admitted!==generation)throw new ApiError(409,'Shared session changed',{code:'actionNotDispatched'});}})).json() as JmapSession)();
+    const known=JSON.stringify([context.base,live.storageAuthority??live.accountId,context.linkId,generation]);
+    const value=(async()=>{
+     const previous=validated.get(known),request=new Headers(headers);
+     if(previous)request.set('If-None-Match',previous.etag);
+     const response=await workerHttp(context.base,`${prefix}/jmap/session`,{headers:request,allowWebSocket:context.preferWebSocket===true,assertAuthority:()=>{if(admitted!==generation)throw new ApiError(409,'Shared session changed',{code:'actionNotDispatched'});}});
+     if(response.status===304&&previous)return previous.value;
+     const document=await response.json() as JmapSession,etag=response.headers.get('etag');
+     if(admitted===generation){if(etag)validated.set(known,{etag,value:document});else validated.delete(known);while(validated.size>16)validated.delete(validated.keys().next().value!);}
+     return document;
+    })();
     const entry={at:Date.now(),value};sessions.set(key,entry);
     value.then(()=>{entry.at=Date.now();},()=>{if(sessions.get(key)===entry)sessions.delete(key);});
     while(sessions.size>16)sessions.delete(sessions.keys().next().value!);
