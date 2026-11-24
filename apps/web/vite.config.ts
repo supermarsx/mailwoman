@@ -2,6 +2,7 @@ import {assetCompression} from './scripts/assetCompression.ts';
 import {buildTimings} from './scripts/buildTimings.ts';
 import {bundleGraph} from './scripts/bundleGraph.ts';
 import {catalogAssets} from './scripts/catalogAssets.ts';
+import {chunkPlan,touchPlugin} from './scripts/chunkPlan.ts';
 import {build as bundleWorker} from 'esbuild';
 import { defineConfig } from 'vitest/config';
 import {cachedSolid} from './scripts/cachedSolid.ts';
@@ -10,10 +11,13 @@ import wasm from 'vite-plugin-wasm';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { transformWithEsbuild, type Plugin } from 'vite';
 import { bundledPackages } from './scripts/about-bundled-packages.mjs';
 
 const buildCacheStats={hits:0,misses:0};
+const webRoot = fileURLToPath(new URL('.', import.meta.url));
+const plan = chunkPlan(webRoot);
 const UPSTREAM = 'http://localhost:8080';
 // The web client's version, sent as `browser/<version>` in `X-Mailwoman-Client`.
 const VERSION = (JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }).version;
@@ -184,6 +188,17 @@ export default defineConfig({
     // Small font subsets must remain same-origin files: the shell deliberately
     // permits font-src 'self', never data: font payloads in generated CSS.
     assetsInlineLimit: (filePath) => /\.(?:woff2?|ttf|otf|ftl)(?:\?|$)/i.test(filePath) ? false : undefined,
+    // t52w: the chunk layout is explicit and layered (scripts/chunkPlan.ts);
+    // scripts/check-load-budget.mjs (`pnpm run size`) holds it to load-budget.json.
+    rollupOptions: {
+      plugins: [plan.plugin, touchPlugin(webRoot, process.env['MW_LOAD_TOUCH'])],
+      output: { manualChunks: plan.manualChunks },
+      onwarn(warning, warn) {
+        // A circular chunk import can run a module before its dependency: fail.
+        if (warning.code === 'CIRCULAR_CHUNK') throw new Error(`chunkPlan: ${warning.message}`);
+        warn(warning);
+      },
+    },
   },
   test: {
     // ── FLAKE POLICY (t22-e10) — there is deliberately NO `retry` here ────────
