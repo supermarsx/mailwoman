@@ -31,12 +31,13 @@ it('bounds count and bytes without busy HTTP spill and rechecks authority at the
  let current=true;const first=client.send('/jmap/api',{});ready();await flush();
  const next=client.send('/jmap/api',{},()=>{if(!current)throw new ApiError(409,'Changed',{code:'actionNotDispatched'});});
  const rejected=expect(next).rejects.toMatchObject({code:'actionNotDispatched'});current=false;ack(latest());await first;await rejected;expect(latest().sent).toHaveLength(1);
- const held=client.send('/jmap/api',{});await flush();const queued=Array.from({length:16},()=>client.send('/jmap/api',{}));
+ // Writes: a queued read is handed back for HTTP on close (t52w), a queued write never spills.
+ const held=client.send('/jmap/api',{method:'POST'});await flush();const queued=Array.from({length:16},()=>client.send('/jmap/api',{method:'POST'}));
  await expect(client.send('/jmap/api',{})).rejects.toMatchObject({code:'actionNotDispatchedBusy'});
  const stopped=queued.map(value=>expect(value).rejects.toMatchObject({code:'actionNotDispatched'}));const unknown=expect(held).rejects.toMatchObject({code:'outcomeUnknown'});client.close();await unknown;await Promise.all(stopped);
  const bytesClient=createWebSocketActions({endpoint:'ws://localhost/jmap/actions',maxInFlight:1,WebSocketImpl:socketType});
- const body=JSON.stringify({publicFixture:'x'.repeat(1500000)}),requests=Array.from({length:5},()=>bytesClient.send('/jmap/api',{body}));
- await expect(bytesClient.send('/jmap/api',{body})).rejects.toMatchObject({code:'actionNotDispatchedBusy'});
+ const body=JSON.stringify({publicFixture:'x'.repeat(1500000)}),requests=Array.from({length:5},()=>bytesClient.send('/jmap/api',{method:'POST',body}));
+ await expect(bytesClient.send('/jmap/api',{method:'POST',body})).rejects.toMatchObject({code:'actionNotDispatchedBusy'});
  const cancelled=requests.map(value=>expect(value).rejects.toMatchObject({code:'actionNotDispatched'}));bytesClient.close();await Promise.all(cancelled);
 });
 it('requires explicit notDispatched AND HTTP-required before any sent request can fall back',async()=>{

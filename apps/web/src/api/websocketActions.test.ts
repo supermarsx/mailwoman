@@ -71,5 +71,19 @@ it('drains in-flight sends before retiring a socket for a new CSRF proof',async(
 });
 it('settles a request waiting for a handshake when its socket is closed',async()=>{
  const client=createWebSocketActions({endpoint:'ws://localhost/jmap/actions',WebSocketImpl:socketType});
- const pending=client.send('/api/account/drafts',{});const rejected=expect(pending).rejects.toMatchObject({code:'actionNotDispatched'});client.close();await rejected;expect(Socket.latest.closed).toBe(true);
+ // t52w: settled as unsent, so the caller sends this read over HTTP (a write is refused, see below).
+ const pending=client.send('/api/account/drafts',{});const settled=expect(pending).resolves.toBeUndefined();client.close();await settled;expect(Socket.latest.closed).toBe(true);
+});
+it('hands a queued read back unsent when its channel closes; a queued write is still refused (t52w)',async()=>{
+ const client=createWebSocketActions({endpoint:'ws://localhost/jmap/actions',WebSocketImpl:socketType});
+ const read=client.send('/api/public-config',{method:'GET'});const write=client.send('/api/settings/x',{method:'PUT',body:'{}'});
+ client.close();
+ await expect(read).resolves.toBeUndefined();await expect(write).rejects.toMatchObject({code:'actionNotDispatched'});
+ expect(Socket.latest.sent).toHaveLength(0);
+});
+it('a read queued when the account changes falls back to HTTP instead of failing the caller (t52w)',async()=>{
+ vi.stubGlobal('WebSocket',socketType);
+ const read=websocketAction('/api/public-config',{method:'GET',headers:{'x-csrf-token':'proof'}},location.origin);
+ await Promise.resolve();clearWebSocketActions();
+ await expect(read).resolves.toBeUndefined();
 });

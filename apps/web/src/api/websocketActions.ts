@@ -39,15 +39,20 @@ export function createWebSocketActions(options:{endpoint:string;WebSocketImpl?:t
  const pending=new Map<string,Job>(),queue:Job[]=[];let queueBytes=0;
  const limit=Math.min(8,Math.max(1,options.maxInFlight??8));
  function settle(job:Job,error?:unknown,response?:Response):void{if(job.done)return;job.done=true;job.stop();if(error!==undefined)job.reject(error);else job.resolve(response);}
+ /** A queued job that was never sent when its channel closed or retired. A
+  *  safe read is handed back unsent (the caller checks its authority again and
+  *  sends it over HTTP), so a channel change is never the reader's error; a
+  *  write keeps the explicit refusal its caller handles (t52w). */
+ function unsent(job:Job,error:ApiError):void{settle(job,['GET','HEAD'].includes((job.init.method??'GET').toUpperCase())?undefined:error);}
  function close(fallbackUnsent=false):void{
   finishOpening?.(false);finishOpening=undefined;ready=false;const old=socket;socket=undefined;opening=undefined;
   if(old){old.onmessage=null;old.onerror=null;old.onclose=null;old.close();}
   for(const job of pending.values())if(!job.completed)settle(job,unknown());pending.clear();
-  for(const job of queue.splice(0))settle(job,fallbackUnsent?undefined:new ApiError(409,'The action channel changed before dispatch.',{code:'actionNotDispatched'}));queueBytes=0;
+  for(const job of queue.splice(0)){if(fallbackUnsent)settle(job);else unsent(job,new ApiError(409,'The action channel changed before dispatch.',{code:'actionNotDispatched'}));}queueBytes=0;
   onRetired?.();onRetired=undefined;
  }
  function drain():void{if(retired&&pending.size===0&&!completing)close();else pump();}
- function retire(done:()=>void):void{retired=true;onRetired=done;for(const job of queue.splice(0))settle(job,new ApiError(409,'Authentication changed before dispatch.',{code:'actionNotDispatched'}));queueBytes=0;drain();}
+ function retire(done:()=>void):void{retired=true;onRetired=done;for(const job of queue.splice(0))unsent(job,new ApiError(409,'Authentication changed before dispatch.',{code:'actionNotDispatched'}));queueBytes=0;drain();}
  function pump():void{
   if(!ready||retired||completing||!socket)return;
   while(queue.length&&pending.size<limit){const job=queue.shift()!;queueBytes-=job.bytes;if(job.done)continue;
