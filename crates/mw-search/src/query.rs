@@ -187,6 +187,37 @@ pub enum TextField {
     All,
 }
 
+/// An exact set of stable ids, built by the engine's query planner from SQL
+/// (t50hp-e31): a metadata condition already answered, ANDed (or negated)
+/// into an index query. Never produced by the operator parser.
+///
+/// Shared, so cloning a query does not copy the ids; `Debug` prints the size,
+/// not the ids.
+#[derive(Clone, PartialEq, Eq)]
+pub struct IdSet(std::sync::Arc<Vec<String>>);
+
+impl IdSet {
+    /// The set of these ids (duplicates are harmless; order is irrelevant).
+    pub fn new(ids: Vec<String>) -> Self {
+        IdSet(std::sync::Arc::new(ids))
+    }
+    pub fn ids(&self) -> &[String] {
+        &self.0
+    }
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl std::fmt::Debug for IdSet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "IdSet({} ids)", self.0.len())
+    }
+}
+
 /// A single leaf predicate.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Clause {
@@ -239,6 +270,13 @@ pub enum Clause {
         larger: Option<u64>,
         smaller: Option<u64>,
     },
+    /// t50hp-e31: the document's stable id is one of these. Engine-built only
+    /// (the query planner's resolved metadata condition); no operator. An
+    /// empty set matches nothing.
+    IdSet(IdSet),
+    /// t50hp-e31: the document belongs to this account (the `account_id`
+    /// term). Engine-built only; no operator.
+    Account(String),
 }
 
 /// Boolean AST over [`Clause`]s.

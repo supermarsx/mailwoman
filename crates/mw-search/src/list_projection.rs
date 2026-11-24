@@ -22,7 +22,7 @@ pub const MAX_LIST_PROJECTION_IDS: usize = 5000;
 // Small exact-ID sets avoid constructing an FST for every reader/list request.
 // Larger sets retain the compact automaton rather than thousands of clauses.
 const SMALL_LIST_PROJECTION_IDS: usize = 32;
-fn projection_id_query(field: tantivy::schema::Field, ids: &[&str]) -> Box<dyn Query> {
+pub(crate) fn projection_id_query(field: tantivy::schema::Field, ids: &[&str]) -> Box<dyn Query> {
     if ids.len() <= SMALL_LIST_PROJECTION_IDS {
         Box::new(BooleanQuery::new(ids.iter().map(|id| {
             (Occur::Should, Box::new(TermQuery::new(

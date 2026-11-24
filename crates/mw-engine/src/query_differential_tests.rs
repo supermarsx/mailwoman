@@ -763,6 +763,9 @@ impl Row {
                         && larger.is_none_or(|l| self.size > l)
                         && smaller.is_none_or(|s| self.size < s)
                 }
+                Clause::IdSet(_) | Clause::Account(_) => {
+                    panic!("engine-built clauses never come from the parser")
+                }
             },
         }
     }

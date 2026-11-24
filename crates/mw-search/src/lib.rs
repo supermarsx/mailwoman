@@ -31,7 +31,7 @@ pub use list_projection::{ListProjection, MAX_LIST_PROJECTION_IDS, RecipientProj
 /// the default search path is byte-identical to 26.18.
 pub mod rerank;
 
-pub use query::{Clause, Expr, Sort, SortField, TextField, KW_PRIORITY_HIGH, KW_PRIORITY_LOW, normalize_sender_domain};
+pub use query::{Clause, Expr, IdSet, Sort, SortField, TextField, KW_PRIORITY_HIGH, KW_PRIORITY_LOW, normalize_sender_domain};
 pub use query::{KW_FOLLOWUP_ACTIVE, KW_FOLLOWUP_COMPLETED};
 pub use rerank::{cosine, rerank_by_cosine};
 
@@ -1123,6 +1123,15 @@ impl Index {
         Ok(SearchHits { ids, truncated })
     }
 
+    /// The number of documents `query` matches, counted without loading any
+    /// stored document and without the [`MAX_HITS`] cap (t50hp-e31). The
+    /// sort is ignored.
+    pub fn count(&self, query: &SearchQuery) -> Result<u64> {
+        let searcher = self.reader.searcher();
+        let compiled = compile(&query.expr, &self.fields);
+        Ok(searcher.search(&compiled, &Count)? as u64)
+    }
+
     fn reload_reader(&self) -> Result<()> {
         timing::measure(timing::Stage::ReaderReload, 0, || self.reader.reload())?;
         Ok(())
@@ -1300,6 +1309,14 @@ fn clause_query(c: &Clause, f: &Fields) -> Box<dyn Query> {
             }
             Box::new(RangeQuery::new(lower, upper))
         }
+        Clause::IdSet(set) => {
+            if set.is_empty() {
+                return Box::new(EmptyQuery);
+            }
+            let ids: Vec<&str> = set.ids().iter().map(String::as_str).collect();
+            list_projection::projection_id_query(f.stable_id, &ids)
+        }
+        Clause::Account(account) => term_query(f.account_id, account),
     }
 }
 
@@ -1933,5 +1950,69 @@ mod tests {
         assert_eq!(find(&reopened, "from-domain:example.org"), vec!["rebuilt"]);
         drop(reopened);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// t50hp-e31: the engine-built id-set and account clauses select exactly
+    /// their documents, under AND, OR and NOT, on both sides of the small/large
+    /// id-set threshold; Count equals the uncapped hit count and loads no
+    /// stored document.
+    #[test]
+    fn id_set_and_account_clauses_select_exactly_and_count_matches() {
+        let idx = Index::open_in_ram().unwrap();
+        let mut docs = Vec::new();
+        for i in 0..80 {
+            docs.push(IndexDoc {
+                account_id: if i % 2 == 0 { "acct-a".into() } else { "acct-b".into() },
+                date: i,
+                ..doc(&format!("m{i:02}"), if i % 3 == 0 { "alpha" } else { "beta" }, "x@example.org")
+            });
+        }
+        idx.upsert_batch(&docs).unwrap();
+        let q = |expr: Expr| SearchQuery { raw: String::new(), expr, sort: Sort::default() };
+        let run = |expr: Expr| {
+            let mut ids = idx.search(&q(expr), 0).unwrap();
+            ids.sort();
+            ids
+        };
+        let ids = |range: std::ops::Range<i64>| -> Vec<String> { range.map(|i| format!("m{i:02}")).collect() };
+        let set = |v: Vec<String>| Expr::Clause(Clause::IdSet(IdSet::new(v)));
+        let account = |a: &str| Expr::Clause(Clause::Account(a.into()));
+        let text = |v: &str| Expr::Clause(Clause::Text { field: TextField::Subject, value: v.into(), phrase: false });
+        // Small (<= 32, OR of terms) and large (term set) forms.
+        for n in [0i64, 1, 5, 32, 33, 60] {
+            let want = ids(0..n);
+            assert_eq!(run(set(want.clone())), want, "{n} ids");
+            assert_eq!(idx.count(&q(set(want.clone()))).unwrap(), n as u64);
+        }
+        // Unknown ids and duplicates are harmless.
+        assert_eq!(run(set(vec!["m01".into(), "m01".into(), "nope".into()])), vec!["m01"]);
+        // Under AND / OR / NOT, with the account term.
+        let first40 = ids(0..40);
+        let in_a: Vec<String> = (0..40).filter(|i| i % 2 == 0).map(|i| format!("m{i:02}")).collect();
+        assert_eq!(run(Expr::And(vec![account("acct-a"), set(first40.clone())])), in_a);
+        let alpha_or_set: Vec<String> = {
+            let mut v: Vec<String> = (0..80).filter(|i| i % 3 == 0 || *i < 2).map(|i| format!("m{i:02}")).collect();
+            v.sort();
+            v
+        };
+        assert_eq!(run(Expr::Or(vec![text("alpha"), set(ids(0..2))])), alpha_or_set);
+        let not_set: Vec<String> = ids(40..80);
+        assert_eq!(run(Expr::Not(Box::new(set(first40.clone())))), not_set);
+        assert_eq!(
+            run(Expr::And(vec![account("acct-b"), Expr::Not(Box::new(set(first40)))])),
+            (40..80).filter(|i| i % 2 == 1).map(|i| format!("m{i:02}")).collect::<Vec<_>>()
+        );
+        assert!(run(account("acct-none")).is_empty());
+        assert!(run(set(Vec::new())).is_empty());
+        assert_eq!(run(Expr::Not(Box::new(set(Vec::new())))).len(), 80);
+        // Count: equal to the hit count, no document loads.
+        let before = idx.doc_fetch_count();
+        let (_, _, hits_before) = write_and_hit_counts();
+        assert_eq!(idx.count(&q(account("acct-a"))).unwrap(), 40);
+        assert_eq!(idx.count(&q(Expr::All)).unwrap(), 80);
+        assert_eq!(idx.count(&q(Expr::Not(Box::new(Expr::All)))).unwrap(), 0);
+        assert_eq!(idx.doc_fetch_count(), before);
+        assert_eq!(write_and_hit_counts().2, hits_before);
+        assert_eq!(format!("{:?}", IdSet::new(vec!["secret-id".into()])), "IdSet(1 ids)");
     }
 }
