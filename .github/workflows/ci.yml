@@ -740,7 +740,10 @@ jobs:
 
   # Bundle-size gate (SPEC §23): the login->inbox entry chunk must be < 250 KB
   # gzip and pdfjs must stay OFF the critical path (a lazy chunk). Both asserted
-  # by apps/web/scripts/check-size.mjs (`pnpm run size`).
+  # by apps/web/scripts/check-size.mjs (`pnpm run size`). The same command runs
+  # the load budget (t52w, scripts/check-load-budget.mjs against
+  # scripts/load-budget.json): files and bytes per route, chunk layering, route
+  # boundaries, and the hashed files a one-line change renames.
   bundle-size:
     runs-on: ubuntu-latest
     steps:
@@ -755,10 +758,19 @@ jobs:
           cache-dependency-path: apps/web/pnpm-lock.yaml
       - name: install
         run: pnpm -C apps/web install --frozen-lockfile
+      # Unit tests of the chunk plan and the budget checker (fixture graphs with
+      # one negative control per rule); plain node, before the build.
+      - name: load budget unit tests
+        run: pnpm -C apps/web run size:test
       - name: build
         run: pnpm -C apps/web build
-      - name: bundle-size gate (entry < 250 KB gzip; pdfjs lazy)
+      - name: bundle-size gate (entry < 250 KB gzip; pdfjs lazy) and load budget
         run: pnpm -C apps/web run size
+      # Manual runs only: rebuild once per probe with one appended line and
+      # compare hashed file names with the static invalidation numbers.
+      - name: one-line-change confirmation (manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        run: pnpm -C apps/web run size:touch
 
   # OWASP ZAP baseline scan against the running mock stack — the SPEC §27 V2 exit
   # gate. Flaky/slow, so continue-on-error; the HTML report is uploaded.
