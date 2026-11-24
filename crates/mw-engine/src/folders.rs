@@ -959,6 +959,36 @@ impl Engine {
             }
         }
 
+        // A draft composed through Email/set is cached engine-local (no server
+        // coordinates), but the copy APPENDed for it sits in the server's
+        // Drafts folder. Remove that one copy as well (t55), by the UID the
+        // server reported (APPENDUID); never by search. A server that cannot
+        // expunge one message on its own (`Unsupported`) keeps the copy, as a
+        // send does; any other failure keeps the draft and its record so the
+        // destroy can be retried.
+        let mut draft_copies: Vec<(String, MessageRef)> = Vec::new();
+        for message in &local {
+            if let Some(at) = self.upstream_draft_ref(account_id, &message.stable_id).await {
+                draft_copies.push((message.stable_id.clone(), at));
+            }
+        }
+        if !draft_copies.is_empty() {
+            let refs: Vec<MessageRef> = draft_copies.iter().map(|(_, at)| at.clone()).collect();
+            match rt.backend.expunge_messages(&refs).await {
+                Ok(()) => {}
+                Err(EngineError::Unsupported(why)) => {
+                    tracing::info!("the mail server keeps {} discarded draft copies: {why}", refs.len());
+                }
+                Err(e) => {
+                    let failed: HashSet<String> = draft_copies.drain(..).map(|(id, _)| id).collect();
+                    local.retain(|message| !failed.contains(&message.stable_id));
+                    for id in failed {
+                        not_destroyed.insert(id, set_error(&e));
+                    }
+                }
+            }
+        }
+
         let owned_ids: Vec<String> = local.iter().map(|message|message.stable_id.clone())
             .chain(upstream.iter().map(|(message,_)|message.stable_id.clone())).collect();
         let mut publication = if owned_ids.is_empty() { None } else {
@@ -1013,6 +1043,12 @@ impl Engine {
                 None => destroyed.push(json!(id)),
             }
         }
+        let removed: Vec<String> = draft_copies
+            .into_iter()
+            .map(|(id, _)| id)
+            .filter(|id| destroyed.iter().any(|d| d == id))
+            .collect();
+        self.forget_upstream_drafts(account_id, &removed).await;
         (destroyed, not_destroyed)
     }
 

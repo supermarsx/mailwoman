@@ -45,6 +45,8 @@ struct FakeBackend {
     import_supported: AtomicBool,
     draft_cleanup_supported: AtomicBool,
     draft_uidplus: AtomicBool,
+    expunge_calls: AtomicUsize,
+    expunge_fails: AtomicBool,
     held_draft_append: Mutex<Option<Arc<HeldDraftAppend>>>,
     held_sync:Mutex<Option<(String,Arc<HeldDraftAppend>)>>,
     watch_sink:Mutex<Option<ChangeSink>>,
@@ -89,6 +91,8 @@ impl FakeBackend {
             import_supported: AtomicBool::new(true),
             draft_cleanup_supported: AtomicBool::new(false),
             draft_uidplus: AtomicBool::new(true),
+            expunge_calls: AtomicUsize::new(0),
+            expunge_fails: AtomicBool::new(false),
             held_draft_append: Mutex::new(None),
             held_sync:Mutex::new(None),watch_sink:Mutex::new(None),
         }
@@ -290,6 +294,10 @@ impl AccountBackend for FakeBackend {
     }
 
     async fn expunge_messages(&self, refs: &[MessageRef]) -> Result<()> {
+        self.expunge_calls.fetch_add(1, Ordering::SeqCst);
+        if self.expunge_fails.load(Ordering::SeqCst) {
+            return Err(mw_engine::EngineError::Protocol("connection closed by server".into()));
+        }
         if !self.draft_cleanup_supported.load(Ordering::SeqCst) {
             return Err(mw_engine::EngineError::Unsupported(
                 "test expunge disabled".into(),
@@ -2103,7 +2111,7 @@ async fn initial_sync_starts_watching_before_archive_backfill_finishes(){
  gate.release.notify_one();h.engine.unregister(&h.account_id);
 }
 
-// ---- t55: creation-id references ----------------------------------------
+// ---- t55: creation-id references and the draft lifecycle -----------------
 
 fn draft_spec(subject: &str) -> Value {
     json!({
@@ -2114,6 +2122,34 @@ fn draft_spec(subject: &str) -> Value {
         "bodyValues": { "b": { "value": "Draft body." } },
         "textBody": [{ "partId": "b", "type": "text/plain" }]
     })
+}
+
+/// Subjects of the messages in the fake server's Drafts folder.
+fn upstream_drafts(h: &Harness) -> Vec<String> {
+    let state = h.backend.state.lock().unwrap();
+    state
+        .messages
+        .get("Drafts")
+        .map(|rows| {
+            rows.iter()
+                .map(|row| {
+                    let text = String::from_utf8_lossy(&row.1).to_string();
+                    text.lines()
+                        .find_map(|line| line.strip_prefix("Subject: "))
+                        .unwrap_or_default()
+                        .trim_end()
+                        .to_string()
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+async fn cached_drafts(h: &Harness) -> usize {
+    let mb = jmap(h, json!([["Mailbox/get", {}, "mb"]])).await;
+    let drafts = mailbox_id(&mb, "drafts");
+    let q = jmap(h, json!([["Email/query", { "filter": { "inMailbox": drafts } }, "q"]])).await;
+    method_result(&q, "q")["ids"].as_array().unwrap().len()
 }
 
 /// RFC 8620 §5.3: `#<creationId>` in a later call of the same request names
@@ -2210,4 +2246,91 @@ async fn request_created_ids_seed_and_return_the_creation_map() {
     assert_eq!(method_result(&second, "get")["list"][0]["id"], id, "{second}");
     let plain = jmap(&h, json!([["Email/get", { "ids": [] }, "get"]])).await;
     assert!(plain.get("createdIds").is_none(), "{plain}");
+}
+
+/// Discarding a draft composed through Email/set removes the copy APPENDed to
+/// the server's Drafts folder; before t55 it stayed there, and the next sync
+/// brought the discarded draft back.
+#[tokio::test]
+async fn discarding_a_draft_removes_its_upstream_copy() {
+    let h = setup().await;
+    h.backend.draft_cleanup_supported.store(true, Ordering::SeqCst);
+    h.engine.resync(&h.account_id).await.unwrap();
+    let saved = jmap(&h, json!([["Email/set", { "create": { "d1": draft_spec("Discard me") } }, "save"]])).await;
+    let id = method_result(&saved, "save")["created"]["d1"]["id"].as_str().unwrap().to_string();
+    assert_eq!(h.backend.append_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(upstream_drafts(&h), ["Discard me"]);
+
+    let discarded = jmap(&h, json!([["Email/set", { "destroy": [id] }, "discard"]])).await;
+    assert_eq!(method_result(&discarded, "discard")["destroyed"], json!([id]), "{discarded}");
+    assert_eq!(h.backend.expunge_calls.load(Ordering::SeqCst), 1);
+    assert!(upstream_drafts(&h).is_empty(), "the discarded draft stayed on the server");
+    h.engine.resync(&h.account_id).await.unwrap();
+    assert_eq!(cached_drafts(&h).await, 0, "the discarded draft came back on sync");
+}
+
+/// A re-save is a new draft plus the destroy of the old one (JMAP Emails are
+/// immutable): the server ends with exactly the latest copy.
+#[tokio::test]
+async fn re_saving_a_draft_leaves_only_the_latest_upstream_copy() {
+    let h = setup().await;
+    h.backend.draft_cleanup_supported.store(true, Ordering::SeqCst);
+    h.engine.resync(&h.account_id).await.unwrap();
+    let first = jmap(&h, json!([["Email/set", { "create": { "d1": draft_spec("Version 1") } }, "s1"]])).await;
+    let v1 = method_result(&first, "s1")["created"]["d1"]["id"].as_str().unwrap().to_string();
+    let second = jmap(
+        &h,
+        json!([["Email/set", { "create": { "d2": draft_spec("Version 2") }, "destroy": [v1] }, "s2"]]),
+    )
+    .await;
+    assert_eq!(method_result(&second, "s2")["destroyed"], json!([v1]), "{second}");
+    assert_eq!(h.backend.append_calls.load(Ordering::SeqCst), 2);
+    assert_eq!(upstream_drafts(&h), ["Version 2"]);
+}
+
+/// A server that cannot expunge one message on its own keeps the copy (as the
+/// send path does); the draft is still discarded here. A transport failure
+/// keeps the draft so the discard can be retried and remove both.
+#[tokio::test]
+async fn draft_copy_removal_unsupported_or_failing() {
+    let h = setup().await;
+    h.engine.resync(&h.account_id).await.unwrap();
+    let saved = jmap(&h, json!([["Email/set", { "create": { "d1": draft_spec("Kept upstream") } }, "save"]])).await;
+    let id = method_result(&saved, "save")["created"]["d1"]["id"].as_str().unwrap().to_string();
+    // draft_cleanup_supported is false: expunge answers Unsupported.
+    let out = jmap(&h, json!([["Email/set", { "destroy": [id] }, "discard"]])).await;
+    assert_eq!(method_result(&out, "discard")["destroyed"], json!([id]), "{out}");
+    assert_eq!(upstream_drafts(&h), ["Kept upstream"]);
+
+    h.backend.state.lock().unwrap().messages.insert("Drafts".into(), vec![]);
+    let saved = jmap(&h, json!([["Email/set", { "create": { "d1": draft_spec("Retry me") } }, "save"]])).await;
+    let id = method_result(&saved, "save")["created"]["d1"]["id"].as_str().unwrap().to_string();
+    h.backend.draft_cleanup_supported.store(true, Ordering::SeqCst);
+    h.backend.expunge_fails.store(true, Ordering::SeqCst);
+    let out = jmap(&h, json!([["Email/set", { "destroy": [id] }, "discard"]])).await;
+    assert!(method_result(&out, "discard")["notDestroyed"].get(&id).is_some(), "{out}");
+    h.backend.expunge_fails.store(false, Ordering::SeqCst);
+    let out = jmap(&h, json!([["Email/set", { "destroy": [id] }, "discard"]])).await;
+    assert_eq!(method_result(&out, "discard")["destroyed"], json!([id]), "{out}");
+    assert!(upstream_drafts(&h).is_empty());
+}
+
+/// Sending a draft leaves no copy in the server's Drafts folder.
+#[tokio::test]
+async fn sending_a_draft_leaves_no_upstream_draft_copy() {
+    let h = setup().await;
+    h.backend.draft_cleanup_supported.store(true, Ordering::SeqCst);
+    h.engine.resync(&h.account_id).await.unwrap();
+    let resp = jmap(
+        &h,
+        json!([
+            ["Email/set", { "create": { "d1": draft_spec("Sent draft") } }, "save"],
+            ["EmailSubmission/set", { "create": { "s1": { "emailId": "#d1" } } }, "send"]
+        ]),
+    )
+    .await;
+    assert!(method_result(&resp, "send")["created"]["s1"]["id"].is_string(), "{resp}");
+    assert!(upstream_drafts(&h).is_empty(), "the sent draft stayed in Drafts upstream");
+    h.engine.resync(&h.account_id).await.unwrap();
+    assert_eq!(cached_drafts(&h).await, 0);
 }

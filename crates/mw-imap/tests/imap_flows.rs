@@ -1501,3 +1501,106 @@ async fn hierarchy_delimiter_is_asked_again_after_a_reconnect() {
     assert_eq!(lines.iter().filter(|line| line.contains("AUTHENTICATE PLAIN")).count(), 2);
     assert_eq!(lines.iter().filter(|line| line.contains("LIST \"\" \"\"")).count(), 2, "{lines:?}");
 }
+
+// --- t55: removing one message (a draft copy) ---------------------------------
+
+fn drafts_ref(uid: u32) -> MessageRef {
+    MessageRef::Imap {
+        mailbox: RawMailboxRef {
+            name: "Drafts".into(),
+            uidvalidity: 42,
+        },
+        uidvalidity: 42,
+        uid,
+    }
+}
+
+fn select_drafts() -> Ex {
+    Ex::Cmd {
+        expect: "SELECT",
+        respond: "* OK [UIDVALIDITY 42] UIDs valid\r\n{tag} OK [READ-WRITE] Selected\r\n".into(),
+    }
+}
+
+#[tokio::test]
+async fn expunge_with_uidplus_removes_only_the_named_uid() {
+    let steps = vec![
+        select_drafts(),
+        Ex::Cmd {
+            expect: "UID STORE 7 +FLAGS.SILENT (\\Deleted)",
+            respond: "{tag} OK Store completed\r\n".into(),
+        },
+        Ex::Cmd {
+            expect: "UID EXPUNGE 7",
+            respond: "* 3 EXPUNGE\r\n{tag} OK Expunge completed\r\n".into(),
+        },
+    ];
+    let (addr, log) = spawn_mock(vec![dovecot_script(steps)]).await;
+    let backend = connect_dovecot(addr, vec![]).await;
+    backend.expunge_messages(&[drafts_ref(7)]).await.unwrap();
+    let log = log.lock().unwrap();
+    let stores = log.iter().filter(|l| l.contains("STORE")).count();
+    let expunges: Vec<_> = log.iter().filter(|l| l.contains("EXPUNGE")).collect();
+    assert_eq!(stores, 1, "{log:?}");
+    assert_eq!(expunges.len(), 1, "{log:?}");
+    assert!(expunges[0].contains("UID EXPUNGE 7"), "{log:?}");
+}
+
+#[tokio::test]
+async fn expunge_without_uidplus_refuses_when_another_message_is_marked_deleted() {
+    let greeting = "* OK [CAPABILITY IMAP4rev1 AUTH=PLAIN] ready\r\n".to_string();
+    let steps = vec![
+        Ex::Auth {
+            expect: "AUTHENTICATE PLAIN",
+            respond: "{tag} OK [CAPABILITY IMAP4rev1 AUTH=PLAIN] Logged in\r\n".into(),
+        },
+        select_drafts(),
+        Ex::Cmd {
+            expect: "UID SEARCH DELETED",
+            respond: "* SEARCH 3 7\r\n{tag} OK Search completed\r\n".into(),
+        },
+    ];
+    let (addr, log) = spawn_mock(vec![Script { greeting, steps }]).await;
+    let backend = ImapBackend::connect(config(addr, password_creds()))
+        .await
+        .unwrap();
+    let outcome = backend.expunge_messages(&[drafts_ref(7)]).await;
+    assert!(
+        matches!(outcome, Err(mw_engine::EngineError::Unsupported(_))),
+        "{outcome:?}"
+    );
+    let log = log.lock().unwrap();
+    assert!(
+        !log.iter().any(|l| l.contains("STORE") || l.contains("EXPUNGE")),
+        "nothing may be marked or expunged: {log:?}"
+    );
+}
+
+#[tokio::test]
+async fn expunge_without_uidplus_marks_the_one_uid_then_expunges() {
+    let greeting = "* OK [CAPABILITY IMAP4rev1 AUTH=PLAIN] ready\r\n".to_string();
+    let steps = vec![
+        Ex::Auth {
+            expect: "AUTHENTICATE PLAIN",
+            respond: "{tag} OK [CAPABILITY IMAP4rev1 AUTH=PLAIN] Logged in\r\n".into(),
+        },
+        select_drafts(),
+        Ex::Cmd {
+            expect: "UID SEARCH DELETED",
+            respond: "* SEARCH\r\n{tag} OK Search completed\r\n".into(),
+        },
+        Ex::Cmd {
+            expect: "UID STORE 7 +FLAGS.SILENT (\\Deleted)",
+            respond: "{tag} OK Store completed\r\n".into(),
+        },
+        Ex::Cmd {
+            expect: "EXPUNGE",
+            respond: "* 3 EXPUNGE\r\n{tag} OK Expunge completed\r\n".into(),
+        },
+    ];
+    let (addr, _log) = spawn_mock(vec![Script { greeting, steps }]).await;
+    let backend = ImapBackend::connect(config(addr, password_creds()))
+        .await
+        .unwrap();
+    backend.expunge_messages(&[drafts_ref(7)]).await.unwrap();
+}

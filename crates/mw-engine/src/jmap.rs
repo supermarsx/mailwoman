@@ -3991,6 +3991,49 @@ impl Engine {
         ))
     }
 
+    /// Where the server put the copy of draft `email_id` composed here, when its
+    /// `APPENDUID` was recorded ([`Engine::remember_upstream_draft`]).
+    pub(super) async fn upstream_draft_ref(&self, account_id: &str, email_id: &str) -> Option<MessageRef> {
+        let key = upstream_drafts_key(account_id);
+        let stored = self.store().get_setting(&key).await.ok().flatten()?;
+        let map = serde_json::from_str::<Map<String, Value>>(&stored).ok()?;
+        let entry = map.get(email_id)?;
+        let (Some(name), Some(uidvalidity), Some(uid)) = (
+            entry["mailbox"].as_str(),
+            entry["uidvalidity"]
+                .as_u64()
+                .and_then(|v| u32::try_from(v).ok()),
+            entry["uid"].as_u64().and_then(|v| u32::try_from(v).ok()),
+        ) else {
+            return None;
+        };
+        Some(MessageRef::Imap {
+            mailbox: RawMailboxRef {
+                name: name.to_string(),
+                uidvalidity,
+            },
+            uidvalidity,
+            uid,
+        })
+    }
+
+    /// Forget the recorded server copies of these drafts.
+    pub(super) async fn forget_upstream_drafts(&self, account_id: &str, email_ids: &[String]) {
+        if email_ids.is_empty() {
+            return;
+        }
+        if let Err(e) = self
+            .update_upstream_drafts(account_id, |map| {
+                for id in email_ids {
+                    map.remove(id);
+                }
+            })
+            .await
+        {
+            tracing::warn!("could not forget {} draft copies on the mail server: {e}", email_ids.len());
+        }
+    }
+
     /// Remove the copy of a sent draft from the server's Drafts folder (t28-e17
     /// open item 4): without this, the copy APPENDed when the draft was composed
     /// stayed there, the next sync listed it, and Drafts showed every message
@@ -4007,27 +4050,7 @@ impl Engine {
         rt: &AccountRuntime,
         email_id: &str,
     ) -> Option<String> {
-        let key = upstream_drafts_key(account_id);
-        let stored = self.store().get_setting(&key).await.ok().flatten()?;
-        let map = serde_json::from_str::<Map<String, Value>>(&stored).ok()?;
-        let entry = map.get(email_id)?;
-        let (Some(name), Some(uidvalidity), Some(uid)) = (
-            entry["mailbox"].as_str(),
-            entry["uidvalidity"]
-                .as_u64()
-                .and_then(|v| u32::try_from(v).ok()),
-            entry["uid"].as_u64().and_then(|v| u32::try_from(v).ok()),
-        ) else {
-            return None;
-        };
-        let at = MessageRef::Imap {
-            mailbox: RawMailboxRef {
-                name: name.to_string(),
-                uidvalidity,
-            },
-            uidvalidity,
-            uid,
-        };
+        let at = self.upstream_draft_ref(account_id, email_id).await?;
         let outcome = rt.backend.expunge_messages(&[at]).await;
         // Forgotten either way: a copy the server will not remove now is not
         // retried at every later send.
