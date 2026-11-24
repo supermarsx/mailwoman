@@ -97,6 +97,259 @@ fn empty_protection_outcome() -> ProtectionOutcome {
 #[cfg(test)]
 #[path = "request_protection_batch_tests.rs"]
 mod batch_tests;
+#[path = "request_protection_owner.rs"]
+mod owner;
+pub use owner::{Ownership, ProtectionParticipant};
+
+/// The subject-key HMAC with its key schedule computed once
+/// (`mw-request-protection-subject-v1` subkey; inner and outer SHA-256 states
+/// after the padded key block). Equal to `seal::hmac_sha256(subkey, message)`.
+/// Holds only a value derived from the server key this process already holds.
+#[derive(Clone)]
+pub struct SubjectKeyer {
+    inner: sha2::Sha256,
+    outer: sha2::Sha256,
+}
+impl std::fmt::Debug for SubjectKeyer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SubjectKeyer(..)")
+    }
+}
+impl SubjectKeyer {
+    fn new(subkey: [u8; 32]) -> Self {
+        use sha2::Digest;
+        let (mut ipad, mut opad) = ([0x36u8; 64], [0x5cu8; 64]);
+        for (index, byte) in subkey.iter().enumerate() {
+            ipad[index] ^= byte;
+            opad[index] ^= byte;
+        }
+        let (mut inner, mut outer) = (sha2::Sha256::new(), sha2::Sha256::new());
+        inner.update(ipad);
+        outer.update(opad);
+        Self { inner, outer }
+    }
+    fn mac(&self, parts: &[&[u8]]) -> [u8; 32] {
+        use sha2::Digest;
+        let mut inner = self.inner.clone();
+        for part in parts {
+            inner.update(part);
+        }
+        let mut outer = self.outer.clone();
+        outer.update(inner.finalize());
+        outer.finalize().into()
+    }
+    /// See [`Store::request_protection_subject`].
+    pub fn subject(&self, kind: &str, value: &str) -> Result<String, StoreError> {
+        let canonical;
+        let value = match kind {
+            // Independent path policy must not share adaptive stages with the
+            // general source policy. Keep the public subject kind and source
+            // metadata unchanged while giving this internal counter its own key.
+            "client" if value.starts_with("probe-path:") => {
+                let ip = value
+                    .strip_prefix("probe-path:")
+                    .unwrap()
+                    .parse::<std::net::IpAddr>()
+                    .map_err(|_| corrupt())?;
+                canonical = format!("probe-path:{}", ip.to_canonical());
+                canonical.as_str()
+            }
+            "client" | "ua-missing" | "ua-uncommon" | "ua-automation" | "ua-search"
+            | "ua-ai-training" | "ua-ai-search" | "ua-ai-user" | "ua-custom" => {
+                canonical = value
+                    .parse::<std::net::IpAddr>()
+                    .map_err(|_| corrupt())?
+                    .to_canonical()
+                    .to_string();
+                canonical.as_str()
+            }
+            "account" | "admin"
+                if !value.is_empty()
+                    && value.len() <= 512
+                    && !value.chars().any(char::is_control) =>
+            {
+                value
+            }
+            _ => return Err(corrupt()),
+        };
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        let digest = self.mac(&[kind.as_bytes(), b"\0", value.as_bytes()]);
+        let mut out = String::with_capacity(64);
+        for byte in digest {
+            out.push(HEX[usize::from(byte >> 4)] as char);
+            out.push(HEX[usize::from(byte & 15)] as char);
+        }
+        Ok(out)
+    }
+    /// Validate one observation without any storage access. `None` means the
+    /// observation touches no state (policy off or an ignored signal).
+    pub fn prepare(
+        &self, kind: &str, value: &str, policy: &Policy, now: i64,
+        signal: Option<Signal>, source: ProtectionSource<'_>,
+    ) -> Result<Option<PreparedProtection>, StoreError> {
+        if !policy.valid() || now < 0 {
+            return Err(corrupt());
+        }
+        if policy.off()
+            || signal == Some(Signal::Ignored)
+            || (signal.is_some() && policy.adaptive_mode == Mode::Off)
+        {
+            return Ok(None);
+        }
+        let key = self.subject(kind, value)?;
+        let source_subject = kind == "client" || kind.starts_with("ua-");
+        let canonical_ip = |value: &str| {
+            value
+                .parse::<std::net::IpAddr>()
+                .map(|ip| ip.to_canonical().to_string())
+                .map_err(|_| corrupt())
+        };
+        let observed_ip = if source_subject {
+            let source_value = if kind == "client" {
+                value.strip_prefix("probe-path:").unwrap_or(value)
+            } else {
+                value
+            };
+            let expected = canonical_ip(source_value)?;
+            if let Some(ip) = source.ip
+                && canonical_ip(ip)? != expected
+            {
+                return Err(corrupt());
+            }
+            Some(expected)
+        } else {
+            source.ip.map(canonical_ip).transpose()?
+        };
+        Ok(Some(PreparedProtection { key, source_subject, observed_ip }))
+    }
+}
+
+/// Synchronous writers of one SQLite file in this process share one participant.
+type Writers = std::sync::Mutex<
+    std::collections::HashMap<std::path::PathBuf, std::sync::Arc<tokio::sync::OnceCell<ProtectionParticipant>>>,
+>;
+static WRITERS: std::sync::LazyLock<Writers> = std::sync::LazyLock::new(Default::default);
+
+/// One row of a set-based group.
+struct GroupRow {
+    kind: String,
+    state: State,
+    expires_at: i64,
+    updated_at: i64,
+    dirty: bool,
+    /// Indices of the group's outcomes for this subject (their revision is the
+    /// committed one).
+    outcomes: Vec<usize>,
+}
+/// The set-based group of `Store::sqlite_batch`. `None`: a subject has no row,
+/// so the caller uses the per-observation path in the same transaction.
+async fn set_based_batch(
+    tx: &mut Tx,
+    requests: &[ProtectionObservation<'_>],
+    prepared: &[Option<PreparedProtection>],
+) -> Result<Option<Vec<(ProtectionOutcome, Option<StoredProtection>)>>, StoreError> {
+    let mut keys: Vec<&str> = prepared.iter().flatten().map(|p| p.key.as_str()).collect();
+    keys.sort_unstable();
+    keys.dedup();
+    let list = serde_json::to_string(&keys).map_err(|_| corrupt())?;
+    let found = q("SELECT subject_key,subject_kind,state_json,expires_at FROM request_protection_subject WHERE subject_key IN (SELECT value FROM json_each(?1))")
+        .bind(list)
+        .fetch_all_tx(tx)
+        .await?;
+    if found.len() != keys.len() {
+        return Ok(None);
+    }
+    // First observation time per subject: the transactional path validates a row
+    // against the time of the observation that reads it.
+    let mut first_now: std::collections::HashMap<&str, i64> = Default::default();
+    for (request, prepared) in requests.iter().zip(prepared) {
+        if let Some(prepared) = prepared {
+            first_now.entry(prepared.key.as_str()).or_insert(request.now);
+        }
+    }
+    let mut rows: std::collections::HashMap<String, GroupRow> = Default::default();
+    for row in &found {
+        let key = row.get_string("subject_key");
+        let now = *first_now.get(key.as_str()).ok_or_else(corrupt)?;
+        let expires_at = row.get_i64("expires_at");
+        let state = if expires_at <= now { State::default() } else { load(&row.get_string("state_json"), now)? };
+        rows.insert(key, GroupRow {
+            kind: row.get_string("subject_kind"), state, expires_at, updated_at: 0,
+            dirty: false, outcomes: Vec::new(),
+        });
+    }
+    let mut outcomes = Vec::with_capacity(requests.len());
+    for (request, prepared) in requests.iter().zip(prepared) {
+        let Some(prepared) = prepared else {
+            outcomes.push((empty_protection_outcome(), None));
+            continue;
+        };
+        let row = rows.get_mut(&prepared.key).ok_or_else(corrupt)?;
+        if row.kind != request.kind {
+            return Err(corrupt());
+        }
+        let ProtectionStep { decision, transition } = evaluate_protection(
+            &mut row.state, &mut row.expires_at, prepared, request.policy, request.now,
+            request.signal, request.source,
+        );
+        row.updated_at = request.now;
+        row.dirty = true;
+        let snapshot = row.state.snapshot();
+        if transition {
+            let mut event_snapshot = snapshot.clone();
+            event_snapshot.source_ip.clone_from(&prepared.observed_ip);
+            audit(
+                tx,
+                &prepared.key,
+                request.kind,
+                request.now,
+                AuditDecision {
+                    code: reason(decision.reason),
+                    action: if decision.action == Action::Block { "block" } else { "throttle" },
+                    enforced: decision.enforced,
+                    retry: decision.retry_after_secs,
+                },
+                &event_snapshot,
+                Some(request.policy),
+            )
+            .await?;
+        }
+        row.outcomes.push(outcomes.len());
+        outcomes.push((
+            ProtectionOutcome { subject_key: prepared.key.clone(), decision, snapshot, revision: String::new() },
+            Some(StoredProtection { state: row.state.clone(), expires_at: row.expires_at, revision: String::new() }),
+        ));
+    }
+    let mut updates = Vec::with_capacity(rows.len());
+    for (key, row) in &rows {
+        if !row.dirty {
+            continue;
+        }
+        let json = serde_json::to_string(&row.state).map_err(|_| corrupt())?;
+        if json.len() > MAX_STATE_BYTES {
+            return Err(corrupt());
+        }
+        let rev = revision();
+        for index in &row.outcomes {
+            let (outcome, stored) = &mut outcomes[*index];
+            outcome.revision.clone_from(&rev);
+            if let Some(stored) = stored {
+                stored.revision.clone_from(&rev);
+            }
+        }
+        updates.push(serde_json::json!({"k":key,"s":json,"u":row.updated_at,"e":row.expires_at,"r":rev}));
+    }
+    let dirty = updates.len() as u64;
+    let changed = q("UPDATE request_protection_subject SET state_json=json_extract(j.value,'$.s'),updated_at=json_extract(j.value,'$.u'),expires_at=json_extract(j.value,'$.e'),revision=json_extract(j.value,'$.r') FROM json_each(?1) AS j WHERE request_protection_subject.subject_key=json_extract(j.value,'$.k')")
+        .bind(serde_json::Value::Array(updates).to_string())
+        .execute_tx(tx)
+        .await?;
+    // Inside the writer transaction nothing else can remove a row read above.
+    if changed != dirty {
+        return Err(corrupt());
+    }
+    Ok(Some(outcomes))
+}
 
 #[cfg(test)]
 mod tests {
@@ -1059,46 +1312,60 @@ impl Store {
         kind: &str,
         value: &str,
     ) -> Result<String, StoreError> {
-        let canonical;
-        let value = match kind {
-            // Independent path policy must not share adaptive stages with the
-            // general source policy. Keep the public subject kind and source
-            // metadata unchanged while giving this internal counter its own key.
-            "client" if value.starts_with("probe-path:") => {
-                let ip = value
-                    .strip_prefix("probe-path:")
-                    .unwrap()
-                    .parse::<std::net::IpAddr>()
-                    .map_err(|_| corrupt())?;
-                canonical = format!("probe-path:{}", ip.to_canonical());
-                canonical.as_str()
+        self.request_protection_keyer().subject(kind, value)
+    }
+    /// The subject-key HMAC for callers that compute many keys (write-behind
+    /// accounting derives it once instead of once per key).
+    pub fn request_protection_keyer(&self) -> SubjectKeyer {
+        SubjectKeyer::new(self.key.derive("mw-request-protection-subject-v1"))
+    }
+    fn protection_location(&self) -> owner::Location {
+        match &self.backend {
+            crate::backend::Backend::Postgres(_) => owner::Location::Shared,
+            crate::backend::Backend::Sqlite(live) => {
+                let path = live.logical_path();
+                let text = path.to_string_lossy();
+                // sqlx names an in-memory database `file:sqlx-in-memory-<n>`.
+                let memory = text.is_empty() || text.contains(":memory:") || text.starts_with("file:");
+                if memory && !live.is_managed() {
+                    owner::Location::Private
+                } else {
+                    owner::Location::File(path.to_path_buf())
+                }
             }
-            "client" | "ua-missing" | "ua-uncommon" | "ua-automation" | "ua-search"
-            | "ua-ai-training" | "ua-ai-search" | "ua-ai-user" | "ua-custom" => {
-                canonical = value
-                    .parse::<std::net::IpAddr>()
-                    .map_err(|_| corrupt())?
-                    .to_canonical()
-                    .to_string();
-                canonical.as_str()
+        }
+    }
+    /// A new participant for write-behind accounting (its own lock handle; see
+    /// `request_protection_owner.rs`). Its holder writes through the `_as`
+    /// functions and checks ownership with [`ProtectionParticipant::check`].
+    pub async fn request_protection_participant(&self) -> Result<ProtectionParticipant, StoreError> {
+        ProtectionParticipant::join(&self.protection_location()).await
+    }
+    /// Join as a synchronous writer of this database file, once per process.
+    /// Every request-protection write that is not made through a participant
+    /// calls this first, so a write-behind owner elsewhere stops trusting its
+    /// cache before the write. PostgreSQL and in-memory databases: no-op.
+    pub async fn request_protection_join(&self) -> Result<(), StoreError> {
+        let owner::Location::File(path) = self.protection_location() else { return Ok(()) };
+        let cell = WRITERS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .entry(path)
+            .or_default()
+            .clone();
+        cell.get_or_try_init(|| self.request_protection_participant()).await.map(|_| ())
+    }
+    /// `request_protection_join` for the synchronous paths. A witness that cannot
+    /// be created (for example a read-only directory) must not take request
+    /// protection down in the default mode: the write proceeds and a warning is
+    /// logged once; a write-behind owner then cannot see this writer.
+    async fn joined_or_warned(&self) {
+        if let Err(error) = self.request_protection_join().await {
+            static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                eprintln!("[mw-store] request protection witness unavailable ({error}); writing without it");
             }
-            "account" | "admin"
-                if !value.is_empty()
-                    && value.len() <= 512
-                    && !value.chars().any(char::is_control) =>
-            {
-                value
-            }
-            _ => return Err(corrupt()),
-        };
-        let message = format!("{kind}\0{value}");
-        Ok(crate::seal::hmac_sha256(
-            &self.key.derive("mw-request-protection-subject-v1"),
-            message.as_bytes(),
-        )
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect())
+        }
     }
     /// Read only an existing high-confidence source action before authentication.
     /// This performs one indexed lookup, never admission, expiry cleanup, audit,
@@ -1174,6 +1441,9 @@ impl Store {
     ) -> Result<ProtectionOutcome, StoreError> {
         let Some(prepared) = self.prepare_request_protection(kind, value, policy, now, signal, source)?
         else { return Ok(empty_protection_outcome()); };
+        if self.uses_sqlite() {
+            self.joined_or_warned().await;
+        }
         let mut tx = self.backend.begin().await?;
         let outcome = self.apply_request_protection(&mut tx, kind, policy, now, signal, source, prepared).await?;
         tx.commit().await?;
@@ -1200,25 +1470,54 @@ impl Store {
         &self, requests: &[ProtectionObservation<'_>],
     ) -> Result<Vec<(ProtectionOutcome, Option<StoredProtection>)>, StoreError> {
         if !self.uses_sqlite() || requests.len() > 64 { return Err(corrupt()); }
-        let prepared = requests.iter().map(|r| self.prepare_request_protection(
+        self.joined_or_warned().await;
+        self.sqlite_batch(requests).await
+    }
+    /// `request_protection_sqlite_batch_with_state` for a write-behind
+    /// participant, which joined when it was created.
+    pub async fn request_protection_sqlite_batch_as(
+        &self, _writer: &ProtectionParticipant, requests: &[ProtectionObservation<'_>],
+    ) -> Result<Vec<(ProtectionOutcome, Option<StoredProtection>)>, StoreError> {
+        self.sqlite_batch(requests).await
+    }
+
+    /// When every subject of the group has a row, the group is applied set-based:
+    /// one SELECT of all rows, the ordinary evaluator in input order in memory
+    /// (with each transition's audit event), and one UPDATE of every changed row,
+    /// inside one writer transaction. A group with a subject that has no row
+    /// keeps the per-observation path, which allocates rows under the inventory
+    /// lock and capacity check. Decisions, rows and audit events are the same
+    /// either way.
+    async fn sqlite_batch(
+        &self, requests: &[ProtectionObservation<'_>],
+    ) -> Result<Vec<(ProtectionOutcome, Option<StoredProtection>)>, StoreError> {
+        if !self.uses_sqlite() || requests.len() > 64 { return Err(corrupt()); }
+        let keyer = self.request_protection_keyer();
+        let prepared = requests.iter().map(|r| keyer.prepare(
             r.kind, r.value, r.policy, r.now, r.signal, r.source,
         )).collect::<Result<Vec<_>, _>>()?;
         if prepared.iter().all(Option::is_none) {
             return Ok(requests.iter().map(|_| (empty_protection_outcome(), None)).collect());
         }
         let mut tx = self.backend.begin().await?;
-        let mut outcomes = Vec::with_capacity(requests.len());
-        for (request, prepared) in requests.iter().zip(prepared) {
-            outcomes.push(match prepared {
-                Some(prepared) => {
-                    let (outcome, stored) = self.apply_request_protection_with_state(&mut tx,
-                        request.kind, request.policy, request.now, request.signal,
-                        request.source, prepared).await?;
-                    (outcome, Some(stored))
+        let outcomes = match set_based_batch(&mut tx, requests, &prepared).await? {
+            Some(outcomes) => outcomes,
+            None => {
+                let mut outcomes = Vec::with_capacity(requests.len());
+                for (request, prepared) in requests.iter().zip(prepared) {
+                    outcomes.push(match prepared {
+                        Some(prepared) => {
+                            let (outcome, stored) = self.apply_request_protection_with_state(&mut tx,
+                                request.kind, request.policy, request.now, request.signal,
+                                request.source, prepared).await?;
+                            (outcome, Some(stored))
+                        }
+                        None => (empty_protection_outcome(), None),
+                    });
                 }
-                None => (empty_protection_outcome(), None),
-            });
-        }
+                outcomes
+            }
+        };
         tx.commit().await?;
         Ok(outcomes)
     }
@@ -1255,37 +1554,7 @@ impl Store {
         if !policy.valid() || now < 0 {
             return Err(corrupt());
         }
-        if policy.off()
-            || signal == Some(Signal::Ignored)
-            || (signal.is_some() && policy.adaptive_mode == Mode::Off)
-        {
-            return Ok(None);
-        }
-        let key = self.request_protection_subject(kind, value)?;
-        let source_subject = kind == "client" || kind.starts_with("ua-");
-        let canonical_ip = |value: &str| {
-            value
-                .parse::<std::net::IpAddr>()
-                .map(|ip| ip.to_canonical().to_string())
-                .map_err(|_| corrupt())
-        };
-        let observed_ip = if source_subject {
-            let source_value = if kind == "client" {
-                value.strip_prefix("probe-path:").unwrap_or(value)
-            } else {
-                value
-            };
-            let expected = canonical_ip(source_value)?;
-            if let Some(ip) = source.ip
-                && canonical_ip(ip)? != expected
-            {
-                return Err(corrupt());
-            }
-            Some(expected)
-        } else {
-            source.ip.map(canonical_ip).transpose()?
-        };
-        Ok(Some(PreparedProtection { key, source_subject, observed_ip }))
+        self.request_protection_keyer().prepare(kind, value, policy, now, signal, source)
     }
 
     async fn apply_request_protection(
@@ -1426,6 +1695,27 @@ impl Store {
             .collect()
     }
     pub async fn clear_request_protection(
+        &self,
+        key: &str,
+        expected: &str,
+        now: i64,
+    ) -> Result<bool, StoreError> {
+        if self.uses_sqlite() {
+            self.joined_or_warned().await;
+        }
+        self.clear_unjoined(key, expected, now).await
+    }
+    /// `clear_request_protection` for a write-behind participant.
+    pub async fn clear_request_protection_as(
+        &self,
+        _writer: &ProtectionParticipant,
+        key: &str,
+        expected: &str,
+        now: i64,
+    ) -> Result<bool, StoreError> {
+        self.clear_unjoined(key, expected, now).await
+    }
+    async fn clear_unjoined(
         &self,
         key: &str,
         expected: &str,

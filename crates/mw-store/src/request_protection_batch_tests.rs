@@ -82,7 +82,82 @@ async fn grouped_admissions_use_one_writer_transaction_instead_of_eight() {
     assert_eq!(result.unwrap().len(),8);
     let (_,serial)=crate::pool_telemetry::measure_queries(async {for _ in 0..8 {store.request_protection_with_source(r.kind,r.value,r.policy,r.now,r.signal,r.source).await.unwrap();}}).await;
     assert_eq!(grouped.other.calls,1);assert_eq!(serial.other.calls,8);
-    assert_eq!(grouped.read.calls,serial.read.calls);assert_eq!(grouped.write.calls,serial.write.calls);
+    // Set-based (t50hp-e8): one SELECT of the rows and one UPDATE for the group,
+    // against a lock UPDATE, a SELECT and an UPDATE per observation.
+    assert_eq!((grouped.read.calls,grouped.write.calls),(1,1),"{grouped:?}");
+    assert_eq!((serial.read.calls,serial.write.calls),(8,16),"{serial:?}");
+}
+#[tokio::test]
+async fn set_based_group_of_64_over_many_subjects_is_two_statements_and_equals_the_serial_path() {
+    let key=ServerKey::generate();
+    let serial=Store::open_in_memory(key.clone()).await.unwrap();
+    let grouped=Store::open_in_memory(key).await.unwrap();
+    let mut p=policy();p.rate_limit=20;
+    let values:Vec<String>=(0..16).map(|i| format!("subject-{i}")).collect();
+    for store in [&serial,&grouped] {
+        for value in &values {store.request_protection("account",value,&p,1000,None).await.unwrap();}
+    }
+    let signals=[None,Some(Signal::Normal),Some(Signal::Malformed),None,Some(Signal::CredentialRejected),None,Some(Signal::ProbePath),None];
+    let requests:Vec<_>=(0..64).map(|i| ProtectionObservation {
+        kind:"account",value:&values[(i*7)%16],policy:&p,now:1001+(i as i64)/8,signal:signals[i%8],
+        source:ProtectionSource{country:None,ip:Some("192.0.2.44")},
+    }).collect();
+    let mut expected=Vec::new();
+    for r in &requests {expected.push(serial.request_protection_with_source(r.kind,r.value,r.policy,r.now,r.signal,r.source).await.unwrap());}
+    let (actual,sql)=crate::pool_telemetry::measure_queries(grouped.request_protection_sqlite_batch_with_state(&requests)).await;
+    let actual=actual.unwrap();
+    for ((a,stored),b) in actual.iter().zip(&expected) {
+        assert_eq!(a.decision,b.decision);
+        assert_eq!(serde_json::to_value(&a.snapshot).unwrap(),serde_json::to_value(&b.snapshot).unwrap());
+        assert_eq!(&stored.as_ref().unwrap().state.snapshot().rate_count,&b.snapshot.rate_count);
+    }
+    assert_eq!(inventory(&serial).await,inventory(&grouped).await);
+    let transitions=inventory(&grouped).await.1.len() as u64;
+    assert!(transitions>0,"transitions must be exercised");
+    // Rows: one SELECT and one UPDATE; each transition adds its audit statements.
+    assert_eq!(sql.other.calls,1,"{sql:?}");
+    assert!(sql.read.calls<=1+transitions,"{sql:?}");
+    assert!(sql.write.calls<=1+5*transitions,"{sql:?}");
+    // Every committed revision is the one the outcome reports.
+    for (outcome,stored) in &actual {
+        let row=grouped.request_protection_load(&outcome.subject_key,"account",1010).await.unwrap().unwrap();
+        let last=actual.iter().rev().find(|(o,_)| o.subject_key==outcome.subject_key).unwrap();
+        assert_eq!(row.revision,last.0.revision);assert_eq!(stored.as_ref().unwrap().revision,row.revision);
+    }
+}
+#[tokio::test]
+async fn a_group_with_a_new_subject_keeps_the_capacity_checked_row_allocation() {
+    let key=ServerKey::generate();
+    let serial=Store::open_in_memory(key.clone()).await.unwrap();
+    let grouped=Store::open_in_memory(key).await.unwrap();
+    let p=policy();
+    for store in [&serial,&grouped] {store.request_protection("account","old",&p,1000,None).await.unwrap();}
+    let requests=[ProtectionObservation{kind:"account",value:"old",policy:&p,now:1001,signal:None,source:ProtectionSource::default()},
+        ProtectionObservation{kind:"account",value:"new",policy:&p,now:1001,signal:None,source:ProtectionSource::default()},
+        ProtectionObservation{kind:"account",value:"old",policy:&p,now:1002,signal:None,source:ProtectionSource::default()}];
+    for r in &requests {serial.request_protection_with_source(r.kind,r.value,r.policy,r.now,r.signal,r.source).await.unwrap();}
+    let out=grouped.request_protection_sqlite_batch(&requests).await.unwrap();
+    assert_eq!(out.len(),3);
+    assert_eq!(inventory(&serial).await,inventory(&grouped).await);
+    // A subject of another kind under the same key is refused, set-based too.
+    let wrong=[ProtectionObservation{kind:"admin",value:"old",policy:&p,now:1003,signal:None,source:ProtectionSource::default()}];
+    let admin_key=grouped.request_protection_subject("admin","old").unwrap();
+    q("UPDATE request_protection_subject SET subject_key=?1 WHERE subject_key=?2").bind(&admin_key)
+        .bind(grouped.request_protection_subject("account","old").unwrap()).execute(&grouped.backend).await.unwrap();
+    assert!(matches!(grouped.request_protection_sqlite_batch(&wrong).await,Err(StoreError::Corrupt(_))));
+}
+#[test]
+fn precomputed_subject_hmac_equals_the_plain_hmac() {
+    let key=ServerKey::generate();
+    let subkey=key.derive("mw-request-protection-subject-v1");
+    let keyer=SubjectKeyer::new(subkey);
+    for (kind,value,message) in [("account","a","account\0a"),("client","::ffff:192.0.2.1","client\0192.0.2.1"),
+        ("client","probe-path:2001:DB8::1","client\0probe-path:2001:db8::1"),("admin","root","admin\0root")] {
+        let plain:String=crate::seal::hmac_sha256(&subkey,message.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(keyer.subject(kind,value).unwrap(),plain,"{kind} {value}");
+    }
+    assert!(keyer.subject("other","x").is_err()&&keyer.subject("account","").is_err());
+    assert_eq!(format!("{keyer:?}"),"SubjectKeyer(..)");
 }
 #[tokio::test]
 async fn grouped_sqlcipher_commit_survives_encrypted_reopen() {
@@ -144,4 +219,14 @@ async fn in_memory_evaluator_matches_transactional_decisions_and_rows() {
         refused+=usize::from(step.decision.enforced);transitions+=usize::from(step.transition);
     }
     assert!(refused>0&&transitions>0,"refusals {refused} transitions {transitions} must be exercised");
+}
+#[tokio::test]
+async fn witness_location_is_private_in_memory_and_a_file_beside_a_database() {
+    let memory=Store::open_in_memory(ServerKey::generate()).await.unwrap();
+    assert!(matches!(memory.protection_location(),owner::Location::Private));
+    let directory=tempfile::tempdir().unwrap();let path=directory.path().join("located.db");
+    let file=Store::open(path.to_str().unwrap(),ServerKey::generate()).await.unwrap();
+    assert!(matches!(file.protection_location(),owner::Location::File(at) if at.file_name()==Some(std::ffi::OsStr::new("located.db"))));
+    file.request_protection_join().await.unwrap();
+    assert!(directory.path().join("located.db.mw-request-protection.lock").exists());
 }
