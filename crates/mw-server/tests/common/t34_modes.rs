@@ -10,11 +10,9 @@
 //! `engine_mode::publication_options_from`, `write_behind::AccountingConfig`).
 //! An unset or empty variable takes the server default.
 //!
-//! Guard snapshot and write-behind counters are `pub(crate)` in `mw-server`
-//! and reachable only through `AppState`. Until production exposes a hook
-//! (see `scripts/perf/t34-modes.mjs`, "required production exposure"), the
-//! witness reports them as `supported:false`, and the harness refuses to
-//! qualify an arm that claims either mode.
+//! Guard snapshot and write-behind accounting report through process-global
+//! fixture hooks (`request_inputs_fixture::guard_snapshot`,
+//! `request_protection_fixture_snapshot`): counts only, no keys or addresses.
 use serde_json::{Value, json};
 use std::time::Duration;
 
@@ -129,8 +127,9 @@ pub fn handoff(selection: &T34Selection, witness: Value) -> Value {
 
 /// Per-snapshot witness. Index publication evidence is the engine's own
 /// `PublicationStatus` (already under `searchIndex.publication`); the harness
-/// reads journal counters from there. Guard snapshot and write-behind are
-/// reported unsupported until production exposes a public witness.
+/// reads journal counters from there. Request protection: the write-behind
+/// accounting counters (`accounting: synchronous` with zero counters when the
+/// server runs synchronous accounting).
 pub fn witness(engine: &mw_engine::Engine) -> Value {
     let publication = engine.index_publication_status();
     json!({
@@ -141,8 +140,13 @@ pub fn witness(engine: &mw_engine::Engine) -> Value {
             "ackMode": publication.ack_mode.as_str(),
             "earlyAck": publication.early_ack,
         },
-        "requestProtection": {"supported": false, "reason": "no public fixture witness in mw-server"},
+        "requestProtection": request_protection_witness(),
     })
+}
+
+/// The write-behind accounting witness of the server in this process.
+pub fn request_protection_witness() -> Value {
+    mw_server::request_protection_fixture_snapshot()
 }
 
 #[cfg(test)]
@@ -171,6 +175,15 @@ mod tests {
         ] {
             let error = parse(&[(name, value)]).unwrap_err();
             assert!(error.contains(name), "{error}");
+        }
+    }
+    #[test]
+    fn request_protection_witness_is_supported_and_counts_only() {
+        let witness = request_protection_witness();
+        assert_eq!(witness["supported"], true, "{witness}");
+        assert!(matches!(witness["accounting"].as_str(), Some("synchronous" | "write-behind")), "{witness}");
+        for field in ["pending", "flushed", "batches", "writeThroughs", "loads", "cacheSize", "owned"] {
+            assert!(witness.get(field).is_some(), "{field}: {witness}");
         }
     }
     #[test]
