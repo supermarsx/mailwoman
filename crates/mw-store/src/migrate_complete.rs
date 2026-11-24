@@ -43,6 +43,10 @@ pub(crate) const REGENERATED: &[&str] = &[
     "mail_data_accounts",
     "mail_data_outbox",
     "mail_data_rows",
+    // 0125: per-message flag/keyword projection kept by AFTER triggers on
+    // `messages`; they write only these two tables.
+    "message_keyword",
+    "message_state",
 ];
 
 /// Copied tables that destination triggers also write while the copy runs, and
