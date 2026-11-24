@@ -1,4 +1,5 @@
 // Explicit fixture receipt validation only; never controls application authority.
+import {GOAL_MIX_TABLE} from './representative-workload.mjs';
 export const requestInputCounters=Object.freeze(['ordinaryContexts','readyFrames','consumedFrames','hintAttempts','buildAttempts','completedBuilds','firstFenceAttempts','refreshFenceAttempts']);
 export function requestInputsExpected(value){
  if(value===undefined)return undefined;
@@ -10,7 +11,9 @@ export function requestInputsStatusReport(value){
  if(!value||typeof value!=='object'||Array.isArray(value)||!['original','published'].includes(value.mode)||value.processImmutable!==true||requestInputCounters.some(key=>!Number.isSafeInteger(value[key])||value[key]<0))throw Error('Invalid request-input fixture witness');
  return {mode:value.mode,processImmutable:true,...Object.fromEntries(requestInputCounters.map(key=>[key,value[key]]))};
 }
-const shapes=Object.freeze({identity:['authenticated-identity'],mailboxes:['Mailbox/get'],query:['Email/query'],headers:['Email/get'],refresh:['concurrent-refresh-handler'],mixed:['authenticated-identity','Mailbox/get','Email/query','Email/get','concurrent-refresh-handler'],representative:['authenticated-identity','Mailbox/get','Email/query','Email/get','concurrent-refresh-handler','paged-query-and-headers','body-and-attachment-metadata','attachment-download','mark-read-and-restore','move-and-restore'],'paged-headers':['paged-query-and-headers'],reader:['body-and-attachment-metadata'],attachment:['attachment-download'],'flag-write':['mark-read-and-restore'],'move-write':['move-and-restore'],'jmap-session':['jmap-session'],'list-batch':['list-batch'],changes:['changes'],'account-polls':['account-preferences','appearance-customization','session-activity']});
+const shapes=Object.freeze({identity:['authenticated-identity'],mailboxes:['Mailbox/get'],query:['Email/query'],headers:['Email/get'],refresh:['concurrent-refresh-handler'],mixed:['authenticated-identity','Mailbox/get','Email/query','Email/get','concurrent-refresh-handler'],representative:['authenticated-identity','Mailbox/get','Email/query','Email/get','concurrent-refresh-handler','paged-query-and-headers','body-and-attachment-metadata','attachment-download','mark-read-and-restore','move-and-restore'],'paged-headers':['paged-query-and-headers'],reader:['body-and-attachment-metadata'],attachment:['attachment-download'],'flag-write':['mark-read-and-restore'],'move-write':['move-and-restore'],'jmap-session':['jmap-session'],'list-batch':['list-batch'],changes:['changes'],'account-polls':['account-preferences','appearance-customization','session-activity'],
+ // Goal mix (all 17 shapes), each shape alone (bench rig), and the transport control (t62-n12).
+ 'goal-65-35':GOAL_MIX_TABLE.map(row=>row.name),...Object.fromEntries(GOAL_MIX_TABLE.map(row=>['goal-shape-'+row.name,[row.name]])),'transport-healthz':['transport-healthz']});
 // Conservative known subset only. Email/get labels cover both marked native
 // headers and unmarked ordinary headers, which Rust can support; labels alone
 // do not distinguish them. Exclusion is not proof of server ineligibility.

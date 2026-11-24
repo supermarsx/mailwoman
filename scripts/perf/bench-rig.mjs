@@ -9,6 +9,9 @@
 //          (CPUs per role; consecutive from CPU 1; or --cpuset-app=0-3 style explicit sets)  --app-memory=8g
 //          --transport-concurrency=4,8  --principals=<n>  --smoke (5 s stages)  --host-sampler (Windows host processes)
 //          --host-logical-cpus=<n>  --legs=<comma list of leg ids>
+//          --generator-impl=node|native (default node)  --native-generator-bin=<host path of a Linux mw-loadgen binary>
+//          (native: scripts/perf/native-generator, t62-n10; one generator process with one thread per generator CPU;
+//          R1 only: mw-loadgen has no template for the transport group)
 //
 // Each leg: volumes + (PostgreSQL) an internal network and a postgres:16 container; the fixture app container; the
 // generator container in the app's network namespace; the cgroup sampler sidecar (same image, rig-sampler.mjs). All
@@ -17,7 +20,7 @@
 // `git archive` of a commit that contains this rig (the goal-shape/transport groups and the commit counter).
 import {execFile,spawn} from 'node:child_process';
 import {mkdir,readFile,writeFile,readdir,rm,stat} from 'node:fs/promises';
-import {join,resolve,dirname} from 'node:path';
+import {join,resolve,dirname,basename} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {randomBytes} from 'node:crypto';
 import os from 'node:os';
@@ -36,7 +39,7 @@ export function parseArgs(argv){
  for(const arg of rest){
   if(!arg.startsWith('--'))throw new Error('Use --name=value');
   const at=arg.indexOf('=');const key=at<0?arg.slice(2):arg.slice(2,at),value=at<0?true:arg.slice(at+1);
-  if(!['run','run-id','image','diagnostics-image','report-root','private-root','confirm-bench-slot','backend','vcpus','app','database','generator','upstream','rig','cpuset-app','cpuset-database','cpuset-generator','cpuset-upstream','cpuset-rig','app-memory','transport-concurrency','principals','smoke','host-sampler','host-logical-cpus','legs','dir'].includes(key))throw new Error('Unknown option --'+key);
+  if(!['run','run-id','image','diagnostics-image','report-root','private-root','confirm-bench-slot','backend','vcpus','app','database','generator','upstream','rig','cpuset-app','cpuset-database','cpuset-generator','cpuset-upstream','cpuset-rig','app-memory','transport-concurrency','principals','smoke','host-sampler','host-logical-cpus','legs','dir','generator-impl','native-generator-bin'].includes(key))throw new Error('Unknown option --'+key);
   args[key]=value;
  }
  return {command,args};
@@ -60,10 +63,17 @@ export function buildPlan(args){
  const legs=wanted?run.legs.filter(leg=>wanted.includes(leg.id)):run.legs;
  if(!legs.length||wanted&&legs.length!==wanted.length)throw new Error('Invalid --legs');
  const minConcurrency=legs=>Math.min(...legs.flatMap(leg=>leg.env.MW_LOAD_FIXTURE_CONCURRENCY.split(',').map(Number)));
- const generatorWorkers=Math.max(1,Math.min(cpus.roles.generator.cpus,64,minConcurrency(legs)));
+ const generatorImpl=String(args['generator-impl']??'node');
+ if(!['node','native'].includes(generatorImpl))throw new Error('Invalid --generator-impl');
+ if(generatorImpl==='native'&&run.name==='r0a')throw new Error('The native generator has no template for the transport group; run R0a with --generator-impl=node');
+ if(generatorImpl==='native'&&typeof args['native-generator-bin']!=='string')throw new Error('--generator-impl=native needs --native-generator-bin (a Linux mw-loadgen built as docs/perf/native-generator.md says)');
+ // Node: one worker process per generator CPU (never more than the smallest concurrency). Native: one process,
+ // one runtime thread per generator CPU (the multi-process controller is not wired to it).
+ const generatorWorkers=generatorImpl==='native'?1:Math.max(1,Math.min(cpus.roles.generator.cpus,64,minConcurrency(legs)));
+ const generator={implementation:generatorImpl,...(generatorImpl==='native'?{nativeBin:resolve(String(args['native-generator-bin'])),threads:Math.min(cpus.roles.generator.cpus,64)}:{})};
  const appMemory=String(args['app-memory']??'8g');
  if(!/^[0-9]{1,4}[mg]$/.test(appMemory))throw new Error('Invalid --app-memory');
- return {schema:1,run:run.name,description:run.description,backend,cpus,legs,generatorWorkers,appMemory,host:hostEnv(cpus),
+ return {schema:1,run:run.name,description:run.description,backend,cpus,legs,generatorWorkers,generator,appMemory,host:hostEnv(cpus),
   sampler:{intervalMs:SAMPLE_INTERVAL_MS,hostIntervalMs:HOST_INTERVAL_MS,hostSampler:args['host-sampler']===true},
   thresholds:DEFAULT_THRESHOLDS,hostLogicalCpus:int(args['host-logical-cpus'],os.availableParallelism?.()??os.cpus().length,1,4096,'host-logical-cpus')};
 }
@@ -74,6 +84,9 @@ export function legCommands(plan,leg,{prefix,image,envFile,pgEnvFile}){
  const app=`${prefix}-app`,generator=`${prefix}-generator`,sampler=`${prefix}-sampler`,database=`${prefix}-pg`;
  const pg=plan.backend==='postgres';
  const hostFlags=Object.entries(plan.host).flatMap(([key,value])=>['-e',`${key}=${value}`]);
+ const native=plan.generator?.implementation==='native';
+ const nativeFlags=native?['--mount',`type=bind,source=${dirname(plan.generator.nativeBin)},target=/rig-bin,readonly`,'-e','MW_LOAD_GENERATOR=native',
+  '-e',`MW_NATIVE_GENERATOR_BIN=/rig-bin/${basename(plan.generator.nativeBin)}`,'-e',`MW_NATIVE_GENERATOR_THREADS=${plan.generator.threads}`]:[];
  return {names:{app,generator,sampler,database,scratch,data,net},
   volumes:[['volume','create',...owner,scratch],['volume','create',...owner,data]],
   network:pg?['network','create','--internal',...owner,net]:null,
@@ -84,7 +97,7 @@ export function legCommands(plan,leg,{prefix,image,envFile,pgEnvFile}){
   app:['run','-d','--name',app,...owner,'--network',pg?net:'none',...dockerCpuArgs(plan.cpus,'app'),'--memory',plan.appMemory,'--memory-swap',plan.appMemory,'--ulimit','nofile=65536:65536',
    '--mount',`type=volume,source=${scratch},target=/scratch`,'--mount',`type=volume,source=${data},target=/tmp`,'--env-file',envFile,image],
   generator:['run','-d','--name',generator,...owner,'--network',`container:${app}`,...dockerCpuArgs(plan.cpus,'generator'),'--memory','2g','--memory-swap','2g','--ulimit','nofile=65536:65536',
-   '--mount',`type=volume,source=${scratch},target=/scratch`,...hostFlags,'--entrypoint','node',image,
+   '--mount',`type=volume,source=${scratch},target=/scratch`,...hostFlags,...nativeFlags,'--entrypoint','node',image,
    '/src/scripts/perf/http-external-driver.mjs','--root=/scratch/control','--campaigns=1','--wait-seconds=3600',`--workers=${plan.generatorWorkers}`],
   sampler:(ids)=>['run','-d','--name',sampler,...owner,'--network','none',...dockerCpuArgs(plan.cpus,'rig'),'--memory','256m',
    '--mount','type=bind,source=/sys/fs/cgroup,target=/host-cgroup,readonly','--mount',`type=volume,source=${scratch},target=/scratch`,'--entrypoint','node',image,
@@ -230,6 +243,7 @@ async function main(){
  if(args['confirm-bench-slot']!==true)throw new Error('run needs --confirm-bench-slot: take the bench lock in .orchestration/state.md first (and the quiet lock for stages above 8 CPUs)');
  const runId=String(args['run-id']??'');if(!/^[a-z0-9][a-z0-9-]{0,31}$/.test(runId))throw new Error('Invalid --run-id');
  if(!args.image||!args['report-root']||!args['private-root'])throw new Error('--image, --report-root and --private-root required');
+ if(plan.generator.implementation==='native')await stat(plan.generator.nativeBin).catch(()=>{throw new Error('--native-generator-bin does not exist');});
  if(plan.legs.some(leg=>leg.image==='diagnostics')&&!args['diagnostics-image'])throw new Error('R1 needs --diagnostics-image (fixture built with --build-arg MW_FIXTURE_DIAGNOSTICS=1), or --legs without diagnostics-shapes');
  const dir=join(resolve(String(args['report-root'])),runId),privateRoot=resolve(String(args['private-root']));
  if(await exists(dir))throw new Error('Existing evidence is retained; choose a new --run-id');

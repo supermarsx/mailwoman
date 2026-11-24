@@ -27,6 +27,9 @@ Hooks in existing files (additive; no existing group, endpoint or default change
   endpoint list is limited to 16 entries and the handoff environment to 256 characters per value).
 - `http-multi-controller.mjs`, `http-multi-protocol.mjs` (`ENDPOINT_LABELS`), `t34-modes.mjs`
   (`GUARD_SNAPSHOT_LOOKUPS`: the transport stage and the two account polls alone never consult the guard snapshot).
+- `request-inputs-experiment.mjs`: the shape lists of `goal-65-35`, every `goal-shape-*` group and
+  `transport-healthz`, so a run that declares `MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT` (R1 does) no longer fails with
+  "Invalid request-input workload shape proof" on those endpoints.
 - `http-goal.mjs` `hostFacts()`: `MW_LOAD_HOST_CPUSET_UPSTREAM` and `MW_LOAD_HOST_CPUSET_RIG`, recorded only when set.
 - `scripts/perf/Dockerfile`: `--build-arg MW_FIXTURE_DIAGNOSTICS=1` builds the native fixture with the
   `sql-shape-diagnostics` feature (R1's diagnostics leg). Default 0 is the ordinary build.
@@ -70,6 +73,15 @@ node scripts/perf/bench-rig.mjs run --run=r1 --run-id=r1-1 --image=rig-fixture:<
 
 R1 on PostgreSQL 16 (own cpuset of 4; write-behind accounting is SQLite-only, so that leg uses synchronous
 accounting): add `--backend=postgres --database=4`.
+
+Generator: `--generator-impl=node` (default; one Node worker process per generator CPU) or
+`--generator-impl=native --native-generator-bin=<host path of a Linux mw-loadgen>` (t62-n10,
+`docs/perf/native-generator.md`): the binary's directory is mounted read-only at `/rig-bin`, the external driver runs
+with one worker and `MW_LOAD_GENERATOR=native`, `MW_NATIVE_GENERATOR_THREADS` = generator CPUs. R1 only:
+mw-loadgen has no template for the transport group, so R0a refuses it.
+
+Default cpusets fit the 26-vCPU Docker VM (decision D3): app 4, database 4 (PostgreSQL), generator 4, sampler 1 from
+CPU 1. The largest split for M0–M3 (app 12, database 4, generator 8, sampler 1) is CPUs 1–25.
 
 `--legs=release-mix` (comma list) runs a subset; `--smoke` makes every stage 5 s; `--principals=<n>` changes the
 user count; `analyse --dir=<evidence dir>/<run-id>` rebuilds the summary from the saved files.
@@ -165,4 +177,5 @@ clamp(max(64 × CPUs, 16 × pool), 256, min(16,384, memory / 4 MiB)), HTTP/2 str
   discovered at run time and not yet observed on this host; a leg whose containers' cgroups are not found reports
   "cgroup not found" per sample and its CPU fields are unavailable rather than zero.
 - That the fixture image builds and passes its gated tests with `MW_FIXTURE_DIAGNOSTICS=1`.
+- The native generator option with the single-shape groups (the launcher wiring is tested; a live stage is not).
 - The VM-to-host clock offset (for the Windows host sampler) is measured once per leg with `docker exec`.

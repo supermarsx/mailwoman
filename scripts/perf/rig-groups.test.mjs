@@ -63,3 +63,14 @@ test('the transport group is GET /healthz from a loopback client address, labell
  const bare=prepareFixtureRequests({principals:users(2,3),clientSimulation:{mode:'fixture-loopback-trusted-proxy',clientCount:2},engineMode:'native',representative:true,workloadProfile:{...profile,messagesPerPrincipal:3,seededMessages:6}});
  assert.equal(bare.groups['goal-shape-list-batch'],undefined);assert.ok(bare.groups[TRANSPORT_GROUP]);
 });
+
+test('request-input evidence knows the goal mix, every single-shape group and the transport group',async()=>{
+ const {requestInputsGroupConsumes,requestInputsEvidence}=await import('./request-inputs-experiment.mjs');
+ assert.equal(requestInputsGroupConsumes('goal-65-35'),true);
+ assert.equal(requestInputsGroupConsumes('goal-shape-authenticated-identity'),true);
+ assert.equal(requestInputsGroupConsumes('goal-shape-list-batch'),false);
+ assert.equal(requestInputsGroupConsumes('transport-healthz'),false);
+ const status={mode:'published',processImmutable:true,ordinaryContexts:0,readyFrames:0,consumedFrames:0,hintAttempts:0,buildAttempts:0,completedBuilds:0,firstFenceAttempts:0,refreshFenceAttempts:0};
+ const stage={endpoint:'transport-healthz',phase:'concurrency-ramp',byRequest:{'transport-healthz':{requests:10,acceptedDuringScheduledWindow:10}},requestInputsWindow:{schema:1,kind:'workload-and-drain-only',eligibleControlRequests:0},diagnostics:{before:{ordinaryRequestInputs:status},after:{ordinaryRequestInputs:status}}};
+ assert.doesNotThrow(()=>requestInputsEvidence(status,[stage],'published',{backend:'sqlite'}));
+});

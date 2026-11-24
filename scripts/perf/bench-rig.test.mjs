@@ -116,3 +116,28 @@ test('the command line refuses a run without the bench slot confirmation and pri
  const plan=await exec(['plan','--run=r0a']);
  assert.equal(plan.code,0);assert.equal(JSON.parse(plan.stdout).run,'r0a');
 });
+
+test('either generator: node workers by default, or the native mw-loadgen mounted read-only with one thread per generator CPU',()=>{
+ const node=buildPlan(parseArgs(['plan','--run=r1']).args);
+ assert.equal(node.generator.implementation,'node');
+ const native=buildPlan(parseArgs(['plan','--run=r1','--generator=6','--generator-impl=native','--native-generator-bin=/opt/lg/mw-loadgen']).args);
+ assert.equal(native.generatorWorkers,1);assert.equal(native.generator.threads,6);
+ const c=legCommands(native,native.legs[0],{prefix:'p',image:'img',envFile:'e',pgEnvFile:'g'});
+ assert.ok(c.generator.includes('MW_LOAD_GENERATOR=native'));assert.ok(c.generator.includes('MW_NATIVE_GENERATOR_BIN=/rig-bin/mw-loadgen'));
+ assert.ok(c.generator.includes('MW_NATIVE_GENERATOR_THREADS=6'));assert.ok(c.generator.includes('--workers=1'));
+ assert.ok(c.generator.some(arg=>/^type=bind,source=.*lg,target=\/rig-bin,readonly$/.test(arg)));
+ assert.ok(!legCommands(node,node.legs[0],{prefix:'p',image:'img',envFile:'e',pgEnvFile:'g'}).generator.includes('MW_LOAD_GENERATOR=native'));
+ assert.throws(()=>buildPlan(parseArgs(['plan','--run=r0a','--generator-impl=native','--native-generator-bin=/x']).args),/transport group/);
+ assert.throws(()=>buildPlan(parseArgs(['plan','--run=r1','--generator-impl=native']).args),/native-generator-bin/);
+ assert.throws(()=>buildPlan(parseArgs(['plan','--run=r1','--generator-impl=go']).args));
+});
+
+test('the default cpusets fit the 26-vCPU Docker VM for every run and backend (decision D3)',()=>{
+ for(const args of [['--run=r0a'],['--run=r1'],['--run=r1','--backend=postgres']]){
+  const plan=buildPlan(parseArgs(['plan',...args]).args);
+  assert.equal(plan.cpus.vcpus,26);assert.ok(plan.cpus.usedCpus.at(-1)<26);
+  assert.ok(plan.cpus.roles.app.cpus<=12&&plan.cpus.roles.generator.cpus<=8&&(plan.cpus.roles.database?.cpus??4)<=4);
+ }
+ // The largest split allowed for M0-M3 fits: app 12, database 4, generator 8, rig 1 = CPUs 1-25.
+ assert.equal(buildPlan(parseArgs(['plan','--run=r1','--backend=postgres','--app=12','--database=4','--generator=8']).args).cpus.roles.rig.cpuset,'25');
+});
