@@ -57,6 +57,9 @@ try{
  // JSON serializations per dispatch when exercising 10,000 principals.
  const {requests,groups,clientModel,firstRequests,readIntent}=prepareFixtureRequests({principals,clientSimulation:handoff.clientSimulation,engineMode:native?'native':'proxy',representative,workloadProfile});
  const isolationEvidence=native?await verifyFixtureIsolation({base,principals,clients:clientModel.clients}):{verified:false,status:'not-measured',requests:0};
+ // Opt-in native generator (scripts/perf/native-generator): same templates, validators and report; only the measured stages run in mw-loadgen.
+ const generatorChoice=process.env.MW_LOAD_GENERATOR??'node';if(!['node','native'].includes(generatorChoice))throw new Error('MW_LOAD_GENERATOR must be node or native');
+ const nativeRun=generatorChoice==='native'?(await import('./native-generator/native-measure.mjs')).createNativeRun({principals,clientSimulation:handoff.clientSimulation,engineMode:native?'native':'proxy',representative,groups,enforcedPolicy}):null;
  // Every endpoint must work before saturation. Seeded native fixtures additionally
  // prove their first/last account bindings in their Rust setup.
  for(const spec of firstRequests){
@@ -75,7 +78,8 @@ try{
  // This single-process driver only ever targets its own loopback fixture.
  const goal=goalOf(options),loopback=true;
  const report={judgedAgainst:judgedAgainst(goal,{loopback}),generatedAt:new Date().toISOString(),target:native?'ephemeral loopback Mailwoman router + seeded native engine':'ephemeral loopback Mailwoman router + local JMAP mock',scenario:`real authenticated middleware/HTTP/${native?'native-engine':'proxy'} with ${handoff.backend??'sqlite'}; fixture data; no TLS/reverse proxy`,backend:handoff.backend??'sqlite',buildProfile:handoff.buildProfile??'unknown',uniqueAuthenticatedPrincipals:principals.length,engineMode:native?'native':'proxy',protection:typeof handoff.protection==='string'?handoff.protection:handoff.protection?'rate/adaptive/user-agent observe; scanner enforce':'rate/adaptive/user-agent/scanner off',refreshSemantics:native?'native fixture backend refresh; upstream:true':'authenticated refresh route only; proxy response upstream:false; no upstream reconciliation',effectiveFixtureBudgets:handoff.budgets??{},runtimeWorkerThreads:handoff.runtimeWorkerThreads??4,runtimeWorkerStackBytes:handoff.runtimeWorkerStackBytes??null,generatorPlacement:handoff.generatorPlacement??'child process in same resource group',runtime:process.version,model:options.mode==='smoke'?'bounded open-loop overload smoke':'warmed concurrency ramp, followed by rates bounded by observed successful throughput; no capacity claim',stages:[]};
- Object.assign(report,{enforcedPolicy,readIntent,startupReadiness,policyEvidence,workloadProfile,isolationEvidence,searchWriter,searchStorage,linkedLoginPolicyProbe},await runCampaign({base,headers,groups,options,diagnostics}));
+ Object.assign(report,{enforcedPolicy,readIntent,startupReadiness,policyEvidence,workloadProfile,isolationEvidence,searchWriter,searchStorage,linkedLoginPolicyProbe},await runCampaign({base,headers,groups,options,diagnostics,...(nativeRun?{run:nativeRun.run}:{})}),nativeRun?{generatorImplementation:'native'}:{});
+ nativeRun?.close();
  report.ordinaryRequestInputs=requestInputsEvidence(handoff.ordinaryRequestInputs,report.stages,options.requestInputsExpected,{backend:handoff.backend});
  report.t34Modes=t34ModesEvidence(handoff.t34Modes,report.stages,{requestInputsEvidence:report.ordinaryRequestInputs});
  report.preparedMailExperiment=preparedMailEvidence(preparedMailExperiment,report.stages);
