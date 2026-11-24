@@ -71,15 +71,8 @@ where
     let admission = Admission::new(&limits);
     admission::register(limits, &admission);
     tracing::info!("{}", limits.summary());
-    if limits.derivation.fd_short {
-        tracing::warn!(
-            "the open-file limit ({}) leaves room for fewer than {} connections after a reserve of {}; \
-             MW_HTTP_MAX_CONNECTIONS stays at {} — raise the limit (ulimit -n, LimitNOFILE) or set it lower",
-            limits.derivation.resources.open_files.unwrap_or(0),
-            limits.connections,
-            limits.derivation.fd_reserve.unwrap_or(0),
-            limits.connections,
-        );
+    for warning in limits.warnings() {
+        tracing::warn!("{warning}");
     }
     let graceful = GracefulShutdown::new();
     let mut tasks = JoinSet::new();

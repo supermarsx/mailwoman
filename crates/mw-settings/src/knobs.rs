@@ -596,6 +596,14 @@ pub static CATALOGUE: &[Knob] = &[
         "off or on: lower the concurrent-request limit while in-server time degrades, never above MW_HTTP_MAX_REQUESTS (restart required)",
     ),
     boot(
+        "MW_HTTP_RAISE_OPEN_FILES",
+        Gr::Listener,
+        Plain,
+        R::Boot,
+        "on",
+        "on or off: at start, raise the soft open-file limit to the hard limit (at most 1048576) when MW_HTTP_MAX_CONNECTIONS is unset; the hard limit is never changed (restart required)",
+    ),
+    boot(
         "MW_HTTP_SHUTDOWN_TIMEOUT_MS",
         Gr::Listener,
         Plain,

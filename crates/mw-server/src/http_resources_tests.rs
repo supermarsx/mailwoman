@@ -19,6 +19,7 @@ fn a_large_host_derives_from_memory_fds_and_cpus() {
         cpus: Some(16),
         memory_bytes: Some(32 * GIB),
         open_files: Some(1_048_576),
+        open_files_raise: Default::default(),
     };
     let auto = derive(&resources, 64, 256);
     // R = 512 + 64 + 256; fd term (1048576 - 832) / 2 = 523872; memory term 32768.
@@ -41,6 +42,7 @@ fn cgroup_limits_lower_than_the_host_win() {
             cpus: Some(2),
             memory_bytes: memory,
             open_files: Some(1_048_576),
+            open_files_raise: Default::default(),
         },
         db_pool_estimate(Some("postgres://db/mail"), None, 2),
         256,
@@ -57,11 +59,13 @@ fn the_floor_is_never_undercut_even_by_tiny_limits() {
             cpus: Some(1),
             memory_bytes: Some(64 * 1024 * 1024),
             open_files: Some(256),
+            open_files_raise: Default::default(),
         },
         Resources {
             cpus: Some(1),
             memory_bytes: None,
             open_files: Some(1024),
+            open_files_raise: Default::default(),
         },
     ] {
         let auto = derive(&resources, 2, 256);
@@ -77,6 +81,7 @@ fn hard_ceilings_hold_on_huge_readings() {
             cpus: Some(4096),
             memory_bytes: Some(u64::MAX / 2),
             open_files: Some(u64::MAX),
+            open_files_raise: Default::default(),
         },
         2000,
         2048,
@@ -102,6 +107,7 @@ fn the_pool_term_scales_requests() {
         cpus: Some(4),
         memory_bytes: Some(64 * GIB),
         open_files: None,
+        open_files_raise: Default::default(),
     };
     let pool = db_pool_estimate(
         Some("postgresql://x"),

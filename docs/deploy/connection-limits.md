@@ -55,6 +55,7 @@ These apply to HTTP/1.1 and HTTP/2, with or without TLS.
 | `MW_HTTP_REQUEST_QUEUE_MS` | How long a request at the request limit waits for a slot; `0` refuses at once | 200 | 0–2000 |
 | `MW_HTTP_REQUEST_QUEUE_MAX` | Requests that may wait for a slot at once | the request limit | 1–65536 |
 | `MW_HTTP_ADAPTIVE_CONCURRENCY` | `on` lowers the request limit while requests slow down (see below) | `off` | `off`, `on` |
+| `MW_HTTP_RAISE_OPEN_FILES` | `off` keeps the soft open-file limit as it is at start; `on` raises it to the hard limit, at most 1,048,576, when `MW_HTTP_MAX_CONNECTIONS` is unset. The hard limit is never changed | `on` | `on`, `off` |
 
 ### Derived limits
 
@@ -66,7 +67,7 @@ value is never lower than the fixed value of earlier releases (1024, 256, 32).
 |---|---|
 | CPUs (C) | CPUs the process may run on; on Linux this applies the container's CPU quota |
 | Memory (M) | Linux only: the lower of the cgroup memory limit and physical memory |
-| Open files (F) | Unix only: the soft `RLIMIT_NOFILE`. When `MW_HTTP_MAX_CONNECTIONS` is unset, the server first raises the soft limit to the hard limit, at most 1,048,576 |
+| Open files (F) | Unix only: the soft `RLIMIT_NOFILE`. When `MW_HTTP_MAX_CONNECTIONS` is unset and `MW_HTTP_RAISE_OPEN_FILES` is not `off`, the server first raises the soft limit to the hard limit, at most 1,048,576, and logs the old and new values |
 | Database pool (P) | The `MW_DB_POOL` maximum, else the store's default (PostgreSQL 4 per CPU, 4–64; SQLite 2 per CPU, 2–8). A maximum set only in the stored `database.pool` setting is not seen |
 | Handshake slots (H) | `MW_TLS_MAX_HANDSHAKES` + `MW_PROXY_MAX_HANDSHAKES` |
 
@@ -87,7 +88,9 @@ warning; raise the limit (`ulimit -n`, `LimitNOFILE=` in systemd) or set
 `MW_HTTP_MAX_CONNECTIONS` lower.
 
 At start-up the server logs one line, `HTTP limits: …`, with each effective value,
-whether it was set, derived or fixed, and the readings used. The **HTTP admission and
+whether it was set, derived or fixed, each reading used (or `unknown (term dropped)`)
+and what happened to the open-file limit. When the floor decided a derived value
+because descriptors or memory were too small, a warning is logged too. The **HTTP admission and
 request limits** check in the admin console shows the same values and the admission
 counters.
 

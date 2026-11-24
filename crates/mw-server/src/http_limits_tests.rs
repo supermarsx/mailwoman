@@ -18,6 +18,7 @@ fn big() -> Resources {
         cpus: Some(16),
         memory_bytes: Some(32 * 1024 * 1024 * 1024),
         open_files: Some(1_048_576),
+        open_files_raise: Default::default(),
     }
 }
 
@@ -136,13 +137,14 @@ fn a_tiny_fd_limit_keeps_the_floor_and_is_reported() {
             cpus: Some(2),
             memory_bytes: None,
             open_files: Some(1024),
+            open_files_raise: Default::default(),
         }),
     )
     .unwrap();
     assert_eq!(limits.connections, 1024);
     assert!(limits.derivation.fd_short);
     assert!(
-        limits.summary().contains("open files 1024"),
+        limits.summary().contains("open files F 1024"),
         "{}",
         limits.summary()
     );
@@ -156,6 +158,62 @@ fn a_tiny_fd_limit_keeps_the_floor_and_is_reported() {
     )
     .unwrap();
     assert!(!explicit.derivation.fd_short);
+    assert!(explicit.warnings().is_empty());
+}
+
+#[test]
+fn floor_clamps_are_warned_and_dropped_terms_named() {
+    let limits = HttpLimits::read(
+        |_| None,
+        Some(Resources {
+            cpus: Some(1),
+            memory_bytes: Some(512 * 1024 * 1024),
+            open_files: Some(1024),
+            open_files_raise: super::super::resources::Raise::Raised {
+                from: 256,
+                to: 1024,
+                hard: 1024,
+            },
+        }),
+    )
+    .unwrap();
+    let warnings = limits.warnings();
+    assert_eq!(warnings.len(), 3, "{warnings:#?}");
+    assert!(warnings[0].contains("open-file limit (1024)"));
+    assert!(warnings[1].contains("connections"));
+    assert!(warnings[2].contains("allows 128 requests"));
+    assert!(
+        limits.summary().contains("soft 256 -> 1024 (hard 1024)"),
+        "{}",
+        limits.summary()
+    );
+    let windows = HttpLimits::read(
+        |_| None,
+        Some(Resources {
+            cpus: Some(4),
+            ..Resources::default()
+        }),
+    )
+    .unwrap();
+    let line = windows.summary();
+    assert!(
+        line.contains("memory M bytes unknown (term dropped)"),
+        "{line}"
+    );
+    assert!(
+        line.contains("open files F unknown (term dropped)"),
+        "{line}"
+    );
+    assert!(line.contains("cpus C 4"), "{line}");
+}
+
+#[test]
+fn the_raise_switch_is_validated() {
+    assert_eq!(parse_raise(None), Ok(true));
+    assert_eq!(parse_raise(Some("off")), Ok(false));
+    assert!(parse_raise(Some("no")).is_err());
+    assert!(HttpLimits::validate_env(env(&[(RAISE_VAR, "maybe")])).is_err());
+    assert!(HttpLimits::validate_env(env(&[(RAISE_VAR, "off")])).is_ok());
 }
 
 #[test]

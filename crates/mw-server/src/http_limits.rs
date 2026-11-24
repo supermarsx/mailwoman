@@ -36,6 +36,8 @@ pub struct Derivation {
     pub fd_reserve: Option<u64>,
     /// The open-file limit is below what the connection floor needs.
     pub fd_short: bool,
+    /// The derived values, when resources were read.
+    pub auto: Option<Auto>,
     pub connections: Source,
     pub requests: Source,
     pub http2_streams: Source,
@@ -66,6 +68,7 @@ pub const QUEUE_WAIT_DEFAULT_MS: u64 = 200;
 pub const QUEUE_WAIT_MAX_MS: u64 = 2000;
 pub const QUEUE_MAX_CEILING: usize = 65536;
 pub const ADAPTIVE_VAR: &str = "MW_HTTP_ADAPTIVE_CONCURRENCY";
+pub const RAISE_VAR: &str = "MW_HTTP_RAISE_OPEN_FILES";
 
 impl Default for HttpLimits {
     fn default() -> Self {
@@ -109,13 +112,32 @@ pub fn parse_adaptive(raw: Option<&str>) -> Result<bool, String> {
     }
 }
 
+/// `on` (default) or `off`: may the soft open-file limit be raised at start.
+pub fn parse_raise(raw: Option<&str>) -> Result<bool, String> {
+    match raw.map(str::trim) {
+        None | Some("on") => Ok(true),
+        Some("off") => Ok(false),
+        Some(_) => Err(format!("{RAISE_VAR} must be on or off")),
+    }
+}
+
 impl HttpLimits {
     /// Read the environment and derive unset limits from the running system. When
-    /// `MW_HTTP_MAX_CONNECTIONS` is unset this raises the soft open-file limit
-    /// first (see [`Resources::probe`]).
+    /// `MW_HTTP_MAX_CONNECTIONS` is unset and `MW_HTTP_RAISE_OPEN_FILES` is not
+    /// `off`, the soft open-file limit is raised first (see [`Resources::probe`]).
     pub fn from_env() -> io::Result<Self> {
-        let raise = std::env::var_os("MW_HTTP_MAX_CONNECTIONS").is_none();
-        Self::read(|key| std::env::var(key).ok(), Some(Resources::probe(raise)))
+        Self::from_env_with(None)
+    }
+
+    /// [`Self::from_env`]; `stored_raise` is the console's raise choice, used when
+    /// `MW_HTTP_RAISE_OPEN_FILES` is unset.
+    pub fn from_env_with(stored_raise: Option<bool>) -> io::Result<Self> {
+        let env = |key: &str| std::env::var(key).ok();
+        let raise = match env(RAISE_VAR) {
+            Some(raw) => parse_raise(Some(&raw)).map_err(invalid)?,
+            None => stored_raise.unwrap_or(true),
+        } && env("MW_HTTP_MAX_CONNECTIONS").is_none();
+        Self::read(env, Some(Resources::probe(raise)))
     }
 
     /// The configured values with fixed defaults for unset ones (no system reading).
@@ -189,6 +211,7 @@ impl HttpLimits {
             QUEUE_MAX_CEILING as u64,
         )?;
         let adaptive = parse_adaptive(get(ADAPTIVE_VAR).as_deref()).map_err(invalid)?;
+        parse_raise(get(RAISE_VAR).as_deref()).map_err(invalid)?;
 
         let base = Self::default();
         let mut derivation = Derivation::default();
@@ -240,6 +263,7 @@ impl HttpLimits {
             follows(requests_source).map(|()| requests.min(QUEUE_MAX_CEILING as u64)),
             base.queue_max as u64,
         );
+        derivation.auto = auto;
         derivation.fd_reserve = auto.and_then(|a| a.fd_reserve);
         derivation.fd_short =
             auto.is_some_and(|a| a.fd_short) && connections_source == Source::Auto;
@@ -282,14 +306,12 @@ impl HttpLimits {
         Ok(())
     }
 
-    /// The one start-up log line: each effective limit and where it came from.
+    /// The one start-up log line: each effective limit, where it came from, and
+    /// every input used or dropped.
     pub fn summary(&self) -> String {
         let d = &self.derivation;
-        let reading =
-            |value: Option<u64>| value.map_or_else(|| "unknown".to_owned(), |n| n.to_string());
         let mut line = format!(
-            "HTTP limits: connections {} ({}), requests {} ({}), HTTP/2 streams {} ({}), \
-             queue {} for up to {} ms ({}), adaptive concurrency {}",
+            "HTTP limits: connections {} ({}), requests {} ({}), HTTP/2 streams {} ({}),              queue {} for up to {} ms ({}), adaptive concurrency {}",
             self.connections,
             d.connections.as_str(),
             self.requests,
@@ -302,17 +324,64 @@ impl HttpLimits {
             if self.adaptive { "on" } else { "off" },
         );
         if d.db_pool.is_some() {
-            line.push_str(&format!(
-                "; from cpus {}, memory {} bytes, open files {}, database pool {}, handshake slots {}, fd reserve {}",
-                reading(d.resources.cpus.map(u64::from)),
-                reading(d.resources.memory_bytes),
-                reading(d.resources.open_files),
-                reading(d.db_pool.map(u64::from)),
-                reading(d.handshakes),
-                reading(d.fd_reserve),
-            ));
+            line.push_str("; ");
+            line.push_str(&self.inputs());
         }
         line
+    }
+
+    /// C, M, F, P, H as used, `unknown (term dropped)` where a reading is missing,
+    /// and what happened to the open-file limit.
+    pub fn inputs(&self) -> String {
+        let d = &self.derivation;
+        let reading = |name: &str, value: Option<u64>| match value {
+            Some(n) => format!("{name} {n}"),
+            None => format!("{name} unknown (term dropped)"),
+        };
+        format!(
+            "from {}, {}, {}, {}, {}, fd reserve {}; {}",
+            reading("cpus C", d.resources.cpus.map(u64::from)),
+            reading("memory M bytes", d.resources.memory_bytes),
+            reading("open files F", d.resources.open_files),
+            reading("database pool P", d.db_pool.map(u64::from)),
+            reading("handshake slots H", d.handshakes),
+            d.fd_reserve
+                .map_or_else(|| "n/a".to_owned(), |n| n.to_string()),
+            d.resources.open_files_raise.describe(),
+        )
+    }
+
+    /// Warnings for derived values the floor decided because the descriptors or
+    /// the memory were too small for it.
+    pub fn warnings(&self) -> Vec<String> {
+        let d = &self.derivation;
+        let mut out = Vec::new();
+        let Some(auto) = d.auto else { return out };
+        if d.connections == Source::Auto && auto.fd_short {
+            out.push(format!(
+                "the open-file limit ({}) leaves room for {} connections after a reserve of {};                  MW_HTTP_MAX_CONNECTIONS stays at the floor {} — raise the limit (ulimit -n, LimitNOFILE) or set it lower",
+                d.resources.open_files.unwrap_or(0),
+                auto.fd_bound.unwrap_or(0),
+                d.fd_reserve.unwrap_or(0),
+                self.connections,
+            ));
+        }
+        if d.connections == Source::Auto && auto.memory_short_connections {
+            out.push(format!(
+                "memory ({} bytes) allows fewer than {} connections at 1 MiB each; the connection limit stays at the floor",
+                d.resources.memory_bytes.unwrap_or(0),
+                self.connections,
+            ));
+        }
+        if d.requests == Source::Auto && auto.memory_short_requests {
+            out.push(format!(
+                "memory ({} bytes) allows {} requests at 4 MiB each; the request limit stays at the floor {}",
+                d.resources.memory_bytes.unwrap_or(0),
+                auto.memory_request_bound.unwrap_or(0),
+                self.requests,
+            ));
+        }
+        out
     }
 }
 

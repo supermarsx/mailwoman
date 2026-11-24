@@ -45,6 +45,53 @@ pub struct Resources {
     pub memory_bytes: Option<u64>,
     /// Soft open-file limit (RLIMIT_NOFILE), after any raise.
     pub open_files: Option<u64>,
+    /// What happened to the soft open-file limit at start.
+    pub open_files_raise: Raise,
+}
+
+/// The start-up handling of the soft open-file limit. The hard limit is never
+/// changed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Raise {
+    /// Not attempted: the connection limit is set, or raising is turned off.
+    #[default]
+    NotAttempted,
+    /// The platform has no such limit (Windows) or it could not be read.
+    Unavailable,
+    /// Already at min(hard, cap).
+    AlreadyHigh {
+        soft: u64,
+        hard: u64,
+    },
+    Raised {
+        from: u64,
+        to: u64,
+        hard: u64,
+    },
+    /// The operating system refused the raise.
+    Refused {
+        soft: u64,
+        hard: u64,
+    },
+}
+impl Raise {
+    pub fn describe(&self) -> String {
+        match *self {
+            Self::NotAttempted => {
+                "open-file limit not raised (connection limit set or raising off)".into()
+            }
+            Self::Unavailable => "open-file limit unknown".into(),
+            Self::AlreadyHigh { soft, hard } => {
+                format!("open-file limit soft {soft} (hard {hard}), not raised")
+            }
+            Self::Raised { from, to, hard } => {
+                format!("open-file limit soft {from} -> {to} (hard {hard})")
+            }
+            Self::Refused { soft, hard } => {
+                format!("open-file limit soft {soft} (hard {hard}); raise refused")
+            }
+        }
+    }
 }
 
 /// The derived values and how they came about.
@@ -57,6 +104,14 @@ pub struct Auto {
     pub fd_reserve: Option<u64>,
     /// The open-file limit leaves room for fewer connections than the floor.
     pub fd_short: bool,
+    /// Memory allows fewer connections than the floor.
+    pub memory_short_connections: bool,
+    /// Memory allows fewer requests than the floor.
+    pub memory_short_requests: bool,
+    /// (F - R) / 2, when F is known: the most connections the descriptors allow.
+    pub fd_bound: Option<u64>,
+    /// M / 4 MiB, when M is known: the most requests memory allows.
+    pub memory_request_bound: Option<u64>,
 }
 
 /// Derive the limits from `resources`, a database pool of `db_pool` connections and
@@ -78,12 +133,13 @@ pub fn derive(resources: &Resources, db_pool: u32, handshakes: u64) -> Auto {
         connections = connections.max(bound);
     }
     let fd_short = fd_term.is_some_and(|room| room < CONNECTIONS_FLOOR as u64);
+    let memory_short_connections =
+        memory_connections.is_some_and(|room| room < CONNECTIONS_FLOOR as u64);
 
     let cpus = u64::from(resources.cpus.unwrap_or(0));
     let wanted = (64 * cpus).max(16 * u64::from(db_pool));
-    let ceiling = resources
-        .memory_bytes
-        .map(|m| m / BYTES_PER_REQUEST)
+    let memory_request_bound = resources.memory_bytes.map(|m| m / BYTES_PER_REQUEST);
+    let ceiling = memory_request_bound
         .unwrap_or(u64::MAX)
         .min(REQUESTS_CEILING as u64);
     let requests = wanted.min(ceiling).max(REQUESTS_FLOOR as u64);
@@ -94,6 +150,11 @@ pub fn derive(resources: &Resources, db_pool: u32, handshakes: u64) -> Auto {
         http2_streams: streams_for(requests as usize),
         fd_reserve: resources.open_files.map(|_| reserve),
         fd_short,
+        memory_short_connections,
+        memory_short_requests: memory_request_bound
+            .is_some_and(|room| room < REQUESTS_FLOOR as u64),
+        fd_bound: fd_term,
+        memory_request_bound,
     }
 }
 
@@ -139,12 +200,14 @@ impl Resources {
     /// is first raised to min(hard limit, [`OPEN_FILES_RAISE_CAP`]) where the
     /// platform allows it.
     pub fn probe(raise_open_files: bool) -> Self {
+        let (open_files, open_files_raise) = open_files(raise_open_files);
         Self {
             cpus: std::thread::available_parallelism()
                 .ok()
                 .map(|n| n.get().min(u32::MAX as usize) as u32),
             memory_bytes: memory_limit(),
-            open_files: open_files(raise_open_files),
+            open_files,
+            open_files_raise,
         }
     }
 }
@@ -226,41 +289,65 @@ fn memory_limit() -> Option<u64> {
 
 #[cfg(unix)]
 #[allow(clippy::unnecessary_cast, clippy::useless_conversion)]
-fn open_files(raise: bool) -> Option<u64> {
+fn open_files(raise: bool) -> (Option<u64>, Raise) {
     let mut limit = libc::rlimit {
         rlim_cur: 0,
         rlim_max: 0,
     };
     // SAFETY: getrlimit writes one rlimit into the struct we own.
     if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } != 0 {
-        return None;
+        return (None, Raise::Unavailable);
     }
     let current = limit.rlim_cur as u64;
     let hard = limit.rlim_max as u64;
-    if raise && current < hard.min(OPEN_FILES_RAISE_CAP) {
-        // macOS refuses values above OPEN_MAX (10240) even when the hard limit is
-        // unlimited, so try that if the first raise is refused.
-        for target in [hard.min(OPEN_FILES_RAISE_CAP), hard.min(10240)] {
-            if target <= current {
-                continue;
-            }
-            let raised = libc::rlimit {
-                rlim_cur: target as libc::rlim_t,
-                rlim_max: limit.rlim_max,
-            };
-            // SAFETY: setrlimit reads one rlimit we own; failure leaves the limit as is.
-            if unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &raised) } == 0 {
-                return Some(target);
-            }
+    if !raise {
+        return (Some(current), Raise::NotAttempted);
+    }
+    if current >= hard.min(OPEN_FILES_RAISE_CAP) {
+        return (
+            Some(current),
+            Raise::AlreadyHigh {
+                soft: current,
+                hard,
+            },
+        );
+    }
+    // macOS refuses values above OPEN_MAX (10240) even when the hard limit is
+    // unlimited, so try that if the first raise is refused. The hard limit is
+    // passed back unchanged.
+    for target in [hard.min(OPEN_FILES_RAISE_CAP), hard.min(10240)] {
+        if target <= current {
+            continue;
+        }
+        let raised = libc::rlimit {
+            rlim_cur: target as libc::rlim_t,
+            rlim_max: limit.rlim_max,
+        };
+        // SAFETY: setrlimit reads one rlimit we own; failure leaves the limit as is.
+        if unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &raised) } == 0 {
+            return (
+                Some(target),
+                Raise::Raised {
+                    from: current,
+                    to: target,
+                    hard,
+                },
+            );
         }
     }
-    Some(current)
+    (
+        Some(current),
+        Raise::Refused {
+            soft: current,
+            hard,
+        },
+    )
 }
 #[cfg(not(unix))]
-fn open_files(_raise: bool) -> Option<u64> {
+fn open_files(_raise: bool) -> (Option<u64>, Raise) {
     // Windows sockets are not counted against a per-process descriptor limit like
     // RLIMIT_NOFILE, so there is no reading and no fd term.
-    None
+    (None, Raise::Unavailable)
 }
 
 #[cfg(test)]
