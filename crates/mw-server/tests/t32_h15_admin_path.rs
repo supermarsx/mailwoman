@@ -70,6 +70,8 @@ fn env_lock() -> &'static Mutex<()> {
 struct Env {
     base_path: Option<&'static str>,
     admin_path: Option<&'static str>,
+    /// `MW_ADMIN_PROBE_ENABLED`; `None` (unset) is the default configuration.
+    admin_probe: Option<&'static str>,
 }
 
 impl Env {
@@ -77,6 +79,7 @@ impl Env {
         Self {
             base_path: None,
             admin_path: Some(admin_path),
+            admin_probe: None,
         }
     }
 }
@@ -89,6 +92,7 @@ async fn set_env(env: &Env) -> MutexGuard<'static, ()> {
         for (k, v) in [
             ("MW_BASE_PATH", env.base_path),
             ("MW_ADMIN_PATH", env.admin_path),
+            ("MW_ADMIN_PROBE_ENABLED", env.admin_probe),
         ] {
             match v {
                 Some(v) => std::env::set_var(k, v),
@@ -375,6 +379,7 @@ async fn the_console_answers_under_a_base_path_and_at_a_deeper_path() {
     let s = spawn(Env {
         base_path: Some("/mail"),
         admin_path: Some("/ops/h15-console"),
+        admin_probe: None,
     })
     .await;
     let console = format!("{}/mail/ops/h15-console", s.url);
@@ -400,6 +405,7 @@ async fn unset_the_console_stays_at_admin() {
     let s = spawn(Env {
         base_path: None,
         admin_path: None,
+        admin_probe: None,
     })
     .await;
     assert_console_at(&format!("{}/admin", s.url)).await;
@@ -580,6 +586,55 @@ async fn the_old_admin_path_gets_exactly_the_unknown_path_answer() {
     }
 }
 
+/// One answer of a sequence: status, headers but `date`, body, and whether it
+/// was held back (admin-probe slow-down, 1.5 s by default).
+type Seen = (u16, BTreeMap<String, Vec<String>>, Vec<u8>, bool);
+
+/// The same request sequence from one address against a fresh server whose
+/// console has moved, with `prefix` as the first segment.
+async fn sequence(prefix: &str, rounds: usize) -> Vec<Seen> {
+    let s = spawn(Env::admin("/ops-h15q7zx")).await;
+    let login = json!({ "username": ADMIN_USER, "password": ADMIN_PASS });
+    let mut seen = Vec::new();
+    for _ in 0..rounds {
+        for (method, path, headers, body) in [
+            (reqwest::Method::GET, String::new(), NAVIGATION, None),
+            (reqwest::Method::GET, "/users".to_string(), PAGE_FETCH, None),
+            (reqwest::Method::POST, "/login".to_string(), PAGE_FETCH, Some(login.clone())),
+        ] {
+            let started = std::time::Instant::now();
+            let a = send(method, &format!("{}{prefix}{path}", s.url), headers, None, body).await;
+            let held = started.elapsed() >= std::time::Duration::from_millis(1400);
+            seen.push((a.status, a.comparable_headers(), a.body, held));
+        }
+    }
+    seen
+}
+
+#[tokio::test]
+async fn repeated_requests_to_the_old_admin_path_are_accounted_like_an_unknown_path() {
+    // Default configuration: request protection and admin-probe protection on.
+    let unknown = format!(
+        "/zz-{:x}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    );
+    // Enough rounds to pass the admin-probe grace allowance (10 points).
+    let rounds = 12;
+    let old = sequence("/admin", rounds).await;
+    let other = sequence(&unknown, rounds).await;
+    for (index, (a, b)) in old.iter().zip(&other).enumerate() {
+        let what = format!("request {index} (/admin vs {unknown})");
+        assert_eq!(a.0, b.0, "{what}: status ({})", String::from_utf8_lossy(&a.2));
+        assert_eq!(a.1, b.1, "{what}: headers");
+        assert_eq!(a.2, b.2, "{what}: body");
+        assert_eq!(a.3, b.3, "{what}: held back");
+    }
+    assert!(old.iter().all(|seen| seen.0 != 429), "no block reveals the move");
+}
+
 // ── 3: no leak ──────────────────────────────────────────────────────────────────
 
 fn assert_no_leak(what: &str, a: &Answer) {
@@ -695,10 +750,11 @@ async fn the_admin_path_is_in_no_answer_outside_it() {
 async fn the_admin_path_is_in_no_answer_outside_it_under_a_base_path() {
     // t100: this test calls every route from one address on purpose; admin-probe
     // protection would (correctly) block it partway. Its own tests are t100_*.
-    unsafe { std::env::set_var("MW_ADMIN_PROBE_ENABLED", "false") };
+    // Scoped to this server through `set_env`, so later tests run with the default.
     let s = spawn(Env {
         base_path: Some("/mail"),
         admin_path: Some("/ops-h15q7zx"),
+        admin_probe: Some("false"),
     })
     .await;
     scan_public_routes(&s.url, "/mail").await;
@@ -723,6 +779,7 @@ async fn the_admin_path_is_in_no_file_of_the_real_build() {
         Env {
             base_path: Some("/mail"),
             admin_path: Some("/ops-h15q7zx"),
+            admin_probe: None,
         },
         dist.clone(),
         dir.join("mw.db"),
@@ -816,6 +873,7 @@ async fn an_invalid_admin_path_stops_the_start() {
     let _guard = set_env(&Env {
         base_path: Some("/mail"),
         admin_path: Some("/mail"),
+        admin_probe: None,
     })
     .await;
     let (web, db) = stub_web("mw-t32h15-bad");

@@ -786,11 +786,32 @@ fn hostile_normalized_probe(normalized: &str, admin: &str) -> bool {
     if normalized == admin {
         return false;
     }
-    let path = normalized
+    if let Some(suffix) = normalized
         .strip_prefix(admin)
         .filter(|suffix| suffix.starts_with('/'))
-        .unwrap_or(normalized);
-    probe_path::hostile_normalized_probe_path(path)
+    {
+        return probe_path::hostile_normalized_probe_path(suffix);
+    }
+    if let Some(unknown) = moved_console_as_unknown(normalized, admin) {
+        return probe_path::hostile_normalized_probe_path(&unknown);
+    }
+    probe_path::hostile_normalized_probe_path(normalized)
+}
+/// Once the console has moved, a path under the default console path is
+/// classified exactly like the same path under an unknown first segment, so
+/// the answer at `/admin/...` does not tell a scanner whether the console moved
+/// (t32-h15). The NUL segment matches no catalogue entry or rule.
+fn moved_console_as_unknown(normalized: &str, admin: &str) -> Option<String> {
+    let default = mw_admin::config::DEFAULT_ADMIN_PATH;
+    if admin.eq_ignore_ascii_case(default) {
+        return None;
+    }
+    let rest = normalized
+        .get(..default.len())
+        .filter(|head| head.eq_ignore_ascii_case(default))
+        .map(|_| &normalized[default.len()..])
+        .filter(|rest| rest.is_empty() || rest.starts_with('/'))?;
+    Some(format!("/\0{rest}"))
 }
 
 /// `Sec-Fetch-Site` present and neither `none` (typed URL, bookmark) nor
@@ -1320,6 +1341,34 @@ mod identity_tests {
             "/private-control/wp-admin",
             &changed
         ));
+    }
+    #[test]
+    fn a_moved_console_leaves_the_default_path_classified_like_an_unknown_one() {
+        let moved = "/ops-h15q7zx";
+        for (old, unknown) in [
+            ("/admin", "/zz-unknown"),
+            ("/admin/users", "/zz-unknown/users"),
+            ("/admin/login", "/zz-unknown/login"),
+            ("/admin/.env", "/zz-unknown/.env"),
+            ("/admin/wp-admin", "/zz-unknown/wp-admin"),
+            ("/admin/admin/users", "/zz-unknown/admin/users"),
+        ] {
+            assert_eq!(
+                hostile_normalized_probe(old, moved),
+                hostile_normalized_probe(unknown, moved),
+                "{old} vs {unknown}"
+            );
+        }
+        assert!(!hostile_normalized_probe("/admin/users", moved));
+        assert!(hostile_normalized_probe("/admin/.env", moved));
+        assert!(hostile_normalized_probe("/zz-unknown/admin/users", moved));
+        // Not the default console path at a segment boundary.
+        assert!(hostile_normalized_probe("/administrator", moved));
+        // A console still at the default path keeps its own rule.
+        assert!(!hostile_normalized_probe("/admin/users", "/admin"));
+        assert!(hostile_normalized_probe("/admin/.env", "/admin"));
+        // A console nested below the default path is still the console.
+        assert!(!hostile_normalized_probe("/admin/ops/users", "/admin/ops"));
     }
     #[test]
     fn normalized_probe_keeps_console_boundaries_and_resource_namespaces() {

@@ -4,8 +4,9 @@
 //! Four signals, per client source (the trusted-proxy client address; IPv6 per
 //! /64), each worth one point:
 //!
-//! * `probe-path` — a path on the probe list (`/wp-admin`, `/.env`, `/admin` once
-//!   the console has moved, …), anywhere outside the console;
+//! * `probe-path` — a path on the probe list (`/wp-admin`, `/.env`, …), anywhere
+//!   outside the console. Once the console has moved, the default console path
+//!   counts like an unknown first segment, so its answer cannot reveal the move;
 //! * `slug-guess` — a path at the console's depth that answered 404 (static-file
 //!   names such as `favicon.ico` and the server's own prefixes do not count);
 //! * `admin-signin-failed` — a refused admin sign-in at the real console path;
@@ -361,7 +362,17 @@ fn shape(method: &Method, path: &str, headers: &HeaderMap, policy: &Policy) -> S
         };
     }
     let lower = path.to_ascii_lowercase();
-    let segs = config::segments(&lower);
+    let mut segs = config::segments(&lower);
+    // Once the console has moved, the default console path is counted like an
+    // unknown first segment (t32-h15: its answer must not reveal the move). The
+    // empty segment matches no probe-list entry.
+    if !console.eq_ignore_ascii_case(mw_admin::config::DEFAULT_ADMIN_PATH)
+        && segs.first().is_some_and(|first| {
+            mw_admin::config::DEFAULT_ADMIN_PATH.trim_start_matches('/') == first.as_str()
+        })
+    {
+        segs[0] = String::new();
+    }
     let Some(first) = segs.first() else {
         return Shape::Other;
     };
