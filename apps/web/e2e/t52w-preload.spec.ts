@@ -1,5 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
-import { engineLogin } from './helpers.ts';
+import { expect, test, type APIRequest, type Page } from '@playwright/test';
+import { ENGINE_ADMIN, engineLogin, postSignIn } from './helpers.ts';
 
 /**
  * t52w: the boot script preloads the first screen's files from the build
@@ -110,5 +110,54 @@ test.describe('t52w boot preloads', () => {
     for (const url of files.login) expect(watched.requests.get(url) ?? 0, `no sign-in file with a session: ${url}`).toBe(0);
     for (const link of await preloads(page)) expect(watched.requests.get(link.href) ?? 0, link.href).toBe(1);
     expect(watched.problems).toEqual([]);
+  });
+});
+
+/** Set a global setting through the admin API (test stacks only); answers the value it replaced. */
+async function setGlobal(factory: APIRequest, baseURL: string, key: string, value: unknown): Promise<unknown> {
+  const ctx = await factory.newContext({ baseURL });
+  try {
+    expect((await postSignIn(ctx, '/admin/login', ENGINE_ADMIN)).status(), 'admin API sign-in').toBe(200);
+    const url = `/admin/settings/${key}`;
+    const current = await ctx.get(url);
+    expect(current.status(), `GET ${url}`).toBe(200);
+    const before = ((await current.json()) as { effective?: { value?: unknown } }).effective?.value;
+    const csrf = (await ctx.storageState()).cookies.find((c) => c.name === 'mw_csrf')?.value ?? '';
+    const put = await ctx.put(url, { headers: { 'if-match': current.headers()['etag'] ?? '', 'x-csrf-token': csrf }, data: { globalValue: value } });
+    expect(put.status(), `PUT ${url}`).toBe(200);
+    return before;
+  } finally { await ctx.dispose(); }
+}
+
+test.describe('t52w restored session', () => {
+  test.use({ serviceWorkers: 'block' });
+  // A reload with a session sends the boot reads over the WebSocket action channel
+  // (the CSRF cookie is readable before /api/me answers), and the account's
+  // activation clears that channel. A read caught by it is sent over HTTP; before
+  // the fix it was refused, the performance policy stayed unknown and the idle
+  // prefetch never started. This checks the outcome on a real stack; the race
+  // itself is forced in src/api/http.channelChange.test.ts.
+  test('after a reload the performance policy is applied and the idle prefetch starts', async ({ page, playwright, baseURL }) => {
+    test.skip(prefixed, 'engineLogin signs in at the origin root');
+    const modules = await setGlobal(playwright.request, baseURL!, 'web.prefetch.modules', true);
+    const delay = await setGlobal(playwright.request, baseURL!, 'web.prefetch.idleDelayMs', 200);
+    try {
+      const refused: string[] = [];
+      page.on('console', (message) => { if (/action channel changed|actionNotDispatched/i.test(message.text())) refused.push(message.text()); });
+      await engineLogin(page);
+      await expect(page.locator('.list__row').first()).toBeVisible();
+      // Every request, memory and disk cache hits included: the sign-in load above
+      // already prefetched these files, so the reload may read them from the cache.
+      const requested: string[] = [];
+      page.on('request', (request) => { requested.push(new URL(request.url()).pathname); });
+      await page.reload();
+      await expect(page.locator('.list__row').first()).toBeVisible();
+      // Idle prefetch with modules on loads the Compose and Settings panes nobody opened.
+      await expect.poll(() => requested.some((path) => /\/assets\/(compose|settings)-[\w-]+\.js$/.test(path)), { timeout: 20_000 }).toBe(true);
+      expect(refused).toEqual([]);
+    } finally {
+      await setGlobal(playwright.request, baseURL!, 'web.prefetch.modules', modules ?? false);
+      await setGlobal(playwright.request, baseURL!, 'web.prefetch.idleDelayMs', delay ?? 2500);
+    }
   });
 });
