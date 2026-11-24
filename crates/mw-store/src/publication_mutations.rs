@@ -111,9 +111,11 @@ impl Store {
         uid: u32,
         uidvalidity: u32,
     ) -> Result<bool, StoreError> {
-        let mut tx = self.backend.begin().await?;
+        // One write job: a savepoint in the group writer's batch with
+        // MW_SQLITE_WRITER=group, otherwise its own transaction, as before.
+        crate::backend::write_job!(self.backend, crate::backend::WriteLane::Normal, |tx| async {
         let count = lock_mailboxes(
-            &mut tx,
+            tx,
             &expected.account_id,
             &expected.mailbox_id,
             destination,
@@ -126,33 +128,31 @@ impl Store {
                 2
             }
         {
-            tx.commit().await?;
             return Ok(false);
         }
         let row=q("UPDATE messages SET mailbox_id=?8,uid=?9,uidvalidity=?10 WHERE stable_id=?1 AND account_id=?2 AND mailbox_id=?3 AND uidvalidity=?4 AND uid=?5 AND cache_revision=?6 AND (blob_ref=?7 OR (blob_ref IS NULL AND ?7 IS NULL)) RETURNING flags_json")
-            .bind(&expected.stable_id).bind(&expected.account_id).bind(&expected.mailbox_id).bind(i64::from(expected.uidvalidity)).bind(i64::from(expected.uid)).bind(&expected.cache_revision).bind(expected.blob_ref.as_deref()).bind(destination).bind(i64::from(uid)).bind(i64::from(uidvalidity)).fetch_all_tx(&mut tx).await?;
+            .bind(&expected.stable_id).bind(&expected.account_id).bind(&expected.mailbox_id).bind(i64::from(expected.uidvalidity)).bind(i64::from(expected.uid)).bind(&expected.cache_revision).bind(expected.blob_ref.as_deref()).bind(destination).bind(i64::from(uid)).bind(i64::from(uidvalidity)).fetch_all_tx(tx).await?;
         let Some(row) = row.first() else {
-            tx.commit().await?;
             return Ok(false);
         };
         if expected.mailbox_id != destination {
-            q("UPDATE mailboxes SET total=CASE WHEN total>0 THEN total-1 ELSE 0 END WHERE id=?1 AND account_id=?2").bind(&expected.mailbox_id).bind(&expected.account_id).execute_tx(&mut tx).await?;
+            q("UPDATE mailboxes SET total=CASE WHEN total>0 THEN total-1 ELSE 0 END WHERE id=?1 AND account_id=?2").bind(&expected.mailbox_id).bind(&expected.account_id).execute_tx(tx).await?;
             q("UPDATE mailboxes SET total=total+1 WHERE id=?1 AND account_id=?2")
                 .bind(destination)
                 .bind(&expected.account_id)
-                .execute_tx(&mut tx)
+                .execute_tx(tx)
                 .await?;
             if crate::cache::flags_json_is_unread(&row.get_string("flags_json")) {
-                q("UPDATE mailboxes SET unread=unread-1 WHERE id=?1 AND account_id=?2 AND unread>0").bind(&expected.mailbox_id).bind(&expected.account_id).execute_tx(&mut tx).await?;
+                q("UPDATE mailboxes SET unread=unread-1 WHERE id=?1 AND account_id=?2 AND unread>0").bind(&expected.mailbox_id).bind(&expected.account_id).execute_tx(tx).await?;
                 q("UPDATE mailboxes SET unread=unread+1 WHERE id=?1 AND account_id=?2")
                     .bind(destination)
                     .bind(&expected.account_id)
-                    .execute_tx(&mut tx)
+                    .execute_tx(tx)
                     .await?;
             }
         }
-        tx.commit().await?;
-        Ok(true)
+        Ok::<_, StoreError>(true)
+        })
     }
     /// Delete a mailbox only while empty, after locking its parent row against
     /// concurrent ingest. Never cascade messages that arrived after enumeration.

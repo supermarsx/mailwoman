@@ -92,6 +92,11 @@ pub(crate) const QUEUE_JOBS: usize = 1024;
 pub(crate) const QUEUE_PRIORITY_JOBS: usize = 256;
 
 const SAVEPOINT: &str = "SAVEPOINT mw_job";
+/// The previous job's savepoint is released before the next one opens (one
+/// statement round trip): nested savepoints would make every page write of a
+/// later job do work per open savepoint (measured: a 1,024-job move batch at
+/// 13 ms per job nested, against about 1.3 ms at 64).
+const RELEASE_AND_SAVEPOINT: &str = "RELEASE mw_job; SAVEPOINT mw_job";
 const ROLLBACK_TO: &str = "ROLLBACK TO mw_job";
 
 /// Which queue a write job waits in.
@@ -133,6 +138,14 @@ pub struct SqliteWriterStats {
     pub batch_micros_max: u64,
     /// Longest time one job held the batch transaction.
     pub job_hold_micros_max: u64,
+    /// Time split of the batches (writer task's view): the jobs holding the
+    /// transaction (their statements plus the hand-over to and from the
+    /// caller's task), the `SAVEPOINT` / `ROLLBACK TO` statements, `BEGIN`
+    /// (including the gate and pool wait) and `COMMIT`.
+    pub job_hold_micros_total: u64,
+    pub savepoint_micros_total: u64,
+    pub begin_micros_total: u64,
+    pub commit_micros_total: u64,
     /// Longest wait of a priority ticket for its grant.
     pub priority_wait_micros_max: u64,
 }
@@ -153,6 +166,10 @@ struct Counters {
     batch_micros_total: AtomicU64,
     batch_micros_max: AtomicU64,
     job_hold_micros_max: AtomicU64,
+    job_hold_micros_total: AtomicU64,
+    savepoint_micros_total: AtomicU64,
+    begin_micros_total: AtomicU64,
+    commit_micros_total: AtomicU64,
     priority_wait_micros_max: AtomicU64,
 }
 impl Counters {
@@ -172,6 +189,10 @@ impl Counters {
             batch_micros_total: AtomicU64::new(0),
             batch_micros_max: AtomicU64::new(0),
             job_hold_micros_max: AtomicU64::new(0),
+            job_hold_micros_total: AtomicU64::new(0),
+            savepoint_micros_total: AtomicU64::new(0),
+            begin_micros_total: AtomicU64::new(0),
+            commit_micros_total: AtomicU64::new(0),
             priority_wait_micros_max: AtomicU64::new(0),
         }
     }
@@ -192,6 +213,10 @@ impl Counters {
             batch_micros_total: load(&self.batch_micros_total),
             batch_micros_max: load(&self.batch_micros_max),
             job_hold_micros_max: load(&self.job_hold_micros_max),
+            job_hold_micros_total: load(&self.job_hold_micros_total),
+            savepoint_micros_total: load(&self.savepoint_micros_total),
+            begin_micros_total: load(&self.begin_micros_total),
+            commit_micros_total: load(&self.commit_micros_total),
             priority_wait_micros_max: load(&self.priority_wait_micros_max),
         }
     }
@@ -647,8 +672,12 @@ async fn batch(
             return;
         }
     };
+    shared.add(|c| &c.begin_micros_total, micros(begun.elapsed()));
     let mut members: Vec<Member> = Vec::new();
     let mut broken = false;
+    // Whether a job's savepoint is still open (released before the next opens;
+    // COMMIT releases the last one).
+    let mut open = false;
     let mut next = Some(first);
     while let Some(ticket) = next.take() {
         let Ticket {
@@ -661,7 +690,11 @@ async fn batch(
             shared.add(|c| &c.skipped, 1);
         } else {
             let mut current = tx.take().expect("batch transaction present");
-            if execute(&mut current, SAVEPOINT).await.is_err() {
+            let savepoint_at = Instant::now();
+            let opened = execute(&mut current, if open { RELEASE_AND_SAVEPOINT } else { SAVEPOINT }).await;
+            open = true;
+            shared.add(|c| &c.savepoint_micros_total, micros(savepoint_at.elapsed()));
+            if opened.is_err() {
                 // SQLite ended the transaction: nothing of this batch is kept.
                 broken = true;
                 let _ = grant.send(Err(writer_stopped()));
@@ -695,7 +728,9 @@ async fn batch(
                     let member = Member { done, _flight: flight };
                     match returned.await {
                         Ok(Returned { tx: back_tx, status }) => {
-                            shared.max(|c| &c.job_hold_micros_max, micros(granted_at.elapsed()));
+                            let held = micros(granted_at.elapsed());
+                            shared.max(|c| &c.job_hold_micros_max, held);
+                            shared.add(|c| &c.job_hold_micros_total, held);
                             let mut back_tx = back_tx;
                             if status != Status::Done {
                                 shared.add(
@@ -708,7 +743,10 @@ async fn batch(
                                     },
                                     1,
                                 );
-                                if execute(&mut back_tx, ROLLBACK_TO).await.is_err() {
+                                let undo_at = Instant::now();
+                                let undone = execute(&mut back_tx, ROLLBACK_TO).await;
+                                shared.add(|c| &c.savepoint_micros_total, micros(undo_at.elapsed()));
+                                if undone.is_err() {
                                     broken = true;
                                     members.push(member);
                                     drop(back_tx);
@@ -743,7 +781,14 @@ async fn batch(
     }
 
     let committed = match (broken, tx) {
-        (false, Some(tx)) => tx.commit().await.is_ok(),
+        // Tx::commit: one COMMIT per batch, counted by the pool telemetry's
+        // commit counter like any other transaction's.
+        (false, Some(tx)) => {
+            let commit_at = Instant::now();
+            let committed = tx.commit().await.is_ok();
+            shared.add(|c| &c.commit_micros_total, micros(commit_at.elapsed()));
+            committed
+        }
         // A broken batch: dropping the transaction rolls it back.
         (_, tx) => {
             drop(tx);
