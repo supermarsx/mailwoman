@@ -5,7 +5,8 @@ import {withBase} from './basePath.ts';
 import {errorDetails,ApiError,type LoginChallenge} from './client.ts';
 import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent} from './accountPreferenceLifecycle.ts';
 import type {LinkedAccountContext} from './linkedAccountContext.ts';
-import {activeLinkedMailbox,primaryMailboxAuthority} from './linkedMailboxSession.ts';
+import {activeLinkedMailbox,linkedAccountsRevision,primaryMailboxAuthority} from './linkedMailboxSession.ts';
+import {createSwrCache,scopedKey,swrCachesEnabled} from './swrCache.ts';
 import {rememberLinkedList,type MailboxLayout} from './mailboxLayout.ts';
 import {validAvatar,type MailboxAvatarSpec} from './mailboxAvatar.ts';
 
@@ -60,6 +61,49 @@ async function requestDigest(text:string):Promise<string|null> {
   if(!subtle)return null;
   try{const hash=await subtle.digest('SHA-256',new TextEncoder().encode(text));return Array.from(new Uint8Array(hash),b=>b.toString(16).padStart(2,'0')).join('');}catch{return null;}
 }
+// t52w: one boot asked for the list three or four times (the first mailbox, each
+// mounted account picker, the login summary), each through its own API object.
+// They now share one request and its answer for LIST_FRESH_MS. The key names the
+// sign-in account, its generation, the storage authority and the catalog revision,
+// so another account, a sign-out or `invalidateLinkedAccounts()` (which every
+// screen calls after a change) never reads an older list; a write through this
+// API drops every kept list.
+const LIST_FRESH_MS=5_000;
+const lists=createSwrCache<LinkedMailboxList>({freshMs:LIST_FRESH_MS,maxAgeMs:LIST_FRESH_MS});
+observePreferenceAccount(()=>lists.clear());
+function waitUnlessAborted<T>(promise:Promise<T>,signal:AbortSignal):Promise<T> {
+  if(signal.aborted)return Promise.reject(new DOMException('Account changed','AbortError'));
+  return new Promise<T>((resolve,reject)=>{
+    const abort=():void=>reject(new DOMException('Account changed','AbortError'));
+    signal.addEventListener('abort',abort,{once:true});
+    promise.then(value=>{signal.removeEventListener('abort',abort);resolve(value);},(error:unknown)=>{signal.removeEventListener('abort',abort);reject(error);});
+  });
+}
+function validList(value:LinkedMailboxList,authority:string):LinkedMailboxList {
+  if(!value?.primary||typeof value.primary.address!=='string'||typeof value.primary.accountId!=='string'||value.primary.storageAuthority!==authority
+    ||!Array.isArray(value.accounts)||value.accounts.length>16||typeof value.policy?.enabled!=='boolean'||!Number.isInteger(value.policy.maxAccounts)
+    ||value.accounts.some(account=>typeof account.id!=='string'||typeof account.revision!=='string'||typeof account.displayName!=='string'||!['ready','reauthRequired','disabled'].includes(account.status)
+      ||(account.status==='ready'&&(typeof account.address!=='string'||typeof account.storageAuthority!=='string')))
+    ||(value.primaryMailbox!=null&&!value.accounts.some(account=>account.id===value.primaryMailbox&&account.status==='ready'))
+    ||(value.primaryFallback!==undefined&&typeof value.primaryFallback!=='boolean')
+    ||(value.layout!==undefined&&!validLayout(value.layout)))throw new ApiError(502,'Linked mailbox response was invalid');
+  if(value.layout)value.layout=cleanLayout(value.layout);
+  rememberLinkedList(value);
+  reconcileLinkedHealth(authority,value.accounts);
+  return value;
+}
+/** The list as the server sends it, read for every API object of `owner` at once:
+ * no caller's signal, so one caller's disposal never cancels another's read. */
+async function readSharedList(owner:PreferenceAccountRef,authority:string):Promise<LinkedMailboxList> {
+  if(!preferenceAccountIsCurrent(owner))throw new DOMException('Account changed','AbortError');
+  const response=await apiFetch(withBase('/api/accounts'),{method:'GET',credentials:'same-origin',
+    headers:{'content-type':'application/json','x-mailwoman-storage-authority':authority}});
+  if(!preferenceAccountIsCurrent(owner))throw new DOMException('Account changed','AbortError');
+  if(!response.ok)throw new ApiError(response.status,'Linked mailbox request failed',await errorDetails(response));
+  return validList(await response.json() as LinkedMailboxList,authority);
+}
+type PreferenceAccountRef=NonNullable<ReturnType<typeof preferenceAccount>>;
+
 /** Management always uses the primary session, never a child-context header.
  * Disposal or any UI authority change aborts pending CSRF/step-up retries too. */
 export function createLinkedAccountsApi() {
@@ -73,6 +117,11 @@ export function createLinkedAccountsApi() {
    *  Idempotency-Key (the server replays its first success) and retried on a transient failure
    *  only, never on a refusal such as a 401 for a wrong password. */
   async function request<T>(path:string,method='GET',body?:unknown,headers?:Record<string,string>,mode:'once'|'idempotent'|'keyed'=method==='PUT'?'idempotent':'once'):Promise<T> {
+    // A change through this API makes every kept list stale (t52w).
+    if(method!=='GET'){lists.clear();try{return await requestOnce<T>(path,method,body,headers,mode);}finally{lists.clear();}}
+    return requestOnce<T>(path,method,body,headers,mode);
+  }
+  async function requestOnce<T>(path:string,method:string,body:unknown,headers:Record<string,string>|undefined,mode:'once'|'idempotent'|'keyed'):Promise<T> {
     if(mode!=='keyed')return send<T>(path,method,body,headers,mode==='idempotent'?{recovery:{idempotent:true}}:{});
     // The server classifies a mail-backend timeout after 25s. Let that answer
     // arrive; retry only an unclassified transport failure, with the same key.
@@ -104,18 +153,13 @@ export function createLinkedAccountsApi() {
   }
   return {
     list:async()=>{
-      const value=await request<LinkedMailboxList>('');
-      if(!value?.primary||typeof value.primary.address!=='string'||typeof value.primary.accountId!=='string'||value.primary.storageAuthority!==authority
-        ||!Array.isArray(value.accounts)||value.accounts.length>16||typeof value.policy?.enabled!=='boolean'||!Number.isInteger(value.policy.maxAccounts)
-        ||value.accounts.some(account=>typeof account.id!=='string'||typeof account.revision!=='string'||typeof account.displayName!=='string'||!['ready','reauthRequired','disabled'].includes(account.status)
-          ||(account.status==='ready'&&(typeof account.address!=='string'||typeof account.storageAuthority!=='string')))
-        ||(value.primaryMailbox!=null&&!value.accounts.some(account=>account.id===value.primaryMailbox&&account.status==='ready'))
-        ||(value.primaryFallback!==undefined&&typeof value.primaryFallback!=='boolean')
-        ||(value.layout!==undefined&&!validLayout(value.layout)))throw new ApiError(502,'Linked mailbox response was invalid');
-      if(value.layout)value.layout=cleanLayout(value.layout);
-      rememberLinkedList(value);
-      reconcileLinkedHealth(authority,value.accounts);
-      return value;
+      if(!swrCachesEnabled()||!owner?.storageAuthority||!authority)return validList(await request<LinkedMailboxList>(''),authority??'');
+      if(!preferenceAccountIsCurrent(owner)||controller.signal.aborted)throw new DOMException('Account changed','AbortError');
+      const key=scopedKey('linked-accounts',owner.id,String(owner.generation),owner.storageAuthority,authority,String(linkedAccountsRevision()));
+      const value=await waitUnlessAborted(lists.get(key,()=>readSharedList(owner,authority)),controller.signal);
+      if(!preferenceAccountIsCurrent(owner))throw new DOMException('Account changed','AbortError');
+      // Each caller gets its own copy: a screen that edits its list does not edit another's.
+      return structuredClone(value);
     },
     link:(input:LinkMailboxInput)=>request<LinkMailboxResult>('/link','POST',input,undefined,'keyed'),
     confirm:(challengeId:string,proof:LinkMailboxProof)=>request<{account:LinkedMailbox}>(`/challenges/${encodeURIComponent(challengeId)}/confirm`,'POST',proof,undefined,'keyed'),
