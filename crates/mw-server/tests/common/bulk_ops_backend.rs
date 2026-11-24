@@ -99,6 +99,19 @@ impl BulkBackend {
         }
         Self { tag: tag.into(), to: to.into(), folders: Mutex::new(folders), commands: Commands::default() }
     }
+    /// Apply the corpus flag pattern (30% unread, 2% flagged) to every corpus
+    /// message, matching what the Store seed writes for the same account.
+    pub fn with_flag_pattern(self) -> Self {
+        for folder in self.folders.lock().unwrap().values_mut() {
+            for message in folder.messages.values_mut() {
+                if let Source::Corpus(seed) = message.source {
+                    let (seen, flagged) = corpus::pattern_flags(seed);
+                    message.flags = [(seen, Flag::Seen), (flagged, Flag::Flagged)].into_iter().filter(|(on, _)| *on).map(|(_, flag)| flag).collect();
+                }
+            }
+        }
+        self
+    }
     fn raw_of(&self, message: &Message) -> Vec<u8> {
         match &message.source {
             Source::Corpus(seed) => corpus::raw(&self.tag, *seed, &self.to),

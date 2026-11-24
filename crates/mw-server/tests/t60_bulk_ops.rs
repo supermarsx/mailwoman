@@ -30,6 +30,11 @@ mod backend;
 mod native_enforced_policy;
 #[path = "common/t34_modes.rs"]
 mod t34_modes;
+#[path = "common/bulk_ops_search.rs"]
+mod search_ops;
+#[path = "common/process_cpu.rs"]
+mod process_cpu;
+use process_cpu::process_cpu_seconds;
 
 use backend::BulkBackend;
 
@@ -55,7 +60,7 @@ enum Batch {
     Max,
     Fixed(usize),
 }
-const SCENARIOS: [&str; 9] = ["ingest", "open", "flag", "move", "mark-folder-read", "import", "trash", "destroy", "delete-folder"];
+const SCENARIOS: [&str; 10] = ["ingest", "open", "search", "flag", "move", "mark-folder-read", "import", "trash", "destroy", "delete-folder"];
 
 #[derive(Clone, Debug)]
 struct Config {
@@ -63,6 +68,7 @@ struct Config {
     mailbox: u32,
     operation: u32,
     reader_messages: u32,
+    reader_accounts: usize,
     scenarios: Vec<&'static str>,
     batch: Batch,
     on_limit: OnLimit,
@@ -100,6 +106,7 @@ impl Config {
             return Err("MW_BULK_OPERATION_MESSAGES cannot exceed MW_BULK_MAILBOX_MESSAGES".into());
         }
         let reader_messages = bounded("MW_BULK_READER_MESSAGES", get("MW_BULK_READER_MESSAGES").as_deref(), 1_000, 100, 10_000)? as u32;
+        let reader_accounts = bounded("MW_BULK_READER_ACCOUNTS", get("MW_BULK_READER_ACCOUNTS").as_deref(), 2, 1, 8)? as usize;
         let scenarios = match get("MW_BULK_SCENARIOS").as_deref().map(str::trim) {
             None | Some("") | Some("all") => SCENARIOS.to_vec(),
             Some(list) => {
@@ -136,7 +143,7 @@ impl Config {
         let workers = bounded("MW_BULK_WORKERS", get("MW_BULK_WORKERS").as_deref(), 4, 1, 32)? as usize;
         let profile = native_enforced_policy::Profile::parse(Some(get("MW_BULK_SECURITY_PROFILE").as_deref().unwrap_or("enforced")))
             .map_err(|_| "MW_BULK_SECURITY_PROFILE must be enforced or defaults".to_string())?;
-        Ok(Self { layer, mailbox, operation, reader_messages, scenarios, batch, on_limit, concurrent_reader, reader_rate_per_second, scenario_deadline, ready_deadline, workers, profile })
+        Ok(Self { layer, mailbox, operation, reader_messages, reader_accounts, scenarios, batch, on_limit, concurrent_reader, reader_rate_per_second, scenario_deadline, ready_deadline, workers, profile })
     }
     fn from_environment() -> std::result::Result<Self, String> {
         Self::parse(|name| std::env::var(name).ok())
@@ -146,7 +153,7 @@ impl Config {
     }
     fn summary(&self) -> Value {
         json!({"layer":match self.layer {Layer::Engine=>"engine",Layer::Http=>"http"},"mailboxMessages":self.mailbox,"operationMessages":self.operation,
-            "readerMessages":self.reader_messages,"scenarios":self.scenarios,"batch":match self.batch {Batch::Max=>json!("maxObjectsInSet"),Batch::Fixed(n)=>json!(n)},
+            "readerMessages":self.reader_messages,"readerAccounts":self.reader_accounts,"scenarios":self.scenarios,"batch":match self.batch {Batch::Max=>json!("maxObjectsInSet"),Batch::Fixed(n)=>json!(n)},
             "onLimit":match self.on_limit {OnLimit::Stop=>"stop",OnLimit::RetryAfter=>"retry-after"},"concurrentReader":self.concurrent_reader,
             "readerRatePerSecond":self.reader_rate_per_second,"scenarioDeadlineSeconds":self.scenario_deadline.as_secs(),
             "runtimeWorkerThreads":self.workers,"securityProfile":match self.profile {native_enforced_policy::Profile::Enforced=>"enforced",native_enforced_policy::Profile::Defaults=>"defaults"}})
@@ -241,8 +248,8 @@ fn store_role(role: MailboxRole) -> Option<&'static str> {
 }
 
 /// Seed through the Store's checked batch API (the native fixture's path).
-async fn seed_folder(store: &Store, account: &str, mailbox: &str, tag: &str, to: &str, seeds: std::ops::RangeInclusive<u32>) -> u64 {
-    assert_eq!(*seeds.start(), 1, "seed ranges start at UID 1");
+async fn seed_folder(store: &Store, account: &str, mailbox: &str, tag: &str, to: &str, seeds: std::ops::RangeInclusive<u32>, pattern: bool) -> u64 {
+    let first = *seeds.start();
     let mut written = 0u64;
     let seeds: Vec<u32> = seeds.collect();
     for chunk in seeds.chunks(100) {
@@ -256,6 +263,7 @@ async fn seed_folder(store: &Store, account: &str, mailbox: &str, tag: &str, to:
             .collect();
         let ids: Vec<String> = chunk.iter().map(|seed| corpus::message_id(tag, *seed)).collect();
         let dates: Vec<String> = chunk.iter().map(|seed| corpus::received_at(*seed)).collect();
+        let flags: Vec<String> = chunk.iter().map(|seed| flags_json(*seed, pattern)).collect();
         let inputs: Vec<(MessageUpsert<'_>, &[u8])> = chunk
             .iter()
             .enumerate()
@@ -264,15 +272,14 @@ async fn seed_folder(store: &Store, account: &str, mailbox: &str, tag: &str, to:
                     MessageUpsert {
                         account_id: account,
                         mailbox_id: mailbox,
-                        // Seed ranges start at 1 and the fake upstream assigns
-                        // UID = position + 1, so the UID equals the seed.
-                        uid: *seed,
+                        // The fake upstream assigns UID = position + 1.
+                        uid: *seed - first + 1,
                         uidvalidity: 1,
                         message_id: Some(&ids[i]),
                         thread_id: None,
                         internaldate: Some(&dates[i]),
                         size: raws[i].len() as u64,
-                        flags_json: "[]",
+                        flags_json: &flags[i],
                         envelope: Some(&envelopes[i]),
                         blob_ref: None,
                     },
@@ -297,10 +304,24 @@ async fn seed_folder(store: &Store, account: &str, mailbox: &str, tag: &str, to:
     }
     written
 }
+fn flags_json(seed: u32, pattern: bool) -> String {
+    let (seen, flagged) = if pattern { corpus::pattern_flags(seed) } else { (false, false) };
+    let flags: Vec<Flag> = [(seen, Flag::Seen), (flagged, Flag::Flagged)].into_iter().filter(|(on, _)| *on).map(|(_, f)| f).collect();
+    serde_json::to_string(&flags).unwrap()
+}
+fn pattern_unread(seeds: std::ops::RangeInclusive<u32>, pattern: bool) -> u32 {
+    if pattern { seeds.filter(|s| !corpus::pattern_flags(*s).0).count() as u32 } else { seeds.count() as u32 }
+}
 async fn write_batch(store: &Store, batch: &[(MessageUpsert<'_>, &[u8])]) -> u64 {
     let rows = store.upsert_message_bodies_batch(batch).await.expect("seed batch write must succeed once");
     assert!(rows.iter().all(|(_, existed)| !existed), "fresh seed coordinates must not overwrite");
     rows.len() as u64
+}
+
+const READER_ROLES: [&str; 8] = ["reader", "reader2", "reader3", "reader4", "reader5", "reader6", "reader7", "reader8"];
+/// The search account's Archive holds N/10 more messages (at least 10).
+fn search_archive(n: u32) -> u32 {
+    (n / 10).max(10)
 }
 
 struct Seeded {
@@ -316,6 +337,9 @@ async fn seed(store: &Store, config: &Config) -> Seeded {
     let n = config.mailbox;
     let k = config.operation;
     let mut plan: Vec<(&'static str, Vec<(&'static str, std::ops::RangeInclusive<u32>)>, bool)> = Vec::new();
+    if config.wants("search") {
+        plan.push(("search", vec![("INBOX", 1..=n), ("Archive", n + 1..=n + search_archive(n))], true));
+    }
     if ["open", "flag", "move", "mark-folder-read", "import"].iter().any(|s| config.wants(s)) {
         plan.push(("main", vec![("INBOX", 1..=n)], true));
     }
@@ -332,7 +356,9 @@ async fn seed(store: &Store, config: &Config) -> Seeded {
         plan.push(("ingest", vec![("INBOX", 1..=n)], false));
     }
     if config.concurrent_reader {
-        plan.push(("reader", vec![("INBOX", 1..=config.reader_messages)], true));
+        for role in &READER_ROLES[..config.reader_accounts] {
+            plan.push((role, vec![("INBOX", 1..=config.reader_messages)], true));
+        }
     }
     let now = chrono::Utc::now().timestamp();
     let mut principals = Vec::new();
@@ -345,17 +371,20 @@ async fn seed(store: &Store, config: &Config) -> Seeded {
             .await
             .unwrap();
         let tag = role.to_string();
-        let backend = Arc::new(BulkBackend::new(&tag, &username, &folders, store_seeded));
+        let pattern = role == "search";
+        let backend = BulkBackend::new(&tag, &username, &folders, store_seeded);
+        let backend = Arc::new(if pattern { backend.with_flag_pattern() } else { backend });
         if store_seeded {
             for (name, role_kind) in backend::FOLDERS {
                 let seeds = folders.iter().find(|(f, _)| *f == name).map(|(_, r)| r.clone());
                 let count = seeds.as_ref().map_or(0, |r| r.clone().count() as u32);
+                let unread = seeds.as_ref().map_or(0, |r| pattern_unread(r.clone(), pattern));
                 let mailbox = store
-                    .upsert_mailbox(&MailboxUpsert { account_id: &account, name, role: store_role(role_kind), uidvalidity: 1, uidnext: count + 1, highestmodseq: 0, total: count, unread: count, parent_id: None })
+                    .upsert_mailbox(&MailboxUpsert { account_id: &account, name, role: store_role(role_kind), uidvalidity: 1, uidnext: count + 1, highestmodseq: 0, total: count, unread, parent_id: None })
                     .await
                     .unwrap();
                 if let Some(seeds) = seeds {
-                    let written = seed_folder(store, &account, &mailbox, &tag, &username, seeds).await;
+                    let written = seed_folder(store, &account, &mailbox, &tag, &username, seeds, pattern).await;
                     assert_eq!(written, u64::from(count));
                     seeded += written;
                     expected += written;
@@ -514,6 +543,9 @@ struct Ctx {
     principals: Vec<Principal>,
     report: Option<Mutex<std::fs::File>>,
     rss_peak: Arc<AtomicU64>,
+    /// Setup-only HTTP access (saved-search creation), for either layer.
+    http: reqwest::Client,
+    base: String,
 }
 impl Ctx {
     fn principal(&self, role: &str) -> &Principal {
@@ -769,7 +801,8 @@ type ReaderSamples = Arc<Mutex<Vec<(u8, &'static str, f64, bool)>>>;
 struct ReaderRun {
     samples: ReaderSamples,
     stop: Arc<tokio::sync::Notify>,
-    task: tokio::task::JoinHandle<()>,
+    tasks: Vec<tokio::task::JoinHandle<()>>,
+    accounts: usize,
 }
 fn list_calls(account: &str, filter: Value, sort: Value, position: u64, properties: &Value) -> Value {
     json!([
@@ -784,25 +817,32 @@ async fn start_reader(ctx: &Arc<Ctx>, rec: &mut Record) -> Option<ReaderRun> {
     if !ctx.config.concurrent_reader {
         return None;
     }
-    let reader = ctx.principal("reader").clone();
-    let inbox = mailbox_ids(ctx, &reader).await.get("INBOX").cloned()?;
     let phase = Arc::new(AtomicU8::new(PHASE_SETUP));
     rec.phase = Some(phase.clone());
     let samples: ReaderSamples = Arc::new(Mutex::new(Vec::new()));
     let stop = Arc::new(tokio::sync::Notify::new());
-    let task = {
-        let (ctx, samples, stop) = (ctx.clone(), samples.clone(), stop.clone());
-        tokio::spawn(async move {
+    let mut tasks = Vec::new();
+    for role in &READER_ROLES[..ctx.config.reader_accounts] {
+        let reader = ctx.principal(role).clone();
+        let inbox = mailbox_ids(ctx, &reader).await.get("INBOX").cloned()?;
+        let (ctx, samples, stop, phase) = (ctx.clone(), samples.clone(), stop.clone(), phase.clone());
+        tasks.push(tokio::spawn(async move {
             let mut ticker = tokio::time::interval(Duration::from_millis(1000 / u64::from(ctx.config.reader_rate_per_second)));
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-            let body = json!({"using":USING,"methodCalls":list_calls(&reader.account, json!({"inMailbox":inbox}), newest_first(), 0, &ctx.properties)});
+            let list = json!({"using":USING,"methodCalls":list_calls(&reader.account, json!({"inMailbox":inbox}), newest_first(), 0, &ctx.properties)});
+            // The web client's search request: the typed text in filter.text.
+            let search = json!({"using":USING,"methodCalls":list_calls(&reader.account, json!({"inMailbox":inbox,"text":corpus::SEARCH_WORD}), newest_first(), 0, &ctx.properties)});
             let expected = PAGE.min(u64::from(ctx.config.reader_messages)) as usize;
+            let hits = word_hits(1..=ctx.config.reader_messages);
             loop {
                 tokio::select! { _ = stop.notified() => return, _ = ticker.tick() => {} }
                 let current = phase.load(Ordering::SeqCst);
                 let started = Instant::now();
-                let ok = matches!(ctx.driver.post_jmap(&reader, &body).await, Ok(v) if result(&v, 1)["list"].as_array().is_some_and(|l| l.len() == expected));
+                let ok = matches!(ctx.driver.post_jmap(&reader, &list).await, Ok(v) if result(&v, 1)["list"].as_array().is_some_and(|l| l.len() == expected));
                 samples.lock().unwrap().push((current, "inboxFirstPage", ms(started.elapsed()), ok));
+                let started = Instant::now();
+                let ok = matches!(ctx.driver.post_jmap(&reader, &search).await, Ok(v) if result(&v, 0)["total"].as_u64() == Some(hits));
+                samples.lock().unwrap().push((current, "textSearch", ms(started.elapsed()), ok));
                 let started = Instant::now();
                 match ctx.driver.identity(&reader).await {
                     Ok(true) => samples.lock().unwrap().push((current, "identity", ms(started.elapsed()), true)),
@@ -810,9 +850,9 @@ async fn start_reader(ctx: &Arc<Ctx>, rec: &mut Record) -> Option<ReaderRun> {
                     Err(_) => samples.lock().unwrap().push((current, "identity", ms(started.elapsed()), false)),
                 }
             }
-        })
-    };
-    Some(ReaderRun { samples, stop, task })
+        }));
+    }
+    Some(ReaderRun { samples, stop, accounts: tasks.len(), tasks })
 }
 async fn finish_reader(run: Option<ReaderRun>, rec: &mut Record) {
     let Some(run) = run else { return };
@@ -822,13 +862,17 @@ async fn finish_reader(run: Option<ReaderRun>, rec: &mut Record) {
             tokio::time::sleep(READER_WINDOW - elapsed).await;
         }
     }
-    run.stop.notify_one();
-    let _ = run.task.await;
+    run.stop.notify_waiters();
+    for task in run.tasks {
+        task.abort();
+        let _ = task.await;
+    }
     let samples = run.samples.lock().unwrap().clone();
+    let accounts = run.accounts;
     let mut windows = serde_json::Map::new();
     for (phase, name) in [(PHASE_BEFORE, "before"), (PHASE_DURING, "during"), (PHASE_AFTER, "after")] {
         let mut entry = serde_json::Map::new();
-        for kind in ["inboxFirstPage", "identity"] {
+        for kind in ["inboxFirstPage", "textSearch", "identity"] {
             let chosen: Vec<_> = samples.iter().filter(|s| s.0 == phase && s.1 == kind).collect();
             let latencies: Vec<f64> = chosen.iter().filter(|s| s.3).map(|s| s.2).collect();
             entry.insert(kind.into(), json!({"latencyMs":distribution(&latencies),"failures":chosen.iter().filter(|s| !s.3).count()}));
@@ -838,7 +882,7 @@ async fn finish_reader(run: Option<ReaderRun>, rec: &mut Record) {
     let failures = samples.iter().filter(|s| s.0 != PHASE_SETUP && !s.3).count();
     rec.check("concurrent-reader-requests-succeeded", failures == 0, json!({"failures":failures}));
     rec.put("concurrentReader", json!({"windows":windows,"quietWindowSeconds":READER_WINDOW.as_secs(),
-        "note":"a second account reads its inbox first page (and /api/me over HTTP) at a fixed rate; 'during' spans the bulk requests only"}));
+        "accounts":accounts,"note":"other accounts each read their inbox first page, run the client's text search, and (over HTTP) /api/me at a fixed rate per account; 'during' spans the bulk requests only"}));
 }
 
 // ---------------------------------------------------------------- helpers ---
@@ -1638,7 +1682,7 @@ async fn s_ingest(ctx: &Ctx, rec: &mut Record) -> std::result::Result<(), Stop> 
 // ---------------------------------------------------------------- runner ---
 
 macro_rules! scenario {
-    ($ctx:expr, $name:expr, $mutating:expr, $f:ident $(, $arg:expr)*) => {{
+    ($ctx:expr, $name:expr, $mutating:expr, $f:path $(, $arg:expr)*) => {{
         let ctx: &Arc<Ctx> = $ctx;
         eprintln!("bulk-ops: scenario {} starting", $name);
         let mut rec = Record::new($name);
@@ -1706,6 +1750,8 @@ async fn run(config: Config) {
     let t34_selection = t34_modes::T34Selection::from_environment().unwrap_or_else(|e| panic!("invalid t34 mode: {e}"));
     let publication = t34_selection.publication_options().unwrap_or_else(|e| panic!("invalid index publication options: {e}"));
     let dir = PathBuf::from(std::env::var("MW_BULK_DIR").expect("worker directory"));
+    // Sealed-index read bytes per query come from mw-search's diagnostic timing counters.
+    mw_search::timing::set_enabled(true);
     let (db_path, pg) = isolated_database(&dir).await;
     let backend_kind: &'static str = if pg.is_some() { "postgres" } else { "sqlite" };
     let key = ServerKey::generate();
@@ -1737,15 +1783,19 @@ async fn run(config: Config) {
     let runtimes: Vec<(String, Arc<BulkBackend>, String)> = seeded.principals.iter().map(|p| (p.account.clone(), p.backend.clone(), format!("bulk-{}@{DOMAIN}", p.role))).collect();
     let factory_index = index_dir.clone();
     let factory_publication = publication.clone();
+    let index_open = Arc::new(Mutex::new(None::<Duration>));
+    let factory_open = index_open.clone();
     let startup = Instant::now();
     let (router, _push) = build_app_with_fixture_engine(
         AppConfig { db_path: db_path.clone(), server_key_hex: Some(key_hex), web_dir: None, cookie_secure: false, mode: ServerMode::Engine, hardening: Default::default(), security: SecurityConfig::default() },
         V6Config::default(),
         move |store| {
             assert!(installed_store.set(store.clone()).is_ok());
+            let opened = Instant::now();
             let engine = Arc::new(
                 Engine::open_with_search_and_publication_options(store.clone(), &factory_index, mw_search::WriterOptions::default(), factory_publication).expect("sealed search index"),
             );
+            *factory_open.lock().unwrap() = Some(opened.elapsed());
             for (account, backend, identity) in runtimes {
                 engine.register_backend(account, AccountRuntime::new(backend, Arc::new(NoSend), &identity));
             }
@@ -1808,7 +1858,7 @@ async fn run(config: Config) {
         "sourceRevision":std::env::var("MW_BULK_SOURCE_REVISION").unwrap_or_else(|_|"unknown".into()),
         "sourceDirty":std::env::var("MW_BULK_SOURCE_DIRTY").ok(),
         "buildProfile":if cfg!(debug_assertions){"debug"}else{"release"},
-        "backend":backend_kind,"encryption":encrypted,"searchIndex":"sealed-disk",
+        "backend":backend_kind,"encryption":encrypted,"searchIndex":"sealed-disk","searchTimingCounters":"enabled (mw_search::timing)",
         "config":config.summary(),
         "sizeDistribution":corpus::distribution(),
         "seedPath":"Store::upsert_message_bodies_batch (the native fixture's path); the ingest scenario uses the engine's initial sync",
@@ -1854,6 +1904,8 @@ async fn run(config: Config) {
         principals: seeded.principals.clone(),
         report,
         rss_peak,
+        http: client.clone(),
+        base: base.clone(),
     });
 
     // The seed and startup index build are results in their own right.
@@ -1868,6 +1920,8 @@ async fn run(config: Config) {
         rec.put("startupIndexBuildMs", ms(index_wait));
         rec.put("startupIndexDocumentsPerSecond", seeded.expected_documents as f64 / index_wait.as_secs_f64().max(1e-9));
         rec.put("indexJournalStartup", format!("{journal:?}"));
+        rec.put("searchIndexOpenMs", index_open.lock().unwrap().map(ms));
+        rec.put("searchIndexOpenNote", "Engine construction with the sealed on-disk index, measured in the fixture factory");
         rec.put("disk", disk(&ctx).await);
         rec.put("memory", memory(&ctx));
         let outcome = match &ready {
@@ -1888,6 +1942,28 @@ async fn run(config: Config) {
                 statuses.push(scenario!(&ctx, &format!("open-{kind}"), false, s_open, kind));
             }
             statuses.push(scenario!(&ctx, "open-changes", false, s_changes));
+        }
+        if config.wants("search") {
+            match search_ops::prepare(&ctx).await {
+                Ok(state) => {
+                    for spec in search_ops::specs(config.mailbox) {
+                        let name = spec.name.clone();
+                        statuses.push(scenario!(&ctx, &name, false, search_ops::s_query, &spec, &state));
+                    }
+                    statuses.push(scenario!(&ctx, "search-as-you-type", false, search_ops::s_typing, &state));
+                    statuses.push(scenario!(&ctx, "search-snippets", false, search_ops::s_snippets, &state));
+                    statuses.push(scenario!(&ctx, "search-after-reader-reload", false, search_ops::s_after_reload, &state));
+                    for change in ["arrival", "mark-read", "move-1000"] {
+                        statuses.push(scenario!(&ctx, &format!("search-fresh-after-{change}"), true, search_ops::s_fresh, &state, change));
+                    }
+                    statuses.push(scenario!(&ctx, "search-index-rebuild", false, search_ops::s_rebuild, &state));
+                }
+                Err(error) => {
+                    let mut rec = Record::new("search-setup");
+                    rec.check("search-setup", false, json!({"error":error}));
+                    statuses.push(emit(&ctx, rec, Ok(Ok(()))));
+                }
+            }
         }
         if config.wants("flag") {
             for (name, keyword, on) in [("flag-seen", "$seen", true), ("flag-unseen", "$seen", false), ("flag-flagged", "$flagged", true), ("flag-unflagged", "$flagged", false)] {

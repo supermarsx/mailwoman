@@ -35,6 +35,9 @@ pub fn distribution() -> Value {
         "html":{"share":0.15,"selector":"seed % 20 in 1..=3","parts":"multipart/alternative text ~1.5 KiB + HTML ~4 KiB"},
         "attachment":{"share":0.05,"selector":"seed % 20 == 0","parts":"multipart/mixed text ~1 KiB + application/octet-stream","attachmentDecodedBytes":ATTACHMENT_BYTES},
         "searchWord":{"word":SEARCH_WORD,"share":0.20,"selector":"seed % 5 == 0"},
+        "plantedTerms":{"quarterly":"seed % 5 == 0","zephyrine":"seed % 2000 == 7","zephyrus":"seed % 1000 == 501","amber lantern (phrase)":"seed % 50 == 3",
+            "amber (alone)":"seed % 10 == 6","lantern (alone)":"seed % 7 == 2","subject urgent":"seed % 40 == 11","cc audit@corpus.invalid":"seed % 25 == 0"},
+        "flagPatternWhereUsed":{"unread":"seed % 10 < 3 (30%)","flagged":"seed % 50 == 0 (2%)"},
         "senders":97,"receivedAt":"2026-01-01T00:00:00Z + seed minutes","generator":"crates/mw-server/tests/common/bulk_ops_corpus.rs"
     })
 }
@@ -77,9 +80,51 @@ fn words(seed: u32, bytes: usize) -> String {
     text
 }
 
+/// The planted sentences of a message (each on its own line, so phrase
+/// adjacency is exact). The planted words occur nowhere else in the corpus.
+pub fn planted(seed: u32) -> Vec<&'static str> {
+    let mut lines = Vec::new();
+    if seed % 5 == 0 {
+        lines.push("The quarterly figures follow.");
+    }
+    if seed % 2000 == 7 {
+        lines.push("Reference zephyrine attached.");
+    }
+    if seed % 1000 == 501 {
+        lines.push("Reference zephyrus attached.");
+    }
+    if seed % 50 == 3 {
+        lines.push("Look for the amber lantern.");
+    }
+    if seed % 10 == 6 {
+        lines.push("An amber note.");
+    }
+    if seed % 7 == 2 {
+        lines.push("The lantern room.");
+    }
+    lines
+}
+
 fn text_body(seed: u32, bytes: usize) -> String {
-    let marker = if seed % 5 == 0 { format!("The {SEARCH_WORD} figures follow.\r\n") } else { String::new() };
+    let mut marker = String::new();
+    for line in planted(seed) {
+        marker.push_str(line);
+        marker.push_str("\r\n");
+    }
     format!("Message {seed} of the bulk corpus.\r\n{marker}{}\r\n", words(seed, bytes))
+}
+
+/// `seed % 25 == 0` has this Cc.
+pub const CC: &str = "audit@corpus.invalid";
+
+pub fn subject(seed: u32) -> String {
+    let extra = if seed % 40 == 11 { " urgent" } else { "" };
+    format!("Corpus message {seed} topic {}{extra}", seed % 13)
+}
+
+/// `(seen, flagged)` of the flag pattern: 30% unread, 2% flagged.
+pub fn pattern_flags(seed: u32) -> (bool, bool) {
+    (seed % 10 >= 3, seed % 50 == 0)
 }
 
 /// The full RFC 5322 message for `(tag, seed)` addressed to `to`.
@@ -87,11 +132,12 @@ pub fn raw(tag: &str, seed: u32, to: &str) -> Vec<u8> {
     let date = chrono::DateTime::from_timestamp(BASE_EPOCH + i64::from(seed) * 60, 0)
         .expect("bounded corpus time")
         .to_rfc2822();
+    let cc = if seed % 25 == 0 { format!("Cc: {CC}\r\n") } else { String::new() };
     let headers = format!(
-        "From: Sender {} <{}>\r\nTo: {to}\r\nSubject: Corpus message {seed} topic {}\r\nDate: {date}\r\nMessage-ID: {}\r\nMIME-Version: 1.0\r\n",
+        "From: Sender {} <{}>\r\nTo: {to}\r\n{cc}Subject: {}\r\nDate: {date}\r\nMessage-ID: {}\r\nMIME-Version: 1.0\r\n",
         seed % 97,
         sender(seed),
-        seed % 13,
+        subject(seed),
         message_id(tag, seed)
     );
     let body = match shape(seed) {
@@ -125,6 +171,80 @@ pub fn raw(tag: &str, seed: u32, to: &str) -> Vec<u8> {
         }
     };
     body.into_bytes()
+}
+
+/// Tantivy's default analyzer as the index uses it: split on non-alphanumeric
+/// characters, lowercase, drop tokens longer than 40 bytes.
+pub fn tokenize(text: &str) -> Vec<String> {
+    text.split(|c: char| !c.is_alphanumeric())
+        .filter(|t| !t.is_empty() && t.len() <= 40)
+        .map(str::to_lowercase)
+        .collect()
+}
+
+/// The indexed fields of one corpus message, rebuilt by brute force from the
+/// generator: the oracle for every search scenario.
+pub struct Fields {
+    pub from: Vec<String>,
+    pub to: Vec<String>,
+    pub cc: Vec<String>,
+    pub subject: Vec<String>,
+    /// Token sequence of each decoded text part (phrases need order).
+    pub body: Vec<Vec<String>>,
+    pub filename: Vec<String>,
+    pub received: i64,
+    pub size: u64,
+    pub has_attachment: bool,
+}
+impl Fields {
+    pub fn of(tag: &str, seed: u32, to: &str) -> Self {
+        let raw = raw(tag, seed, to);
+        let shape = shape(seed);
+        let text = match shape {
+            Shape::Plain => text_body(seed, 600 + (seed as usize * 37) % 2000),
+            Shape::Html => text_body(seed, 1500),
+            Shape::Attachment => text_body(seed, 1000),
+        };
+        let mut body = vec![tokenize(&text)];
+        if shape == Shape::Html {
+            let raw_text = String::from_utf8_lossy(&raw).into_owned();
+            let html = raw_text
+                .split("Content-Type: text/html; charset=utf-8\r\n\r\n")
+                .nth(1)
+                .unwrap_or_default()
+                .split(&format!("\r\n--alt{seed}--"))
+                .next()
+                .unwrap_or_default()
+                .to_string();
+            body.push(tokenize(&html));
+        }
+        Self {
+            from: tokenize(&format!("Sender {} {}", seed % 97, sender(seed))),
+            to: tokenize(to),
+            cc: if seed % 25 == 0 { tokenize(CC) } else { Vec::new() },
+            subject: tokenize(&subject(seed)),
+            body,
+            filename: if shape == Shape::Attachment { tokenize(&format!("report-{seed}.bin")) } else { Vec::new() },
+            received: BASE_EPOCH + i64::from(seed) * 60,
+            size: raw.len() as u64,
+            has_attachment: shape == Shape::Attachment,
+        }
+    }
+    pub fn body_has(&self, term: &str) -> bool {
+        self.body.iter().any(|part| part.iter().any(|t| t == term))
+    }
+    /// A bare term matches from, to, cc, subject, body or filename.
+    pub fn any_has(&self, term: &str) -> bool {
+        [&self.from, &self.to, &self.cc, &self.subject, &self.filename].iter().any(|f| f.iter().any(|t| t == term)) || self.body_has(term)
+    }
+    pub fn any_prefix(&self, prefix: &str) -> bool {
+        [&self.from, &self.to, &self.cc, &self.subject, &self.filename].iter().any(|f| f.iter().any(|t| t.starts_with(prefix)))
+            || self.body.iter().any(|part| part.iter().any(|t| t.starts_with(prefix)))
+    }
+    /// Two adjacent tokens in one body part (a quoted phrase).
+    pub fn body_phrase(&self, first: &str, second: &str) -> bool {
+        self.body.iter().any(|part| part.windows(2).any(|w| w[0] == first && w[1] == second))
+    }
 }
 
 /// mboxrd framing of `messages` (lines beginning with `From ` are quoted).
@@ -166,6 +286,24 @@ fn corpus_is_deterministic_parseable_and_matches_its_declared_mix() {
     }
     assert_eq!(counts, [1600, 300, 100]);
     assert_eq!(search, 400);
+    // The oracle sees the planted words exactly where they were planted.
+    let words: [(&str, fn(u32) -> bool); 5] = [
+        ("zephyrine", |s| s % 2000 == 7),
+        ("quarterly", |s| s % 5 == 0),
+        ("amber", |s| s % 50 == 3 || s % 10 == 6),
+        ("lantern", |s| s % 50 == 3 || s % 7 == 2),
+        ("urgent", |s| s % 40 == 11),
+    ];
+    for seed in 1..=2000u32 {
+        let fields = Fields::of("t", seed, "user@example.invalid");
+        for (word, planted) in words {
+            assert_eq!(fields.any_has(word), planted(seed), "{word} {seed}");
+        }
+        assert_eq!(fields.body_phrase("amber", "lantern"), seed % 50 == 3);
+        assert_eq!(fields.any_prefix("zephyr"), seed % 2000 == 7 || seed % 1000 == 501);
+        assert_eq!(fields.cc.contains(&"audit".to_string()), seed % 25 == 0);
+        assert!(!fields.any_has("qua") && !fields.any_has("quarter"));
+    }
     assert!(received_at(2) > received_at(1));
     let boxed = mbox([b"Subject: a\r\n\r\nFrom here\r\n".to_vec()]);
     assert!(String::from_utf8(boxed).unwrap().contains("\n>From here"));
