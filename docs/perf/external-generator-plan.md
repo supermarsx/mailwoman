@@ -147,7 +147,7 @@ docker build -f scripts/perf/Dockerfile -t mailwoman:perf-native .
 docker build -f scripts/perf/Dockerfile --build-arg MW_FIXTURE_PROFILE=debug -t mailwoman:perf-native-debug .
 ```
 
-Both images accept `MW_NATIVE_LOAD_PRINCIPALS=100` or `10000` at runtime.
+Both images accept `MW_NATIVE_LOAD_PRINCIPALS=1`, `100`, `1000` or `10000` at runtime.
 Choose `1` explicitly for a single-user diagnostic. The loopback-trusted-proxy
 fixture models distinct client addresses; it does not create physical hosts or
 measure a real network between machines. Use the separate generator container

@@ -928,8 +928,8 @@ async fn run(workers: usize) {
         .parse()
         .unwrap();
     assert!(
-        [1, 100, 10000].contains(&count),
-        "choose representative bounded profile 1, 100 or 10000"
+        [1, 100, 1000, 10000].contains(&count),
+        "choose representative bounded profile 1, 100, 1000 or 10000"
     );
     assert!(
         count as u64 * messages as u64 <= 500000,
