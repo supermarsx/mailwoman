@@ -93,7 +93,9 @@ const MUTATING=new Set(MUTATING_ENDPOINTS);
 // and so is any group not listed (strict by default). Published request inputs are decided by
 // requestInputsGroupConsumes (request-inputs-experiment.mjs), the same known subset the receipt uses.
 export const GUARD_SNAPSHOT_LOOKUPS=Object.freeze({mixed:true,identity:true,mailboxes:true,query:true,headers:true,refresh:true,representative:true,'paged-headers':true,reader:true,attachment:true,'flag-write':true,'move-write':true,
- 'jmap-session':true,'list-batch':true,changes:true,'account-polls':false});
+ 'jmap-session':true,'list-batch':true,changes:true,'account-polls':false,
+ // Bench-rig groups (t62-n12): the transport control never reaches a guard; the two account polls alone never consult it.
+ 'transport-healthz':false,'goal-shape-account-preferences':false,'goal-shape-appearance-customization':false});
 const expectsLookups=endpoint=>GUARD_SNAPSHOT_LOOKUPS[endpoint]!==false;
 const GUARD_COUNTERS=['polls','failures','rowsApplied','hits','misses','expedites'];
 const WB_COUNTERS=['flushed','batches','writeThroughs','writeThroughFailures','flushFailures','rejected','dropped','loads'];

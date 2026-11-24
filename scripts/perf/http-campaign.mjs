@@ -4,7 +4,13 @@ import {cacheExperimentFromEnv} from './sqlite-page-cache-witness.mjs';
 import {measure,MAX_OUTSTANDING,MAX_STAGE_SECONDS,MAX_OFFERED_RPS} from './http-load.mjs';
 import {h2FromEnv} from './http-h2-client.mjs';
 import {goalOption} from './http-goal.mjs';
-import {mixWithDiagnostics} from './representative-workload.mjs';
+import {mixWithDiagnostics,GOAL_MIX_TABLE} from './representative-workload.mjs';
+// Bench-rig endpoint groups (fixture-requests.mjs GOAL_SHAPE_GROUPS / TRANSPORT_GROUP), named here without importing it.
+// `goal-shapes` is a short alias for all 17 goal-shape-* groups in table order (the endpoint list must stay within
+// 16 entries and 256 characters of handoff environment).
+export const GOAL_SHAPE_ENDPOINTS=Object.freeze(GOAL_MIX_TABLE.map(row=>'goal-shape-'+row.name));
+const RIG_ENDPOINTS=['transport-healthz','goal-shapes',...GOAL_SHAPE_ENDPOINTS];
+const expandEndpoints=list=>list.flatMap(value=>value==='goal-shapes'?GOAL_SHAPE_ENDPOINTS:[value]);
 
 function number(env,key,fallback,min,max){
  const value=Number(env[key]??fallback);
@@ -31,7 +37,11 @@ export function campaignOptions(env=process.env){
  const deadlineSeconds=number(env,'MW_LOAD_FIXTURE_DEADLINE_SECONDS',mode==='smoke'?90:mode==='capacity'?600:300,10,14400);
  const concurrency=numbers(env,'MW_LOAD_FIXTURE_CONCURRENCY',mode==='smoke'?'32':'1,4,16,64,256',1,MAX_OUTSTANDING);
  const endpoints=String(env.MW_LOAD_FIXTURE_ENDPOINTS??'mixed').split(',');
- if(!endpoints.length||endpoints.length>16||endpoints.some(v=>!['mixed','identity','mailboxes','query','headers','refresh','representative','paged-headers','reader','attachment','flag-write','move-write','goal-65-35','jmap-session','list-batch','changes','account-polls'].includes(v)))throw new Error('Invalid MW_LOAD_FIXTURE_ENDPOINTS');
+ if(!endpoints.length||endpoints.length>16||endpoints.some(v=>!['mixed','identity','mailboxes','query','headers','refresh','representative','paged-headers','reader','attachment','flag-write','move-write','goal-65-35','jmap-session','list-batch','changes','account-polls',...RIG_ENDPOINTS].includes(v)))throw new Error('Invalid MW_LOAD_FIXTURE_ENDPOINTS');
+ if(endpoints.includes('goal-shapes')){
+  endpoints.splice(0,endpoints.length,...expandEndpoints(endpoints));
+  if(endpoints.length>40||new Set(endpoints).size!==endpoints.length)throw new Error('Invalid MW_LOAD_FIXTURE_ENDPOINTS (goal-shapes repeats a shape)');
+ }
  const rates=mode==='ramp'&&!env.MW_LOAD_FIXTURE_RATES?[]:numbers(env,'MW_LOAD_FIXTURE_RATES',mode==='capacity'?'1000,5000,10000,20000,40000,42000':'100,500,1000',1,MAX_OFFERED_RPS);
  if(mode==='smoke'&&seconds>5)throw new Error('Smoke phases are limited to five seconds; opt in to long mode');
  return {mode,seconds,warmupSeconds,deadlineSeconds,concurrency,endpoints,rates,

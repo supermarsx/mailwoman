@@ -300,6 +300,7 @@ impl Sql {
 
     pub(crate) async fn execute(self, backend: &Backend) -> Result<u64, sqlx::Error> {
         let mut query_timer = crate::pool_telemetry::QueryTimer::start(self.sql);
+        query_timer.direct();
         let input_bytes = crate::database_growth::input_bytes(&self.args);
         let result = match backend {
             Backend::Sqlite(p) => {
@@ -336,6 +337,7 @@ impl Sql {
         backend: &Backend,
     ) -> Result<Option<Row>, sqlx::Error> {
         let mut query_timer = crate::pool_telemetry::QueryTimer::start(self.sql);
+        query_timer.direct();
         let input_bytes = crate::database_growth::input_bytes(&self.args);
         let result = match backend {
             Backend::Sqlite(p) => Ok(build_sqlite(self.sql, self.args)
@@ -369,6 +371,7 @@ impl Sql {
 
     pub(crate) async fn fetch_one(self, backend: &Backend) -> Result<Row, sqlx::Error> {
         let mut query_timer = crate::pool_telemetry::QueryTimer::start(self.sql);
+        query_timer.direct();
         let input_bytes = crate::database_growth::input_bytes(&self.args);
         let result = match backend {
             Backend::Sqlite(p) => Ok(Row::Sqlite(
@@ -397,6 +400,7 @@ impl Sql {
 
     pub(crate) async fn fetch_all(self, backend: &Backend) -> Result<Vec<Row>, sqlx::Error> {
         let mut query_timer = crate::pool_telemetry::QueryTimer::start(self.sql);
+        query_timer.direct();
         let input_bytes = crate::database_growth::input_bytes(&self.args);
         let result = match backend {
             Backend::Sqlite(p) => Ok(build_sqlite(self.sql, self.args)
@@ -946,10 +950,15 @@ impl Tx {
         match self { Self::Sqlite(tx) => tx.rollback().await, Self::Postgres(tx) => tx.rollback().await }
     }
     pub(crate) async fn commit(self) -> Result<(), sqlx::Error> {
-        match self {
-            Tx::Sqlite(t) => t.commit().await,
-            Tx::Postgres(t) => t.commit().await,
+        use crate::pool_telemetry::{CommitBackend, CommitTimer};
+        let (mut timer, result) = match self {
+            Tx::Sqlite(t) => (CommitTimer::start(CommitBackend::Sqlite), t.commit().await),
+            Tx::Postgres(t) => (CommitTimer::start(CommitBackend::Postgres), t.commit().await),
+        };
+        if result.is_ok() {
+            timer.success();
         }
+        result
     }
 }
 

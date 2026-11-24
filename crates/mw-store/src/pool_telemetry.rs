@@ -1,6 +1,15 @@
 //! Payload-free operation/acquisition counters. No SQL text, binds, IDs or
 //! credentials are retained. Query duration includes acquisition wait; timings
 //! overlap and must not be added together. Direct SQLx outside q() is excluded.
+//!
+//! Commits are counted per backend: `commits` counts `Tx::commit` (one per
+//! store transaction, timed from the COMMIT call to its return, so on SQLite it
+//! includes the WAL write and on PostgreSQL the round trip and any synchronous
+//! flush); `autocommit_writes` counts write statements (INSERT, UPDATE, DELETE,
+//! REPLACE) that ran outside a transaction, each of which SQLite and
+//! PostgreSQL commit on their own. Their sum is the number of database commits
+//! the counted statements caused. Commits made by direct SQLx calls outside
+//! q()/Tx are not seen.
 #[cfg(feature = "query-shape-diagnostics")]
 #[path = "query_shapes.rs"]
 pub mod shapes;
@@ -38,6 +47,11 @@ pub struct QuerySnapshot {
     pub write: OperationSnapshot,
     pub other: OperationSnapshot,
     pub acquire: OperationSnapshot,
+    /// `Tx::commit` calls, per backend, timed.
+    pub commits: CommitSnapshot,
+    /// Successful write statements executed outside a transaction (each one is
+    /// its own commit).
+    pub autocommit_writes: u64,
     /// SQLite in-process write gate, summed over the process's managed
     /// databases. Only in [`process_snapshot`], and only once a gate exists
     /// (`MW_SQLITE_WRITER=gate` on a managed SQLite database); never in a
@@ -52,12 +66,33 @@ pub struct QuerySnapshot {
 }
 pub use crate::sqlite_live::sqlite_writer::SqliteWriterStats;
 pub use crate::sqlite_live::write_gate::WriteGateStats;
+/// Commit counters by backend.
+#[derive(Debug, Clone, Copy, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitSnapshot {
+    pub sqlite: OperationSnapshot,
+    pub postgres: OperationSnapshot,
+}
+impl CommitSnapshot {
+    /// Commit calls on both backends.
+    pub fn calls(&self) -> u64 {
+        self.sqlite.calls.saturating_add(self.postgres.calls)
+    }
+}
 impl QuerySnapshot {
     pub fn merge(&mut self, other: &Self) {
         self.read.merge(&other.read);
         self.write.merge(&other.write);
         self.other.merge(&other.other);
         self.acquire.merge(&other.acquire);
+        self.commits.sqlite.merge(&other.commits.sqlite);
+        self.commits.postgres.merge(&other.commits.postgres);
+        self.autocommit_writes = self.autocommit_writes.saturating_add(other.autocommit_writes);
+    }
+    /// Database commits caused by the counted work: transaction commits plus
+    /// autocommit write statements.
+    pub fn database_commits(&self) -> u64 {
+        self.commits.calls().saturating_add(self.autocommit_writes)
     }
 }
 #[derive(Default)]
@@ -91,6 +126,9 @@ struct Counters {
     write: AtomicOperation,
     other: AtomicOperation,
     acquire: AtomicOperation,
+    commit_sqlite: AtomicOperation,
+    commit_postgres: AtomicOperation,
+    autocommit_writes: AtomicU64,
 }
 impl Counters {
     fn operation(&self, class: Class) -> &AtomicOperation {
@@ -107,6 +145,11 @@ impl Counters {
             write: self.write.snapshot(),
             other: self.other.snapshot(),
             acquire: self.acquire.snapshot(),
+            commits: CommitSnapshot {
+                sqlite: self.commit_sqlite.snapshot(),
+                postgres: self.commit_postgres.snapshot(),
+            },
+            autocommit_writes: self.autocommit_writes.load(Ordering::Relaxed),
             write_gate: None,
             sqlite_writer: None,
         }
@@ -140,6 +183,7 @@ pub(crate) struct QueryTimer {
     started: Instant,
     request: Option<Arc<Counters>>,
     success: bool,
+    direct: bool,
     #[cfg(feature = "query-shape-diagnostics")]
     shape: Option<shapes::Capture>,
 }
@@ -175,12 +219,18 @@ impl QueryTimer {
             started: Instant::now(),
             request: REQUEST.try_with(Arc::clone).ok(),
             success: false,
+            direct: false,
             #[cfg(feature = "query-shape-diagnostics")]
             shape:None,
         }
     }
     pub(crate) fn success(&mut self) {
         self.success = true;
+    }
+    /// The statement runs on the backend outside any transaction: a write
+    /// is then its own commit and is counted in `autocommit_writes`.
+    pub(crate) fn direct(&mut self) {
+        self.direct = true;
     }
 }
 impl Drop for QueryTimer {
@@ -189,8 +239,55 @@ impl Drop for QueryTimer {
         #[cfg(feature = "query-shape-diagnostics")]
         if let Some(shape)=self.shape.take(){shape.finish(self.success,micros);}
         PROCESS.operation(self.class).add(micros, self.success);
+        let autocommit = self.direct && self.success && matches!(self.class, Class::Write);
+        if autocommit {
+            PROCESS.autocommit_writes.fetch_add(1, Ordering::Relaxed);
+        }
         if let Some(counters) = &self.request {
             counters.operation(self.class).add(micros, self.success);
+            if autocommit {
+                counters.autocommit_writes.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+}
+/// Which backend a commit ran on.
+#[derive(Clone, Copy)]
+pub(crate) enum CommitBackend {
+    Sqlite,
+    Postgres,
+}
+/// Times one transaction commit; counted on drop (a failed or cancelled
+/// commit is a call and a failure).
+pub(crate) struct CommitTimer {
+    backend: CommitBackend,
+    started: Instant,
+    request: Option<Arc<Counters>>,
+    success: bool,
+}
+impl CommitTimer {
+    pub(crate) fn start(backend: CommitBackend) -> Self {
+        Self {
+            backend,
+            started: Instant::now(),
+            request: REQUEST.try_with(Arc::clone).ok(),
+            success: false,
+        }
+    }
+    pub(crate) fn success(&mut self) {
+        self.success = true;
+    }
+}
+impl Drop for CommitTimer {
+    fn drop(&mut self) {
+        let micros = self.started.elapsed().as_micros().min(u64::MAX as u128) as u64;
+        let add = |counters: &Counters| match self.backend {
+            CommitBackend::Sqlite => counters.commit_sqlite.add(micros, self.success),
+            CommitBackend::Postgres => counters.commit_postgres.add(micros, self.success),
+        };
+        add(&PROCESS);
+        if let Some(counters) = &self.request {
+            add(counters);
         }
     }
 }
@@ -245,6 +342,73 @@ mod tests {
         store.close().await;
     }
     #[tokio::test]
+    async fn commits_and_autocommit_writes_are_counted_per_backend() {
+        let store = crate::Store::open_in_memory(crate::ServerKey::generate())
+            .await
+            .unwrap();
+        crate::backend::q("CREATE TABLE commit_probe(id INTEGER)")
+            .execute(&store.backend)
+            .await
+            .unwrap();
+        let process_before = process_snapshot();
+        let (_, snapshot) = measure_queries(async {
+            // Two autocommit writes, one autocommit read (not a commit).
+            for id in 1..=2i64 {
+                crate::backend::q("INSERT INTO commit_probe VALUES(?1)")
+                    .bind(id)
+                    .execute(&store.backend)
+                    .await
+                    .unwrap();
+            }
+            crate::backend::q("SELECT COUNT(*) FROM commit_probe")
+                .fetch_scalar_i64(&store.backend)
+                .await
+                .unwrap();
+            // One transaction with two writes: one commit, no autocommit writes.
+            let mut tx = store.backend.begin().await.unwrap();
+            for id in 3..=4i64 {
+                crate::backend::q("INSERT INTO commit_probe VALUES(?1)")
+                    .bind(id)
+                    .execute_tx(&mut tx)
+                    .await
+                    .unwrap();
+            }
+            tx.commit().await.unwrap();
+            // A rolled-back transaction is not a commit.
+            let mut tx = store.backend.begin().await.unwrap();
+            crate::backend::q("INSERT INTO commit_probe VALUES(5)")
+                .execute_tx(&mut tx)
+                .await
+                .unwrap();
+            tx.rollback().await.unwrap();
+            // A failed autocommit write is not a commit.
+            assert!(
+                crate::backend::q("INSERT INTO missing_table VALUES(1)")
+                    .execute(&store.backend)
+                    .await
+                    .is_err()
+            );
+        })
+        .await;
+        assert_eq!(snapshot.commits.sqlite.calls, 1);
+        assert_eq!(snapshot.commits.sqlite.failures, 0);
+        assert_eq!(snapshot.commits.postgres.calls, 0);
+        assert_eq!(snapshot.autocommit_writes, 2);
+        assert_eq!(snapshot.database_commits(), 3);
+        assert_eq!(snapshot.write.calls, 6);
+        // The process-wide counters move by at least the same amounts.
+        let process_after = process_snapshot();
+        assert!(process_after.commits.sqlite.calls >= process_before.commits.sqlite.calls + 1);
+        assert!(process_after.autocommit_writes >= process_before.autocommit_writes + 2);
+        let json = serde_json::to_value(snapshot).unwrap();
+        assert_eq!(json["commits"]["sqlite"]["calls"], 1);
+        assert_eq!(json["autocommitWrites"], 2);
+        let mut merged = snapshot;
+        merged.merge(&snapshot);
+        assert_eq!(merged.database_commits(), 6);
+        store.close().await;
+    }
+    #[tokio::test]
     async fn acquisition_timeout_is_visible_as_wait_and_failure_without_sql_payload() {
         let pool = sqlx::sqlite::SqlitePoolOptions::new()
             .max_connections(1)
@@ -267,7 +431,9 @@ mod tests {
         assert!(snapshot.acquire.total_micros >= 10_000);
         let json = serde_json::to_string(&snapshot).unwrap();
         assert!(!json.contains("SELECT"));
-        assert!(!json.contains("sqlite"));
+        // No connection string (the per-backend commit keys are field names).
+        assert!(!json.contains("sqlite:"));
+        assert!(!json.contains("memory"));
         drop(held);
         live.close().await;
     }

@@ -1,7 +1,7 @@
 import {requestInputsEvidence} from './request-inputs-experiment.mjs';
 import {t34ModesEvidence} from './t34-modes.mjs';
 import {enforcedPolicyReport,assertEnforcedPolicySnapshot} from './native-enforced-policy.mjs';
-import {prepareFixtureRequests,CLIENT_HOT_GROUPS} from './fixture-requests.mjs';
+import {prepareFixtureRequests,CLIENT_HOT_GROUPS,GOAL_SHAPE_GROUPS,TRANSPORT_GROUP} from './fixture-requests.mjs';
 import {preparedMailExperimentReport,preparedMailEvidence} from './prepared-mail-experiment.mjs';
 import {throwDiagnosticSnapshotFailure,diagnosticFailureReport} from './fixture-diagnostic-failure.mjs';
 import {campaignCacheExperiment,assertSqliteCacheWitness,cacheExperimentEvidence} from './sqlite-page-cache-witness.mjs';
@@ -151,7 +151,7 @@ export async function runMultiCampaign({handoff,workers,options,launch=fork,star
    if(results.some(row=>row.measurement?.window?.completedAtMs>observedAtMs+maxStartLagMs+clockToleranceMs-1))throw new Error('Worker completion is ahead of the controller clock');
    return aggregateWorkers({results,partitions:verified.partitions,stage,startAtMs,maxStartLagMs,clockToleranceMs,...(hostRecords.length?{hosts:hostRecords.map(record=>({id:record.id,origin:record.origin,workerIndexes:record.workerIndexes,...record.clock}))}:{})});
   };
-  const names=['mixed','identity','mailboxes','query','headers','refresh',...Object.keys(CLIENT_HOT_GROUPS),...(isRepresentativeKind(verified.workloadProfile?.kind)?['representative','paged-headers','reader','attachment','flag-write','move-write',GOAL_MIX_NAME]:[])],groups=Object.fromEntries(names.map(name=>[name,[{name}]]));
+  const names=['mixed','identity','mailboxes','query','headers','refresh',...Object.keys(CLIENT_HOT_GROUPS),...(isRepresentativeKind(verified.workloadProfile?.kind)?['representative','paged-headers','reader','attachment','flag-write','move-write',GOAL_MIX_NAME,...GOAL_SHAPE_GROUPS]:[]),TRANSPORT_GROUP],groups=Object.fromEntries(names.map(name=>[name,[{name}]]));
   let campaign;
   try{campaign=await runCampaign({base:verified.base,headers:{},groups,options,run,diagnostics});}catch(error){throw postRunFailure(error,error?.partialCampaign??{stages:[]});}
   try{

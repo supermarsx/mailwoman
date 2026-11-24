@@ -67,7 +67,8 @@ export function hostFacts(env=process.env,system=os){
  const vcpus=Number(env.MW_LOAD_HOST_DOCKER_VCPUS);
  return {logicalCores:system.availableParallelism?.()??system.cpus().length,platform:system.platform(),totalMemoryBytes:system.totalmem(),
   dockerVmVcpus:Number.isInteger(vcpus)&&vcpus>=1&&vcpus<=1024?vcpus:null,
-  cpusets:{app:cpuset(env.MW_LOAD_HOST_CPUSET_APP),database:cpuset(env.MW_LOAD_HOST_CPUSET_DB),generator:cpuset(env.MW_LOAD_HOST_CPUSET_GENERATOR)},
+  cpusets:{app:cpuset(env.MW_LOAD_HOST_CPUSET_APP),database:cpuset(env.MW_LOAD_HOST_CPUSET_DB),generator:cpuset(env.MW_LOAD_HOST_CPUSET_GENERATOR),
+   ...(env.MW_LOAD_HOST_CPUSET_UPSTREAM===undefined?{}:{upstream:cpuset(env.MW_LOAD_HOST_CPUSET_UPSTREAM)}),...(env.MW_LOAD_HOST_CPUSET_RIG===undefined?{}:{rig:cpuset(env.MW_LOAD_HOST_CPUSET_RIG)})},
   declaredBy:'logical cores and memory from the operating system; Docker VM vCPUs and cpusets as declared in MW_LOAD_HOST_* (null = not declared)'};
 }
 export function judgedAgainst(goal,{loopback,env=process.env,system=os}){

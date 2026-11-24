@@ -4,7 +4,7 @@ import {mergeH2Reports} from './http-h2-client.mjs';
 import {mergeBytesSnapshots,bytesReport} from './http-load.mjs';
 import {goalMixReport} from './representative-workload.mjs';
 export const MULTI_SCHEMA=1;
-export const ENDPOINT_LABELS=['authenticated-identity','Mailbox/get','Email/query','Email/get','concurrent-refresh-handler','paged-query-and-headers','body-and-attachment-metadata','attachment-download','mark-read-and-restore','move-and-restore','jmap-session','list-batch','changes','account-preferences','appearance-customization','session-activity','mark-unread-and-restore','flag-and-restore','unflag-and-restore','delete-to-trash-and-restore','draft-save','draft-discard','search-planted-term'];
+export const ENDPOINT_LABELS=['authenticated-identity','Mailbox/get','Email/query','Email/get','concurrent-refresh-handler','paged-query-and-headers','body-and-attachment-metadata','attachment-download','mark-read-and-restore','move-and-restore','jmap-session','list-batch','changes','account-preferences','appearance-customization','session-activity','mark-unread-and-restore','flag-and-restore','unflag-and-restore','delete-to-trash-and-restore','draft-save','draft-discard','search-planted-term','transport-healthz'];
 const number=(value)=>typeof value==='number'&&Number.isFinite(value)&&value>=0;
 const integer=value=>Number.isSafeInteger(value)&&value>=0;
 export function splitBudget(total,count){

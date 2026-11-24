@@ -33,6 +33,9 @@ ARG MW_BUILD_JOBS=8
 ARG MW_FIXTURE_KIND=native
 ARG MW_FIXTURE_PROFILE=release
 ARG MW_BUILD_PROFILE=release
+# 1 builds the native fixture with the sql-shape-diagnostics feature (statement attribution by phase and template;
+# bench rig R1 diagnostics leg). Its numbers are counts only, never throughput. 0 (default) is the ordinary build.
+ARG MW_FIXTURE_DIAGNOSTICS=0
 ARG TARGETPLATFORM
 ENV RUSTUP_TOOLCHAIN=1.98.1 CARGO_INCREMENTAL=0 CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
 WORKDIR /src
@@ -48,7 +51,7 @@ RUN --mount=type=bind,from=rust-source,source=/src,target=/mw-input,ro \
     && mkdir -p /out \
     && case "$MW_FIXTURE_PROFILE" in release) set -- --release ;; debug) set -- ;; *) echo 'Choose release or debug profile' >&2; exit 1 ;; esac \
     && case "$MW_BUILD_PROFILE" in release) export MW_CARGO_BUILD_MODE="$MW_FIXTURE_PROFILE" ;; fast) [ "$MW_FIXTURE_PROFILE" = release ] || exit 1; set -- "$@" --config 'profile.release.package.mw-server-core.opt-level=2' --config 'profile.release.package.mw-server.opt-level=2'; export MW_CARGO_BUILD_MODE=fast ;; *) echo 'Choose release or fast build profile' >&2; exit 1 ;; esac \
-    && case "$MW_FIXTURE_KIND" in native) fixture=native_load_fixture; set -- "$@" --features load-test-fixtures ;; proxy) fixture=request_load_fixture ;; *) echo 'Choose native or proxy fixture' >&2; exit 1 ;; esac \
+    && case "$MW_FIXTURE_DIAGNOSTICS" in 0) features=load-test-fixtures ;; 1) [ "$MW_FIXTURE_KIND" = native ] || exit 1; features=sql-shape-diagnostics ;; *) echo 'Choose MW_FIXTURE_DIAGNOSTICS 0 or 1' >&2; exit 1 ;; esac     && case "$MW_FIXTURE_KIND" in native) fixture=native_load_fixture; set -- "$@" --features "$features" ;; proxy) fixture=request_load_fixture ;; *) echo 'Choose native or proxy fixture' >&2; exit 1 ;; esac \
     && export CARGO_BUILD_JOBS="${MW_BUILD_JOBS:-8}" \
     && { mirror_cargo cargo test --locked "$@" -p mw-server --test "$fixture" --no-run --timings --message-format=json > /out/artifacts.jsonl; status=$?; \
          if [ -f /mw-build-cache/target/cargo-timings/cargo-timing.html ]; then cp /mw-build-cache/target/cargo-timings/cargo-timing.html /out/native-cargo-timing.html; fi; \

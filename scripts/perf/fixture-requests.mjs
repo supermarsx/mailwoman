@@ -2,7 +2,7 @@
 // No network, main entrypoint, preflight or reporting side effects.
 import {nativeReadIntentHeaders,nativeReadContract} from './native-read-intent.mjs';
 import {prepareFixtureClients,fixturePrincipalIndex} from './fixture-clients.mjs';
-import {representativeSpecs,goalMixSchedule,goalMixWriteSpecs,goalMixSearchSpec,goalMixDraftSpecs,goalMixSeeded,GOAL_MIX_NAME,GOAL_MIX_CYCLE} from './representative-workload.mjs';
+import {representativeSpecs,goalMixSchedule,goalMixWriteSpecs,goalMixSearchSpec,goalMixDraftSpecs,goalMixSeeded,GOAL_MIX_NAME,GOAL_MIX_CYCLE,GOAL_MIX_TABLE} from './representative-workload.mjs';
 import {DEFAULT_HEADER_PROPERTIES,MINIMAL_HEADER_PROPERTIES} from './fixture-properties.mjs';
 
 export function jmapFixtureRequest(p,name,args,{native=false}={}){
@@ -16,6 +16,15 @@ const MAIL_USING=['urn:ietf:params:jmap:core','urn:ietf:params:jmap:mail'];
 // realtime/queryDelta.ts reconcileQuery, api/accountPreferences.ts,
 // api/appearanceCustomization.ts, api/sessionActivity.ts). They are separate
 // groups: they never join `requests`, `mixed` or `representative`.
+// Bench-rig groups (t62-n12). `goal-shape-<name>`: one goal-mix shape alone, the same validated template the mix
+// uses, rotating over every user (plan run R1). `transport-healthz`: GET /healthz only, from a loopback client
+// address (so the probe is admitted), labelled as bypassing the application guards: a transport control only (R0a).
+// Neither joins any existing group.
+export const GOAL_SHAPE_PREFIX='goal-shape-';
+export const GOAL_SHAPE_GROUPS=Object.freeze(GOAL_MIX_TABLE.map(row=>GOAL_SHAPE_PREFIX+row.name));
+export const TRANSPORT_GROUP='transport-healthz';
+export const TRANSPORT_LABEL='transport control only: GET /healthz bypasses the application guards (authentication, rate limits, request protection) and uses the probe pool of 8 admission permits';
+export const transportSpec=()=>({name:TRANSPORT_GROUP,path:'/healthz',headers:{'x-forwarded-for':'127.0.0.1'},validateBytes:bytes=>bytes.length===2&&bytes.toString('latin1')==='ok'});
 export const CLIENT_HOT_GROUPS=Object.freeze({'jmap-session':['jmap-session'],'list-batch':['list-batch'],changes:['changes'],'account-polls':['account-preferences','appearance-customization','session-activity']});
 export function clientHotSpecs(p){
  const owner=p.ownerAccountId??p.accountId,inbox=typeof p.inboxId==='string'&&p.inboxId?p.inboxId:undefined;
@@ -88,17 +97,24 @@ export function prepareFixtureRequests({principals,clientSimulation,engineMode,r
     return withHeaders(index,spec);
    });
   });
-  return perPrincipal[0].map((spec,slot)=>({...spec,materialize:(sequence)=>{
-   let principalIndex=fixturePrincipalIndex(sequence,GOAL_MIX_CYCLE,principals.length);
+  const slotRequest=(spec,slot,principalIndex)=>{
    // A discard slot destroys the oldest draft this process saved, for the user that saved it. With none yet it creates one.
    if(spec.name==='draft-discard'&&pool.length){
     const entry=pool.shift();principalIndex=entry.principalIndex;
     return {...withHeaders(principalIndex,draftsFor[principalIndex].discard(entry.id)),principalIndex,clientIndex:clientModel.clients[principalIndex].clientIndex};
    }
    return {...perPrincipal[principalIndex][slot],principalIndex,clientIndex:clientModel.clients[principalIndex].clientIndex};
-  }}));
+  };
+  const mix=perPrincipal[0].map((spec,slot)=>({...spec,materialize:(sequence)=>slotRequest(spec,slot,fixturePrincipalIndex(sequence,GOAL_MIX_CYCLE,principals.length))}));
+  // One shape alone: its first slot in the cycle, every request for the next user in turn.
+  const shapes=Object.fromEntries(GOAL_MIX_TABLE.map(row=>{
+   const slot=order.indexOf(row.name),spec=perPrincipal[0][slot];
+   return [GOAL_SHAPE_PREFIX+row.name,[{...spec,materialize:(sequence)=>slotRequest(spec,slot,sequence%principals.length)}]];
+  }));
+  return {mix,shapes};
  })():null;
- if(goalSlots)groups[GOAL_MIX_NAME]=goalSlots;
+ if(goalSlots){groups[GOAL_MIX_NAME]=goalSlots.mix;Object.assign(groups,goalSlots.shapes);}
+ groups[TRANSPORT_GROUP]=[transportSpec()];
  const marked=prepared[0].filter(spec=>spec.headers[nativeReadContract.header]===nativeReadContract.value).map(spec=>spec.name);
  const readIntent={contractSchema:nativeReadContract.schema,header:nativeReadContract.header,value:nativeReadContract.value,markedShapes:marked,totalShapes:prepared[0].length,scope:'actual constructed request headers; eligibility declaration only, not observed guard reuse',observedGuardConsumption:null};
  return {readIntent,requests,groups,headers:clientModel.clients[0].headers,clientModel,firstRequests:prepared[0]};
