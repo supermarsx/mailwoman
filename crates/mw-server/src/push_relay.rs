@@ -509,14 +509,47 @@ pub(crate) async fn push_unsubscribe(
 /// once by `build_app`. Never carries message content — the wake only prompts the
 /// client to foreground-fetch `/changes` (the same refetch the WS/SSE path does).
 pub(crate) async fn run_dispatcher(store: Store, mut rx: broadcast::Receiver<StateChange>) {
+    let mut sent = WakeDedupe::default();
     loop {
         match rx.recv().await {
-            Ok(change) => dispatch_wakes(&store, &change).await,
+            Ok(change) => dispatch_wakes(&store, &change, &mut sent).await,
             Err(broadcast::error::RecvError::Lagged(n)) => {
                 tracing::warn!("push dispatcher lagged {n} changes");
             }
             Err(broadcast::error::RecvError::Closed) => break,
         }
+    }
+}
+
+/// The state each subscription was last woken for, per account (t55). A
+/// `StateChange` identical to it is not sent again: the device already holds a
+/// wake for that state, and a repeat only costs it battery and the operator push
+/// quota. Only an accepted send is recorded, so a failed wake is sent when the
+/// same state comes round again.
+#[derive(Default)]
+pub(crate) struct WakeDedupe {
+    last: std::collections::HashMap<(String, String), StateChange>,
+}
+
+impl WakeDedupe {
+    /// Whether `subscription` was already woken for exactly this state.
+    fn is_repeat(&self, subscription: &str, change: &StateChange) -> bool {
+        self.last
+            .get(&(subscription.to_string(), change.account_id.clone()))
+            .is_some_and(|previous| previous == change)
+    }
+
+    /// Record an accepted wake of `subscription` for `change`.
+    fn record(&mut self, subscription: &str, change: &StateChange) {
+        self.last.insert(
+            (subscription.to_string(), change.account_id.clone()),
+            change.clone(),
+        );
+    }
+
+    /// Drop every record of a deleted subscription.
+    fn forget(&mut self, subscription: &str) {
+        self.last.retain(|(id, _), _| id != subscription);
     }
 }
 
@@ -588,7 +621,7 @@ async fn wake_allowed(store: &Store, account: &str) -> bool {
 
 /// Fan an account change out to its subscriptions as opaque wakes, respecting a
 /// (cheap, optional) global quiet-hours window (§17.3).
-async fn dispatch_wakes(store: &Store, change: &StateChange) {
+async fn dispatch_wakes(store: &Store, change: &StateChange, sent: &mut WakeDedupe) {
     if quiet_now(store).await {
         return;
     }
@@ -651,6 +684,10 @@ async fn dispatch_wakes(store: &Store, change: &StateChange) {
             let _ = store
                 .delete_personal_push_subscription(&sub.account_id, None, Some(&sub.id))
                 .await;
+            sent.forget(&sub.id);
+            continue;
+        }
+        if sent.is_repeat(&sub.id, change) {
             continue;
         }
         let result = match sub.transport.as_str() {
@@ -668,8 +705,10 @@ async fn dispatch_wakes(store: &Store, change: &StateChange) {
                 let _ = store
                     .delete_personal_push_subscription(&sub.account_id, None, Some(&sub.id))
                     .await;
+                sent.forget(&sub.id);
             }
             Ok(_) => {
+                sent.record(&sub.id, change);
                 let _ = store
                     .touch_personal_push_wake(&sub.account_id, &sub.id, &now_rfc3339())
                     .await;
@@ -1081,6 +1120,56 @@ pub(crate) fn now_rfc3339() -> String {
 mod tests {
     use super::*;
     use axum::http::HeaderValue;
+
+    fn state(account: &str, email: &str) -> StateChange {
+        StateChange {
+            account_id: account.into(),
+            email: email.into(),
+            mailbox: "3".into(),
+            submission: "1".into(),
+            thread: email.into(),
+            crypto_key: "0".into(),
+            mail_rule: "0".into(),
+        }
+    }
+
+    /// t55: a subscription is woken once per distinct state of an account.
+    #[test]
+    fn a_wake_is_not_repeated_for_an_identical_state() {
+        let mut sent = WakeDedupe::default();
+        let quiet = state("acct1", "7");
+        assert!(!sent.is_repeat("sub1", &quiet), "first wake goes out");
+        sent.record("sub1", &quiet);
+        // Two more no-change catch-up passes publish the same state.
+        assert!(sent.is_repeat("sub1", &quiet));
+        assert!(sent.is_repeat("sub1", &quiet.clone()));
+        // Another subscription, or the same one for another account, is separate.
+        assert!(!sent.is_repeat("sub2", &quiet));
+        assert!(!sent.is_repeat("sub1", &state("acct2", "7")));
+        // New mail moves the state: woken again, once.
+        let moved = state("acct1", "8");
+        assert!(!sent.is_repeat("sub1", &moved));
+        sent.record("sub1", &moved);
+        assert!(sent.is_repeat("sub1", &moved));
+        // A deleted subscription id starts over.
+        sent.forget("sub1");
+        assert!(!sent.is_repeat("sub1", &moved));
+    }
+
+    /// The dispatcher consults the dedupe before any transport send, and records
+    /// only an accepted send.
+    #[test]
+    fn the_dispatcher_checks_the_dedupe_before_sending_and_records_accepted_sends() {
+        let src = include_str!("push_relay.rs");
+        let body = &src[src.find("async fn dispatch_wakes(").unwrap()..];
+        let body = &body[..body.find("\n}").unwrap()];
+        let check = body.find("sent.is_repeat(&sub.id, change)").unwrap();
+        let send = body.find("let result = match sub.transport.as_str()").unwrap();
+        assert!(check < send, "dedupe must run before the send");
+        let ok = body.find("Ok(_) => {").unwrap();
+        assert!(body[ok..].trim_start_matches("Ok(_) => {").trim_start().starts_with("sent.record(&sub.id, change);"));
+        assert!(!body[..ok].contains("sent.record("), "only an accepted send is recorded");
+    }
 
     #[test]
     fn bearer_token_parses_case_insensitively() {

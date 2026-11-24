@@ -42,6 +42,7 @@
 //! `MW_WEBHOOK_INBOUND_SECRET` of earlier releases is gone; setting it stops start-up
 //! ([`reject_legacy_inbound_secret`]).
 
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -383,18 +384,50 @@ pub async fn run_webhook_dispatcher_with(
     mut rx: broadcast::Receiver<StateChange>,
     policy: AddressPolicy,
 ) {
+    // The state each endpoint last received, per account (t55). A StateChange
+    // identical to it is not sent again: it carries nothing the receiver does
+    // not already have. Only an accepted delivery is recorded, so a failed one
+    // is still sent when the same state comes round again.
+    let mut delivered: HashMap<String, HashMap<String, StateChange>> = HashMap::new();
     loop {
         match rx.recv().await {
             Ok(change) => {
                 let endpoints = registry.list_for_account(&change.account_id).await;
-                let wanted: Vec<WebhookEndpoint> = endpoints
+                let last = delivered.remove(&change.account_id).unwrap_or_default();
+                let mut kept: HashMap<String, StateChange> = HashMap::new();
+                let mut wanted: Vec<WebhookEndpoint> = Vec::new();
+                for endpoint in endpoints
                     .into_iter()
                     .filter(WebhookEndpoint::wants_state_change)
-                    .collect();
+                {
+                    match last.get(&endpoint.id) {
+                        Some(previous) if *previous == change => {
+                            kept.insert(endpoint.id.clone(), previous.clone());
+                        }
+                        _ => wanted.push(endpoint),
+                    }
+                }
                 if !wanted.is_empty() {
                     let body = build_payload(&change);
                     let limits = registry.delivery_limits().await;
-                    deliver_all(&wanted, "StateChange", &body, policy, limits).await;
+                    let accepted =
+                        deliver_all(&wanted, "StateChange", &body, policy, limits).await;
+                    for endpoint in wanted.iter().zip(accepted) {
+                        match endpoint {
+                            (endpoint, true) => {
+                                kept.insert(endpoint.id.clone(), change.clone());
+                            }
+                            (endpoint, false) => {
+                                if let Some(previous) = last.get(&endpoint.id) {
+                                    kept.insert(endpoint.id.clone(), previous.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+                // Endpoints removed or no longer taking StateChange drop out here.
+                if !kept.is_empty() {
+                    delivered.insert(change.account_id.clone(), kept);
                 }
             }
             Err(broadcast::error::RecvError::Lagged(n)) => {
@@ -427,17 +460,20 @@ pub async fn run_event_dispatcher_with(
     }
 }
 
-/// Deliver one signed body to each endpoint, counting the outcome.
+/// Deliver one signed body to each endpoint, counting the outcome. Returns, per
+/// endpoint in order, whether the delivery was accepted.
 async fn deliver_all(
     endpoints: &[WebhookEndpoint],
     event: &str,
     body: &[u8],
     policy: AddressPolicy,
     limits: DeliveryLimits,
-) {
+) -> Vec<bool> {
+    let mut accepted = Vec::with_capacity(endpoints.len());
     for endpoint in endpoints {
         match deliver_event_limited(endpoint, event, body, policy, limits).await {
             Ok(status) => {
+                accepted.push(true);
                 metrics::counter!("mw_webhook_deliveries_total", "result" => "ok").increment(1);
                 // Only opaque ids are logged — never the URL host's data or secret.
                 tracing::debug!(
@@ -448,6 +484,7 @@ async fn deliver_all(
                 );
             }
             Err(e) => {
+                accepted.push(false);
                 let result = match e {
                     DeliveryError::Refused(_) | DeliveryError::Redirect(_) => "refused",
                     DeliveryError::Failed(_) => "fail",
@@ -458,6 +495,7 @@ async fn deliver_all(
             }
         }
     }
+    accepted
 }
 
 /// Sign `body` with the endpoint secret and deliver it, to public unicast addresses
@@ -1563,6 +1601,82 @@ mod tests {
 
         drop(tx);
         let _ = handle.await;
+    }
+
+    /// t55: a StateChange identical to the one an endpoint last accepted is not
+    /// POSTed again (the engine's periodic catch-up used to republish the same
+    /// state every minute); a new state is, and a failed delivery is retried when
+    /// the same state comes round again.
+    #[tokio::test]
+    async fn a_repeated_identical_state_is_delivered_once_per_endpoint() {
+        let (url, rec) = spawn_recorder(0).await;
+        let (second_url, second) = spawn_recorder(0).await;
+        let ep = |id: &str, url: &str| WebhookEndpoint {
+            id: id.into(),
+            account_id: "acct1".into(),
+            url: url.into(),
+            secret: b"s".to_vec(),
+            events: vec![],
+        };
+        let registry: Arc<dyn WebhookRegistry> = Arc::new(InMemoryWebhookRegistry::new(vec![
+            ep("wh1", &url),
+            ep("wh2", &second_url),
+        ]));
+        let (tx, rx) = broadcast::channel(16);
+        let handle = tokio::spawn(run_webhook_dispatcher_with(registry, rx, loopback_ok));
+        // Three no-change catch-up passes publish the same state.
+        for _ in 0..3 {
+            tx.send(change("acct1")).unwrap();
+        }
+        // New mail moves the Email state; then the new state repeats twice.
+        let mut moved = change("acct1");
+        moved.email = "8".into();
+        moved.thread = "8".into();
+        for _ in 0..3 {
+            tx.send(moved.clone()).unwrap();
+        }
+        drop(tx);
+        handle.await.unwrap();
+        assert_eq!(rec.hits.load(Ordering::SeqCst), 2, "one POST per distinct state");
+        assert_eq!(second.hits.load(Ordering::SeqCst), 2, "dedupe is per endpoint");
+        let body: Value = serde_json::from_slice(&rec.last_body.lock().unwrap()).unwrap();
+        assert_eq!(body["state"]["changed"]["acct1"]["Email"], "8");
+    }
+
+    #[tokio::test]
+    async fn a_failed_state_delivery_is_sent_again_on_the_next_identical_state() {
+        // The receiver fails every attempt of the first delivery, then accepts.
+        struct OneAttempt(InMemoryWebhookRegistry);
+        #[async_trait]
+        impl WebhookRegistry for OneAttempt {
+            async fn list_for_account(&self, account_id: &str) -> Vec<WebhookEndpoint> {
+                self.0.list_for_account(account_id).await
+            }
+            async fn delivery_limits(&self) -> DeliveryLimits {
+                DeliveryLimits {
+                    max_attempts: 1,
+                    ..DeliveryLimits::default()
+                }
+            }
+        }
+        let (url, rec) = spawn_recorder(1).await;
+        let registry: Arc<dyn WebhookRegistry> =
+            Arc::new(OneAttempt(InMemoryWebhookRegistry::new(vec![WebhookEndpoint {
+                id: "wh1".into(),
+                account_id: "acct1".into(),
+                url,
+                secret: b"s".to_vec(),
+                events: vec![],
+            }])));
+        let (tx, rx) = broadcast::channel(16);
+        let handle = tokio::spawn(run_webhook_dispatcher_with(registry, rx, loopback_ok));
+        for _ in 0..3 {
+            tx.send(change("acct1")).unwrap();
+        }
+        drop(tx);
+        handle.await.unwrap();
+        // Attempt 1 fails (500), attempt 2 is accepted, attempt 3 is a duplicate.
+        assert_eq!(rec.hits.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]

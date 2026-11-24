@@ -150,6 +150,8 @@ pub struct Engine {
     default_collections: tokio::sync::Mutex<()>,
     /// Sync and send telemetry for the admin Health panel (t103).
     pub(crate) sync_health: crate::sync_health::SyncHealth,
+    /// Catch-up pass period in milliseconds ([`CATCHUP_INTERVAL`]); tests shorten it.
+    catchup_interval_ms: AtomicU64,
 }
 
 /// State of the one search-index rebuild that may run at a time
@@ -239,7 +241,17 @@ impl Engine {
             v6: hooks,
             v7: std::sync::RwLock::new(crate::v7::V7Hooks::default()),
             embeddings: std::sync::RwLock::new(None),
+            catchup_interval_ms: AtomicU64::new(CATCHUP_INTERVAL.as_millis() as u64),
         })
+    }
+
+    fn catchup_interval(&self) -> Duration {
+        Duration::from_millis(self.catchup_interval_ms.load(std::sync::atomic::Ordering::Relaxed))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_catchup_interval(&self, interval: Duration) {
+        self.catchup_interval_ms.store(interval.as_millis() as u64, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn index_publication_status(&self)->crate::PublicationStatus {self.index_publisher.status()}
@@ -600,6 +612,10 @@ impl Engine {
 
     async fn resync_runtime_untimed(&self, account_id: &str, rt: &AccountRuntime, priority: Option<&str>, only:bool, reconcile:bool) -> Result<()> {
         self.require_runtime_generation(account_id, rt)?;
+        // The prompt Inbox publication below is sent only when the pass changed
+        // stored mail state (t55): a no-change pass must not reach webhooks or
+        // push providers.
+        let state_before = if priority.is_some() { self.mail_state_token(account_id).await } else { None };
         self.ensure_cached_date_upgrade(account_id).await?;
         let mailboxes = rt.backend.list_mailboxes().await?;
         self.require_runtime_generation(account_id, rt)?;
@@ -613,9 +629,16 @@ impl Engine {
         for (index,(rm, mailbox_id)) in pairs.iter().enumerate() {
             self.require_runtime_generation(account_id, rt)?;
             self.sync_one(account_id, rt, rm, mailbox_id, reconcile).await?;
-            if priority.is_some()&&index==0{self.broadcast_state(account_id).await;}
+            if priority.is_some()&&index==0&&state_changed(&state_before,&self.mail_state_token(account_id).await){self.broadcast_state(account_id).await;}
         }
         Ok(())
+    }
+
+    /// The account's core mail state counters (Email/Mailbox/Thread/
+    /// EmailSubmission), the values a `StateChange` carries for mail. `None` when
+    /// the read fails, which [`state_changed`] treats as changed.
+    async fn mail_state_token(&self, account_id: &str) -> Option<HashMap<String, u64>> {
+        self.store.current_core_mail_states(account_id).await.ok()
     }
 
     fn require_runtime_generation(&self, account: &str, expected: &AccountRuntime) -> Result<()> {
@@ -1767,11 +1790,16 @@ impl Engine {
         let sweep_engine=engine.clone();let sweep_account=acct.clone();let sweep_backend=backend.clone();let mut sweep_stop=stop_rx.clone();
         tokio::spawn(async move {
             loop {
-                tokio::select! { _=sweep_stop.changed()=>return, _=tokio::time::sleep(Duration::from_secs(60))=>{} }
+                tokio::select! { _=sweep_stop.changed()=>return, _=tokio::time::sleep(sweep_engine.catchup_interval())=>{} }
                 let Some(runtime)=sweep_engine.runtime(&sweep_account).filter(|current|Arc::ptr_eq(&current.backend,&sweep_backend)) else{return;};
+                // Publish only when this pass changed stored mail state (t55).
+                // Every StateChange reaches state-change webhooks and push wakes,
+                // so an unconditional send here woke every subscribed device and
+                // POSTed every webhook once a minute with no mail activity.
+                let before=sweep_engine.mail_state_token(&sweep_account).await;
                 let result=tokio::select! { _=sweep_stop.changed()=>return, result=sweep_engine.resync_runtime_untimed(&sweep_account,&runtime,Some("INBOX"),false,false)=>result };
                 match result {
-                    Ok(())=>sweep_engine.broadcast_state(&sweep_account).await,
+                    Ok(())=>if state_changed(&before,&sweep_engine.mail_state_token(&sweep_account).await){sweep_engine.broadcast_state(&sweep_account).await},
                     Err(EngineError::Auth(_))=>{sweep_engine.reject_runtime_credentials(&sweep_account,&sweep_backend).await;return;},
                     Err(error)=>tracing::warn!(account=%sweep_account,error=%error,"periodic mailbox catch-up failed"),
                 }
@@ -1783,6 +1811,15 @@ impl Engine {
         Ok(())
     }
 }
+
+/// Whether mail state moved between two [`Engine::mail_state_token`] reads. A
+/// failed read counts as a change, so a store error never hides a real one.
+fn state_changed(before: &Option<HashMap<String, u64>>, after: &Option<HashMap<String, u64>>) -> bool {
+    before.is_none() || after.is_none() || before != after
+}
+
+/// How often each watched account's catch-up pass runs.
+const CATCHUP_INTERVAL: Duration = Duration::from_secs(60);
 
 /// Ceiling for the reconnect backoff so a persistently-down server is retried
 /// at most once a minute rather than hot-looping.
@@ -2086,3 +2123,7 @@ mod upload_blob_tests {
 #[cfg(test)]
 #[path = "plugin_tombstone_tests.rs"]
 mod plugin_tombstone_tests;
+
+#[cfg(test)]
+#[path = "catchup_broadcast_tests.rs"]
+mod catchup_broadcast_tests;
