@@ -1149,6 +1149,10 @@ async fn oracle(s: &Store, query: &ProjectionQuery<'_>) -> Vec<String> {
                     || kws.contains("$flagged")
                     || kws.contains("$mw-followup-active"))
                     && !kws.contains("mw-followup-completed")))
+            && query.follow_up_active.is_none_or(|v| {
+                v == (r.get_opt_string("follow_up_at").is_some()
+                    || kws.contains("$mw-followup-active"))
+            })
             && dated
             && query.size_larger.is_none_or(|v| size > v as i64)
             && query.size_smaller.is_none_or(|v| size < v as i64)
@@ -1375,6 +1379,21 @@ async fn builders_contract(s: Store) {
         "follow-up",
         ProjectionQuery {
             follow_up: true,
+            ..base.clone()
+        },
+    ));
+    cases.push((
+        "follow-up active (meta or keyword)",
+        ProjectionQuery {
+            follow_up_active: Some(true),
+            ..base.clone()
+        },
+    ));
+    cases.push((
+        "follow-up not active, in folder",
+        ProjectionQuery {
+            mailboxes: MailboxScope::In(one),
+            follow_up_active: Some(false),
             ..base.clone()
         },
     ));

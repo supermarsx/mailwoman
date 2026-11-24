@@ -7,7 +7,7 @@
 
 use mail_parser::{MessageParser, MimeHeaders};
 use mw_jmap::{Email, EmailAddress};
-use mw_search::{Clause, Expr, IndexDoc, SearchQuery, Sort, SortField, TextField};
+use mw_search::{Clause, Expr, IndexDoc, SearchQuery, Sort, SortField};
 
 use crate::query::{Comparator, EmailFilter, SortProperty};
 
@@ -221,112 +221,40 @@ pub(crate) fn build_search_query(
     account_mailboxes: &[String],
     scope_mailbox: Option<&str>,
 ) -> SearchQuery {
-    let mut clauses: Vec<Expr> = Vec::new();
+    // Account/mailbox scope (the guard above, unchanged by t50hp-e31).
+    let Some(scope) = scope_expr(account_mailboxes, scope_mailbox) else {
+        return match_nothing(sort);
+    };
+    // Every other condition: the planner's single reading of the filter
+    // (t50hp-e31; the same clauses this function built inline before).
+    let Some(conjuncts) = crate::query_plan::filter_conjuncts(filter, Some(account_mailboxes)) else {
+        return match_nothing(sort);
+    };
+    let mut clauses = vec![scope];
+    clauses.extend(conjuncts);
+    from_clauses(clauses, sort)
+}
 
-    // Account/mailbox scope.
+/// The account/mailbox scope of an index query, or `None` when it must match
+/// nothing (see [`build_search_query`]: an empty scope and a folder the account
+/// does not own both match nothing).
+pub(crate) fn scope_expr(account_mailboxes: &[String], scope_mailbox: Option<&str>) -> Option<Expr> {
     let owned = |mb: &str| account_mailboxes.iter().any(|m| m == mb);
     match scope_mailbox {
-        Some(mb) if owned(mb) => clauses.push(Expr::Clause(Clause::Mailbox(mb.to_string()))),
-        Some(_) => return match_nothing(sort),
-        None if account_mailboxes.is_empty() => return match_nothing(sort),
-        None => clauses.push(Expr::Or(
+        Some(mb) if owned(mb) => Some(Expr::Clause(Clause::Mailbox(mb.to_string()))),
+        Some(_) => None,
+        None if account_mailboxes.is_empty() => None,
+        None => Some(Expr::Or(
             account_mailboxes
                 .iter()
                 .map(|m| Expr::Clause(Clause::Mailbox(m.clone())))
                 .collect(),
         )),
     }
-    if let Some(include) = &filter.in_mailboxes {
-        let included: Vec<_> = include
-            .iter()
-            .filter(|id| owned(id))
-            .map(|id| Expr::Clause(Clause::Mailbox(id.clone())))
-            .collect();
-        if included.is_empty() {
-            return match_nothing(sort);
-        }
-        clauses.push(Expr::Or(included));
-    }
-    if let Some(exclude) = &filter.in_mailbox_other_than {
-        for mb in exclude {
-            clauses.push(Expr::Not(Box::new(Expr::Clause(Clause::Mailbox(
-                mb.clone(),
-            )))));
-        }
-    }
+}
 
-    let text = |field: TextField, value: &str| {
-        Expr::Clause(Clause::Text {
-            field,
-            value: value.to_string(),
-            phrase: false,
-        })
-    };
-    if let Some(v) = &filter.text {
-        // The web packs the whole operator string (`subject:foo`,
-        // `from:anna has:attachment`, booleans, quoted phrases) into
-        // `filter.text`. Route it through the shared operator parser instead of
-        // treating it as one literal all-fields term — otherwise `subject:foo`
-        // searches for the literal words "subject" and "foo" across all fields
-        // and every operator query returns nothing. A bare word still parses to
-        // an all-fields clause, so plain full-text search is preserved. On a
-        // parse error, fall back to the old literal all-fields term.
-        match mw_search::parse_query(v) {
-            Ok(parsed) if !matches!(parsed.expr, Expr::All) => clauses.push(parsed.expr),
-            Ok(_) => {} // empty / whitespace-only text — no added constraint
-            Err(_) => clauses.push(text(TextField::All, v)),
-        }
-    }
-    if let Some(v) = &filter.from {
-        clauses.push(text(TextField::From, v));
-    }
-    if let Some(v) = &filter.to {
-        clauses.push(text(TextField::To, v));
-    }
-    if let Some(v) = &filter.cc {
-        clauses.push(text(TextField::Cc, v));
-    }
-    if let Some(v) = &filter.subject {
-        clauses.push(text(TextField::Subject, v));
-    }
-    if let Some(v) = &filter.body {
-        clauses.push(text(TextField::Body, v));
-    }
-    if let Some(v) = &filter.filename {
-        clauses.push(text(TextField::Filename, v));
-    }
-    if let Some(b) = filter.has_attachment {
-        clauses.push(Expr::Clause(Clause::HasAttachment(b)));
-    }
-    if let Some(b) = filter.has_calendar {
-        clauses.push(Expr::Clause(Clause::HasCalendar(b)));
-    }
-    if let Some(at) = filter
-        .calendar_end_after
-        .as_deref()
-        .and_then(parse_date_bound)
-    {
-        clauses.push(Expr::Clause(Clause::CalendarEndAfter(at)));
-    }
-    if let Some(k) = &filter.has_keyword {
-        clauses.push(Expr::Clause(Clause::Keyword(k.clone())));
-    }
-    if let Some(k) = &filter.not_keyword {
-        clauses.push(Expr::Clause(Clause::NotKeyword(k.clone())));
-    }
-    if filter.before.is_some() || filter.after.is_some() {
-        clauses.push(Expr::Clause(Clause::DateRange {
-            after: filter.after.as_deref().and_then(parse_date_bound),
-            before: filter.before.as_deref().and_then(parse_date_bound),
-        }));
-    }
-    if filter.min_size.is_some() || filter.max_size.is_some() {
-        clauses.push(Expr::Clause(Clause::SizeRange {
-            larger: filter.min_size,
-            smaller: filter.max_size,
-        }));
-    }
-
+/// An AND of `clauses` as a query (one clause alone, none = all).
+pub(crate) fn from_clauses(mut clauses: Vec<Expr>, sort: Sort) -> SearchQuery {
     let expr = match clauses.len() {
         0 => Expr::All,
         1 => clauses.pop().expect("len == 1"),
@@ -363,25 +291,12 @@ pub(crate) fn expand_mentions_me(expr: &mut Expr, addresses: &[String]) {
 
 /// A query no document satisfies. `mw-search` has no "none" expression;
 /// `NOT all` compiles to `+all -all`, which selects nothing.
-fn match_nothing(sort: Sort) -> SearchQuery {
+pub(crate) fn match_nothing(sort: Sort) -> SearchQuery {
     SearchQuery {
         raw: String::new(),
         expr: Expr::Not(Box::new(Expr::All)),
         sort,
     }
-}
-
-/// Parse a filter date bound (RFC3339 or `YYYY-MM-DD` or bare unix-seconds).
-fn parse_date_bound(s: &str) -> Option<i64> {
-    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
-        return Some(dt.timestamp());
-    }
-    if let Ok(secs) = s.parse::<i64>() {
-        return Some(secs);
-    }
-    // `YYYY-MM-DD` at UTC midnight.
-    let d = chrono::NaiveDate::parse_from_str(s.trim(), "%Y-%m-%d").ok()?;
-    Some(d.and_hms_opt(0, 0, 0)?.and_utc().timestamp())
 }
 
 #[cfg(test)]

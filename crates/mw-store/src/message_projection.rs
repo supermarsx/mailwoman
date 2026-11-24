@@ -117,6 +117,10 @@ pub struct ProjectionQuery<'a> {
     /// The search index's FollowUp: (follow_up_at set OR $flagged OR
     /// `$mw-followup-active`) AND NOT `mw-followup-completed`.
     pub follow_up: bool,
+    /// t50hp-e31: the search index's `$mw-followup-active` keyword: a follow-up
+    /// time is set in message_meta, or the message carries a keyword of that
+    /// name. `Some(true)` = it holds, `Some(false)` = it does not.
+    pub follow_up_active: Option<bool>,
     /// internaldate >= this (inclusive).
     pub received_after: Option<i64>,
     /// internaldate < this (exclusive).
@@ -142,6 +146,7 @@ impl<'a> ProjectionQuery<'a> {
             not_keywords: &[],
             pinned: None,
             follow_up: false,
+            follow_up_active: None,
             received_after: None,
             received_before: None,
             size_larger: None,
@@ -414,6 +419,10 @@ fn build(
     let follow = b.arg(Arg::Int(i64::from(query.follow_up)));
     b.sql.push_str(&format!(
         " AND ({follow}=0 OR ((s.flagged=1 OR EXISTS(SELECT 1 FROM message_meta mf WHERE mf.stable_id=s.stable_id AND mf.follow_up_at IS NOT NULL) OR EXISTS(SELECT 1 FROM message_keyword fa WHERE fa.stable_id=s.stable_id AND fa.keyword='$mw-followup-active')) AND NOT EXISTS(SELECT 1 FROM message_keyword fc WHERE fc.stable_id=s.stable_id AND fc.keyword='mw-followup-completed')))"
+    ));
+    let active = b.arg(Arg::OptInt(query.follow_up_active.map(i64::from)));
+    b.sql.push_str(&format!(
+        " AND ({active} IS NULL OR (CASE WHEN EXISTS(SELECT 1 FROM message_meta ma WHERE ma.stable_id=s.stable_id AND ma.follow_up_at IS NOT NULL) OR EXISTS(SELECT 1 FROM message_keyword ka WHERE ka.stable_id=s.stable_id AND ka.keyword='$mw-followup-active') THEN 1 ELSE 0 END)={active})"
     ));
     let undated =
         query.received_after.is_none_or(|a| a <= 0) && query.received_before.is_none_or(|b| b > 0);
