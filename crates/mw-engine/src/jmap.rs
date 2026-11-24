@@ -86,6 +86,9 @@ mod unread_counter_drift_tests;
 #[cfg(test)]
 #[path = "unread_count_shortcut_tests.rs"]
 mod unread_count_shortcut_tests;
+#[cfg(test)]
+#[path = "bulk_set_limit_tests.rs"]
+mod bulk_set_limit_tests;
 
 /// Build the JMAP [`Session`](mw_jmap::Session) resource for a connected account,
 /// advertising core + mail + submission and pointing every URL back at us.
@@ -1962,17 +1965,10 @@ impl Engine {
         // Mailbox rows resolved once per batch rather than once per id: 500 ids
         // in one folder used to mean 500 identical `get_mailbox` reads.
         let mut mailbox_names: HashMap<String, String> = HashMap::new();
-        // Flag writes are collected here and applied in ONE `set_flags_batch`
-        // after the loop (3 statements for 500 ids, against 1 500 through
-        // per-id `set_flags`).
-        let mut pending_flags: Vec<(String, String)> = Vec::new();
-        let mut publication = None;
-        let mut publication_ids = Vec::new();
+        // Flag writes are collected per chunk (below) and applied in ONE
+        // `set_flags_batch` per chunk (3 statements for 500 ids, against 1 500
+        // through per-id `set_flags`).
         if let Some(updates) = args.get("update").and_then(Value::as_object) {
-            // One read for every id in the request. An id the batch does not
-            // return falls back to `get_message` inside `update_email`, which
-            // preserves the exact per-id error (`NotFound` → `notUpdated`) and
-            // costs a statement only for ids that are missing anyway.
             let update_ids: Vec<String> = updates.keys().cloned().collect();
             let mut rows: HashMap<String, mw_store::Message> = HashMap::new();
             match self.store().get_account_messages(account_id, &update_ids).await {
@@ -1995,142 +1991,175 @@ impl Engine {
                     if let Ok(row) = self.current_owned_message(account_id, id).await { rows.insert(id.clone(), row); }
                 }
             }
-            publication_ids = update_ids.iter().filter(|id| !destroys.contains(id)
-                && rows.get(*id).is_some_and(|row| row.account_id == account_id)).cloned().collect();
-            if !publication_ids.is_empty() {
-                let mut ticket = match self.reserve_index_publication(account_id, publication_ids.len()).await {
-                    Ok(ticket) => ticket,
-                    Err(error) => return server_fail(&error),
-                };
-                if let Err(error) = ticket.track_metadata_ids(publication_ids.clone()) { return server_fail(&error); }
-                publication = Some(ticket);
-            }
-
-            for (id, patch) in updates {
-                // RFC 8620 §5.3: an id this same call destroys is not updated.
-                if destroys.contains(id) {
-                    not_updated.insert(
-                        id.clone(),
-                        json!({
-                            "type": "willDestroy",
-                            "description": "this call also destroys the Email",
-                        }),
-                    );
-                    continue;
-                }
-                if !rows.get(id).is_some_and(|row| row.account_id == account_id) {
-                    not_updated.insert(id.clone(), set_error(&EngineError::Store(mw_store::StoreError::NotFound)));
-                    continue;
-                }
-                // A patch this method cannot apply in full fails the id, naming
-                // the properties (26.20 t28-e1). It used to be reported under
-                // `updated` with nothing written, which is how the web's
-                // `keywords/<kw>` patches came back as successes.
-                if let Err(invalid) = check_update_patch(patch) {
-                    not_updated.insert(id.clone(), invalid);
-                    continue;
-                }
-                // The mailbox set the patch leaves the message in must be
-                // exactly one (26.20 t28-e17, t29 A4): this store keeps one
-                // mailbox per message.
-                if touches_mailboxes(patch) {
-                    let current = match rows.get(id) {
-                        Some(msg) => Some(msg.mailbox_id.clone()),
-                        None => self
-                            .store()
-                            .get_message(id)
-                            .await
-                            .ok()
-                            .map(|m| m.mailbox_id),
+            // One index publication admits at most `max_batch_documents`
+            // documents (it bounds one index writer batch and the bytes one
+            // admission holds), while a call may name `maxObjectsInSet` ids.
+            // The ids are therefore applied and published in chunks (t55):
+            // each chunk reserves its own publication, writes its rows and
+            // publishes them before the next chunk starts. A chunk the index
+            // refuses fails only its own ids, as SetErrors, with nothing written
+            // for them; chunks already done stay done (RFC 8620 §5.3 is per id).
+            let chunk_size = self.index_publication_status().max_batch_documents.max(1);
+            for chunk in update_ids.chunks(chunk_size) {
+                let chunk_publication_ids: Vec<String> = chunk.iter().filter(|id| !destroys.contains(*id)
+                    && rows.get(*id).is_some_and(|row| row.account_id == account_id)).cloned().collect();
+                let mut publication = None;
+                if !chunk_publication_ids.is_empty() {
+                    let refused = match self.reserve_index_publication(account_id, chunk_publication_ids.len()).await {
+                        Ok(mut ticket) => match ticket.track_metadata_ids(chunk_publication_ids.clone()) {
+                            Ok(()) => { publication = Some(ticket); None }
+                            Err(error) => Some(error),
+                        },
+                        Err(error) => Some(error),
                     };
-                    if let Some(current) = current
-                        && let Err(invalid) = check_mailbox_patch(patch, &current)
-                    {
-                        not_updated.insert(id.clone(), invalid);
+                    if let Some(error) = refused {
+                        // The chunk's other ids are the ones this call destroys
+                        // or that are not this account's: they keep those errors.
+                        for id in chunk {
+                            let refusal = if chunk_publication_ids.contains(id) {
+                                publication_refusal(&error)
+                            } else if destroys.contains(id) {
+                                json!({"type": "willDestroy", "description": "this call also destroys the Email"})
+                            } else {
+                                set_error(&EngineError::Store(mw_store::StoreError::NotFound))
+                            };
+                            not_updated.insert(id.clone(), refusal);
+                        }
                         continue;
                     }
                 }
-                match self
-                    .update_email(
-                        account_id,
-                        rt,
-                        id,
-                        patch,
-                        rows.remove(id),
-                        &mut mailbox_names,
-                        &mut pending_flags,
-                    )
-                    .await
-                {
-                    Ok(indexed) => {
-                        updated.insert(id.clone(), Value::Null);
-                        patches.extend(indexed);
+                let failed_before = not_updated.len();
+                let mut chunk_patches: Vec<IndexPatch> = Vec::new();
+                let mut pending_flags: Vec<(String, String)> = Vec::new();
+                for id in chunk {
+                    let patch = &updates[id];
+                    // RFC 8620 §5.3: an id this same call destroys is not updated.
+                    if destroys.contains(id) {
+                        not_updated.insert(
+                            id.clone(),
+                            json!({
+                                "type": "willDestroy",
+                                "description": "this call also destroys the Email",
+                            }),
+                        );
+                        continue;
                     }
-                    Err(e) => {
-                        not_updated.insert(id.clone(), set_error(&e));
+                    if !rows.get(id).is_some_and(|row| row.account_id == account_id) {
+                        not_updated.insert(id.clone(), set_error(&EngineError::Store(mw_store::StoreError::NotFound)));
+                        continue;
+                    }
+                    // A patch this method cannot apply in full fails the id, naming
+                    // the properties (26.20 t28-e1). It used to be reported under
+                    // `updated` with nothing written, which is how the web's
+                    // `keywords/<kw>` patches came back as successes.
+                    if let Err(invalid) = check_update_patch(patch) {
+                        not_updated.insert(id.clone(), invalid);
+                        continue;
+                    }
+                    // The mailbox set the patch leaves the message in must be
+                    // exactly one (26.20 t28-e17, t29 A4): this store keeps one
+                    // mailbox per message.
+                    if touches_mailboxes(patch) {
+                        let current = match rows.get(id) {
+                            Some(msg) => Some(msg.mailbox_id.clone()),
+                            None => self
+                                .store()
+                                .get_message(id)
+                                .await
+                                .ok()
+                                .map(|m| m.mailbox_id),
+                        };
+                        if let Some(current) = current
+                            && let Err(invalid) = check_mailbox_patch(patch, &current)
+                        {
+                            not_updated.insert(id.clone(), invalid);
+                            continue;
+                        }
+                    }
+                    match self
+                        .update_email(
+                            account_id,
+                            rt,
+                            id,
+                            patch,
+                            rows.remove(id),
+                            &mut mailbox_names,
+                            &mut pending_flags,
+                        )
+                        .await
+                    {
+                        Ok(indexed) => {
+                            updated.insert(id.clone(), Value::Null);
+                            chunk_patches.extend(indexed);
+                        }
+                        Err(e) => {
+                            not_updated.insert(id.clone(), set_error(&e));
+                        }
                     }
                 }
+
+                // The batched flag write, before anything is published to the index —
+                // OQ-11's ordering: the store commits first, so a rejected id cannot
+                // reach the index. `false` is the batch form of `NotFound`; those ids
+                // move from `updated` to `notUpdated` and lose their index patch, which
+                // is what keeps RFC 8620 §5.3's per-id semantics intact.
+                if !pending_flags.is_empty() {
+                    let (failed, why): (Vec<&String>, Value) =
+                        match self.store().set_flags_batch(&pending_flags).await {
+                            Ok(written) => (
+                                pending_flags
+                                    .iter()
+                                    .zip(written)
+                                    .filter(|(_, ok)| !ok)
+                                    .map(|((id, _), _)| id)
+                                    .collect(),
+                                set_error(&EngineError::Store(mw_store::StoreError::NotFound)),
+                            ),
+                            // Nothing was written, so nothing may be indexed or reported
+                            // as updated.
+                            Err(e) => (
+                                pending_flags.iter().map(|(id, _)| id).collect(),
+                                set_error(&EngineError::Protocol(format!(
+                                    "batched flag write failed: {e}"
+                                ))),
+                            ),
+                        };
+                    if !failed.is_empty() {
+                        let failed: std::collections::HashSet<&str> =
+                            failed.into_iter().map(String::as_str).collect();
+                        for id in &failed {
+                            updated.remove(*id);
+                            not_updated.insert((*id).to_string(), why.clone());
+                        }
+                        chunk_patches.retain(|p| !failed.contains(p.stable_id.as_str()));
+                    }
+                }
+
+                // Retain Email/set's existing best-effort search semantics: source SQL
+                // successes remain updated if index repair fails. Only a successful
+                // owner receipt proves query visibility; diagnostics expose any debt.
+                if let Some(mut ticket) = publication {
+                    if chunk_patches.is_empty() && not_updated.len() == failed_before {
+                        // A successful no-op neither repairs unrelated legacy content
+                        // nor publishes a document merely to attach a new witness.
+                        let _ = ticket.track_metadata_ids(Vec::new());
+                    } else {
+                        match ticket.submit(chunk_publication_ids, crate::index_publication::PublicationMode::Metadata) {
+                            // Journal mode: the SQL commit above also wrote the journal
+                            // rows (triggers), so the change is durable for the index.
+                            // Return without awaiting; the owned job is not cancelled by
+                            // dropping the waiter, and index reads of this account wait
+                            // on its read fence until the job is applied.
+                            Ok(waiter) if self.index_publisher.acknowledges_after_journal() => drop(waiter),
+                            Ok(waiter) => { if let Err(error) = waiter.await { tracing::warn!("publishing Email/set updates failed: {error}"); } }
+                            Err(error) => tracing::warn!("handing off Email/set updates failed: {error}"),
+                        }
+                    }
+                }
+                patches.extend(chunk_patches);
             }
         }
 
-        // The batched flag write, before anything is published to the index —
-        // OQ-11's ordering: the store commits first, so a rejected id cannot
-        // reach the index. `false` is the batch form of `NotFound`; those ids
-        // move from `updated` to `notUpdated` and lose their index patch, which
-        // is what keeps RFC 8620 §5.3's per-id semantics intact.
-        if !pending_flags.is_empty() {
-            let (failed, why): (Vec<&String>, Value) =
-                match self.store().set_flags_batch(&pending_flags).await {
-                    Ok(written) => (
-                        pending_flags
-                            .iter()
-                            .zip(written)
-                            .filter(|(_, ok)| !ok)
-                            .map(|((id, _), _)| id)
-                            .collect(),
-                        set_error(&EngineError::Store(mw_store::StoreError::NotFound)),
-                    ),
-                    // Nothing was written, so nothing may be indexed or reported
-                    // as updated.
-                    Err(e) => (
-                        pending_flags.iter().map(|(id, _)| id).collect(),
-                        set_error(&EngineError::Protocol(format!(
-                            "batched flag write failed: {e}"
-                        ))),
-                    ),
-                };
-            if !failed.is_empty() {
-                let failed: std::collections::HashSet<&str> =
-                    failed.into_iter().map(String::as_str).collect();
-                for id in &failed {
-                    updated.remove(*id);
-                    not_updated.insert((*id).to_string(), why.clone());
-                }
-                patches.retain(|p| !failed.contains(p.stable_id.as_str()));
-            }
-        }
-
-        // Retain Email/set's existing best-effort search semantics: source SQL
-        // successes remain updated if index repair fails. Only a successful
-        // owner receipt proves query visibility; diagnostics expose any debt.
-        if let Some(mut ticket) = publication {
-            if patches.is_empty() && not_updated.is_empty() {
-                // A successful no-op neither repairs unrelated legacy content
-                // nor publishes a document merely to attach a new witness.
-                let _ = ticket.track_metadata_ids(Vec::new());
-            } else {
-                match ticket.submit(publication_ids, crate::index_publication::PublicationMode::Metadata) {
-                    // Journal mode: the SQL commit above also wrote the journal
-                    // rows (triggers), so the change is durable for the index.
-                    // Return without awaiting; the owned job is not cancelled by
-                    // dropping the waiter, and index reads of this account wait
-                    // on its read fence until the job is applied.
-                    Ok(waiter) if self.index_publisher.acknowledges_after_journal() => drop(waiter),
-                    Ok(waiter) => { if let Err(error) = waiter.await { tracing::warn!("publishing Email/set updates failed: {error}"); } }
-                    Err(error) => tracing::warn!("handing off Email/set updates failed: {error}"),
-                }
-            }
-        }
         // Only non-move ids contribute the batch's change rows; a moved id was
         // already recorded by `move_email`.
         let changed: Vec<String> = patches
@@ -2162,11 +2191,20 @@ impl Engine {
 
         // Destroy (26.20 t28-e17, D-20): the message leaves the mail server,
         // not only the cache. It used to be ignored, with `destroyed: []`.
-        let (destroyed, not_destroyed) = if destroys.is_empty() {
-            (Vec::new(), Map::new())
-        } else {
-            self.destroy_emails(account_id, rt, &destroys).await
-        };
+        // In chunks of at most one index publication batch, as the updates
+        // above (t55); an id named twice is destroyed once.
+        let mut destroyed = Vec::new();
+        let mut not_destroyed = Map::new();
+        if !destroys.is_empty() {
+            let mut seen = std::collections::HashSet::new();
+            let unique: Vec<String> = destroys.iter().filter(|id| seen.insert(id.as_str())).cloned().collect();
+            let chunk_size = self.index_publication_status().max_batch_documents.max(1);
+            for chunk in unique.chunks(chunk_size) {
+                let (done, refused) = self.destroy_emails(account_id, rt, chunk).await;
+                destroyed.extend(done);
+                not_destroyed.extend(refused);
+            }
+        }
 
         let new_state = self
             .type_state(account_id, ChangeType::Email)
@@ -5867,6 +5905,18 @@ fn set_error(e: &EngineError) -> Value {
         _ => e.to_string(),
     };
     json!({ "type": "serverFail", "description": description })
+}
+
+/// The SetError for an id whose change the search index would not admit (it
+/// is shutting down, paused for repair, or busy past the admission timeout).
+/// Nothing was written for the id; the client may retry it.
+pub(super) fn publication_refusal(e: &EngineError) -> Value {
+    let reason = match e {
+        EngineError::Protocol(reason) => reason.clone(),
+        other => other.to_string(),
+    };
+    tracing::warn!("Email/set id not applied: {reason}");
+    json!({ "type": "serverFail", "description": format!("not applied: {reason}; retry") })
 }
 
 /// A whole-method server failure result. The error is logged; the client gets

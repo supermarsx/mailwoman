@@ -995,13 +995,13 @@ impl Engine {
             match self.reserve_index_publication(account_id, owned_ids.len()).await {
                 Ok(mut ticket) => {
                     if let Err(error) = ticket.track_metadata_ids(owned_ids.clone()) {
-                        for id in owned_ids { not_destroyed.insert(id, set_error(&error)); }
+                        for id in owned_ids { not_destroyed.insert(id, super::publication_refusal(&error)); }
                         return (Vec::new(), not_destroyed);
                     }
                     Some(ticket)
                 }
                 Err(error) => {
-                    for id in owned_ids { not_destroyed.insert(id, set_error(&error)); }
+                    for id in owned_ids { not_destroyed.insert(id, super::publication_refusal(&error)); }
                     return (Vec::new(), not_destroyed);
                 }
             }

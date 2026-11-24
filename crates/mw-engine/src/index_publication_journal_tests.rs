@@ -229,10 +229,11 @@ async fn journal_backpressure_refuses_email_set_before_any_sql_change() {
     updated(&jmap(&f.engine, &f.account, json!([set_call(&f.id, json!({"keywords/$seen": true}))])).await[0], &f.id);
     entered(&hold).await;
     // The single admission slot is held by the queued job: the next Email/set
-    // waits admission_timeout and fails the method without touching SQL.
+    // waits admission_timeout and fails the id (a per-id SetError since t55)
+    // without touching SQL.
     let out = jmap(&f.engine, &f.account, json!([set_call(&f.id, json!({"keywords/$flagged": true}))])).await;
-    assert_eq!(out[0][0], "error", "{out:?}");
-    assert_eq!(out[0][1]["type"], "serverFail", "{out:?}");
+    assert_eq!(out[0][0], "Email/set", "{out:?}");
+    assert_eq!(out[0][1]["notUpdated"][&f.id]["type"], "serverFail", "{out:?}");
     assert!(!f.store.get_message(&f.id).await.unwrap().flags_json.contains("Flagged"));
     hold.release.notify_one();
     let read = jmap(&f.engine, &f.account, json!([query_call(json!({"hasKeyword": "$seen"}))])).await;
@@ -526,7 +527,8 @@ async fn one_account_flood_is_capped_and_another_accounts_read_is_not_starved() 
     updated(&jmap(&f.engine, &f.account, json!([set_call(&f.id, json!({"keywords/$flagged": true}))])).await[0], &f.id);
     // Over the cap: refused after admission_timeout, before any SQL change.
     let refused = jmap(&f.engine, &f.account, json!([set_call(&f.id, json!({"keywords/$answered": true}))])).await;
-    assert_eq!((refused[0][0].as_str(), refused[0][1]["type"].as_str()), (Some("error"), Some("serverFail")), "{refused:?}");
+    // A per-id SetError since t55, not a method-level error.
+    assert_eq!((refused[0][0].as_str(), refused[0][1]["notUpdated"][&f.id]["type"].as_str()), (Some("Email/set"), Some("serverFail")), "{refused:?}");
     assert!(!f.store.get_message(&f.id).await.unwrap().flags_json.contains("Answered"));
     // The other account is admitted at once while the first is at its cap.
     let started = std::time::Instant::now();
