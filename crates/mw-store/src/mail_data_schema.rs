@@ -5,7 +5,8 @@ use super::*;
 use std::sync::OnceLock;
 fn invalid(message:&'static str)->StoreError { StoreError::Invalid(message) }
 const SQLITE_SQL: &str = concat!(include_str!("../migrations/0109_message_list_envelope.sql"),"\n",include_str!("../migrations/0110_verdict_source.sql"),"\n",include_str!("../migrations/0113_mail_data_publication.sql"));
-const PG_SQL: &str = concat!(include_str!("../migrations_pg/0109_message_list_envelope.sql"),"\n",include_str!("../migrations_pg/0110_verdict_source.sql"),"\n",include_str!("../migrations_pg/0113_mail_data_publication.sql"));
+const PG_SQL: &str = concat!(include_str!("../migrations_pg/0109_message_list_envelope.sql"),"\n",include_str!("../migrations_pg/0110_verdict_source.sql"),"\n",include_str!("../migrations_pg/0113_mail_data_publication.sql"),"
+",include_str!("../migrations_pg/0129_mail_data_statement_triggers.sql"));
 const TABLES: &[&str] = &["accounts","messages","message_meta","message_list_envelope","bodies","mailboxes","address_books","contacts","zeroaccess_accounts","security_verdicts","mail_data_accounts","mail_data_rows","mail_data_outbox","changes","change_log_checkpoint","pim_changes","crypto_changes"];
 pub(crate) fn stamp_expression(dialect: Dialect) -> &'static str {
     static SQL: OnceLock<[String; 2]> = OnceLock::new();
@@ -45,6 +46,41 @@ struct Trigger {
     kind: i64,
     sql: String,
     columns:String,
+    /// pg_trigger.tgoldtable / tgnewtable, "" without REFERENCING.
+    old_table: String,
+    new_table: String,
+    /// The WHEN condition without whitespace, parentheses or case, "" without one.
+    when: String,
+}
+fn when_text(sql:&str)->String {
+    sql.chars().filter(|c|!c.is_whitespace() && *c!='(' && *c!=')').flat_map(char::to_lowercase).collect()
+}
+/// The WHEN part of pg_get_triggerdef() text (or of a CREATE TRIGGER), normalised.
+fn when_of(definition:&str)->String {
+    definition.split_once(" WHEN ").and_then(|(_,tail)|tail.split_once("EXECUTE FUNCTION")).map(|(when,_)|when_text(when)).unwrap_or_default()
+}
+/// Statement texts after each marker, in source order; a later DROP removes
+/// what an earlier CREATE of the same name defined (0129 replaces 0113 parts).
+fn statements<'a>(source:&'a str,create:&str,drop:&str)->Vec<(bool,&'a str)> {
+    let mut out=Vec::new();
+    let mut rest=source;
+    loop {
+        let (c,d)=(rest.find(create),rest.find(drop));
+        let (is_create,at,len)=match (c,d) {
+            (None,None)=>break,
+            (Some(c),Some(d)) if d<c=>(false,d,drop.len()),
+            (Some(c),_)=>(true,c,create.len()),
+            (None,Some(d))=>(false,d,drop.len()),
+        };
+        rest=&rest[at+len..];
+        out.push((is_create,rest));
+    }
+    out
+}
+fn dropped_name(chunk:&str)->&str {
+    let head=chunk.split(';').next().unwrap_or("");
+    let mut words=head.split_whitespace().filter(|w|!w.eq_ignore_ascii_case("IF") && !w.eq_ignore_ascii_case("EXISTS"));
+    words.next().unwrap_or("").split('(').next().unwrap_or("")
 }
 struct Function {
     name: String,
@@ -53,8 +89,13 @@ struct Function {
 }
 fn triggers(pg: bool) -> Vec<Trigger> {
     let source = if pg { PG_SQL } else { SQLITE_SQL };
-    let mut out = Vec::new();
-    for chunk in source.split("CREATE TRIGGER ").skip(1) {
+    let mut out: Vec<Trigger> = Vec::new();
+    for (create, chunk) in statements(source, "CREATE TRIGGER ", "DROP TRIGGER ") {
+        if !create {
+            let name = dropped_name(chunk);
+            out.retain(|t| t.name != name);
+            continue;
+        }
         let end = if pg {
             chunk.find(';')
         } else {
@@ -64,11 +105,13 @@ fn triggers(pg: bool) -> Vec<Trigger> {
             continue;
         };
         let sql = format!("CREATE TRIGGER {}", &chunk[..=end]);
-        let words = chunk.split_whitespace().collect::<Vec<_>>();
+        let words = chunk[..=end].split_whitespace().collect::<Vec<_>>();
         let Some(on) = words.iter().position(|w| *w == "ON") else {
             continue;
         };
-        let mut kind = 1i64;
+        // tgtype: ROW 1, BEFORE 2, INSERT 4, DELETE 8, UPDATE 16.
+        let statement = words.windows(3).any(|w| w == ["FOR", "EACH", "STATEMENT"]);
+        let mut kind = i64::from(!statement);
         for token in &words[1..on] {
             kind |= match *token {
                 "BEFORE" => 2,
@@ -78,6 +121,13 @@ fn triggers(pg: bool) -> Vec<Trigger> {
                 _ => 0,
             };
         }
+        let transition = |side: &str| {
+            words
+                .windows(4)
+                .find(|w| w[0] == side && w[1] == "TABLE" && w[2] == "AS")
+                .map(|w| w[3].to_owned())
+                .unwrap_or_default()
+        };
         let function = chunk
             .split("EXECUTE FUNCTION ")
             .nth(1)
@@ -90,16 +140,23 @@ fn triggers(pg: bool) -> Vec<Trigger> {
             function,
             kind,
             sql: canonical_sql(&sql),
-            columns: chunk.split_once("UPDATE OF ").and_then(|(_,tail)|tail.split_once(" ON ")).map(|(columns,_)|columns.split_whitespace().collect::<String>()).unwrap_or_default(),
+            columns: chunk[..=end].split_once("UPDATE OF ").and_then(|(_,tail)|tail.split_once(" ON ")).map(|(columns,_)|columns.split_whitespace().collect::<String>()).unwrap_or_default(),
+            old_table: transition("OLD"),
+            new_table: transition("NEW"),
+            when: if pg { when_of(&sql) } else { String::new() },
         });
     }
     out
 }
 fn functions() -> Vec<Function> {
-    PG_SQL
-        .split("CREATE FUNCTION ")
-        .skip(1)
-        .filter_map(|chunk| {
+    let mut out: Vec<Function> = Vec::new();
+    for (create, chunk) in statements(PG_SQL, "CREATE FUNCTION ", "DROP FUNCTION ") {
+        if !create {
+            let name = dropped_name(chunk);
+            out.retain(|f| f.name != name);
+            continue;
+        }
+        let parsed = (|| {
             let (name, tail) = chunk.split_once('(')?;
             let args = tail.split_once(')')?.0;
             let body = chunk
@@ -108,7 +165,9 @@ fn functions() -> Vec<Function> {
                 .split_once("$$;")?
                 .0
                 .trim()
-                .replace("\r\n", "\n");
+                .replace("
+", "
+");
             Some(Function {
                 name: name.trim().into(),
                 args: if args.trim().is_empty() {
@@ -118,8 +177,10 @@ fn functions() -> Vec<Function> {
                 },
                 body,
             })
-        })
-        .collect()
+        })();
+        out.extend(parsed);
+    }
+    out
 }
 impl Store {
     /// Cold-only exact required-definition check, always bounded before driver
@@ -168,7 +229,7 @@ impl Store {
                 let names =
                     serde_json::to_string(&required.iter().map(|r| &r.name).collect::<Vec<_>>())
                         .map_err(|_| invalid("schema names encoding"))?;
-                let rows=q("SELECT w.value AS name,c.relname AS table_name,p.proname AS function_name,CAST(t.tgtype AS BIGINT) AS kind,CAST(CASE WHEN t.tgenabled='O' AND NOT t.tgisinternal AND t.tgqual IS NULL AND t.tgnargs=0 AND t.tgconstraint=0 AND NOT t.tgdeferrable AND NOT t.tginitdeferred AND t.tgoldtable IS NULL AND t.tgnewtable IS NULL AND pn.nspname=current_schema() THEN 1 ELSE 0 END AS BIGINT) AS enabled,(SELECT COALESCE(string_agg(a.attname,',' ORDER BY k.ord),'') FROM unnest(t.tgattr::smallint[]) WITH ORDINALITY k(num,ord) JOIN pg_catalog.pg_attribute a ON a.attrelid=t.tgrelid AND a.attnum=k.num) AS columns FROM json_array_elements_text(?1::json) w LEFT JOIN pg_catalog.pg_trigger t ON t.tgname=w.value AND t.tgrelid IN(SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=current_schema()) LEFT JOIN pg_catalog.pg_class c ON c.oid=t.tgrelid LEFT JOIN pg_catalog.pg_proc p ON p.oid=t.tgfoid LEFT JOIN pg_catalog.pg_namespace pn ON pn.oid=p.pronamespace ORDER BY w.value LIMIT 129").bind(names).fetch_all(&self.backend).await?;
+                let rows=q("SELECT w.value AS name,c.relname AS table_name,p.proname AS function_name,CAST(t.tgtype AS BIGINT) AS kind,CAST(CASE WHEN t.tgenabled='O' AND NOT t.tgisinternal AND t.tgnargs=0 AND t.tgconstraint=0 AND NOT t.tgdeferrable AND NOT t.tginitdeferred AND pn.nspname=current_schema() THEN 1 ELSE 0 END AS BIGINT) AS enabled,(SELECT COALESCE(string_agg(a.attname,',' ORDER BY k.ord),'') FROM unnest(t.tgattr::smallint[]) WITH ORDINALITY k(num,ord) JOIN pg_catalog.pg_attribute a ON a.attrelid=t.tgrelid AND a.attnum=k.num) AS columns,COALESCE(CAST(t.tgoldtable AS TEXT),'') AS old_table,COALESCE(CAST(t.tgnewtable AS TEXT),'') AS new_table,CASE WHEN t.tgqual IS NULL THEN '' ELSE pg_catalog.pg_get_triggerdef(t.oid) END AS definition FROM json_array_elements_text(?1::json) w LEFT JOIN pg_catalog.pg_trigger t ON t.tgname=w.value AND t.tgrelid IN(SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=current_schema()) LEFT JOIN pg_catalog.pg_class c ON c.oid=t.tgrelid LEFT JOIN pg_catalog.pg_proc p ON p.oid=t.tgfoid LEFT JOIN pg_catalog.pg_namespace pn ON pn.oid=p.pronamespace ORDER BY w.value LIMIT 129").bind(names).fetch_all(&self.backend).await?;
                 if rows.len() != required.len()
                     || rows.iter().any(|r| {
                         let (Ok(Some(name)), Ok(Some(table)), Ok(Some(function))) = (
@@ -184,6 +245,9 @@ impl Store {
                                 && t.function == function
                                 && t.kind == r.get_i64("kind")
                                 && r.get_i64("enabled") == 1 && r.get_opt_string("columns").as_deref()==Some(t.columns.as_str())
+                                && r.get_opt_string("old_table").as_deref()==Some(t.old_table.as_str())
+                                && r.get_opt_string("new_table").as_deref()==Some(t.new_table.as_str())
+                                && r.get_opt_string("definition").as_deref().map(when_of).as_deref()==Some(t.when.as_str())
                         })
                     })
                 {
@@ -223,3 +287,6 @@ impl Store {
         Ok(row.try_get_opt_string("publication_schema")?.as_deref() == Some(expected))
     }
 }
+#[cfg(test)]
+#[path = "mail_data_statement_trigger_tests.rs"]
+mod statement_trigger_tests;
