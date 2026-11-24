@@ -503,21 +503,41 @@ async fn a_row_stored_before_the_properties_existed_is_completed_from_its_messag
         )
         .await;
         let list = result(&g, "g")["list"].as_array().expect("list").clone();
+        // RFC 8621 §5.1: only the requested properties come back, so each key
+        // is checked where the request names it (all of them for `null`).
+        let wants = |key: &str| {
+            properties.is_null()
+                || properties
+                    .as_array()
+                    .is_some_and(|list| list.iter().any(|p| p == key))
+        };
         // The same values, in the same form, as for newly synced mail.
-        assert_eq!(
-            list[0]["subject"], "Old",
-            "the stored envelope is still served"
-        );
-        assert_eq!(list[0]["messageId"], json!(["reply@example.org"]));
-        assert_eq!(list[0]["inReplyTo"], json!(["middle@example.org"]));
-        assert_eq!(
-            list[0]["references"],
-            json!(["root@example.org", "middle@example.org"])
-        );
-        // Present and null where the header is absent or not a clean id list.
+        if wants("subject") {
+            assert_eq!(
+                list[0]["subject"], "Old",
+                "the stored envelope is still served"
+            );
+        }
+        let expected = [
+            ("messageId", json!(["reply@example.org"])),
+            ("inReplyTo", json!(["middle@example.org"])),
+            (
+                "references",
+                json!(["root@example.org", "middle@example.org"]),
+            ),
+        ];
         let odd = list[1].as_object().expect("found");
-        for key in ["messageId", "inReplyTo", "references"] {
-            assert_eq!(odd.get(key), Some(&Value::Null), "{key} with {properties}");
+        for (key, value) in expected {
+            if wants(key) {
+                assert_eq!(list[0][key], value, "{key} with {properties}");
+                // Present and null where the header is absent or not a clean id list.
+                assert_eq!(odd.get(key), Some(&Value::Null), "{key} with {properties}");
+            } else {
+                assert!(
+                    list[0].get(key).is_none() && odd.get(key).is_none(),
+                    "{key} is not requested by {properties}"
+                );
+            }
         }
     }
 
@@ -531,7 +551,12 @@ async fn a_row_stored_before_the_properties_existed_is_completed_from_its_messag
             .unwrap(),
     )
     .unwrap();
-    assert_eq!(after, stored);
+    // The one-time attachment-metadata repair (attachment_metadata.rs) may
+    // persist its own keys; the threading keys are never written back.
+    for key in ["messageId", "inReplyTo", "references"] {
+        assert!(after.get(key).is_none(), "{key} written back: {after}");
+    }
+    assert_eq!((&after["subject"], &after["size"]), (&stored["subject"], &stored["size"]));
 }
 
 /// A request that names its properties and none of the three is not charged
