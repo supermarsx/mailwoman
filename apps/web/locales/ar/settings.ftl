@@ -1060,3 +1060,6 @@ settings-alert-help-notifications-login-summary-lookback-days = أقصى عدد 
 
 settings-folders-user-section-collapsible = السماح بطي مجلدات المستخدم
 settings-folders-user-section-collapsible-help = عند التعطيل يبقى القسم موسعًا ويختفي الزر.
+settings-storage-pressure-request = مساحة التخزين شبه ممتلئة. اطلب الحماية من الحذف التلقائي وراجع الذاكرة المؤقتة. هذا لا يضمن مساحة إضافية.
+settings-storage-pressure-cleanup = مساحة التخزين شبه ممتلئة. راجع البريد المخزن مؤقتًا وامسحه؛ تحافظ أدوات الذاكرة المؤقتة على التغييرات غير المرسلة.
+settings-storage-review = مراجعة التخزين

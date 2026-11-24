@@ -1034,3 +1034,6 @@ settings-alert-help-notifications-login-summary-lookback-days = Numero massimo d
 
 settings-folders-user-section-collapsible = Consenti di comprimere Cartelle utente
 settings-folders-user-section-collapsible-help = Se disabilitato, la sezione resta espansa e il pulsante è nascosto.
+settings-storage-pressure-request = Lo spazio è quasi esaurito. Richiedi la protezione dalla rimozione automatica e controlla la cache. Non garantisce spazio aggiuntivo.
+settings-storage-pressure-cleanup = Lo spazio è quasi esaurito. Controlla e svuota la cache; i controlli preservano le modifiche non inviate.
+settings-storage-review = Controlla spazio

@@ -1047,3 +1047,6 @@ settings-alert-help-notifications-login-summary-lookback-days = 长时间离开�
 
 settings-folders-user-section-collapsible = 允许折叠用户文件夹
 settings-folders-user-section-collapsible-help = 禁用后，此区域始终展开并隐藏按钮。
+settings-storage-pressure-request = 存储空间即将用尽。请请求防止自动清理的保护并检查缓存。这不保证提供更多空间。
+settings-storage-pressure-cleanup = 存储空间即将用尽。请检查并清理缓存；缓存管理会保留未发送的更改。
+settings-storage-review = 查看存储

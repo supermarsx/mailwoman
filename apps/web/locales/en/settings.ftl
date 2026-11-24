@@ -1126,3 +1126,6 @@ settings-alert-help-notifications-login-summary-lookback-days = Count at most th
 
 settings-folders-user-section-collapsible = Allow collapsing User folders
 settings-folders-user-section-collapsible-help = When disabled, the section stays expanded and its toggle is hidden.
+settings-storage-pressure-request = Storage is nearly full. Request protection from eviction, and review your cache size. This does not guarantee additional space.
+settings-storage-pressure-cleanup = Storage is nearly full. Review and clear cached mail to free space; unsent changes are preserved by the cache controls.
+settings-storage-review = Review storage

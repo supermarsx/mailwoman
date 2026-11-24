@@ -1059,3 +1059,6 @@ settings-alert-help-notifications-login-summary-lookback-days = Maksymalna liczb
 
 settings-folders-user-section-collapsible = Zezwól na zwijanie folderów użytkownika
 settings-folders-user-section-collapsible-help = Po wyłączeniu sekcja pozostaje rozwinięta, a przycisk jest ukryty.
+settings-storage-pressure-request = Pamięć jest niemal pełna. Poproś o ochronę przed usuwaniem i sprawdź pamięć podręczną. Nie gwarantuje to więcej miejsca.
+settings-storage-pressure-cleanup = Pamięć jest niemal pełna. Sprawdź i wyczyść pamięć podręczną; narzędzia zachowują niewysłane zmiany.
+settings-storage-review = Sprawdź pamięć

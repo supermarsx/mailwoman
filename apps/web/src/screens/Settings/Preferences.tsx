@@ -1,3 +1,4 @@
+import {actions as storageActions} from './storageControls.css.ts';
 import {StorageRequestControl} from './NotificationControls.tsx';
 import {browserStorageStatus,requestBrowserPersistence,storageSize} from '../../offline/storagePermission.ts';
 import {settings} from '../../api/settings.ts';
@@ -127,7 +128,7 @@ export function Preferences(props: PreferencesProps): JSX.Element {
       <SettingsCard id="prefs-card-offline" title={t('settings-offline-title')} description={t('settings-offline-intro')}>
         <SettingRow controlId="prefs-offline-enabled" label={t('settings-offline-enabled')} help={t('settings-offline-enabled-help')} handle={enabled}>{describedBy=><input id="prefs-offline-enabled" type="checkbox" class={css.checkbox} checked={enabled.value()} disabled={!enabled.entry()||enabled.locked()||enabled.saving()} aria-describedby={describedBy()} onChange={event=>void enabled.set(event.currentTarget.checked)}/>}</SettingRow>
         <StorageRequestControl/><p>{t('settings-storage-quota',{used:storageSize(storageStatus()?.usage),quota:storageSize(storageStatus()?.quota)})}</p><p>{t('settings-storage-quota-help')}</p>
-        <Show when={storageStatus()?.supported}><button type="button" class={css.button} disabled={storageStatus()?.persistent||settings()['offline.persistentStorageAllowed']?.value!==true} onClick={()=>void requestBrowserPersistence().then(()=>browserStorageStatus()).then(setStorageStatus)}>{t('settings-storage-request')}</button></Show>
+        <Show when={storageStatus()?.supported}><div class={storageActions}><button type="button" class={css.button} disabled={storageStatus()?.persistent||settings()['offline.persistentStorageAllowed']?.value!==true} onClick={()=>void requestBrowserPersistence().then(()=>browserStorageStatus()).then(setStorageStatus)}>{t('settings-storage-request')}</button></div></Show>
         <For each={[
           {id:'headers-window',handle:headersWindow,options:['30','90','365','all']},
           {id:'bodies',handle:bodies,options:['on-demand','prefetch']},

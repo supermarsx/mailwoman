@@ -15,3 +15,11 @@ it('offers persistence after opt-in caching, waits for the gesture, and respects
  const request=toasts().find(row=>row.id==='storage-persistence')!.action!;setMap(previous=>({...previous,'offline.persistentStorageAllowed':{value:false}}));await request.run();expect(persist).not.toHaveBeenCalled();
  toast.dismiss('storage-persistence');
 });
+
+it('recommends persistence on storage pressure without requesting it automatically',async()=>{
+ const persist=vi.fn(async()=>true);Object.defineProperty(navigator,'storage',{configurable:true,value:{persist,persisted:async()=>false,estimate:async()=>({usage:950_000_000,quota:1_000_000_000})}});
+ activateAccountPreferences('a','storage_pressure_test_authority');fixture.map=()=>({'offline.persistentStorageAllowed':{value:true}});
+ render(()=><StoragePersistencePrompt/>);
+ await waitFor(()=>expect(toasts().some(row=>row.id==='storage-pressure')).toBe(true));expect(persist).not.toHaveBeenCalled();
+ await toasts().find(row=>row.id==='storage-pressure')!.action!.run();expect(persist).toHaveBeenCalledTimes(1);
+});

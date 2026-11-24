@@ -8,7 +8,7 @@ const request=vi.hoisted(()=>vi.fn());
 const pushSubscribe=vi.hoisted(()=>vi.fn());
 vi.mock('../../platform/index.ts',()=>({getPlatform:()=>({pushSubscribe})}));
 const errorToast=vi.hoisted(()=>vi.fn());
-vi.mock('../../components/toast/toast.ts',()=>({toast:{error:errorToast}}));
+vi.mock('../../components/toast/toast.ts',()=>({toast:{error:errorToast,show:vi.fn()}}));
 vi.mock('../../api/http.ts',()=>({apiFetch:request}));
 
 afterEach(() => { request.mockReset();errorToast.mockReset();pushSubscribe.mockReset(); delete (navigator as unknown as {serviceWorker?:unknown}).serviceWorker; vi.unstubAllGlobals(); suspendAccountPreferences(); delete (navigator as unknown as { storage?: unknown }).storage; });
@@ -17,7 +17,7 @@ describe('explicit browser storage permissions', () => {
     const persist=vi.fn(async()=>true);
     Object.defineProperty(navigator,'storage',{configurable:true,value:{persist,persisted:async()=>false,estimate:async()=>({usage:1048576})}});
     render(() => <BrowserPermissions enabled={false} pushAllowed={false} persistentStorageAllowed={true} />);
-    await screen.findByText('Current site storage: 1.0 MiB.');
+    await screen.findByText(/Browser storage:.*1(?:\.0)? M(?:i)?B.*used of/);
     expect(persist).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button',{name:'Request persistent storage'}));
     await waitFor(()=>expect(persist).toHaveBeenCalledOnce());

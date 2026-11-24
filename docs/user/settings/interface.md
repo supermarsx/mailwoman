@@ -248,3 +248,9 @@ Message previews can be **Off** or **1–5 lines**. Row heights and virtual scro
 adapt to the selected count. Account-level message fonts, spacing, highlighting,
 default filters and reading-pane dimensions can be changed here; individual
 folders may override them within administrator policy.
+
+Browser storage controls show site usage and quota estimates. A warning appears
+when at least 85% is used or less than 64 MiB remains, when the browser supplies
+an estimate. Persistence must be requested by a click. It protects against
+automatic eviction when granted and does not guarantee more capacity. Cache
+cleanup is offered when persistence is already granted or policy disallows requests.

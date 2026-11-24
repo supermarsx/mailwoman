@@ -1057,3 +1057,6 @@ settings-alert-help-notifications-login-summary-lookback-days = Maximaal aantal 
 
 settings-folders-user-section-collapsible = Inklappen van gebruikersmappen toestaan
 settings-folders-user-section-collapsible-help = Als dit uitstaat, blijft de sectie geopend en wordt de knop verborgen.
+settings-storage-pressure-request = De opslag is bijna vol. Vraag bescherming tegen automatische verwijdering en controleer de cache. Dit garandeert geen extra ruimte.
+settings-storage-pressure-cleanup = De opslag is bijna vol. Controleer en wis de cache; de cachebediening bewaart niet-verzonden wijzigingen.
+settings-storage-review = Opslag controleren

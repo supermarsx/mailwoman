@@ -1038,3 +1038,6 @@ settings-alert-help-notifications-login-summary-lookback-days = Nombre maximal d
 
 settings-folders-user-section-collapsible = Autoriser le repli des dossiers utilisateur
 settings-folders-user-section-collapsible-help = Si désactivé, la section reste dépliée et le bouton est masqué.
+settings-storage-pressure-request = L’espace de stockage est presque plein. Demandez une protection contre l’éviction et vérifiez le cache. Cela ne garantit pas plus d’espace.
+settings-storage-pressure-cleanup = L’espace de stockage est presque plein. Vérifiez et videz le cache ; les commandes préservent les modifications non envoyées.
+settings-storage-review = Vérifier le stockage

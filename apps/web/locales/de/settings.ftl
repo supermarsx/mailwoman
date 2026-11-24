@@ -1038,3 +1038,6 @@ settings-alert-help-notifications-login-summary-lookback-days = Maximale Anzahl 
 
 settings-folders-user-section-collapsible = Einklappen der Benutzerordner erlauben
 settings-folders-user-section-collapsible-help = Wenn deaktiviert, bleibt der Abschnitt geöffnet und die Schaltfläche wird ausgeblendet.
+settings-storage-pressure-request = Der Speicher ist fast voll. Fordern Sie Schutz vor automatischer Löschung an und prüfen Sie den Cache. Mehr Speicher wird dadurch nicht garantiert.
+settings-storage-pressure-cleanup = Der Speicher ist fast voll. Prüfen und leeren Sie den Cache; nicht gesendete Änderungen bleiben durch die Cache-Werkzeuge geschützt.
+settings-storage-review = Speicher prüfen

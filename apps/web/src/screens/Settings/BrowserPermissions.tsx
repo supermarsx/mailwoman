@@ -1,3 +1,4 @@
+import {actions as storageActions} from './storageControls.css.ts';
 import {browserStorageStatus,requestBrowserPersistence,storageSize} from '../../offline/storagePermission.ts';
 import {settings} from '../../api/settings.ts';
 import {NotificationAccountPicker} from './NotificationAccountPicker.tsx';
@@ -98,7 +99,7 @@ export function BrowserPermissions(props: { enabled: boolean; pushAllowed: boole
     <Show when={storageSupported} fallback={<p>{t('settings-permissions-storage-unsupported')}</p>}>
       <p role="status">{t(persistent() ? 'settings-permissions-storage-persistent' : 'settings-permissions-storage-evictable')}</p>
       <p>{t('settings-storage-quota',{used:storageSize(usage()),quota:storageSize(quota())})}</p><p>{t('settings-storage-quota-help')}</p><Show when={quota()!==undefined&&Number(settings()['offline.budgetMb']?.value??250)*1048576>quota()!}><p role="status">{t('settings-storage-budget-warning')}</p></Show>
-      <div class={css.actions}>
+      <div class={storageActions}>
         <button type="button" class={css.button} disabled={busy() || persistent() || !props.persistentStorageAllowed} onClick={() => void run(async () => { if (props.persistentStorageAllowed) setPersistent(await requestBrowserPersistence());const status=await browserStorageStatus();setUsage(status.usage);setQuota(status.quota); })}>{t('settings-permissions-storage-request')}</button>
       </div>
       <Show when={!props.persistentStorageAllowed}><p>{t('settings-permissions-storage-policy')}</p></Show>

@@ -1059,3 +1059,6 @@ settings-alert-help-notifications-login-summary-lookback-days = Максимал
 
 settings-folders-user-section-collapsible = Дозволити згортання папок користувача
 settings-folders-user-section-collapsible-help = Коли вимкнено, розділ залишається розгорнутим, а кнопку приховано.
+settings-storage-pressure-request = Сховище майже заповнене. Запросіть захист від автоматичного видалення та перевірте кеш. Додаткове місце не гарантується.
+settings-storage-pressure-cleanup = Сховище майже заповнене. Перевірте й очистіть кеш; засоби зберігають ненадіслані зміни.
+settings-storage-review = Перевірити сховище

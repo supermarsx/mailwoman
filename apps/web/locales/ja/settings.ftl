@@ -1028,3 +1028,6 @@ settings-alert-help-notifications-login-summary-lookback-days = 長期間不在�
 
 settings-folders-user-section-collapsible = ユーザーフォルダーを折りたたむ
 settings-folders-user-section-collapsible-help = 無効にすると、セクションは展開されたままとなり、ボタンは非表示になります。
+settings-storage-pressure-request = ストレージがほぼ満杯です。自動削除からの保護をリクエストし、キャッシュを確認してください。容量の追加は保証されません。
+settings-storage-pressure-cleanup = ストレージがほぼ満杯です。キャッシュを確認して削除してください。キャッシュ操作では未送信の変更を保持します。
+settings-storage-review = ストレージを確認

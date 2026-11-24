@@ -1038,3 +1038,6 @@ settings-alert-help-notifications-login-summary-lookback-days = Máximo de días
 
 settings-folders-user-section-collapsible = Permitir contraer Carpetas del usuario
 settings-folders-user-section-collapsible-help = Si se desactiva, la sección permanece expandida y se oculta el botón.
+settings-storage-pressure-request = El almacenamiento está casi lleno. Solicita protección contra el borrado y revisa la caché. Esto no garantiza más espacio.
+settings-storage-pressure-cleanup = El almacenamiento está casi lleno. Revisa y limpia el correo en caché; los controles preservan los cambios sin enviar.
+settings-storage-review = Revisar almacenamiento

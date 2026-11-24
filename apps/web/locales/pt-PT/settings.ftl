@@ -1032,3 +1032,6 @@ settings-alert-help-notifications-login-summary-lookback-days = Número máximo 
 
 settings-folders-user-section-collapsible = Permitir recolher Pastas do utilizador
 settings-folders-user-section-collapsible-help = Quando desativado, a secção mantém-se expandida e o botão fica oculto.
+settings-storage-pressure-request = O armazenamento está quase cheio. Peça proteção contra eliminação e reveja a cache. Isto não garante mais espaço.
+settings-storage-pressure-cleanup = O armazenamento está quase cheio. Reveja e limpe a cache de correio; os controlos preservam alterações por enviar.
+settings-storage-review = Rever armazenamento

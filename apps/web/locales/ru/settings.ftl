@@ -1059,3 +1059,6 @@ settings-alert-help-notifications-login-summary-lookback-days = Максимал
 
 settings-folders-user-section-collapsible = Разрешить сворачивание папок пользователя
 settings-folders-user-section-collapsible-help = При отключении раздел остаётся развёрнутым, а кнопка скрыта.
+settings-storage-pressure-request = Хранилище почти заполнено. Запросите защиту от автоматического удаления и проверьте кэш. Дополнительное место не гарантируется.
+settings-storage-pressure-cleanup = Хранилище почти заполнено. Проверьте и очистите кэш; инструменты сохраняют неотправленные изменения.
+settings-storage-review = Проверить хранилище

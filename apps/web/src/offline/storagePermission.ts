@@ -14,3 +14,9 @@ export async function requestBrowserPersistence():Promise<boolean>{
  catch{await loadCatalog('settings');toast.error(t('settings-permissions-error'));return false;}
 }
 export const storageSize=(bytes:number|undefined):string=>bytes===undefined?'—':formatBytes(bytes);
+
+/** Quota estimates are advisory; unavailable estimates never imply low space. */
+export function storagePressure(status:Pick<StorageStatus,'usage'|'quota'>):boolean {
+ const {usage,quota}=status;
+ return typeof usage==='number'&&typeof quota==='number'&&Number.isFinite(usage)&&Number.isFinite(quota)&&usage>0&&quota>0&&(usage/quota>=.85||quota-usage<64*1048576);
+}
