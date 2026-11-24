@@ -48,3 +48,11 @@ globalStyle('.workspace-shell[data-folder-mode="compact"] .sidebar__box-star',{'
 globalStyle('.sidebar__starred-only',{justifyContent:'flex-start',gap:'0.4rem',marginInline:'0.4rem',inlineSize:'calc(100% - 0.8rem)'});
 globalStyle('.sidebar__starred-only[aria-pressed="true"]',{background:`color-mix(in srgb, ${vars.color.accent} 16%, ${vars.color.bg})`});
 globalStyle('.workspace-shell[data-folder-mode="compact"] .sidebar__starred-only .sidebar__box-name',{'@media':{'(min-width: 761px)':{display:'none'}}});
+
+// A folder-parent choice is a title plus an explanation, not an inline sentence.
+export const nestOption=style({display:'grid',gridTemplateColumns:'1.25rem minmax(0,1fr)',alignItems:'start',gap:vars.space[3],padding:vars.space[3],margin:0,border:`1px solid ${vars.color.borderStrong}`,background:vars.color.bgAlt,cursor:'pointer',minInlineSize:0,lineHeight:1.5,selectors:{'&:has(input:checked)':{borderColor:vars.color.accent,background:`color-mix(in srgb, ${vars.color.accent} 8%, ${vars.color.bg})`}}});
+export const nestText=style({display:'grid',gap:vars.space[2],minInlineSize:0,overflowWrap:'anywhere'});
+export const nestTitle=style({display:'flex',alignItems:'center',gap:vars.space[2],lineHeight:1.4});
+globalStyle(`${nestTitle} svg`,{inlineSize:'1rem',blockSize:'1rem',flexShrink:0});
+globalStyle(`${nestOption} input`,{marginBlockStart:'.2rem',marginInline:0});
+export const rememberChoice=style([choice,{marginBlockStart:vars.space[2],paddingBlock:vars.space[2],lineHeight:1.5}]);
