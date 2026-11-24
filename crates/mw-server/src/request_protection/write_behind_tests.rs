@@ -558,8 +558,9 @@ async fn probe_block_refuses_from_memory_and_admin_unblock_admits_the_next_reque
 
 /// A protection writer outside this instance (a synchronous process, a second
 /// write-behind process, a tool using the store functions) joins the witness
-/// before its write: the owner gives up ownership first, so the block that
-/// writer records refuses the owner's very next request.
+/// before its write: the owner gives up ownership first and marks its entries
+/// for re-reading, so the block that writer records refuses the owner's next
+/// request (see also `review_r4_…`, where the entry is fresher than an interval).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_external_writer_ends_ownership_before_its_block_is_written() {
     let dir = tempfile::tempdir().unwrap();
@@ -857,4 +858,38 @@ async fn sign_in_failures() -> (Vec<u16>, Vec<(String, usize)>, Vec<Value>) {
         .collect();
     rows.sort_by_key(Value::to_string);
     (statuses, locks, rows)
+}
+
+// ---------------------------------------------------------------------------
+// t50hp-e15a review fixes.
+// ---------------------------------------------------------------------------
+
+/// R4: when ownership ends, an entry synced less than one interval ago is
+/// re-read on its next use, so a block written right after the owner's
+/// acknowledgement refuses the next request. (Failed before the fix.)
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn review_r4_losing_ownership_rereads_recently_synced_entries() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = file_store_path(&dir);
+    let key = ServerKey::generate();
+    let store = Store::open(&path, key.clone()).await.unwrap();
+    // No flusher: the test runs every ownership check itself.
+    let owner = Arc::new(WriteBehind::new(store.clone(), config(5000, 4096)));
+    owner.check_ownership().await;
+    assert!(owner.status().owned);
+    let mut p = policy();
+    p.rate_limit = 1000;
+    assert!(!owner.record("client", "192.0.2.81", &p, 1000, None, NONE).await.decision.enforced);
+    let other = Store::open(&path, key).await.unwrap();
+    let writer = tokio::spawn({
+        let p = p.clone();
+        async move { other.request_protection("client", "192.0.2.81", &p, 1001, Some(Signal::ProbePath)).await }
+    });
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    owner.check_ownership().await; // acknowledges the joiner, ends ownership
+    assert!(!owner.status().owned);
+    assert!(writer.await.unwrap().unwrap().decision.enforced);
+    // The entry was synced well within the 5 s interval.
+    let next = owner.record("client", "192.0.2.81", &p, 1001, None, NONE).await;
+    assert!(next.decision.enforced, "re-read after losing ownership");
 }

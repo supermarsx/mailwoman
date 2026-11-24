@@ -22,9 +22,9 @@
 //!   tick), a cached subject is used until its row expires by its own policy window, it
 //!   is evicted (bounded, below), or something invalidates it. A warm request then reads
 //!   nothing. Ownership is checked again at every tick and lapses by itself two flush
-//!   intervals after the last successful check. Whenever it is gained (again), or the
-//!   check reports that another writer joined since the previous check, every cached
-//!   subject without pending observations is re-read once on its next use.
+//!   intervals after the last successful check. Whenever it is gained (again) or ends,
+//!   or the check reports that another writer joined since the previous check, every
+//!   cached subject without pending observations is re-read once on its next use.
 //! - Re-read rule, without ownership (another participant exists, PostgreSQL never
 //!   reaches this module, the witness is lost or unavailable): a subject with nothing
 //!   pending is re-read when it was synced more than one flush interval ago.
@@ -400,9 +400,14 @@ impl WriteBehind {
         let until = self.owned_until_ms.load(Ordering::Acquire);
         until != 0 && self.now_ms() < until
     }
+    /// Ends ownership. Every cached subject without pending observations is
+    /// re-read on its next use: another writer may write right after this
+    /// check acknowledged it, and an entry synced moments ago would otherwise
+    /// still be used for up to one interval.
     fn lose_ownership(&self) {
         if self.owned_until_ms.swap(0, Ordering::AcqRel) != 0 {
             bump(&self.counters.ownership_lost, 1);
+            self.mark_all_stale();
         }
     }
     /// Every cached subject without pending observations is re-read on its next use.
