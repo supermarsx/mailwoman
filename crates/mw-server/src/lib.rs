@@ -34,6 +34,7 @@ use mw_jmap::JmapClient;
 use mw_store::{Credentials, NativeSessionRow, ServerKey, Store};
 
 mod mail_refresh;
+mod bootstrap;
 mod analytics_adapter;
 mod analytics_config;
 mod analytics_routes;
@@ -1737,6 +1738,7 @@ fn router(
         .route("/api/login", post(login).layer(Extension(provider_plugins)))
         .route("/api/logout", post(logout))
         .route("/api/me", get(me))
+        .route("/api/bootstrap", get(bootstrap::get))
         .route("/api/session/rotate", post(rotate_session))
         // Unauthenticated + CSRF-exempt + attacker-chosen domain: the SSRF gate
         // bounds where discovery may fetch, this bounds how often (t22-e9).
