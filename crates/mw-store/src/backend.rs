@@ -54,10 +54,23 @@ impl Backend {
     /// the sync loop writes all the time, so logins failed with 503 under load
     /// (t33-e11). Taken up front, the lock is waited for like any other write.
     /// WAL readers outside a transaction are not blocked by it.
-    pub(crate) async fn begin(&self) -> Result<Tx, sqlx::Error> {
+    ///
+    /// On a managed SQLite database the transaction first takes the in-process
+    /// write permit (`sqlite_live::write_gate`), owned by the returned [`Tx`];
+    /// the caller's location is kept for the long-hold warning.
+    #[track_caller]
+    pub(crate) fn begin(&self) -> impl std::future::Future<Output = Result<Tx, sqlx::Error>> + '_ {
+        let at = std::panic::Location::caller();
+        self.begin_at(at)
+    }
+
+    async fn begin_at(
+        &self,
+        at: &'static std::panic::Location<'static>,
+    ) -> Result<Tx, sqlx::Error> {
         let mut timer = crate::pool_telemetry::QueryTimer::start("BEGIN");
         let transaction = match self {
-            Backend::Sqlite(p) => Tx::Sqlite(p.begin().await?),
+            Backend::Sqlite(p) => Tx::Sqlite(p.begin_at(at).await?),
             Backend::Postgres(p) => {
                 let connection = crate::pool_telemetry::acquire(p).await?;
                 Tx::Postgres(sqlx::Transaction::begin(connection, None).await?)

@@ -22,6 +22,10 @@ use std::{
 };
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 
+#[path = "write_gate.rs"]
+pub(crate) mod write_gate;
+use write_gate::{Site, WriteGate, WritePermit};
+
 /// How often the background checkpointer looks at the active WAL.
 pub(crate) const WAL_CHECKPOINT_TICK: Duration = Duration::from_millis(250);
 /// Tracked commits since the previous round that wake the checkpointer early.
@@ -129,6 +133,9 @@ struct Inner {
     cache_policy: OnceLock<Option<u32>>,
     cache_registry: Arc<crate::sqlite_page_cache::Registry>,
     wal: Arc<WalCheckpoint>,
+    /// In-process write gate (managed databases with `MW_SQLITE_WRITER=gate`).
+    /// Shared by every generation of this database.
+    write_gate: Option<Arc<WriteGate>>,
 }
 struct Generation {
     pool: SqlitePool,
@@ -194,7 +201,36 @@ impl LiveSqlite {
                 cache_policy: OnceLock::new(),
                 cache_registry: Arc::new(Default::default()),
                 wal: Arc::default(),
+                write_gate: unmanaged_write_gate(),
             }),
+        }
+    }
+    /// An unmanaged pool with an explicit write gate (tests of the gate).
+    #[cfg(test)]
+    pub(crate) fn unmanaged_with_gate(pool: SqlitePool, gate: Option<Arc<WriteGate>>) -> Self {
+        let live = Self::unmanaged(pool);
+        let mut inner = Arc::try_unwrap(live.inner).ok().expect("fresh manager");
+        inner.write_gate = gate;
+        Self { inner: Arc::new(inner) }
+    }
+    /// The write gate of this database, if it has one.
+    #[cfg(test)]
+    pub(crate) fn write_gate(&self) -> Option<&Arc<WriteGate>> {
+        self.inner.write_gate.as_ref()
+    }
+    /// Write-gate counters for the pool snapshot (`mode: off` and no counters
+    /// when the database has no gate). To be reported by
+    /// `Store::database_pool_snapshot` (pool_policy.rs, another lane's file).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn write_gate_snapshot(&self) -> serde_json::Value {
+        match &self.inner.write_gate {
+            Some(gate) => serde_json::json!({
+                "mode": "gate",
+                "waitLimitMs": write_gate::WAIT_LIMIT.as_millis() as u64,
+                "longHoldMs": write_gate::LONG_HOLD.as_millis() as u64,
+                "counters": gate.stats(),
+            }),
+            None => serde_json::json!({ "mode": "off", "counters": null }),
         }
     }
     /// Full rebuilds can change implicit rowids without ordinary DML triggers.
@@ -231,6 +267,9 @@ impl LiveSqlite {
     }
     /// Serialize first opens/reopens of one canonical logical database within this process.
     pub(crate) async fn opening(path: &Path) -> Result<Opening, Error> {
+        // MW_SQLITE_WRITER is read once per process; an invalid value refuses
+        // to open the database, like the other startup switches.
+        let write_mode = write_gate::configured_mode().map_err(|message| Error::Configuration(message.into()))?;
         let logical =
             crate::generation_files::canonical_logical_path(path).map_err(generation_error)?;
         let gate = {
@@ -283,6 +322,7 @@ impl LiveSqlite {
             logical,
             files,
             existing,
+            write_mode,
             _guard: guard,
         })
     }
@@ -295,13 +335,41 @@ impl LiveSqlite {
             _owner: self.inner.clone(),
         }
     }
+    /// A raw pooled connection. Never gated: callers that write through it
+    /// wait in SQLite's busy handler.
     pub(crate) async fn acquire(&self) -> Result<GuardedConnection, Error> {
-        let pin = self.pin().await;
-        let connection = acquire_pinned(&pin).await?;
-        Ok(GuardedConnection { connection, pin })
+        self.acquire_for(false).await
     }
-    pub(crate) async fn begin(&self) -> Result<LiveTransaction, Error> {
+    /// A pooled connection for one statement. A write statement first takes
+    /// the write permit, so a waiting writer holds no pool connection. Order:
+    /// generation pin, then permit, then connection: nothing that holds the
+    /// permit ever waits for a pin, so a queued cutover cannot deadlock it.
+    async fn acquire_for(&self, write: bool) -> Result<GuardedConnection, Error> {
         let pin = self.pin().await;
+        let permit = match (&self.inner.write_gate, write) {
+            (Some(gate), true) => Some(gate.acquire(Site::Statement).await?),
+            _ => None,
+        };
+        let connection = acquire_pinned(&pin).await?;
+        Ok(GuardedConnection { connection, _permit: permit, pin })
+    }
+    #[cfg(test)]
+    #[track_caller]
+    pub(crate) fn begin(&self) -> impl std::future::Future<Output = Result<LiveTransaction, Error>> + '_ {
+        self.begin_at(std::panic::Location::caller())
+    }
+    pub(crate) async fn begin_at(
+        &self,
+        at: &'static std::panic::Location<'static>,
+    ) -> Result<LiveTransaction, Error> {
+        let pin = self.pin().await;
+        // The permit is taken before the connection and is owned by the
+        // transaction: commit, rollback or drop (including a cancelled BEGIN)
+        // releases it.
+        let permit = match &self.inner.write_gate {
+            Some(gate) => Some(gate.acquire(Site::Transaction(at)).await?),
+            None => None,
+        };
         let connection = acquire_pinned(&pin).await?;
         // The guard exists, marked open, BEFORE the first BEGIN await. SQLx's
         // custom-BEGIN completion awaits again (its in-transaction check) after
@@ -312,6 +380,7 @@ impl LiveSqlite {
         let mut transaction = LiveTransaction {
             connection,
             open: true,
+            _permit: permit,
             pin,
         };
         <Sqlite as sqlx::Database>::TransactionManager::begin(
@@ -455,6 +524,17 @@ impl LiveSqlite {
     }
 }
 
+/// Unmanaged pools have no gate. Test builds can gate them too
+/// (`MW_TEST_WRITE_GATE_EVERY_POOL=1`) to run the whole store suite through it.
+#[cfg(not(test))]
+fn unmanaged_write_gate() -> Option<Arc<WriteGate>> {
+    None
+}
+#[cfg(test)]
+fn unmanaged_write_gate() -> Option<Arc<WriteGate>> {
+    (std::env::var("MW_TEST_WRITE_GATE_EVERY_POOL").as_deref() == Ok("1")).then(WriteGate::new)
+}
+
 async fn acquire_pinned(pin: &PinnedPool) -> Result<PoolConnection<Sqlite>, Error> {
     let pool = pin.pool();
     let result = crate::pool_telemetry::acquire(pool).await;
@@ -487,6 +567,7 @@ pub(crate) struct Opening {
     logical: PathBuf,
     pub(crate) files: Arc<crate::generation_files::GenerationFiles>,
     pub(crate) existing: Option<LiveSqlite>,
+    write_mode: write_gate::Mode,
     _guard: tokio::sync::OwnedMutexGuard<()>,
 }
 impl Opening {
@@ -504,6 +585,7 @@ impl Opening {
                 cache_policy: OnceLock::new(),
                 cache_registry: Arc::new(Default::default()),
                 wal: Arc::default(),
+                write_gate: (self.write_mode == write_gate::Mode::Gate).then(WriteGate::new),
             }),
         };
         let mut registry = REGISTRY.lock().unwrap_or_else(|p| p.into_inner());
@@ -566,6 +648,8 @@ impl ExclusiveSqlite {
 pub(crate) struct GuardedConnection {
     // Field drop order is significant: return/close the connection before admitting cutover.
     connection: PoolConnection<Sqlite>,
+    // Released after the connection is returned, before the pin.
+    _permit: Option<WritePermit>,
     #[allow(dead_code)]
     pin: PinnedPool,
 }
@@ -584,9 +668,14 @@ impl DerefMut for GuardedConnection {
 pub(crate) struct LiveTransaction {
     // Field drop order is significant: Drop queues the rollback, then the
     // connection returns to the pool (its release ping flushes the rollback),
-    // and only then is the generation pin released.
+    // then the write permit is released, and only then is the generation pin
+    // released. A rollback queued by Drop runs on the connection's worker
+    // after the permit is free; the next writer's BEGIN IMMEDIATE then waits
+    // for it in the busy handler (a short wait, and only after a drop without
+    // commit or rollback).
     connection: PoolConnection<Sqlite>,
     open: bool,
+    _permit: Option<WritePermit>,
     #[allow(dead_code)]
     pin: PinnedPool,
 }
@@ -635,8 +724,9 @@ impl<'c> Executor<'c> for &'c LiveSqlite {
         'c: 'e,
         E: 'q + Execute<'q, Sqlite>,
     {
+        let write = write_gate::is_gated_statement(query.sql());
         Box::pin(async_stream::try_stream! {
-            let mut connection=self.acquire().await?;
+            let mut connection=self.acquire_for(write).await?;
             let mut rows=(&mut *connection).fetch_many(query);
             while let Some(row)=rows.try_next().await?{yield row;}
         })
@@ -649,8 +739,9 @@ impl<'c> Executor<'c> for &'c LiveSqlite {
         'c: 'e,
         E: 'q + Execute<'q, Sqlite>,
     {
+        let write = write_gate::is_gated_statement(query.sql());
         Box::pin(async move {
-            let mut connection = self.acquire().await?;
+            let mut connection = self.acquire_for(write).await?;
             (&mut *connection).fetch_optional(query).await
         })
     }
