@@ -58,6 +58,7 @@ fn every_mode_on_sqlite_is_accepted_and_reported() {
         ("MW_REQUEST_PROTECTION_ACCOUNTING", "write-behind"),
         ("MW_REQUEST_PROTECTION_FLUSH_MS", "100"),
         ("MW_SQLITE_STARTUP_TIMEOUT_SECONDS", "60"),
+        ("MW_SQLITE_WRITER", "off"),
     ])
     .unwrap();
     assert!(modes.guard_live && modes.warnings.is_empty());
@@ -83,6 +84,7 @@ fn postgres_refuses_journal_and_disables_the_other_two_with_a_warning() {
         ("MW_REQUEST_PROTECTION_ACCOUNTING", "write-behind"),
         // SQLite-only: not checked for PostgreSQL (mw-store does not read it there).
         ("MW_SQLITE_STARTUP_TIMEOUT_SECONDS", "0"),
+        ("MW_SQLITE_WRITER", "group"),
     ])
     .unwrap();
     assert!(!modes.guard_live);
@@ -114,6 +116,8 @@ fn every_invalid_or_out_of_range_value_refuses_startup_naming_the_variable() {
         ("MW_SQLITE_STARTUP_TIMEOUT_SECONDS", "0"),
         ("MW_SQLITE_STARTUP_TIMEOUT_SECONDS", "86401"),
         ("MW_SQLITE_STARTUP_TIMEOUT_SECONDS", ""),
+        ("MW_SQLITE_WRITER", "on"),
+        ("MW_SQLITE_WRITER", "group"),
     ] {
         let error = validate(SQLITE, true, &[(name, value)]).unwrap_err();
         assert!(error.contains(name), "{name}={value:?}: {error}");
@@ -123,6 +127,9 @@ fn every_invalid_or_out_of_range_value_refuses_startup_naming_the_variable() {
     assert!(validate(SQLITE, false, &[("MW_REQUEST_PROTECTION_ACCOUNTING", "x")]).is_err());
     // Empty means default for the t34 switches (as their own parsers say).
     assert!(validate(SQLITE, true, &[("MW_GUARD_SNAPSHOT", ""), ("MW_INDEX_PUBLICATION_ACK", " ")]).is_ok());
+    for value in ["", "gate", "off"] {
+        assert!(validate(SQLITE, true, &[("MW_SQLITE_WRITER", value)]).is_ok(), "{value:?}");
+    }
 }
 
 // ---- shutdown: pending journal publication and queued accounting ----------

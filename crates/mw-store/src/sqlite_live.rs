@@ -218,21 +218,6 @@ impl LiveSqlite {
     pub(crate) fn write_gate(&self) -> Option<&Arc<WriteGate>> {
         self.inner.write_gate.as_ref()
     }
-    /// Write-gate counters for the pool snapshot (`mode: off` and no counters
-    /// when the database has no gate). To be reported by
-    /// `Store::database_pool_snapshot` (pool_policy.rs, another lane's file).
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) fn write_gate_snapshot(&self) -> serde_json::Value {
-        match &self.inner.write_gate {
-            Some(gate) => serde_json::json!({
-                "mode": "gate",
-                "waitLimitMs": write_gate::WAIT_LIMIT.as_millis() as u64,
-                "longHoldMs": write_gate::LONG_HOLD.as_millis() as u64,
-                "counters": gate.stats(),
-            }),
-            None => serde_json::json!({ "mode": "off", "counters": null }),
-        }
-    }
     /// Full rebuilds can change implicit rowids without ordinary DML triggers.
     /// Conversion and every live full-VACUUM entrypoint share this exclusion gate.
     pub(crate) fn try_rebuild_guard(&self) -> Result<tokio::sync::OwnedMutexGuard<()>, Error> {
@@ -532,7 +517,11 @@ fn unmanaged_write_gate() -> Option<Arc<WriteGate>> {
 }
 #[cfg(test)]
 fn unmanaged_write_gate() -> Option<Arc<WriteGate>> {
-    (std::env::var("MW_TEST_WRITE_GATE_EVERY_POOL").as_deref() == Ok("1")).then(WriteGate::new)
+    gate_every_pool_for_tests().then(WriteGate::new)
+}
+#[cfg(test)]
+pub(crate) fn gate_every_pool_for_tests() -> bool {
+    std::env::var("MW_TEST_WRITE_GATE_EVERY_POOL").as_deref() == Ok("1")
 }
 
 async fn acquire_pinned(pin: &PinnedPool) -> Result<PoolConnection<Sqlite>, Error> {

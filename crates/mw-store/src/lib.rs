@@ -120,6 +120,8 @@ mod v5;
 // unchanged so `mw-engine`/`mw-server` are untouched.
 mod backend;
 mod sqlite_live;
+/// `MW_SQLITE_WRITER` (in-process SQLite write gate), for the startup check.
+pub use sqlite_live::write_gate::{Mode as SqliteWriterMode, parse_mode as parse_sqlite_writer_mode};
 mod sqlite_startup;
 mod generation_files;
 pub use generation_files::retirement::{RetainedDatabase, RetainedDatabaseReport, RetireDatabaseRequest, RetiredDatabase};

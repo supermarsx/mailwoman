@@ -31,7 +31,7 @@
 //! `PRAGMA`) are not gated and keep waiting in the busy handler, as before;
 //! that costs only the wait, never correctness, because `busy_timeout` stays.
 //!
-//! Switch: `MW_SQLITE_WRITER` = `gate` (default) or `off`, read once per process
+//! Switch: `MW_SQLITE_WRITER` = `gate` (default; also when empty) or `off`, read once per process
 //! when the first managed SQLite database opens. PostgreSQL and unmanaged
 //! (in-memory, private, test) SQLite pools never use the gate.
 //!
@@ -66,8 +66,7 @@ pub enum Mode {
     Off,
 }
 impl Mode {
-    /// The switch value (for the startup log line).
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// The switch value.
     pub fn as_str(self) -> &'static str {
         match self {
             Mode::Gate => "gate",
@@ -79,11 +78,11 @@ impl Mode {
 /// The text reported for an invalid `MW_SQLITE_WRITER` value.
 pub const INVALID_MODE: &str = "MW_SQLITE_WRITER must be gate or off";
 
-/// Parse a `MW_SQLITE_WRITER` value. Unset means the default (`gate`); an empty
-/// or any other value is refused, like the other startup switches.
+/// Parse a `MW_SQLITE_WRITER` value. Unset or empty means the default (`gate`),
+/// as for the t34 switches; any other value is refused.
 pub fn parse_mode(raw: Option<&str>) -> Result<Mode, String> {
     match raw.map(str::trim) {
-        None => Ok(Mode::Gate),
+        None | Some("") => Ok(Mode::Gate),
         Some(value) if value.eq_ignore_ascii_case("gate") => Ok(Mode::Gate),
         Some(value) if value.eq_ignore_ascii_case("off") => Ok(Mode::Off),
         Some(_) => Err(INVALID_MODE.into()),
@@ -126,33 +125,32 @@ impl fmt::Display for Site {
 /// Counters of one gate. Times in microseconds.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct WriteGateStats {
+pub struct WriteGateStats {
     /// Permits granted.
-    pub(crate) granted: u64,
+    pub granted: u64,
     /// Permits granted after waiting behind another holder.
-    pub(crate) waited: u64,
+    pub waited: u64,
     /// Writers waiting now.
-    pub(crate) queued: u64,
+    pub queued: u64,
     /// Most writers waiting at once.
-    pub(crate) queued_max: u64,
-    pub(crate) wait_micros_total: u64,
-    pub(crate) wait_micros_max: u64,
-    pub(crate) hold_micros_total: u64,
-    pub(crate) hold_micros_max: u64,
+    pub queued_max: u64,
+    pub wait_micros_total: u64,
+    pub wait_micros_max: u64,
+    pub hold_micros_total: u64,
+    pub hold_micros_max: u64,
     /// Waiters that gave up after [`WAIT_LIMIT`] (answered "database is locked").
-    pub(crate) timeouts: u64,
+    pub timeouts: u64,
     /// Waiters whose future was dropped while queued.
-    pub(crate) cancelled: u64,
+    pub cancelled: u64,
     /// Permits held longer than [`LONG_HOLD`].
-    pub(crate) long_holds: u64,
+    pub long_holds: u64,
     /// Waits that started on the tokio task that holds the permit. Such a wait
     /// ends only when the holder finishes in another branch of the same task
     /// (`join!`), or after [`WAIT_LIMIT`]; without the gate the same code waits
     /// in the busy handler for the same time.
-    pub(crate) same_task_waits: u64,
+    pub same_task_waits: u64,
 }
 
-#[derive(Default)]
 struct Counters {
     granted: AtomicU64,
     waited: AtomicU64,
@@ -166,6 +164,51 @@ struct Counters {
     cancelled: AtomicU64,
     long_holds: AtomicU64,
     same_task_waits: AtomicU64,
+}
+impl Counters {
+    const fn new() -> Self {
+        Self {
+            granted: AtomicU64::new(0),
+            waited: AtomicU64::new(0),
+            queued: AtomicU64::new(0),
+            queued_max: AtomicU64::new(0),
+            wait_micros_total: AtomicU64::new(0),
+            wait_micros_max: AtomicU64::new(0),
+            hold_micros_total: AtomicU64::new(0),
+            hold_micros_max: AtomicU64::new(0),
+            timeouts: AtomicU64::new(0),
+            cancelled: AtomicU64::new(0),
+            long_holds: AtomicU64::new(0),
+            same_task_waits: AtomicU64::new(0),
+        }
+    }
+    fn snapshot(&self) -> WriteGateStats {
+        let load = |value: &AtomicU64| value.load(Ordering::Relaxed);
+        WriteGateStats {
+            granted: load(&self.granted),
+            waited: load(&self.waited),
+            queued: load(&self.queued),
+            queued_max: load(&self.queued_max),
+            wait_micros_total: load(&self.wait_micros_total),
+            wait_micros_max: load(&self.wait_micros_max),
+            hold_micros_total: load(&self.hold_micros_total),
+            hold_micros_max: load(&self.hold_micros_max),
+            timeouts: load(&self.timeouts),
+            cancelled: load(&self.cancelled),
+            long_holds: load(&self.long_holds),
+            same_task_waits: load(&self.same_task_waits),
+        }
+    }
+}
+
+/// Sum over every gate of the process (`queued_max` and the maxima are the
+/// largest seen by any one gate). Reported in `pool_telemetry::process_snapshot`.
+static PROCESS: Counters = Counters::new();
+static PROCESS_GATES: AtomicU64 = AtomicU64::new(0);
+
+/// Process-wide gate counters, `None` while no gate exists in this process.
+pub(crate) fn process_stats() -> Option<WriteGateStats> {
+    (PROCESS_GATES.load(Ordering::Relaxed) > 0).then(|| PROCESS.snapshot())
 }
 
 /// A fair FIFO single-writer gate. One per managed SQLite database (shared by
@@ -196,10 +239,11 @@ impl WriteGate {
         Self::with_wait_limit(WAIT_LIMIT)
     }
     pub(crate) fn with_wait_limit(wait_limit: Duration) -> Arc<Self> {
+        PROCESS_GATES.fetch_add(1, Ordering::Relaxed);
         Arc::new(Self {
             semaphore: Arc::new(Semaphore::new(1)),
             wait_limit,
-            counters: Counters::default(),
+            counters: Counters::new(),
             holder: Mutex::new(None),
             started: Instant::now(),
             last_warning: AtomicU64::new(0),
@@ -217,7 +261,7 @@ impl WriteGate {
         }
         let task = tokio::task::try_id();
         if task.is_some() && task == *self.holder.lock().unwrap_or_else(|p| p.into_inner()) {
-            self.counters.same_task_waits.fetch_add(1, Ordering::Relaxed);
+            self.each(|c| c.same_task_waits.fetch_add(1, Ordering::Relaxed));
             #[cfg(test)]
             if !self.allow_same_task_wait.load(Ordering::Relaxed)
                 && std::env::var("MW_TEST_WRITE_GATE_STRICT").as_deref() == Ok("1")
@@ -243,21 +287,22 @@ impl WriteGate {
             }
             Err(_) => {
                 waiting.leave(false);
-                self.counters.timeouts.fetch_add(1, Ordering::Relaxed);
+                self.each(|c| c.timeouts.fetch_add(1, Ordering::Relaxed));
                 Err(locked())
             }
         }
     }
 
     fn grant(self: &Arc<Self>, permit: OwnedSemaphorePermit, site: Site, waited: Option<Duration>) -> WritePermit {
-        let c = &self.counters;
-        c.granted.fetch_add(1, Ordering::Relaxed);
-        if let Some(waited) = waited {
-            let waited = micros(waited);
-            c.waited.fetch_add(1, Ordering::Relaxed);
-            c.wait_micros_total.fetch_add(waited, Ordering::Relaxed);
-            c.wait_micros_max.fetch_max(waited, Ordering::Relaxed);
-        }
+        self.each(|c| {
+            c.granted.fetch_add(1, Ordering::Relaxed);
+            if let Some(waited) = waited {
+                let waited = micros(waited);
+                c.waited.fetch_add(1, Ordering::Relaxed);
+                c.wait_micros_total.fetch_add(waited, Ordering::Relaxed);
+                c.wait_micros_max.fetch_max(waited, Ordering::Relaxed);
+            }
+        });
         *self.holder.lock().unwrap_or_else(|p| p.into_inner()) = tokio::task::try_id();
         WritePermit {
             gate: self.clone(),
@@ -269,12 +314,14 @@ impl WriteGate {
 
     fn release(&self, held: Duration, site: Site) {
         *self.holder.lock().unwrap_or_else(|p| p.into_inner()) = None;
-        let c = &self.counters;
         let held_micros = micros(held);
-        c.hold_micros_total.fetch_add(held_micros, Ordering::Relaxed);
-        c.hold_micros_max.fetch_max(held_micros, Ordering::Relaxed);
+        self.each(|c| {
+            c.hold_micros_total.fetch_add(held_micros, Ordering::Relaxed);
+            c.hold_micros_max.fetch_max(held_micros, Ordering::Relaxed);
+        });
         if held >= LONG_HOLD {
-            let count = c.long_holds.fetch_add(1, Ordering::Relaxed) + 1;
+            PROCESS.long_holds.fetch_add(1, Ordering::Relaxed);
+            let count = self.counters.long_holds.fetch_add(1, Ordering::Relaxed) + 1;
             self.warn(format_args!(
                 "SQLite write permit held {} ms by a {site} (threshold {} ms; {count} long holds since start); other in-process writers waited behind it",
                 held.as_millis(),
@@ -298,22 +345,13 @@ impl WriteGate {
     }
 
     pub(crate) fn stats(&self) -> WriteGateStats {
-        let c = &self.counters;
-        let load = |value: &AtomicU64| value.load(Ordering::Relaxed);
-        WriteGateStats {
-            granted: load(&c.granted),
-            waited: load(&c.waited),
-            queued: load(&c.queued),
-            queued_max: load(&c.queued_max),
-            wait_micros_total: load(&c.wait_micros_total),
-            wait_micros_max: load(&c.wait_micros_max),
-            hold_micros_total: load(&c.hold_micros_total),
-            hold_micros_max: load(&c.hold_micros_max),
-            timeouts: load(&c.timeouts),
-            cancelled: load(&c.cancelled),
-            long_holds: load(&c.long_holds),
-            same_task_waits: load(&c.same_task_waits),
-        }
+        self.counters.snapshot()
+    }
+
+    /// Apply one counter update to this gate and to the process aggregate.
+    fn each<T>(&self, update: impl Fn(&Counters) -> T) {
+        update(&self.counters);
+        update(&PROCESS);
     }
 }
 
@@ -326,6 +364,8 @@ impl<'a> Waiting<'a> {
     fn enter(gate: &'a WriteGate) -> Self {
         let depth = gate.counters.queued.fetch_add(1, Ordering::Relaxed) + 1;
         gate.counters.queued_max.fetch_max(depth, Ordering::Relaxed);
+        let process = PROCESS.queued.fetch_add(1, Ordering::Relaxed) + 1;
+        PROCESS.queued_max.fetch_max(process, Ordering::Relaxed);
         Self { gate, done: false }
     }
     fn leave(mut self, cancelled: bool) {
@@ -334,9 +374,9 @@ impl<'a> Waiting<'a> {
     fn finish(&mut self, cancelled: bool) {
         if !self.done {
             self.done = true;
-            self.gate.counters.queued.fetch_sub(1, Ordering::Relaxed);
+            self.gate.each(|c| c.queued.fetch_sub(1, Ordering::Relaxed));
             if cancelled {
-                self.gate.counters.cancelled.fetch_add(1, Ordering::Relaxed);
+                self.gate.each(|c| c.cancelled.fetch_add(1, Ordering::Relaxed));
             }
         }
     }

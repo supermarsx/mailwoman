@@ -38,7 +38,14 @@ pub struct QuerySnapshot {
     pub write: OperationSnapshot,
     pub other: OperationSnapshot,
     pub acquire: OperationSnapshot,
+    /// SQLite in-process write gate, summed over the process's managed
+    /// databases. Only in [`process_snapshot`], and only once a gate exists
+    /// (`MW_SQLITE_WRITER=gate` on a managed SQLite database); never in a
+    /// per-request snapshot.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub write_gate: Option<WriteGateStats>,
 }
+pub use crate::sqlite_live::write_gate::WriteGateStats;
 impl QuerySnapshot {
     pub fn merge(&mut self, other: &Self) {
         self.read.merge(&other.read);
@@ -94,6 +101,7 @@ impl Counters {
             write: self.write.snapshot(),
             other: self.other.snapshot(),
             acquire: self.acquire.snapshot(),
+            write_gate: None,
         }
     }
 }
@@ -108,7 +116,9 @@ pub async fn measure_queries<F: Future>(future: F) -> (F::Output, QuerySnapshot)
 }
 /// Process-wide aggregate across configured stores. This is not per-tenant data.
 pub fn process_snapshot() -> QuerySnapshot {
-    PROCESS.snapshot()
+    let mut snapshot = PROCESS.snapshot();
+    snapshot.write_gate = crate::sqlite_live::write_gate::process_stats();
+    snapshot
 }
 #[derive(Clone, Copy)]
 enum Class {

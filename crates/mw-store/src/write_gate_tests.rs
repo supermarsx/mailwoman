@@ -78,7 +78,8 @@ fn mode_parse_defaults_to_gate_and_refuses_unknown_values() {
     assert_eq!(parse_mode(None), Ok(Mode::Gate));
     assert_eq!(parse_mode(Some("gate")), Ok(Mode::Gate));
     assert_eq!(parse_mode(Some(" OFF ")), Ok(Mode::Off));
-    assert_eq!(parse_mode(Some("")), Err(INVALID_MODE.to_string()));
+    assert_eq!(parse_mode(Some("")), Ok(Mode::Gate));
+    assert_eq!(parse_mode(Some("  ")), Ok(Mode::Gate));
     assert_eq!(parse_mode(Some("group")), Err(INVALID_MODE.to_string()));
     assert_eq!(parse_mode(Some("on")), Err(INVALID_MODE.to_string()));
 }
@@ -531,13 +532,19 @@ async fn managed_file_databases_get_a_gate_and_report_it() {
     let Backend::Sqlite(live) = &store.backend else { unreachable!() };
     let expected = configured_mode().unwrap();
     assert_eq!(live.write_gate().is_some(), expected == Mode::Gate);
-    store.set_setting("gate-probe", "1").await.unwrap();
-    let snapshot = live.write_gate_snapshot();
-    assert_eq!(snapshot["mode"], expected.as_str());
+    let before = live.write_gate().map(|gate| gate.stats().granted);
+    let (_, request) = crate::pool_telemetry::measure_queries(store.set_setting("gate-probe", "1")).await;
     if expected == Mode::Gate {
-        assert!(snapshot["counters"]["granted"].as_u64().unwrap() >= 1);
-        assert_eq!(snapshot["waitLimitMs"], 5000);
+        assert!(live.write_gate().unwrap().stats().granted > before.unwrap());
+        // The process snapshot (the pool diagnostics' "operations") reports
+        // the gate; a per-request snapshot never does.
+        let process = serde_json::to_value(crate::pool_telemetry::process_snapshot()).unwrap();
+        assert!(process["writeGate"]["granted"].as_u64().unwrap() >= 1, "{process}");
+        assert!(process["writeGate"]["queued"].is_u64());
     }
+    let request = serde_json::to_value(request).unwrap();
+    assert!(request.get("writeGate").is_none(), "{request}");
+    assert_eq!(expected.as_str(), if expected == Mode::Gate { "gate" } else { "off" });
     store.close().await;
 
     // In-memory stores never have a gate (unless the test-only override is on).
@@ -545,7 +552,7 @@ async fn managed_file_databases_get_a_gate_and_report_it() {
     let Backend::Sqlite(live) = &memory.backend else { unreachable!() };
     assert_eq!(
         live.write_gate().is_some(),
-        std::env::var("MW_TEST_WRITE_GATE_EVERY_POOL").as_deref() == Ok("1")
+        crate::sqlite_live::gate_every_pool_for_tests()
     );
     memory.close().await;
 }

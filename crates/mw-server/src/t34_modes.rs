@@ -3,7 +3,8 @@
 //!
 //! The three switches (`MW_GUARD_SNAPSHOT`, `MW_INDEX_PUBLICATION_ACK`,
 //! `MW_REQUEST_PROTECTION_ACCOUNTING`, with their tuning variables) and
-//! `MW_SQLITE_STARTUP_TIMEOUT_SECONDS` are parsed by their own modules. This
+//! `MW_SQLITE_STARTUP_TIMEOUT_SECONDS` and `MW_SQLITE_WRITER` are parsed by
+//! their own modules. This
 //! module runs every parser once before the database opens, so an invalid
 //! value stops `serve` with one error naming the variable instead of being
 //! found later (or, for the guard snapshot, silently treated as `off`).
@@ -124,6 +125,11 @@ pub(crate) fn validate_from(
     {
         // The same text mw-store reports (docs/admin/database-startup.md).
         return Err("MW_SQLITE_STARTUP_TIMEOUT_SECONDS must be an integer from 1 to 86400".into());
+    }
+    // MW_SQLITE_WRITER (in-process write gate): mw-store's own parser, so the
+    // rule and the text are the ones the store applies when it opens SQLite.
+    if !postgres {
+        mw_store::parse_sqlite_writer_mode(var("MW_SQLITE_WRITER").as_deref())?;
     }
 
     Ok(Modes { guard, guard_live, index, accounting, accounting_effective, warnings })
