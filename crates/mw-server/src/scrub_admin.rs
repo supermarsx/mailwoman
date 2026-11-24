@@ -469,13 +469,19 @@ mod tests {
         let done = scrub_log_dir(&dir, &needles(), false);
         assert_eq!((done.files, done.lines), (2, 2));
         assert!(done.errors.is_empty());
-        let plain = std::fs::read_to_string(dir.join("mailwoman.log")).unwrap();
+        // The rewrite is sealed (MWLOG1) when another test in this process
+        // has installed the process-wide log key, so read it back through the
+        // same decoder the server uses.
+        let decode = |bytes: &[u8]| {
+            String::from_utf8(crate::observability::log_files::decode_log(bytes).unwrap()).unwrap()
+        };
+        let plain = decode(&std::fs::read(dir.join("mailwoman.log")).unwrap());
         assert_eq!(plain, "sign-in scrubbed-1-abc ok\nother line\n");
-        let mut text = String::new();
+        let mut gz = Vec::new();
         flate2::read::GzDecoder::new(&std::fs::read(dir.join("mailwoman-100-0.log.gz")).unwrap()[..])
-            .read_to_string(&mut text)
+            .read_to_end(&mut gz)
             .unwrap();
-        assert_eq!(text, "x scrubbed-1-abc y\nz\n");
+        assert_eq!(decode(&gz), "x scrubbed-1-abc y\nz\n");
         assert!(std::fs::read_to_string(dir.join("notes.txt")).unwrap().contains("ana@example.org"));
         assert_eq!(scrub_log_dir(&dir, &needles(), false), LogScrub::default());
         let _ = std::fs::remove_dir_all(&dir);
