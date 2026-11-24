@@ -507,3 +507,130 @@ fn warm_request_statement_budgets() {
         }
     });
 }
+
+/// e15a follow-up: after each revocation kind the next /api/bootstrap answers
+/// within a time bound and a statement bound, and no authenticated section
+/// answers with data. (The reviewer's run that did not finish used the
+/// t49pg fixture, whose account points at 127.0.0.1:9: on this host the
+/// Windows "Simple TCP/IP Services" discard port accepts and never greets, so
+/// the start-up registration held the account's connect lock; see
+/// logs/t50hp-e22.md. This fixture registers a backend, as production does
+/// after sign-in.)
+async fn bootstrap_after_revocation(kind: &'static str) {
+    let f = Fixture::new().await;
+    ready(&f).await;
+    let (before, _) = inputs_control::process_wide(send(&f, get(&f, "/api/bootstrap"), true)).await;
+    assert_eq!(before.status, StatusCode::OK, "{kind}");
+    assert_eq!(
+        before.body["sections"]["me"]["status"], 200,
+        "{kind}: {}",
+        before.body
+    );
+    match kind {
+        "sign-out" => {
+            let out = send(&f, request(&f, "POST", "/api/logout", None), true).await;
+            assert!(
+                out.status.is_success(),
+                "{kind}: {} {}",
+                out.status,
+                out.body
+            );
+        }
+        "session-revoke" => {
+            f.measured.delete_session(&f.session).await.unwrap();
+        }
+        "account-disable" => {
+            crate::account_gate::update_flags(&f.measured, &f.account, |flags| {
+                flags.disabled = true
+            })
+            .await
+            .unwrap();
+        }
+        "password-change" => {
+            crate::account_gate::update_flags(&f.measured, &f.account, |flags| {
+                flags.force_password_change = true
+            })
+            .await
+            .unwrap();
+        }
+        _ => unreachable!(),
+    }
+    let start = mw_store::pool_telemetry::process_snapshot();
+    let started = std::time::Instant::now();
+    let (after, frames) = tokio::time::timeout(
+        Duration::from_secs(30),
+        inputs_control::process_wide(send(&f, get(&f, "/api/bootstrap"), true)),
+    )
+    .await
+    .unwrap_or_else(|_| {
+        panic!("{kind}: bootstrap after the revocation did not answer within 30 s")
+    });
+    let elapsed = started.elapsed();
+    let end = mw_store::pool_telemetry::process_snapshot();
+    let statements = (end.read.calls - start.read.calls)
+        + (end.write.calls - start.write.calls)
+        + (end.other.calls - start.other.calls);
+    eprintln!(
+        "{}",
+        json!({"kind":"t50hp-e22-bootstrap-after-revocation","revocation":kind,
+        "ms":elapsed.as_millis() as u64,"statements":statements,"frames":frames,"status":after.status.as_u16()})
+    );
+    assert_eq!(after.status, StatusCode::OK, "{kind}: the document itself");
+    assert!(elapsed < Duration::from_secs(10), "{kind}: {elapsed:?}");
+    assert!(
+        statements <= BOOTSTRAP_AFTER_REVOCATION_STATEMENTS,
+        "{kind}: {statements} statements"
+    );
+    for (name, section) in after.body["sections"].as_object().unwrap() {
+        let status = section["status"].as_u64().unwrap();
+        let public = matches!(
+            name.as_str(),
+            "publicConfig"
+                | "cookiesConfig"
+                | "version"
+                | "uiPlugins"
+                | "assistConfig"
+                | "restriction"
+        );
+        if public {
+            continue;
+        }
+        if kind == "password-change" && name == "me" {
+            assert_eq!(status, 200, "{kind}: me");
+            assert_eq!(
+                section["body"]["passwordChangeRequired"], true,
+                "{kind}: {section}"
+            );
+            continue;
+        }
+        assert!(
+            status == 401 || status == 403 || (name == "appearanceCustomization" && status == 409),
+            "{kind}: section {name} answered {status}: {section}"
+        );
+        assert!(
+            section["body"].get("accountId").is_none(),
+            "{kind}: {name} carried data"
+        );
+    }
+}
+
+/// Upper bound on statements for one /api/bootstrap after a revocation
+/// (process-wide count; measured below it, see the eprintln line).
+const BOOTSTRAP_AFTER_REVOCATION_STATEMENTS: u64 = 300; // measured 180-238
+
+#[test]
+fn bootstrap_after_sign_out_is_bounded() {
+    run_fixture(|| async { bootstrap_after_revocation("sign-out").await });
+}
+#[test]
+fn bootstrap_after_session_revoke_is_bounded() {
+    run_fixture(|| async { bootstrap_after_revocation("session-revoke").await });
+}
+#[test]
+fn bootstrap_after_account_disable_is_bounded() {
+    run_fixture(|| async { bootstrap_after_revocation("account-disable").await });
+}
+#[test]
+fn bootstrap_after_password_change_is_bounded() {
+    run_fixture(|| async { bootstrap_after_revocation("password-change").await });
+}

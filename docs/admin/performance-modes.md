@@ -35,7 +35,7 @@ A background task polls the database for authority changes every quarter of the 
 
 **The trade.** A change made **by another process** on the same database file (for example the `mailwoman admin` command, or a second server process) is honoured within the staleness bound, `MW_GUARD_SNAPSHOT_MAX_STALENESS_MS` (default 1000 ms, range 100 to 5000). During that window a request can still be admitted with the state from before the change. A revocation made **through this server** (sign-out, session revoke, password change, an administrator disabling an account) makes the next request read fresh.
 
-What is never reused: bearer tokens, API keys, administrator requests, linked-mailbox selections, request-protection counters and the final check of mail data. Session clocks (idle and absolute expiry) are re-checked; when a reused session would come within two minutes of a deadline, or is due for its activity update, the request reads fresh.
+What is never reused: bearer tokens, API keys, administrator requests, linked-mailbox selections, request-protection counters and the final check of mail data. Session clocks (idle and absolute expiry) are re-checked; when a reused session would come within two minutes of a deadline, the request reads fresh. A session's activity update (`last_seen`) no longer forces a fresh read: the request records it in memory and the server writes it within 5 seconds. So a revocation made **by another process** is honoured only through the staleness bound (and, for revocations made through this server, the immediate fresh read described above); a busy session is not otherwise sent back to a fresh read.
 
 PostgreSQL: no poller is started and every request reads fresh.
 

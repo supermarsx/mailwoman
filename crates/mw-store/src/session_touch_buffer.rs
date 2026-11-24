@@ -90,6 +90,9 @@ pub struct TouchBufferStats {
     /// Sessions waiting for a flush, and sessions held (pending + hints).
     pub pending: u64,
     pub held: u64,
+    /// Touches of a failed flush not kept because the buffer was at its cap
+    /// (telemetry lost, as on a crash).
+    pub dropped: u64,
 }
 
 struct Entry {
@@ -101,6 +104,10 @@ pub(crate) struct TouchBuffer {
     config: TouchBufferConfig,
     shards: [Mutex<HashMap<String, Entry>>; SHARDS],
     held: AtomicUsize,
+    /// Held entries already flushed (hints). Lets the cap test be O(1): an
+    /// eviction pass runs only when there is something to evict.
+    clean: AtomicUsize,
+    dropped: AtomicU64,
     flushing: tokio::sync::Mutex<()>,
     recorded: AtomicU64,
     not_due: AtomicU64,
@@ -128,6 +135,8 @@ impl TouchBuffer {
             config,
             shards: std::array::from_fn(|_| Mutex::new(HashMap::new())),
             held: AtomicUsize::new(0),
+            clean: AtomicUsize::new(0),
+            dropped: AtomicU64::new(0),
             flushing: tokio::sync::Mutex::new(()),
             recorded: AtomicU64::new(0),
             not_due: AtomicU64::new(0),
@@ -156,20 +165,24 @@ impl TouchBuffer {
             if entry.at.as_str() < now {
                 entry.at = now.to_owned();
             }
-            entry.dirty = true;
+            if !entry.dirty {
+                entry.dirty = true;
+                self.clean.fetch_sub(1, Ordering::Relaxed);
+            }
             self.recorded.fetch_add(1, Ordering::Relaxed);
             return Recorded::Buffered;
         }
         if self.held.load(Ordering::Relaxed) >= self.config.max_sessions {
-            // Hints are only an optimisation: drop every flushed entry before
-            // refusing a new session (one shard lock at a time).
-            drop(shard);
-            for other in &self.shards {
-                let mut other = lock(other);
-                let before = other.len();
-                other.retain(|_, entry| entry.dirty);
-                self.held.fetch_sub(before - other.len(), Ordering::Relaxed);
+            // At the cap with only pending entries: O(1), write through.
+            if self.clean.load(Ordering::Relaxed) == 0 {
+                self.write_through.fetch_add(1, Ordering::Relaxed);
+                return Recorded::Full;
             }
+            // Hints are only an optimisation: drop every flushed entry before
+            // refusing a new session (one shard lock at a time). One pass
+            // frees all of them, so it runs at most once per flush.
+            drop(shard);
+            self.evict_clean();
             shard = lock(self.shard(id));
             if shard.contains_key(id) {
                 drop(shard);
@@ -192,6 +205,17 @@ impl TouchBuffer {
         Recorded::Buffered
     }
 
+    fn evict_clean(&self) {
+        for other in &self.shards {
+            let mut other = lock(other);
+            let before = other.len();
+            other.retain(|_, entry| entry.dirty);
+            let removed = before - other.len();
+            self.held.fetch_sub(removed, Ordering::Relaxed);
+            self.clean.fetch_sub(removed, Ordering::Relaxed);
+        }
+    }
+
     fn latest(&self, id: &str) -> Option<String> {
         lock(self.shard(id)).get(id).map(|entry| entry.at.clone())
     }
@@ -203,21 +227,29 @@ impl TouchBuffer {
         for shard in &self.shards {
             let mut shard = lock(shard);
             let before = shard.len();
+            let mut cleaned = 0;
             shard.retain(|id, entry| {
                 if entry.dirty {
                     entry.dirty = false;
+                    cleaned += 1;
                     pending.push((id.clone(), entry.at.clone()));
                     true
                 } else {
                     entry.at.as_str() >= stale_before
                 }
             });
-            self.held.fetch_sub(before - shard.len(), Ordering::Relaxed);
+            let removed = before - shard.len();
+            self.held.fetch_sub(removed, Ordering::Relaxed);
+            // Removed entries were clean ones; `cleaned` just became clean.
+            self.clean.fetch_add(cleaned, Ordering::Relaxed);
+            self.clean.fetch_sub(removed, Ordering::Relaxed);
         }
         pending
     }
 
-    /// A failed batch is pending again (merged with anything newer).
+    /// A failed batch is pending again (merged with anything newer). A
+    /// session evicted meanwhile is re-added only below the cap; above it the
+    /// touch is dropped and counted (it cannot be written through here).
     fn restore(&self, failed: &[(String, String)]) {
         for (id, at) in failed {
             let mut shard = lock(self.shard(id));
@@ -226,7 +258,13 @@ impl TouchBuffer {
                     if entry.at < *at {
                         entry.at = at.clone();
                     }
-                    entry.dirty = true;
+                    if !entry.dirty {
+                        entry.dirty = true;
+                        self.clean.fetch_sub(1, Ordering::Relaxed);
+                    }
+                }
+                None if self.held.load(Ordering::Relaxed) >= self.config.max_sessions => {
+                    self.dropped.fetch_add(1, Ordering::Relaxed);
                 }
                 None => {
                     shard.insert(
@@ -257,6 +295,7 @@ impl TouchBuffer {
             flush_failures: self.flush_failures.load(Ordering::Relaxed),
             pending,
             held: self.held.load(Ordering::Relaxed) as u64,
+            dropped: self.dropped.load(Ordering::Relaxed),
         }
     }
 }

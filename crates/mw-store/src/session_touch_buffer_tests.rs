@@ -366,3 +366,52 @@ async fn postgres_retention_never_prunes_a_session_with_a_newer_buffered_touch()
     retention_never_prunes_a_session_with_a_newer_buffered_touch(&store).await;
     store.close().await;
 }
+
+/// The cap is an O(1) test while every held entry is pending (no shard scan),
+/// one eviction pass frees the hints, and a failed batch restored after its
+/// sessions were evicted never takes the buffer above the cap.
+#[test]
+fn the_cap_holds_with_only_pending_entries_and_across_restore() {
+    let buffer = TouchBuffer::new(config(2));
+    let (now, cutoff) = ("2026-11-24T12:00:00+00:00", "2026-11-24T11:59:45+00:00");
+    assert!(matches!(
+        buffer.record("a", now, cutoff),
+        Recorded::Buffered
+    ));
+    assert!(matches!(
+        buffer.record("b", now, cutoff),
+        Recorded::Buffered
+    ));
+    assert_eq!(buffer.clean.load(Ordering::Relaxed), 0);
+    assert!(
+        matches!(buffer.record("c", now, cutoff), Recorded::Full),
+        "at the cap, all pending"
+    );
+    assert_eq!(buffer.stats().held, 2);
+    // Flushed (taken): two hints; a new session evicts them in one pass.
+    let taken = buffer.take_pending("2026-11-24T11:00:00+00:00");
+    assert_eq!((taken.len(), buffer.clean.load(Ordering::Relaxed)), (2, 2));
+    assert!(matches!(
+        buffer.record("c", now, cutoff),
+        Recorded::Buffered
+    ));
+    assert_eq!(
+        (buffer.stats().held, buffer.clean.load(Ordering::Relaxed)),
+        (1, 0)
+    );
+    // The batch of a and b failed: one fits, the other is dropped and counted.
+    buffer.restore(&taken);
+    let stats = buffer.stats();
+    assert_eq!(
+        (stats.held, stats.pending, stats.dropped),
+        (2, 2, 1),
+        "{stats:?}"
+    );
+    assert!(stats.held <= 2);
+    // A hint made pending again leaves the clean count consistent.
+    let taken = buffer.take_pending("2026-11-24T11:00:00+00:00");
+    assert_eq!((taken.len(), buffer.clean.load(Ordering::Relaxed)), (2, 2));
+    buffer.restore(&taken);
+    assert_eq!(buffer.clean.load(Ordering::Relaxed), 0);
+    assert_eq!(buffer.stats().held, 2);
+}
