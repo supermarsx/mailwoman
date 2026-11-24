@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { transformWithEsbuild, type Plugin } from 'vite';
 import { bundledPackages } from './scripts/about-bundled-packages.mjs';
 import { swTrustedImport } from './scripts/swTrustedImport.ts';
+import { buildBootManifest, manifestTag, readManifestTag } from './src/boot/bootManifest.ts';
 
 const buildCacheStats={hits:0,misses:0};
 const webRoot = fileURLToPath(new URL('.', import.meta.url));
@@ -46,14 +47,23 @@ function bootScript(): Plugin {
     },
     transformIndexHtml: {
       order: 'post',
-      handler(_html, ctx) {
-        let src = '/src/boot/boot.js';
-        if (ctx.bundle !== undefined) {
-          const asset = Object.values(ctx.bundle).find((o) => o.type === 'asset' && (o.names.includes('boot.js') || o.name === 'boot.js'));
-          if (asset === undefined) throw new Error('mw-boot-script: boot.js was not emitted');
-          src = `./${asset.fileName}`;
-        }
-        return [{ tag: 'script', attrs: { src }, injectTo: 'head-prepend' }];
+      handler(html, ctx) {
+        if (ctx.bundle === undefined) return [{ tag: 'script', attrs: { src: '/src/boot/boot.js' }, injectTo: 'head-prepend' }];
+        const asset = Object.values(ctx.bundle).find((o) => o.type === 'asset' && (o.names.includes('boot.js') || o.name === 'boot.js'));
+        if (asset === undefined) throw new Error('mw-boot-script: boot.js was not emitted');
+        // t52w: what boot.js preloads (src/boot/bootManifest.ts), as a data block
+        // ahead of it; assetIntegrity() adds the SRI once the files are written.
+        // Both go right after the charset declaration, which must stay within
+        // the first 1024 bytes of the document.
+        const manifest = buildBootManifest(Object.values(ctx.bundle).map((o) => o.type === 'chunk'
+          ? { type: 'chunk' as const, fileName: o.fileName, name: o.name, isEntry: o.isEntry, imports: o.imports, importedCss: [...(o.viteMetadata?.importedCss ?? [])] }
+          : { type: 'asset' as const, fileName: o.fileName }));
+        const charset = /<meta charset="UTF-8"\s*\/?>/i.exec(html);
+        if (charset === null) throw new Error('mw-boot-script: index.html has no <meta charset="UTF-8">');
+        const at = charset.index + charset[0].length;
+        return `${html.slice(0, at)}
+    ${manifestTag(manifest)}
+    <script src="./${asset.fileName}"></script>${html.slice(at)}`;
       },
     },
   };
@@ -140,7 +150,7 @@ export function assetIntegrity(): Plugin {
         digests[rel]=createHash('sha256').update(readFileSync(file)).digest('hex');
       }
       const htmlPath = join(outDir, 'index.html');
-      const html = readFileSync(htmlPath, 'utf8').replace(
+      let html = readFileSync(htmlPath, 'utf8').replace(
         /<(script|link)\b([^>]*?)\s(src|href)="\.\/(assets\/[^"]+\.js)"([^>]*)>/g,
         (tag: string, name: string, before: string, attr: string, path: string, after: string) => {
           if (tag.includes(' integrity=')) return tag;
@@ -148,6 +158,15 @@ export function assetIntegrity(): Plugin {
           return `<${name}${before} ${attr}="./${path}" integrity="${sri}"${after}>`;
         },
       );
+      // t52w: the boot manifest's scripts get the same SRI as the tags above.
+      // (A shell without one is refused by scripts/check-build-assets.mjs.)
+      const boot = readManifestTag(html);
+      if (boot !== null) {
+        for (const path of [...boot.manifest.mail, ...boot.manifest.login]) {
+          if (path.endsWith('.js')) boot.manifest.sri[path] = `sha384-${createHash('sha384').update(readFileSync(join(outDir, path))).digest('base64')}`;
+        }
+        html = html.replace(boot.tag, () => manifestTag(boot.manifest));
+      }
       writeFileSync(htmlPath, html);
       // The shell itself, after SRI: the worker serves a stored shell only if
       // it is this file (with the server's base-shim tag removed).

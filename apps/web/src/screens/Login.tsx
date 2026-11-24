@@ -24,6 +24,7 @@ import * as legalCss from './loginPolicy.css.ts';
 import { consentConfig } from '../cookies/runtime.ts';
 import { applyBranding, brandAssetUrl } from '../branding.ts';
 import { passwordlessAvailable, signInWithPasskey } from '../api/passwordless.ts';
+import { warmMailbox } from '../boot/warmMailbox.ts';
 // i18n: the ids this file shows live in these catalogs, which load with it.
 void loadCatalog('cookies');
 
@@ -230,6 +231,7 @@ export function Login(props: { returnPath?: string } = {}): JSX.Element {
           <input id="login-username" ref={usernameInput} type="text" inputmode="email" required autocomplete="username" autocapitalize="none" spellcheck={false}
             aria-describedby={config()?.showDomainHint === true && config()?.usernameDomainHint ? 'login-domain-hint' : undefined}
             value={email()} onInput={event => setEmail(event.currentTarget.value)}
+            onFocus={() => void warmMailbox()}
             onKeyDown={event => { if (event.key === 'ArrowDown' && remembered().length) { event.preventDefault(); setRememberedOpen(true); queueMicrotask(() => document.querySelector<HTMLButtonElement>('#remembered-signins button')?.focus()); } }} />
           <Show when={remembered().length}><button type="button" class={rememberedCss.toggle} disabled={busy()} aria-label={t('auth-remembered')} aria-expanded={rememberedOpen()} aria-controls="remembered-signins" onClick={() => setRememberedOpen(value => !value)}><Icon name="chevronDown" /></button></Show>
           </div>

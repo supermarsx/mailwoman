@@ -42,6 +42,17 @@ const sha256 = (s: string | Buffer): string => createHash('sha256').update(s).di
 const sri = (s: string): string => `sha384-${createHash('sha384').update(s).digest('base64')}`;
 
 describe('mw-asset-integrity', () => {
+  it('gives the scripts of the boot manifest SRI, before the shell digest is taken (t52w)', () => {
+    const tag = '<script type="application/json" id="mw-boot-manifest">{"v":1,"mail":["./assets/index-a1.js","./assets/index-c3.css"],"login":[],"fonts":{},"packs":{},"sri":{}}</script>';
+    const out = fixture(`<!doctype html><html><head><meta charset="UTF-8" />${tag}<script src="./assets/boot-b2.js"></script></head><body></body></html>`);
+    run(out);
+    const html = readFileSync(join(out, 'index.html'), 'utf8');
+    const manifest = JSON.parse(/id="mw-boot-manifest">([^<]*)</.exec(html)![1]!) as { sri: Record<string, string> };
+    expect(manifest.sri).toEqual({ './assets/index-a1.js': sri('export{}') });
+    const sw = readFileSync(join(out, 'sw.js'), 'utf8');
+    expect((JSON.parse(/const ASSET_DIGESTS = (\{.*\});/.exec(sw)![1]!) as Record<string, string>)['/index.html']).toBe(sha256(html));
+  });
+
   it('writes the manifest into sw.js and SRI into the entry and boot scripts', () => {
     const out = fixture('<!doctype html><html><head><script src="./assets/boot-b2.js"></script><script type="module" crossorigin src="./assets/index-a1.js"></script><link rel="stylesheet" crossorigin href="./assets/index-c3.css"></head><body></body></html>');
     run(out);

@@ -73,6 +73,38 @@ for (const page of all.filter((p) => p.endsWith('.html') && !p.startsWith('pdfjs
   }
 }
 
+// ── Boot manifest (t52w): every file the boot script preloads exists ─────────
+// src/boot/bootManifest.ts writes it into index.html; boot.js fetches the first
+// screen's chunks and preloads one font and one translation pack from it.
+{
+  const html = has('index.html') ? read('index.html').toString('utf8') : '';
+  const block = /<script type="application\/json" id="mw-boot-manifest">([^<]*)<\/script>/.exec(html)?.[1];
+  if (block === undefined) fail('index.html: no boot manifest (mw-boot-manifest); boot.js would preload nothing');
+  else {
+    let manifest = null;
+    try { manifest = JSON.parse(block); } catch { fail('index.html: the boot manifest is not JSON'); }
+    if (manifest !== null) {
+      if (manifest.v !== 1) fail(`boot manifest: unknown version ${manifest.v}`);
+      const targets = [...(manifest.mail ?? []), ...(manifest.login ?? []), ...Object.values(manifest.fonts ?? {}), ...Object.values(manifest.packs ?? {})];
+      if ((manifest.mail ?? []).length === 0 || (manifest.login ?? []).length === 0) fail('boot manifest: the mail or login set is empty');
+      if (!manifest.fonts?.jost) fail('boot manifest: no preload for the default UI font (jost)');
+      if (!manifest.packs?.en) fail('boot manifest: no English app pack');
+      for (const ref of targets) {
+        if (typeof ref !== 'string' || !ref.startsWith('./assets/')) { fail(`boot manifest: ${ref} is not a ./assets/ path`); continue; }
+        expect('index.html', ref, 'boot preload target');
+      }
+      for (const [ref, integrity] of Object.entries(manifest.sri ?? {})) {
+        const target = resolveRef('index.html', ref);
+        if (!target || !present.has(target)) { fail(`boot manifest: SRI for ${ref}, which is not in the build`); continue; }
+        if (`sha384-${sha('sha384', read(target), 'base64')}` !== integrity) fail(`boot manifest: SRI for ${ref} does not match the built file`);
+      }
+      for (const ref of [...(manifest.mail ?? []), ...(manifest.login ?? [])]) {
+        if (ref.endsWith('.js') && !(ref in (manifest.sri ?? {}))) fail(`boot manifest: ${ref} has no SRI`);
+      }
+    }
+  }
+}
+
 // ── Chunks: static imports, dynamic imports, preload maps, new URL(...) ─────
 const literal = String.raw`"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'`;
 const forms = [
