@@ -60,6 +60,27 @@ function bootScript(): Plugin {
 }
 
 /**
+ * t52w: the build's preload helper is `src/boot/chunkRetry.ts` instead of Vite's
+ * own: every file of a dynamic import is fetched (and retried on 503 / network
+ * error) before the module loader asks for it, because a failed module fetch
+ * stays failed for the life of the page. Vite resolves the helper id itself;
+ * this plugin only answers `load` for it first.
+ */
+const PRELOAD_HELPER_ID = '\0vite/preload-helper.js';
+function chunkRetry(): Plugin {
+  const helper = fileURLToPath(new URL('./src/boot/chunkRetry.ts', import.meta.url)).split(sep).join('/');
+  return {
+    name: 'mw-chunk-retry',
+    enforce: 'pre',
+    apply: 'build',
+    load(id) {
+      if (id !== PRELOAD_HELPER_ID) return null;
+      return { code: `export { vitePreload as __vitePreload } from ${JSON.stringify(helper)};`, moduleSideEffects: false };
+    },
+  };
+}
+
+/**
  * t63 R1: integrity for what the service worker and the page load.
  *
  * Cache Storage is writable by any script of this origin, so the worker serves
@@ -169,7 +190,7 @@ export default defineConfig({
   // Top-level await in the wasm modules is native (target es2022) and the workers are built as
   // ES modules (`worker.format`), so there is no `vite-plugin-top-level-await`: it re-printed each
   // chunk after its source map was written and misaligned every hidden map (docs/admin/observability.md).
-  plugins: [catalogAssets(),cachedSolid({stats:buildCacheStats}), vanillaExtractPlugin(), wasm(), bundledPackages({ main: true }), bootScript(), offlineBackground(), assetIntegrity(),assetCompression(),buildTimings(buildCacheStats),bundleGraph()],
+  plugins: [chunkRetry(),catalogAssets(),cachedSolid({stats:buildCacheStats}), vanillaExtractPlugin(), wasm(), bundledPackages({ main: true }), bootScript(), offlineBackground(), assetIntegrity(),assetCompression(),buildTimings(buildCacheStats),bundleGraph()],
   // t32-e75: the bundle recorder also sees the worker builds; the main instance writes
   // node_modules/.cache/mailwoman-about/bundled-packages.json for the third-party list.
   worker: { format: 'es', plugins: () => [catalogAssets(undefined,{emit:false}),bundledPackages()] },

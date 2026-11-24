@@ -135,6 +135,7 @@ export default defineConfig({
         'compose-options.spec.ts',
         'csrf-strict.spec.ts',
         't59-sw-trusted-types.spec.ts',
+        't52w-chunk-retry.spec.ts',
       ],
       // SharedWorker requests inherit Chromium's process UA, not the context's
       // device UA. Keep both aligned so bot protection is tested separately.
