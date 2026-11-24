@@ -50,9 +50,7 @@ ce-col-trend = Tendance
 
 ce-col-viewport = Fenêtre
 
-ce-copied = Copié
 
-ce-copy = Copier les détails
 
 ce-copy-markdown = Copier comme problème
 
@@ -104,7 +102,6 @@ ce-no-data = Rien d'enregistré.
 
 ce-not-symbolicated = Aucune carte source ne correspond à cette pile : affichant les images brutes.
 
-ce-ref = Référence d'erreur
 
 ce-refresh = Actualiser
 
@@ -132,13 +129,9 @@ ce-state-resolved = Résolu
 
 ce-status-all = Tout
 
-ce-status-failed = Rapport non envoyé
 
-ce-status-off = Le rapport est désactivé
 
-ce-status-pending = Envoi du rapport…
 
-ce-status-reported = Signalé
 
 ce-table-caption = Groupes d'erreurs client, les plus récents en premier
 
@@ -153,3 +146,5 @@ ce-unit-per-hour = Compter par heure
 ce-unknown = Inconnu
 
 ce-where = Où : { $boundary } sur { $route }.
+
+ce-lookup-help = Saisissez la référence à huit caractères ou l’identifiant complet du rapport. La recherche inclut toutes les dates et tous les états conservés.

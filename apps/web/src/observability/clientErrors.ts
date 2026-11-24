@@ -60,6 +60,8 @@ export interface ReportHandle {
   subscribe(listener: (status: ReportStatus) => void): () => void;
   /** The scrubbed report as plain text, for pasting into a ticket. */
   details(): string;
+  /** Retry this scrubbed report, retaining its support reference and policy. */
+  send(): Promise<void>;
 }
 
 export interface ClientErrorPolicy {
@@ -288,7 +290,7 @@ export function normalise(input: unknown, kind: ErrorKind, boundary: string, ctx
 /** The report as text for a ticket or an email to support. */
 export function reportText(r: ClientErrorReport): string {
   return [
-    `Error reference: ${r.id.slice(0, 8)}`,
+    `Error reference: ${r.fingerprint.slice(0, 8)}`,
     `${r.name}: ${r.message}`,
     `Where: ${r.boundary || '(none)'} ${r.route}`,
     `Build: ${r.build || '(unknown)'}`,
@@ -325,6 +327,7 @@ export interface ReporterOptions {
 }
 
 interface Seen {
+  reference: ClientErrorReport;
   first: number;
   pending: number;
   tailTimer: unknown;
@@ -382,7 +385,8 @@ export class Reporter {
     try {
       const ctx = this.o.context();
       const report = normalise(input, kind, boundary, ctx, { ...extra, visit: this.visit, time: this.o.now() });
-      const handle = this.handleFor(report);
+      const seen=this.seen.get(report.fingerprint);
+      const handle = this.handleFor(seen&&this.o.now()-seen.first<LIMITS.dedupeMs?seen.reference:report);
       this.admit(report);
       return handle;
     } catch {
@@ -423,7 +427,7 @@ export class Reporter {
       }
       return;
     }
-    this.seen.set(report.fingerprint, { first: t, pending: 0, tailTimer: null, template: null });
+    this.seen.set(report.fingerprint, { reference: report, first: t, pending: 0, tailTimer: null, template: null });
     if (this.seen.size > 200) this.seen.delete(this.seen.keys().next().value as string);
     this.enqueue(report);
   }
@@ -460,7 +464,14 @@ export class Reporter {
   }
 
   /** Send what is queued. `unloading` prefers a transport that survives the page. */
+  private flushing:Promise<void>|null=null;
   async flush(unloading: boolean): Promise<void> {
+    if(this.flushing){await this.flushing;if(this.queue.length)await this.flush(unloading);return;}
+    const run=this.flushOnce(unloading);this.flushing=run;
+    try{await run;}finally{if(this.flushing===run)this.flushing=null;}
+  }
+
+  private async flushOnce(unloading: boolean): Promise<void> {
     if (this.flushTimer !== null) {
       this.o.clearTimer(this.flushTimer);
       this.flushTimer = null;
@@ -496,11 +507,13 @@ export class Reporter {
       }
       while (this.queue.length > 0) {
         const batch = this.queue.splice(0, LIMITS.batch);
-        const result = await this.o.transport.send(batch, { unloading });
+        let result:Awaited<ReturnType<Transport['send']>>;
+        try{result=await this.o.transport.send(batch,{unloading});}
+        catch{for(const r of batch)this.setStatus(r.id,'failed');throw new Error('Report transport failed');}
         if (result.off === true) {
           this.userOff = true;
           for (const r of batch) this.setStatus(r.id, 'off');
-          this.queue = [];
+          this.markAll('off');
           return;
         }
         if (result.ok) {
@@ -512,12 +525,12 @@ export class Reporter {
         for (const r of batch) this.setStatus(r.id, 'failed');
         if (result.status === 429) {
           this.pausedUntil = this.o.now() + Math.max(5, result.retryAfter ?? 30) * 1000;
-          this.queue = [];
+          this.markAll('failed');
           return;
         }
         if (++this.failures >= LIMITS.breakerFailures) {
           this.openUntil = this.o.now() + LIMITS.breakerMs;
-          this.queue = [];
+          this.markAll('failed');
           this.failures = 0;
           return;
         }
@@ -535,14 +548,15 @@ export class Reporter {
   // ---- statuses and handles ----
 
   private latest = new Map<string, ClientErrorReport>();
+  private sending = new Set<string>();
 
   private handleFor(report: ClientErrorReport): ReportHandle {
     this.latest.set(report.id, report);
     if (this.latest.size > 50) this.latest.delete(this.latest.keys().next().value as string);
-    this.statuses.set(report.id, 'pending');
+    if(!this.statuses.has(report.id))this.statuses.set(report.id, 'pending');
     const id = report.id;
     return {
-      ref: id.replace(/-/g, '').slice(0, 8),
+      ref: report.fingerprint.slice(0, 8),
       status: () => this.statuses.get(id) ?? 'pending',
       subscribe: (listener) => {
         let set = this.listeners.get(id);
@@ -551,6 +565,20 @@ export class Reporter {
         return () => set.delete(listener);
       },
       details: () => reportText(report),
+      send: async () => {
+        if(this.sending.has(id))return;
+        this.sending.add(id);
+        try{
+          await this.flushing;
+          const status=this.statuses.get(id);
+          if(status==='reported'||status==='off')return;
+          if(this.userOff||!this.policy.enabled){this.setStatus(id,'off');return;}
+          if(this.suspended||this.sentCount>=this.policy.maxPerSession){this.setStatus(id,'failed');return;}
+          if(!this.queue.some(row=>row.id===id))this.enqueue(report);
+          this.setStatus(id,'pending');
+          await this.flush(false);
+        }catch{this.setStatus(id,'failed');}finally{this.sending.delete(id);}
+      },
     };
   }
 
@@ -663,7 +691,8 @@ export function browserTransport(): Transport {
             mode = 'in';
             if (res.status === 429) return { ok: false, status: 429, retryAfter: Number(res.headers.get('Retry-After') ?? 30) };
             if (!res.ok) return { ok: false, status: res.status };
-            const info = (await res.json().catch(() => ({}))) as { reporting?: string };
+            const info = (await res.json().catch(() => null)) as { reporting?: string }|null;
+            if(!info||!['on','off'].includes(info.reporting??''))return {ok:false,status:res.status};
             if (info.reporting === 'off' || info.reporting === 'on') cacheErrorReports(info.reporting);
             return info.reporting === 'off' ? { ok: false, status: 200, off: true } : { ok: true, status: res.status };
           }
@@ -687,6 +716,7 @@ export function browserTransport(): Transport {
           credentials: 'omit',
           pace: 'background',
         });
+        if(res.headers.get('x-mailwoman-reporting')==='off')return {ok:false,status:res.status,off:true};
         if (res.status === 429) return { ok: false, status: 429, retryAfter: Number(res.headers.get('Retry-After') ?? 30) };
         return { ok: res.ok, status: res.status };
       } catch {

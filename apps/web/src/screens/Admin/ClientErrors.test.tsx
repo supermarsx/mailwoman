@@ -57,6 +57,15 @@ beforeEach(() => {
 });
 
 describe('Admin > Observability > Client errors', () => {
+  it('looks up a copied error reference and makes the broader lookup scope clear',async()=>{
+    open(['client-errors']);await screen.findAllByTestId('ce-row');
+    fireEvent.input(screen.getByRole('searchbox',{name:'Error reference'}),{target:{value:'d68654e4'}});
+    await waitFor(()=>expect(vi.mocked(api.listClientErrors).mock.calls.at(-1)?.[0]).toMatchObject({reference:'d68654e4'}));
+    expect(screen.getByLabelText('Status')).toBeDisabled();
+    fireEvent.input(screen.getByRole('searchbox',{name:'Error reference'}),{target:{value:''}});
+    await waitFor(()=>expect(vi.mocked(api.listClientErrors).mock.calls.at(-1)?.[0]).not.toHaveProperty('reference'));
+    expect(screen.getByLabelText('Status')).toBeEnabled();
+  });
   it('lists groups with counts, sessions, build, boundary and status, filtered by status', async () => {
     open(['client-errors']);
     const rows = await screen.findAllByTestId('ce-row');

@@ -50,9 +50,7 @@ ce-col-trend = الاتجاه
 
 ce-col-viewport = إطار العرض
 
-ce-copied = منقول
 
-ce-copy = نسخ التفاصيل
 
 ce-copy-markdown = نسخ كمسألة
 
@@ -104,7 +102,6 @@ ce-no-data = لم يتم تسجيل أي شيء.
 
 ce-not-symbolicated = لا توجد خريطة مصدر تطابق هذه المكدس: تظهر الإطارات الأولية.
 
-ce-ref = مرجع الخطأ
 
 ce-refresh = تحديث
 
@@ -132,13 +129,9 @@ ce-state-resolved = تم الحل
 
 ce-status-all = الكل
 
-ce-status-failed = لم يتم إرسال التقرير
 
-ce-status-off = تم إيقاف إعداد التقارير
 
-ce-status-pending = جارٍ إرسال التقرير...
 
-ce-status-reported = ذكرت
 
 ce-table-caption = مجموعات أخطاء العميل، الأحدث أولاً
 
@@ -153,3 +146,5 @@ ce-unit-per-hour = العد في الساعة
 ce-unknown = غير معروف
 
 ce-where = حيث: { $boundary } على { $route }.
+
+ce-lookup-help = أدخل مرجع الخطأ المكوّن من ثمانية أحرف أو معرّف التقرير الكامل. يشمل البحث جميع التواريخ والحالات المحتفظ بها.

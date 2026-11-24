@@ -273,3 +273,15 @@ attach-action-forward-new = Переслать в новом письме
 common-conn-unstable = Нестабильное соединение — частые отключения. Ожидание стабильного соединения.
 common-conn-account-unstable = Нестабильное соединение
 common-conn-account-instability = Соединение с { $account } нестабильно и постоянно переподключается.
+
+# Error reporting controls must work even when a lazy page/catalog cannot load.
+ce-copied = Скопировано
+ce-copy = Копировать детали
+ce-ref = Ссылка на ошибку
+ce-status-failed = Отчет не отправлен
+ce-status-off = Отчеты отключены
+ce-status-pending = Отправка отчета…
+ce-status-reported = Сообщено
+ce-send = Отправить отчёт
+ce-send-retry = Повторить отправку
+ce-report-help = Администраторы могут найти отправленные отчёты в разделе «Наблюдаемость → Ошибки клиента» по этому коду.

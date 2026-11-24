@@ -1,11 +1,4 @@
 # Error reports: the reference line on a failure panel, and Admin > Observability > Client errors.
-ce-ref = Error reference
-ce-status-pending = Sending report…
-ce-status-reported = Reported
-ce-status-off = Reporting is off
-ce-status-failed = Report not sent
-ce-copy = Copy details
-ce-copied = Copied
 
 ce-title = Client errors
 ce-intro = Errors the web app caught in people's browsers, grouped by cause. Reports contain no message content, addresses, tokens or URL queries. Stack traces use the build's source maps when the server has them.
@@ -76,3 +69,5 @@ ce-no-data = Nothing recorded.
 ce-events = Recent occurrences
 ce-delete-title = Delete this error group?
 ce-delete-body = The group and its stored occurrences are removed. If the error happens again a new group starts.
+
+ce-lookup-help = Enter the eight-character error reference or full report ID. Reference searches include all retained dates and statuses.

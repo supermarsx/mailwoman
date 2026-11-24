@@ -50,9 +50,7 @@ ce-col-trend = Tendencia
 
 ce-col-viewport = Ventana gráfica
 
-ce-copied = Copiado
 
-ce-copy = Copiar detalles
 
 ce-copy-markdown = Copiar como problema
 
@@ -104,7 +102,6 @@ ce-no-data = Nada registrado.
 
 ce-not-symbolicated = Ningún mapa fuente coincidió con esta pila: mostrando los marcos sin formato.
 
-ce-ref = Referencia de error
 
 ce-refresh = Actualizar
 
@@ -132,13 +129,9 @@ ce-state-resolved = Resuelto
 
 ce-status-all = Todos
 
-ce-status-failed = Informe no enviado
 
-ce-status-off = Los informes están desactivados
 
-ce-status-pending = Enviando informe…
 
-ce-status-reported = Reportado
 
 ce-table-caption = Grupos de errores del cliente, los más nuevos primero
 
@@ -153,3 +146,5 @@ ce-unit-per-hour = contar por hora
 ce-unknown = Desconocido
 
 ce-where = Dónde: { $boundary } en { $route }.
+
+ce-lookup-help = Introduzca la referencia de ocho caracteres o el ID completo del informe. La búsqueda incluye todas las fechas y estados conservados.

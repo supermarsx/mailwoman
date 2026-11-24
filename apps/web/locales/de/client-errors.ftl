@@ -50,9 +50,7 @@ ce-col-trend = Trend
 
 ce-col-viewport = Ansichtsfenster
 
-ce-copied = Kopiert
 
-ce-copy = Details kopieren
 
 ce-copy-markdown = Als Ausgabe kopieren
 
@@ -104,7 +102,6 @@ ce-no-data = Nichts aufgezeichnet.
 
 ce-not-symbolicated = Zu diesem Stapel passte keine Quellkarte: Zeigt die Rohbilder an.
 
-ce-ref = Fehlerreferenz
 
 ce-refresh = Aktualisieren
 
@@ -132,13 +129,9 @@ ce-state-resolved = Gelöst
 
 ce-status-all = Alle
 
-ce-status-failed = Bericht nicht gesendet
 
-ce-status-off = Die Berichterstellung ist deaktiviert
 
-ce-status-pending = Bericht wird gesendet…
 
-ce-status-reported = Gemeldet
 
 ce-table-caption = Client-Fehlergruppen, neueste zuerst
 
@@ -153,3 +146,5 @@ ce-unit-per-hour = Zählen Sie pro Stunde
 ce-unknown = Unbekannt
 
 ce-where = Wo: { $boundary } auf { $route }.
+
+ce-lookup-help = Geben Sie die achtstellige Fehlerreferenz oder die vollständige Berichts-ID ein. Die Referenzsuche umfasst alle gespeicherten Zeiträume und Status.

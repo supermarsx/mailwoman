@@ -50,9 +50,7 @@ ce-col-trend = Trend
 
 ce-col-viewport = Kijkpoort
 
-ce-copied = Gekopieerd
 
-ce-copy = Kopieer gegevens
 
 ce-copy-markdown = Kopieer als uitgave
 
@@ -104,7 +102,6 @@ ce-no-data = Niets opgenomen.
 
 ce-not-symbolicated = Geen enkele bronkaart kwam overeen met deze stapel: toont de onbewerkte frames.
 
-ce-ref = Foutreferentie
 
 ce-refresh = Vernieuwen
 
@@ -132,13 +129,9 @@ ce-state-resolved = Opgelost
 
 ce-status-all = Allemaal
 
-ce-status-failed = Rapport niet verzonden
 
-ce-status-off = Rapportage staat uit
 
-ce-status-pending = Rapport verzenden…
 
-ce-status-reported = Gerapporteerd
 
 ce-table-caption = Clientfoutgroepen, nieuwste eerst
 
@@ -153,3 +146,5 @@ ce-unit-per-hour = Tel per uur
 ce-unknown = Onbekend
 
 ce-where = Waar: { $boundary } op { $route }.
+
+ce-lookup-help = Voer de foutreferentie van acht tekens of de volledige rapport-ID in. De zoekopdracht omvat alle bewaarde datums en statussen.

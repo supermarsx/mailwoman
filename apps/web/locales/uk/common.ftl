@@ -273,3 +273,15 @@ attach-action-forward-new = Переслати в новому листі
 common-conn-unstable = Нестабільне з’єднання — часті відключення. Очікування стабільного з’єднання.
 common-conn-account-unstable = Нестабільне з’єднання
 common-conn-account-instability = З’єднання з { $account } нестабільне й постійно відновлюється.
+
+# Error reporting controls must work even when a lazy page/catalog cannot load.
+ce-copied = Скопійовано
+ce-copy = Скопіюйте деталі
+ce-ref = Посилання на помилку
+ce-status-failed = Звіт не надіслано
+ce-status-off = Звітування вимкнено
+ce-status-pending = Надсилання звіту…
+ce-status-reported = Повідомлено
+ce-send = Надіслати звіт
+ce-send-retry = Повторити надсилання
+ce-report-help = Адміністратори можуть знайти надіслані звіти в розділі «Спостережуваність → Помилки клієнта» за цим кодом.

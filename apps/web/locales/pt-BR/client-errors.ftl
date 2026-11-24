@@ -50,9 +50,7 @@ ce-col-trend = Tendência
 
 ce-col-viewport = Janela de visualização
 
-ce-copied = Copiado
 
-ce-copy = Copiar detalhes
 
 ce-copy-markdown = Copiar como problema
 
@@ -104,7 +102,6 @@ ce-no-data = Nada registrado.
 
 ce-not-symbolicated = Nenhum mapa de origem correspondeu a esta pilha: mostrando os quadros brutos.
 
-ce-ref = Referência de erro
 
 ce-refresh = Atualizar
 
@@ -132,13 +129,9 @@ ce-state-resolved = Resolvido
 
 ce-status-all = Todos
 
-ce-status-failed = Relatório não enviado
 
-ce-status-off = Os relatórios estão desativados
 
-ce-status-pending = Enviando relatório…
 
-ce-status-reported = Relatado
 
 ce-table-caption = Grupos de erros do cliente, os mais novos primeiro
 
@@ -153,3 +146,5 @@ ce-unit-per-hour = Contagem por hora
 ce-unknown = Desconhecido
 
 ce-where = Onde: { $boundary } em { $route }.
+
+ce-lookup-help = Digite a referência de oito caracteres ou o ID completo do relatório. A pesquisa por referência inclui todas as datas e estados retidos.

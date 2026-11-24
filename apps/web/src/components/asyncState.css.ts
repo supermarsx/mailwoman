@@ -120,3 +120,5 @@ export const errorReferenceCopy = style({
   minBlockSize:'44px',padding:`${vars.space[1]} ${vars.space[3]}`,border:`2px solid ${vars.color.borderStrong}`,borderRadius:0,
   background:'transparent',color:vars.color.text,font:'inherit',cursor:'pointer',
 });
+
+export const errorReferenceHelp=style({flexBasis:'100%',margin:0,color:vars.color.textDim,fontSize:'.8125rem',lineHeight:1.5,maxInlineSize:'72ch'});

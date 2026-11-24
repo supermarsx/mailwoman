@@ -50,9 +50,7 @@ ce-col-trend = Trend
 
 ce-col-viewport = Rzutnia
 
-ce-copied = Skopiowano
 
-ce-copy = Skopiuj szczegóły
 
 ce-copy-markdown = Skopiuj jako problem
 
@@ -104,7 +102,6 @@ ce-no-data = Nic nie zostało zapisane.
 
 ce-not-symbolicated = Żadna mapa źródłowa nie pasowała do tego stosu: pokazuje surowe klatki.
 
-ce-ref = Odniesienie do błędu
 
 ce-refresh = Odśwież
 
@@ -132,13 +129,9 @@ ce-state-resolved = Rozwiązano
 
 ce-status-all = Wszystko
 
-ce-status-failed = Raport nie został wysłany
 
-ce-status-off = Raportowanie jest wyłączone
 
-ce-status-pending = Wysyłam raport…
 
-ce-status-reported = Zgłoszono
 
 ce-table-caption = Grupy błędów klienta, najpierw najnowsze
 
@@ -153,3 +146,5 @@ ce-unit-per-hour = Licz na godzinę
 ce-unknown = Nieznany
 
 ce-where = Gdzie: { $boundary } na { $route }.
+
+ce-lookup-help = Wpisz ośmioznakowy identyfikator błędu lub pełny identyfikator raportu. Wyszukiwanie obejmuje wszystkie zachowane daty i stany.

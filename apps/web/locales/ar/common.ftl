@@ -262,3 +262,15 @@ attach-action-forward-new = إعادة التوجيه في رسالة جديدة
 common-conn-unstable = الاتصال غير مستقر — انقطاعات متكررة. في انتظار اتصال مستقر.
 common-conn-account-unstable = اتصال غير مستقر
 common-conn-account-instability = الاتصال بـ { $account } غير مستقر وتتم إعادة الاتصال باستمرار.
+
+# Error reporting controls must work even when a lazy page/catalog cannot load.
+ce-copied = منقول
+ce-copy = نسخ التفاصيل
+ce-ref = مرجع الخطأ
+ce-status-failed = لم يتم إرسال التقرير
+ce-status-off = تم إيقاف إعداد التقارير
+ce-status-pending = جارٍ إرسال التقرير...
+ce-status-reported = ذكرت
+ce-send = إرسال التقرير
+ce-send-retry = إعادة محاولة الإرسال
+ce-report-help = يمكن للمسؤولين العثور على التقارير المرسلة في قابلية المراقبة ← أخطاء العميل باستخدام هذا المرجع.

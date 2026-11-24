@@ -1,11 +1,4 @@
 # Machine translation (t32, 2026-10). Not reviewed by a native speaker.
-ce-ref = Referência do erro
-ce-status-pending = A enviar relatório…
-ce-status-reported = Comunicado
-ce-status-off = O envio de relatórios está desativado
-ce-status-failed = Relatório não enviado
-ce-copy = Copiar detalhes
-ce-copied = Copiado
 
 ce-title = Erros do navegador
 ce-intro = Erros que a aplicação web detetou nos navegadores das pessoas, agrupados por causa. Os relatórios não contêm conteúdo de mensagens, endereços, tokens nem parâmetros de URL. As stack traces usam os source maps da versão quando o servidor os tem.
@@ -76,3 +69,5 @@ ce-no-data = Nada registado.
 ce-events = Ocorrências recentes
 ce-delete-title = Eliminar este grupo de erros?
 ce-delete-body = O grupo e as ocorrências guardadas são removidos. Se o erro voltar a acontecer, começa um novo grupo.
+
+ce-lookup-help = Introduza a referência de oito caracteres ou o ID completo do relatório. A pesquisa por referência inclui todas as datas e estados conservados.

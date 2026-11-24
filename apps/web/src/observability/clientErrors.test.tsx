@@ -141,13 +141,38 @@ describe('normalise', () => {
   it('reportText carries the reference and no raw url', () => {
     const r = normalise(new Error('boom'), 'boundary', 'Reader', ctx);
     const text = reportText(r);
-    expect(text).toContain(`Error reference: ${r.id.slice(0, 8)}`);
+    expect(text).toContain(`Error reference: ${r.fingerprint.slice(0, 8)}`);
     expect(text).toContain('Chrome 126 on Windows');
     expect(text).not.toContain('q=secret');
   });
 });
 
 describe('Reporter', () => {
+  it('retries a failed report with the same id, prevents concurrent duplicate sends, and keeps it scrubbed',async()=>{
+    let fail=true;
+    const r=rig(()=>({ok:!fail,status:fail?503:204}));
+    const handle=r.reporter.report(new Error('broken for ana@example.test'), 'chunk','Settings')!;
+    await r.reporter.flush(false);expect(handle.status()).toBe('failed');
+    const first=r.sent[0]![0]!;fail=false;
+    await Promise.all([handle.send(),handle.send()]);
+    expect(handle.status()).toBe('reported');expect(r.sent).toHaveLength(2);
+    expect(r.sent[1]![0]!.id).toBe(first.id);expect(handle.ref).toBe(first.fingerprint.slice(0,8));
+    expect(r.sent[1]![0]!.message).not.toContain('ana@example.test');
+    await handle.send();expect(r.sent).toHaveLength(2);
+  });
+  it('keeps repeated boundary handles on the same searchable reference and report status',async()=>{
+    const r=rig(),error=Object.assign(new Error('same'),{stack:'Error: same\n at f (/assets/Reader-AbC123.js:1:2)'}),one=r.reporter.report(error, 'boundary','Reader')!;
+    await r.reporter.flush(false);
+    const two=r.reporter.report(error, 'boundary','Reader')!;
+    expect(two.ref).toBe(one.ref);expect(two.status()).toBe('reported');
+    await two.send();expect(r.sent).toHaveLength(1);
+  });
+  it('marks a throwing transport failed so the failure panel can retry it',async()=>{
+    const r=rig(),handle=r.reporter.report(new Error('broken'),'boundary','Reader')!;
+    r.transport.send.mockRejectedValueOnce(new TypeError('offline'));
+    await r.reporter.flush(false);expect(handle.status()).toBe('failed');
+    await handle.send();expect(handle.status()).toBe('reported');
+  });
   it('sends a report batched after the flush delay, with the visit id and a handle', async () => {
     const r = rig();
     const handle = r.reporter.report(new Error('boom'), 'boundary', 'Reader');
@@ -288,6 +313,14 @@ describe('Reporter', () => {
 });
 
 describe('failure panel', () => {
+  it('offers a report retry independently from retrying the failed page',async()=>{
+    let fail=true;const r=rig(()=>({ok:!fail,status:fail?503:204}));setReporterForTests(r.reporter);
+    render(()=><AsyncBoundary name="Settings"><Thrower/></AsyncBoundary>);
+    await r.reporter.flush(false);
+    const send=await screen.findByRole('button',{name:'Retry sending'});fail=false;fireEvent.click(send);
+    await waitFor(()=>expect(document.querySelector('[data-report-status]')).toHaveAttribute('data-report-status','reported'));
+    expect(screen.getByTestId('async-retry')).toBeInTheDocument();expect(screen.queryByTestId('error-send')).toBeNull();
+  });
   function Thrower(): never {
     throw Object.assign(new TypeError('section exploded for ana@example.test'), { stack: 'TypeError: section exploded\n    at Section (/assets/Section-AbC123De.js?x=1:3:4)' });
   }
@@ -330,6 +363,10 @@ describe('failure panel', () => {
 describe('browser transport and the cached opt-out', () => {
   const report = normalise(new Error('boom'), 'boundary', 'Test', ctx);
   afterEach(() => { vi.unstubAllGlobals(); try { localStorage.removeItem('mw.errorReports'); } catch { /* none */ } });
+  it('does not claim a report was sent when a proxy returns an HTML success page',async()=>{
+    vi.stubGlobal('fetch',vi.fn(async()=>new Response('<html>Sign in</html>',{status:200,headers:{'content-type':'text/html'}})));
+    expect(await browserTransport().send([report],{unloading:false})).toMatchObject({ok:false,status:200});
+  });
 
   it('does not use the anonymous route or the unload beacon once the cached choice is off', async () => {
     cacheErrorReports('off');

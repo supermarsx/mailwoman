@@ -267,3 +267,15 @@ attach-action-forward-new = 在新邮件中转发
 common-conn-unstable = 连接不稳定 — 频繁断开。正在等待连接恢复稳定。
 common-conn-account-unstable = 连接不稳定
 common-conn-account-instability = 与 { $account } 的连接不稳定，正在反复重新连接。
+
+# Error reporting controls must work even when a lazy page/catalog cannot load.
+ce-copied = 已复制
+ce-copy = 复制详细信息
+ce-ref = 错误参考
+ce-status-failed = 报告未发送
+ce-status-off = 报告已关闭
+ce-status-pending = 正在发送报告...
+ce-status-reported = 已报道
+ce-send = 发送报告
+ce-send-retry = 重试发送
+ce-report-help = 管理员可使用此参考编号，在“可观测性 → 客户端错误”中查找已发送的报告。

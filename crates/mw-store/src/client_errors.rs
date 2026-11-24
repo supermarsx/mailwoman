@@ -96,6 +96,7 @@ pub struct GroupFilter {
     pub status: Option<String>,
     pub build: Option<String>,
     pub boundary: Option<String>,
+    pub reference: Option<String>,
     pub since: Option<i64>,
     pub limit: i64,
 }
@@ -160,6 +161,9 @@ impl Store {
     ) -> Result<Recorded, StoreError> {
         if e.fingerprint.is_empty() || e.fingerprint.len() > 64 || e.id.is_empty() {
             return Err(StoreError::Corrupt("invalid client error".into()));
+        }
+        if let Some(row)=q("SELECT group_id FROM client_error_event WHERE id=?1").bind(&e.id).fetch_optional(&self.backend).await? {
+            return Ok(Recorded{group_id:row.get_string("group_id"),new_group:false,regressed:false,sampled_out:false});
         }
         let occurrences = e.occurrences.clamp(1, 1_000_000);
         let existing = q("SELECT id,status,resolved_build,resolved_at FROM client_error_group WHERE fingerprint=?1")
@@ -264,12 +268,13 @@ impl Store {
         &self,
         f: &GroupFilter,
     ) -> Result<Vec<ClientErrorGroup>, StoreError> {
-        let rows = q(concat!("SELECT ", group_cols!(), " FROM client_error_group g WHERE (?1='' OR g.status=?1) AND (?2='' OR g.last_build=?2) AND (?3='' OR g.boundary=?3) AND g.last_seen>=?4 ORDER BY g.last_seen DESC LIMIT ?5"))
+        let rows = q(concat!("SELECT ", group_cols!(), " FROM client_error_group g WHERE (?1='' OR g.status=?1) AND (?2='' OR g.last_build=?2) AND (?3='' OR g.boundary=?3) AND g.last_seen>=?4 AND (?6='' OR g.id LIKE ?6 OR g.fingerprint LIKE ?6 OR EXISTS(SELECT 1 FROM client_error_event e WHERE e.group_id=g.id AND e.id LIKE ?6)) ORDER BY g.last_seen DESC LIMIT ?5"))
             .bind(f.status.as_deref().unwrap_or(""))
             .bind(f.build.as_deref().unwrap_or(""))
             .bind(f.boundary.as_deref().unwrap_or(""))
             .bind(f.since.unwrap_or(0))
             .bind(f.limit.clamp(1, 1000))
+            .bind(f.reference.as_ref().map(|value|format!("{value}%")).unwrap_or_default())
             .fetch_all(&self.backend)
             .await?;
         Ok(rows.iter().map(group).collect())
@@ -427,4 +432,29 @@ fn truncate(s: &str, max: usize) -> String {
         end -= 1;
     }
     s[..end].to_owned()
+}
+
+#[cfg(test)]
+mod reference_tests {
+    use super::*;
+    use crate::ServerKey;
+
+    #[tokio::test]
+    async fn client_error_reference_lookup_and_retry_are_stable() {
+        let store=Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let report=NewClientError {
+            id:"d68654e4-1111-4111-8111-111111111111".into(),fingerprint:"abcdefabcdef12".into(),kind:"chunk".into(),name:"TypeError".into(),message:"Download failed".into(),boundary:"Settings".into(),route_template:"/settings".into(),time:1_700_000_000,build:"test".into(),occurrences:1,visit:"test-visit".into(),stack_raw:"at load (/assets/Settings-test.js:1:1)".into(),stack_symbolicated:None,ua_family:"Firefox".into(),os_family:"Windows".into(),viewport:"wide".into(),locale:"en".into(),account_hash:None,extra:"{}".into(),
+        };
+        let first=store.record_client_error(&report,10).await.unwrap();
+        let retry=store.record_client_error(&report,10).await.unwrap();
+        assert_eq!(first.group_id,retry.group_id);
+        assert_eq!(store.get_client_error_group(&first.group_id).await.unwrap().unwrap().count,1);
+        store.set_client_error_status(&first.group_id,"resolved",1_700_000_001).await.unwrap();
+        for reference in ["d68654e4","abcdefab",first.group_id.as_str()] {
+            let groups=store.list_client_error_groups(&GroupFilter{reference:Some(reference.into()),limit:20,..Default::default()}).await.unwrap();
+            assert_eq!(groups.len(),1);assert_eq!(groups[0].id,first.group_id);assert_eq!(groups[0].status,"resolved");
+        }
+        assert!(store.list_client_error_groups(&GroupFilter{reference:Some("ffffffff".into()),limit:20,..Default::default()}).await.unwrap().is_empty());
+        store.close().await;
+    }
 }

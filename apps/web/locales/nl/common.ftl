@@ -268,3 +268,15 @@ attach-action-forward-new = Doorsturen in een nieuwe e-mail
 common-conn-unstable = Instabiele verbinding — vaak verbroken. Wachten op een stabiele verbinding.
 common-conn-account-unstable = Instabiele verbinding
 common-conn-account-instability = De verbinding met { $account } is instabiel en wordt steeds opnieuw gemaakt.
+
+# Error reporting controls must work even when a lazy page/catalog cannot load.
+ce-copied = Gekopieerd
+ce-copy = Kopieer gegevens
+ce-ref = Foutreferentie
+ce-status-failed = Rapport niet verzonden
+ce-status-off = Rapportage staat uit
+ce-status-pending = Rapport verzenden…
+ce-status-reported = Gerapporteerd
+ce-send = Rapport verzenden
+ce-send-retry = Opnieuw verzenden
+ce-report-help = Beheerders kunnen verzonden rapporten met deze referentie vinden onder Waarneembaarheid → Clientfouten.

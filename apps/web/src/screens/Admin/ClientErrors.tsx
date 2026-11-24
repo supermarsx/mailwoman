@@ -1,3 +1,4 @@
+import {SearchInput} from '../../components/SearchInput.tsx';
 // Admin > Observability > Client errors.
 //
 // Errors the web app caught in people's browsers (error boundaries, window
@@ -81,10 +82,12 @@ export function ClientErrors(): JSX.Element {
 
 function List(props:{open:(id:string)=>void}):JSX.Element {
  const [status,setStatus]=createSignal<ClientErrorStatus|''>('open');
+ const [reference,setReference]=createSignal('');
+ const validReference=()=>/^(?:[a-f\d]{8}|[a-f\d]{32}|[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12})$/i.test(reference().trim());
  const [build,setBuild]=createSignal('');
  const [boundary,setBoundary]=createSignal('');
  const [range,setRange]=createSignal(168);
- const [result,{refetch}]=createResource(()=>({status:status(),build:build(),boundary:boundary(),rangeHours:range()}),f=>listClientErrors(f).then(data=>({data}),()=>({failed:true as const})));
+ const [result,{refetch}]=createResource(()=>({status:status(),build:build(),boundary:boundary(),rangeHours:range(),...(validReference()?{reference:reference().trim()}: {})}),f=>listClientErrors(f).then(data=>({data}),()=>({failed:true as const})));
  const value=()=>{const v=resourceValue(result);return v&&'data' in v?v.data:undefined;};
  const failed=()=>{const v=resourceValue(result);return !!v&&'failed' in v;};
  const groups=()=>value()?.groups??[];
@@ -98,14 +101,16 @@ function List(props:{open:(id:string)=>void}):JSX.Element {
    <Show when={!p().enabled}><p role="status" class={admin.note} data-testid="ce-disabled">{t('ce-disabled')}</p></Show>
    <Show when={p().enabled&&!p().sourceMaps}><p role="status" class={admin.note}>{t('ce-maps-off')}</p></Show>
   </>}</Show>
+  <p class={admin.note}>{t('ce-lookup-help')}</p>
   <div class={css.filters}>
-   <label class={css.filterField}>{t('ce-filter-status')}<select class={ux.control} value={status()} onChange={e=>setStatus(e.currentTarget.value as ClientErrorStatus|'')}>
+   <label class={css.filterField}>{t('ce-ref')}<SearchInput class={ux.control} value={reference()} placeholder="a1b2c3d4" onInput={event=>setReference(event.currentTarget.value)}/></label>
+   <label class={css.filterField}>{t('ce-filter-status')}<select class={ux.control} disabled={validReference()} value={status()} onChange={e=>setStatus(e.currentTarget.value as ClientErrorStatus|'')}>
     <option value="">{t('ce-status-all')}</option><For each={STATUSES}>{s=><option value={s}>{t(`ce-state-${s}`)}</option>}</For></select></label>
-   <label class={css.filterField}>{t('ce-filter-build')}<select class={ux.control} value={build()} onChange={e=>setBuild(e.currentTarget.value)}>
+   <label class={css.filterField}>{t('ce-filter-build')}<select class={ux.control} disabled={validReference()} value={build()} onChange={e=>setBuild(e.currentTarget.value)}>
     <option value="">{t('ce-any')}</option><For each={builds()}>{b=><option value={b}>{b}</option>}</For></select></label>
-   <label class={css.filterField}>{t('ce-filter-boundary')}<select class={ux.control} value={boundary()} onChange={e=>setBoundary(e.currentTarget.value)}>
+   <label class={css.filterField}>{t('ce-filter-boundary')}<select class={ux.control} disabled={validReference()} value={boundary()} onChange={e=>setBoundary(e.currentTarget.value)}>
     <option value="">{t('ce-any')}</option><For each={boundaries()}>{b=><option value={b}>{b}</option>}</For></select></label>
-   <label class={css.filterField}>{t('ce-filter-range')}<select class={ux.control} value={String(range())} onChange={e=>setRange(Number(e.currentTarget.value))}>
+   <label class={css.filterField}>{t('ce-filter-range')}<select class={ux.control} disabled={validReference()} value={String(range())} onChange={e=>setRange(Number(e.currentTarget.value))}>
     <For each={RANGES}>{([label,hours])=><option value={String(hours)}>{label}</option>}</For></select></label>
    <div class={css.toolbar}>
     <button type="button" class="btn" onClick={()=>void refetch()}>{t('ce-refresh')}</button>
@@ -159,6 +164,7 @@ function Detail(props:{id:string;canWrite:boolean;back:()=>void}):JSX.Element {
      <h2 class={ux.detailTitle}>{g().name}</h2>
      <span class={`${admin.badge} ${g().status==='open'?css.statusOpen:''}`} data-testid="ce-status">{t(`ce-state-${g().status}`)}</span>
     </div>
+    <p class={admin.note}>{t('ce-ref')} <code>{g().fingerprint.slice(0,8)}</code></p>
     <p class={css.message}>{g().message}</p>
     <p class={ux.pageDescription}>{t('ce-where',{boundary:g().boundary||t('ce-unknown'),route:g().routeTemplate||'/'})} {t('ce-counts',{count:g().count,sessions:g().sessions})} {t('ce-seen',{first:when(g().firstSeen),last:when(g().lastSeen)})}</p>
     <Show when={g().resolvedBuild!==null&&g().status==='resolved'}><p class={admin.note}>{t('ce-resolved-in',{build:g().resolvedBuild??''})}</p></Show>

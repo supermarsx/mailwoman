@@ -50,9 +50,7 @@ ce-col-trend = Тренд
 
 ce-col-viewport = Область просмотра
 
-ce-copied = Скопировано
 
-ce-copy = Копировать детали
 
 ce-copy-markdown = Скопировать как проблему
 
@@ -104,7 +102,6 @@ ce-no-data = Ничего не записано.
 
 ce-not-symbolicated = Ни одна исходная карта не соответствует этому набору: показаны необработанные кадры.
 
-ce-ref = Ссылка на ошибку
 
 ce-refresh = Обновить
 
@@ -132,13 +129,9 @@ ce-state-resolved = Решено
 
 ce-status-all = Все
 
-ce-status-failed = Отчет не отправлен
 
-ce-status-off = Отчеты отключены
 
-ce-status-pending = Отправка отчета…
 
-ce-status-reported = Сообщено
 
 ce-table-caption = Группы ошибок клиента, сначала самые новые
 
@@ -153,3 +146,5 @@ ce-unit-per-hour = Счет в час
 ce-unknown = Неизвестно
 
 ce-where = Где: { $boundary } на { $route }.
+
+ce-lookup-help = Введите восьмизначный код ошибки или полный идентификатор отчёта. Поиск охватывает все сохранённые даты и статусы.

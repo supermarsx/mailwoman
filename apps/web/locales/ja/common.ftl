@@ -253,3 +253,15 @@ attach-action-forward-new = 新しいメールで転送
 common-conn-unstable = 接続が不安定です — 切断が頻発しています。安定した接続を待っています。
 common-conn-account-unstable = 不安定な接続
 common-conn-account-instability = { $account } への接続が不安定で、再接続を繰り返しています。
+
+# Error reporting controls must work even when a lazy page/catalog cannot load.
+ce-copied = コピーされました
+ce-copy = 詳細をコピーする
+ce-ref = エラー参照
+ce-status-failed = レポートは送信されませんでした
+ce-status-off = レポートはオフです
+ce-status-pending = レポートを送信中…
+ce-status-reported = 報告済み
+ce-send = レポートを送信
+ce-send-retry = 送信を再試行
+ce-report-help = 管理者はこの参照番号を使い、「オブザーバビリティ → クライアントエラー」で送信済みレポートを検索できます。

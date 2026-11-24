@@ -50,9 +50,7 @@ ce-col-trend = トレンド
 
 ce-col-viewport = ビューポート
 
-ce-copied = コピーされました
 
-ce-copy = 詳細をコピーする
 
 ce-copy-markdown = 問題としてコピー
 
@@ -104,7 +102,6 @@ ce-no-data = 何も記録されていません。
 
 ce-not-symbolicated = このスタックに一致するソース マップはありませんでした: 生のフレームを表示しています。
 
-ce-ref = エラー参照
 
 ce-refresh = リフレッシュ
 
@@ -132,13 +129,9 @@ ce-state-resolved = 解決済み
 
 ce-status-all = すべて
 
-ce-status-failed = レポートは送信されませんでした
 
-ce-status-off = レポートはオフです
 
-ce-status-pending = レポートを送信中…
 
-ce-status-reported = 報告済み
 
 ce-table-caption = クライアント エラー グループ、最新のものから順
 
@@ -153,3 +146,5 @@ ce-unit-per-hour = 1時間あたりのカウント
 ce-unknown = 不明
 
 ce-where = ここで: { $route } の { $boundary }。
+
+ce-lookup-help = 8文字のエラー参照番号または完全なレポートIDを入力してください。保持されているすべての日付と状態を検索します。

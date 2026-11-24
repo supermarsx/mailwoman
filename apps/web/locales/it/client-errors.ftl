@@ -50,9 +50,7 @@ ce-col-trend = Tendenza
 
 ce-col-viewport = Visualizzazione
 
-ce-copied = Copiato
 
-ce-copy = Copia i dettagli
 
 ce-copy-markdown = Copia come problema
 
@@ -104,7 +102,6 @@ ce-no-data = Niente registrato.
 
 ce-not-symbolicated = Nessuna mappa di origine corrisponde a questo stack: mostra i fotogrammi grezzi.
 
-ce-ref = Riferimento all'errore
 
 ce-refresh = Aggiorna
 
@@ -132,13 +129,9 @@ ce-state-resolved = Risolto
 
 ce-status-all = Tutto
 
-ce-status-failed = Rapporto non inviato
 
-ce-status-off = La segnalazione è disattivata
 
-ce-status-pending = Invio rapporto...
 
-ce-status-reported = Segnalato
 
 ce-table-caption = Gruppi di errori client, prima i più recenti
 
@@ -153,3 +146,5 @@ ce-unit-per-hour = Contare all'ora
 ce-unknown = Sconosciuto
 
 ce-where = Dove: { $boundary } su { $route }.
+
+ce-lookup-help = Inserisci il riferimento di otto caratteri o l’ID completo del rapporto. La ricerca include tutte le date e gli stati conservati.

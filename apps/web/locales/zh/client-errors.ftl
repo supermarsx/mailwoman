@@ -50,9 +50,7 @@ ce-col-trend = 趋势
 
 ce-col-viewport = 视口
 
-ce-copied = 已复制
 
-ce-copy = 复制详细信息
 
 ce-copy-markdown = 复制为问题
 
@@ -104,7 +102,6 @@ ce-no-data = 没有记录任何内容。
 
 ce-not-symbolicated = 没有源映射与此堆栈匹配：显示原始帧。
 
-ce-ref = 错误参考
 
 ce-refresh = 刷新
 
@@ -132,13 +129,9 @@ ce-state-resolved = 已解决
 
 ce-status-all = 全部
 
-ce-status-failed = 报告未发送
 
-ce-status-off = 报告已关闭
 
-ce-status-pending = 正在发送报告...
 
-ce-status-reported = 已报道
 
 ce-table-caption = 客户端错误组，最新的在前
 
@@ -153,3 +146,5 @@ ce-unit-per-hour = 每小时计数
 ce-unknown = 未知
 
 ce-where = 其中：{ $boundary }位于{ $route }。
+
+ce-lookup-help = 输入八位错误参考编号或完整报告 ID。搜索范围包括保留的所有日期和状态。

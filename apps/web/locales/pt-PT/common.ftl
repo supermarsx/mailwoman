@@ -273,3 +273,15 @@ attach-action-forward-new = Reencaminhar num novo email
 common-conn-unstable = Ligação instável — desconexões frequentes. A aguardar uma ligação estável.
 common-conn-account-unstable = Ligação instável
 common-conn-account-instability = A ligação a { $account } está instável e continua a restabelecer-se.
+
+# Error reporting controls must work even when a lazy page/catalog cannot load.
+ce-ref = Referência do erro
+ce-status-pending = A enviar relatório…
+ce-status-reported = Comunicado
+ce-status-off = O envio de relatórios está desativado
+ce-status-failed = Relatório não enviado
+ce-copy = Copiar detalhes
+ce-copied = Copiado
+ce-send = Enviar relatório
+ce-send-retry = Tentar enviar novamente
+ce-report-help = Os administradores podem encontrar os relatórios enviados em Observabilidade → Erros do cliente através desta referência.

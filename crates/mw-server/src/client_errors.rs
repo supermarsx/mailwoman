@@ -432,7 +432,8 @@ async fn ingest_session(State(state): State<AppState>, headers: HeaderMap, body:
     let response = ingest(&state, &session.id, true, hash, &body).await;
     // The browser learns the person's choice from the answer, and shows it.
     if response.status() == StatusCode::NO_CONTENT {
-        return Json(json!({ "reporting": "on" })).into_response();
+        let reporting=if response.headers().get("x-mailwoman-reporting").is_some_and(|value|value=="off"){"off"}else{"on"};
+        return Json(json!({ "reporting": reporting })).into_response();
     }
     response
 }
@@ -454,7 +455,7 @@ async fn ingest(
 ) -> Response {
     let policy = Policy::load(&state.store).await;
     if !policy.enabled {
-        return StatusCode::NO_CONTENT.into_response();
+        return ([("x-mailwoman-reporting","off")],StatusCode::NO_CONTENT).into_response();
     }
     let cap = if session { BODY_CAP } else { ANON_BODY_CAP };
     if body.len() > cap {
@@ -601,6 +602,7 @@ fn event_json(e: &ClientErrorEvent, symbolicated: Option<&str>) -> Value {
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 struct ListQuery {
+    reference: Option<String>,
     status: Option<String>,
     build: Option<String>,
     boundary: Option<String>,
@@ -616,12 +618,18 @@ fn filter_of(q: &ListQuery) -> Result<(GroupFilter, i64), AdminApiError> {
         return Err(AdminApiError::invalid("invalidStatus", "Unknown status.", "/status"));
     }
     let hours = q.range_hours.unwrap_or(24 * 7).clamp(1, 24 * 400);
-    let since = now() - hours * 3600;
+    let reference=q.reference.as_deref().map(str::trim).filter(|value|!value.is_empty()).map(|value| {
+        if value.len()==8&&value.bytes().all(|byte|byte.is_ascii_hexdigit()){return Ok(value.to_ascii_lowercase());}
+        uuid::Uuid::parse_str(value).map(|id|id.to_string()).map_err(|_|AdminApiError::invalid("invalidReference","Enter an eight-character error reference or a full report ID.","/reference"))
+    }).transpose()?;
+    let lookup=reference.is_some();
+    let since = if lookup {0} else {now() - hours * 3600};
     Ok((
         GroupFilter {
-            status: q.status.clone().filter(|s| !s.is_empty()),
-            build: q.build.clone().filter(|s| !s.is_empty()),
-            boundary: q.boundary.clone().filter(|s| !s.is_empty()),
+            status: q.status.clone().filter(|s| !lookup&&!s.is_empty()),
+            build: q.build.clone().filter(|s| !lookup&&!s.is_empty()),
+            boundary: q.boundary.clone().filter(|s| !lookup&&!s.is_empty()),
+            reference,
             since: Some(since),
             limit: q.limit.unwrap_or(200),
         },

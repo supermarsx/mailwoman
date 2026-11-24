@@ -198,3 +198,9 @@ Operational telemetry is configured on the **Configure operational telemetry** t
 - [Logs](/admin/logs)
 - [Diagnostics](/admin/diagnostics)
 - [Observability and privacy](/security/observability)
+
+### Sending a report from a failed page
+
+Failure panels provide **Send report** or **Retry sending**, separately from retrying the page. Reports retain their scrubbed diagnostic details and respect reporting opt-outs, administrator settings, sampling and rate limits. A failed request can be retried without changing its report ID. The browser only displays Reported after the reporting endpoint acknowledges the submission.
+
+Use **Observability → Client errors → Error reference** to look up the eight-character reference copied from a failure panel. A reference identifies the grouped cause; searches cover all retained dates and statuses, including resolved and ignored groups. Full report IDs and older occurrence references are accepted too. A report that never reached the server cannot be found in the console; its scrubbed details can still be copied from the failure panel.

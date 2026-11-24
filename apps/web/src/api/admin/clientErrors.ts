@@ -26,10 +26,11 @@ export interface ClientErrorDetail {
  group:ClientErrorGroup;events:ClientErrorEvent[];series:[number,number][];
  breakdown:Record<'browser'|'os'|'build'|'viewport'|'route',[string,number][]>;
 }
-export interface ClientErrorFilter {status?:ClientErrorStatus|'';build?:string;boundary?:string;rangeHours?:number}
+export interface ClientErrorFilter {reference?:string;status?:ClientErrorStatus|'';build?:string;boundary?:string;rangeHours?:number}
 
 const qs=(f:ClientErrorFilter):string=>{
  const q=new URLSearchParams();
+ if(f.reference)q.set('reference',f.reference);
  if(f.status)q.set('status',f.status);
  if(f.build)q.set('build',f.build);
  if(f.boundary)q.set('boundary',f.boundary);
