@@ -14,6 +14,17 @@ use std::time::Duration;
 
 pub const POLICY_KEY: &str = "database.pool";
 const SQLITE_IDLE_HEALTH_WINDOW: Duration = Duration::from_secs(1);
+/// Prepared statements kept per connection (SQLite and PostgreSQL), set
+/// explicitly instead of relying on SQLx's default of the same value. One
+/// identity request runs about 27 statements on PostgreSQL with modes off
+/// (22 reads, 5 writes) and the JMAP gate routes add 2-13 engine statements,
+/// so the hot set of the gate routes fits; background work on the same pool
+/// shares the per-connection LRU. `database_pool_snapshot()` reports the
+/// cached count per idle connection so a run can show whether connections
+/// reach this capacity (at capacity, every new statement evicts one: an extra
+/// Close and Parse round trip on PostgreSQL, a re-prepare on SQLite).
+/// PostgreSQL keeps one server-side plan per cached statement and connection.
+pub const STATEMENT_CACHE_CAPACITY: usize = 100;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct PoolPolicy {
@@ -271,7 +282,7 @@ impl Store {
                     // Install the lazy pool before its first await. If runtime
                     // shutdown cancels startup, the manager's generation drain
                     // still owns every new worker and its filesystem lease.
-                    let options=cache_plan.apply(connection.clone());
+                    let options=cache_plan.apply(connection.clone()).statement_cache_capacity(STATEMENT_CACHE_CAPACITY);
                     let pool = plan.sqlite_options().after_connect(move|connection,_|{
                         let registry=registry.clone();Box::pin(async move{
                             if background_checkpoint {
@@ -325,7 +336,11 @@ impl Store {
                     let connection = (*previous.connect_options()).clone();
                     previous.close().await;
                     self.backend = Backend::Postgres(
-                        connect_checked(plan.postgres_options(), connection).await?,
+                        connect_checked(
+                            plan.postgres_options(),
+                            connection.statement_cache_capacity(STATEMENT_CACHE_CAPACITY),
+                        )
+                        .await?,
                     );
                 }
             }
@@ -339,6 +354,14 @@ impl Store {
             Backend::Sqlite(live) => {
                 let pin = live.pin().await;
                 let mut report=snapshot(pin.pool());
+                report["statementCache"]=statement_cache_sample(pin.pool());
+                let wal=live.wal_checkpoint_stats();
+                report["walCheckpoint"]=json!({
+                    "background":wal.enabled,"running":wal.running,"rounds":wal.rounds,
+                    "restarts":wal.restarts,"failures":wal.failures,
+                    "tickMs":crate::sqlite_live::WAL_CHECKPOINT_TICK.as_millis() as u64,
+                    "restartFrames":crate::sqlite_live::WAL_RESTART_FRAMES,
+                });
                 let maximum=pin.pool().options().get_max_connections();
                 let per_connection=pin.page_cache_kib();
                 report["sqlitePageCache"]=json!({
@@ -350,7 +373,11 @@ impl Store {
                     "idleSample":crate::sqlite_page_cache::sample_idle(pin.pool(),pin.page_cache_registry()).await,
                 });report
             }
-            Backend::Postgres(pool) => snapshot(pool),
+            Backend::Postgres(pool) => {
+                let mut report = snapshot(pool);
+                report["statementCache"] = statement_cache_sample(pool);
+                report
+            }
         }
     }
 }
@@ -360,6 +387,22 @@ fn matches_plan<DB: Database>(options: &PoolOptions<DB>, plan: &PoolPlan) -> boo
         && options.get_acquire_timeout() == Duration::from_millis(plan.acquire_timeout_ms)
         && options.get_idle_timeout() == Some(Duration::from_secs(plan.idle_timeout_seconds))
         && options.get_max_lifetime() == Some(Duration::from_secs(plan.max_lifetime_seconds))
+}
+/// Prepared statements cached on each currently idle connection. Never waits
+/// for a busy connection, opens one or runs SQL: the counts are read from the
+/// driver's own bookkeeping.
+fn statement_cache_sample<DB: Database + sqlx::database::HasStatementCache>(pool: &Pool<DB>) -> Value {
+    let mut held = Vec::new();
+    for _ in 0..pool.num_idle().min(32) {
+        match pool.try_acquire() {
+            Some(connection) => held.push(connection),
+            None => break,
+        }
+    }
+    let cached: Vec<usize> = held.iter().map(|c| c.cached_statements_size()).collect();
+    json!({"capacity":STATEMENT_CACHE_CAPACITY,"idleConnectionsSampled":cached.len(),
+        "cachedPerIdleConnection":cached,
+        "idleConnectionsAtCapacity":cached.iter().filter(|n|**n>=STATEMENT_CACHE_CAPACITY).count()})
 }
 fn snapshot<DB: Database>(pool: &Pool<DB>) -> Value {
     let options = pool.options();
@@ -377,6 +420,56 @@ fn snapshot<DB: Database>(pool: &Pool<DB>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    async fn statement_cache_report(store: &Store) -> Value {
+        // A read leaves at least one prepared statement on an idle connection.
+        q("SELECT COUNT(*) AS n FROM settings").fetch_one(&store.backend).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        store.database_pool_snapshot().await["statementCache"].clone()
+    }
+    #[tokio::test]
+    async fn statement_cache_capacity_is_explicit_and_reported_per_idle_connection() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open_with_encryption(
+            dir.path().join("statements.db").to_str().unwrap(),
+            crate::ServerKey::generate(),
+            &crate::encryption::EncryptionConfig::off(),
+        )
+        .await
+        .unwrap();
+        let report = statement_cache_report(&store).await;
+        let wal = &store.database_pool_snapshot().await["walCheckpoint"];
+        assert_eq!(wal["background"], true, "{wal}");
+        assert_eq!(wal["running"], true, "{wal}");
+        assert_eq!(report["capacity"], STATEMENT_CACHE_CAPACITY);
+        assert!(report["idleConnectionsSampled"].as_u64().unwrap() >= 1, "{report}");
+        let cached = report["cachedPerIdleConnection"].as_array().unwrap();
+        assert!(cached.iter().any(|n| n.as_u64().unwrap() >= 1), "{report}");
+        // Over capacity, SQLx evicts: a connection never holds more.
+        let Backend::Sqlite(live) = &store.backend else { unreachable!() };
+        let mut connection = live.acquire().await.unwrap();
+        for n in 0..STATEMENT_CACHE_CAPACITY + 20 {
+            sqlx::query(&format!("SELECT {n}")).fetch_one(&mut *connection).await.unwrap();
+        }
+        assert_eq!(connection.cached_statements_size(), STATEMENT_CACHE_CAPACITY);
+        drop(connection);
+        store.close().await;
+        let Ok(url) = std::env::var("MW_TEST_PG") else {
+            mw_test_gate::skip("statement cache PostgreSQL leg: MW_TEST_PG not configured");
+            return;
+        };
+        let store = Store::open_postgres(&url, crate::ServerKey::generate()).await.unwrap();
+        let report = statement_cache_report(&store).await;
+        assert_eq!(report["capacity"], STATEMENT_CACHE_CAPACITY);
+        assert!(report["idleConnectionsSampled"].as_u64().unwrap() >= 1, "{report}");
+        let Backend::Postgres(pool) = &store.backend else { unreachable!() };
+        let mut connection = pool.acquire().await.unwrap();
+        for n in 0..STATEMENT_CACHE_CAPACITY + 20 {
+            sqlx::query(&format!("SELECT {n}::BIGINT")).fetch_one(&mut *connection).await.unwrap();
+        }
+        assert_eq!(connection.cached_statements_size(), STATEMENT_CACHE_CAPACITY);
+        drop(connection);
+        store.close().await;
+    }
     #[tokio::test]
     async fn sqlite_idle_health_replaces_closed_workers_and_keeps_live_read_errors() {
         let dir = tempfile::tempdir().unwrap();
