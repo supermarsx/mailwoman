@@ -32,37 +32,61 @@ pub(crate) fn record_write_bytes(sql: &str, origin: &Location<'_>, bytes: u64, r
         return;
     };
     let minute = chrono::Utc::now().timestamp() / 60;
-    let operation = match label.split_whitespace().next() {
-        Some("INSERT") => 0,
-        Some("UPDATE") => 1,
-        Some("DELETE") => 2,
-        Some("REPLACE") => 3,
-        _ => return,
-    };
-    let mut writes = WRITES.lock().unwrap_or_else(|e| e.into_inner());
-    if writes.buckets.back().map(|b| b.0) != Some(minute) {
-        writes
+    WRITES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .record(label, minute, bytes, rows);
+}
+impl Writes {
+    fn record(&mut self, label: String, minute: i64, bytes: u64, rows: u64) {
+        let operation = match label.split_whitespace().next() {
+            Some("INSERT") => 0,
+            Some("UPDATE") => 1,
+            Some("DELETE") => 2,
+            Some("REPLACE") => 3,
+            _ => return,
+        };
+        if self.buckets.back().map(|b| b.0) != Some(minute) {
+            self.buckets
+                .push_back((minute, BTreeMap::new(), [(0, 0, 0); 4]));
+        }
+        while self.buckets.len() > 15 || self.buckets.front().is_some_and(|b| b.0 < minute - 14) {
+            self.buckets.pop_front();
+        }
+        let current = self.buckets.back_mut().unwrap();
+        let totals = &mut current.2[operation];
+        totals.0 = totals.0.saturating_add(1);
+        totals.1 = totals.1.saturating_add(rows);
+        totals.2 = totals.2.saturating_add(bytes);
+        let bucket = &mut current.1;
+        let label = if bucket.len() >= 128 && !bucket.contains_key(&label) {
+            "other".into()
+        } else {
+            label
+        };
+        let counters = bucket.entry(label).or_default();
+        counters.0 = counters.0.saturating_add(1);
+        counters.1 = counters.1.saturating_add(rows);
+        counters.2 = counters.2.saturating_add(bytes);
+    }
+    fn snapshot(&self, now: i64) -> Value {
+        let mut totals: BTreeMap<String, (u64, u64, u64)> = BTreeMap::new();
+        for (_, bucket, _) in self
             .buckets
-            .push_back((minute, BTreeMap::new(), [(0, 0, 0); 4]));
+            .iter()
+            .filter(|b| b.0 >= now / 60 - 14 && b.0 <= now / 60)
+        {
+            for (key, v) in bucket {
+                let t = totals.entry(key.clone()).or_default();
+                t.0 += v.0;
+                t.1 += v.1;
+                t.2 += v.2;
+            }
+        }
+        let mut origins: Vec<_> = totals.into_iter().collect();
+        origins.sort_by_key(|v| std::cmp::Reverse(v.1.2));
+        json!(origins.into_iter().take(128).map(|(origin,(statements,rows,payload))|json!({"origin":origin,"statements":statements,"affectedRows":rows,"inputBytes":payload})).collect::<Vec<_>>())
     }
-    while writes.buckets.len() > 15 || writes.buckets.front().is_some_and(|b| b.0 < minute - 14) {
-        writes.buckets.pop_front();
-    }
-    let current = writes.buckets.back_mut().unwrap();
-    let totals = &mut current.2[operation];
-    totals.0 = totals.0.saturating_add(1);
-    totals.1 = totals.1.saturating_add(rows);
-    totals.2 = totals.2.saturating_add(bytes);
-    let bucket = &mut current.1;
-    let label = if bucket.len() >= 128 && !bucket.contains_key(&label) {
-        "other".into()
-    } else {
-        label
-    };
-    let counters = bucket.entry(label).or_default();
-    counters.0 = counters.0.saturating_add(1);
-    counters.1 = counters.1.saturating_add(rows);
-    counters.2 = counters.2.saturating_add(bytes);
 }
 fn write_label(sql: &str, origin: &Location<'_>) -> Option<String> {
     let mut words = sql.split_whitespace();
@@ -95,23 +119,10 @@ fn write_label(sql: &str, origin: &Location<'_>) -> Option<String> {
     Some(format!("{op} {table} · {source}:{}", origin.line()))
 }
 fn write_snapshot(now: i64) -> Value {
-    let writes = WRITES.lock().unwrap_or_else(|e| e.into_inner());
-    let mut totals: BTreeMap<String, (u64, u64, u64)> = BTreeMap::new();
-    for (_, bucket, _) in writes
-        .buckets
-        .iter()
-        .filter(|b| b.0 >= now / 60 - 14 && b.0 <= now / 60)
-    {
-        for (key, v) in bucket {
-            let t = totals.entry(key.clone()).or_default();
-            t.0 += v.0;
-            t.1 += v.1;
-            t.2 += v.2;
-        }
-    }
-    let mut origins: Vec<_> = totals.into_iter().collect();
-    origins.sort_by_key(|v| std::cmp::Reverse(v.1.2));
-    json!(origins.into_iter().take(128).map(|(origin,(statements,rows,payload))|json!({"origin":origin,"statements":statements,"affectedRows":rows,"inputBytes":payload})).collect::<Vec<_>>())
+    WRITES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .snapshot(now)
 }
 fn operation_snapshot(now: i64) -> Value {
     let writes = WRITES.lock().unwrap_or_else(|e| e.into_inner());
@@ -583,40 +594,27 @@ mod tests {
 
     #[test]
     fn precomputed_write_bytes_reach_origin_counters() {
+        // The process-wide counters are shared with every other test that
+        // writes, and keep only 128 origins per minute and per snapshot, so
+        // this test counts into its own table of writes.
         let origin = Location::caller();
         let sql = "INSERT INTO growth_byte_fixture(value) VALUES (?1)";
         let label = write_label(sql, origin).unwrap();
-        let before = write_snapshot(chrono::Utc::now().timestamp());
-        let previous = before
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|row| row["origin"] == label)
-            .cloned()
-            .unwrap_or_else(|| json!({"statements":0,"affectedRows":0,"inputBytes":0}));
         let args = vec![Arg::Blob(vec![0, 255, 7]), Arg::OptInt(None)];
         let bytes = input_bytes(&args);
         drop(args);
+        let now = chrono::Utc::now().timestamp();
+        let mut writes = Writes::default();
+        writes.record(label.clone(), now / 60, bytes, 2);
+        let after = writes.snapshot(now);
+        let rows = after.as_array().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["origin"], label);
+        assert_eq!(rows[0]["statements"], 1);
+        assert_eq!(rows[0]["affectedRows"], 2);
+        assert_eq!(rows[0]["inputBytes"], 11);
+        // The process-wide entry point accepts the same precomputed bytes.
         record_write_bytes(sql, origin, bytes, 2);
-        let after = write_snapshot(chrono::Utc::now().timestamp());
-        let counters = after
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|row| row["origin"] == label)
-            .unwrap();
-        assert_eq!(
-            counters["statements"].as_u64().unwrap(),
-            previous["statements"].as_u64().unwrap() + 1
-        );
-        assert_eq!(
-            counters["affectedRows"].as_u64().unwrap(),
-            previous["affectedRows"].as_u64().unwrap() + 2
-        );
-        assert_eq!(
-            counters["inputBytes"].as_u64().unwrap(),
-            previous["inputBytes"].as_u64().unwrap() + 11
-        );
     }
 
     #[test]
