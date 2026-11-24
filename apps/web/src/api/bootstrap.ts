@@ -200,6 +200,11 @@ export function adoptBootstrap(request: Promise<Response>): void {
   pending = settled;
 }
 
+/** Whether a seed is held or on the wire; when not, `takeSeed` need not be awaited. */
+export function bootstrapActive(): boolean {
+  return pending !== null || seed !== null;
+}
+
 /** Forget the seed (tests; also safe to call at any time). */
 export function clearBootstrap(): void {
   drop();

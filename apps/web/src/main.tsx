@@ -32,7 +32,7 @@ installBundleRecovery();
 // the server's observability, scrubbed (docs/admin/observability.md).
 installClientErrors();
 // t52w: the load-time reads in one request; the first GET of each listed route is answered from it (api/bootstrap.ts).
-startBootstrap();
+if(!nativeBackgroundStartup())startBootstrap();
 const stopPolicyTheme=nativeBackgroundStartup()?()=>undefined:installPublicPolicyThemeBridge();
 import.meta.hot?.dispose(stopPolicyTheme);
 // Test builds only (VITE_MW_E2E_HOOKS=1): window.__mwThrow, a deliberate error through a real boundary.

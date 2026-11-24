@@ -3,7 +3,7 @@ import type {NativeScheduleLocks} from './nativeReplaySchedule.ts';
 
 const boot=vi.hoisted(()=>({
  app:vi.fn(),theme:vi.fn(()=>()=>undefined),consent:vi.fn(async()=>undefined),
- trustedTypes:vi.fn(),recovery:vi.fn(),errors:vi.fn(),rateNotice:vi.fn(),
+ trustedTypes:vi.fn(),recovery:vi.fn(),errors:vi.fn(),rateNotice:vi.fn(),bootstrap:vi.fn(),
  disposers:[] as (()=>void)[],
 }));
 vi.mock('solid-js/web',async importOriginal=>{
@@ -21,6 +21,7 @@ vi.mock('../security/trustedTypes.ts',()=>({installTrustedTypesPolicy:boot.trust
 vi.mock('../sw/bundleRecovery.ts',()=>({installBundleRecovery:boot.recovery}));
 vi.mock('../observability/clientErrors.ts',()=>({installClientErrors:boot.errors}));
 vi.mock('../state/rateLimitNotice.ts',()=>({installRateLimitNotice:boot.rateNotice}));
+vi.mock('../api/http.ts',()=>({startBootstrap:boot.bootstrap}));
 vi.mock('../screens/Settings/language.ts',()=>({bootLocale:()=>null}));
 
 const originalLocks=Object.getOwnPropertyDescriptor(navigator,'locks');
@@ -44,6 +45,7 @@ describe('actual entry chooses foreground or deferred hidden-shell replay',()=>{
   expect(document.querySelector('[data-testid="foreground-boot"]')).not.toBeNull();
   expect(boot.app).toHaveBeenCalledOnce();expect(boot.theme).toHaveBeenCalledOnce();expect(boot.consent).toHaveBeenCalledOnce();
   expect(evaluated).not.toHaveBeenCalled();expect(replay).not.toHaveBeenCalled();
+  expect(boot.bootstrap).toHaveBeenCalledOnce();
  });
  it('runs exactly the deferred replay on an explicit background launch without mounting foreground UI',async()=>{
   const evaluated=vi.fn(),replay=vi.fn(async()=>undefined);
@@ -53,6 +55,7 @@ describe('actual entry chooses foreground or deferred hidden-shell replay',()=>{
   await vi.waitFor(()=>expect(replay).toHaveBeenCalledOnce());
   expect(evaluated).toHaveBeenCalledOnce();expect(boot.app).not.toHaveBeenCalled();
   expect(boot.theme).not.toHaveBeenCalled();expect(boot.consent).not.toHaveBeenCalled();
+  expect(boot.bootstrap).not.toHaveBeenCalled();
   expect(boot.trustedTypes).toHaveBeenCalledOnce();expect(boot.recovery).toHaveBeenCalledOnce();expect(boot.errors).toHaveBeenCalledOnce();
   expect(document.getElementById('root')?.childNodes).toHaveLength(0);
  });

@@ -50,7 +50,7 @@ import {activeLinkedMailbox,linkedMailboxEpoch,LinkedContextUnsupportedError} fr
 import {linkedRoute,linkedUnsignedResource} from './linkedAccountRouting.ts';
 import { recoverRequest, type RecoveryOptions } from './recovery.ts';
 import { rateAwareSend, type PaceClass } from './rateAware.ts';
-import { adoptBootstrap, takeSeed } from './bootstrap.ts';
+import { adoptBootstrap, bootstrapActive, takeSeed } from './bootstrap.ts';
 
 export interface MailboxTarget {
   readonly linkId: string | null;
@@ -391,7 +391,7 @@ export async function apiFetch(input: string, options?: ApiRequestInit): Promise
   const seedable=native===null&&!admin&&ownServer&&selected===null&&!mailboxTarget&&mailboxContext===undefined
     &&(given?.method??'GET').toUpperCase()==='GET'&&given?.body==null&&given?.credentials!=='omit';
   const dispatch=async():Promise<Response>=>{if(!admin&&ownServer&&account&&(routePath.startsWith('/api/')||routePath.startsWith('/jmap/'))&&!/^\/api\/(?:me|login|logout|twofa|sso)(?:\/|$)/.test(routePath))await verifyOfflineAuthority();
-    if(seedable){const seeded=await takeSeed(`${routePath}${target.search}`,new Headers(given?.headers));if(seeded!==null){assertAuthority();return seeded;}}
+    if(seedable&&bootstrapActive()){const seeded=await takeSeed(`${routePath}${target.search}`,new Headers(given?.headers));if(seeded!==null){assertAuthority();return seeded;}}
     return rawApiFetch(input,given,assertAuthority,pace);};
   const response = await (!admin&&ownServer?offlineHttpRead(routePath,given,account,()=>offlineBlobRead(input,routePath,given,account,dispatch)):dispatch());
   if(!admin)assertAuthority();
