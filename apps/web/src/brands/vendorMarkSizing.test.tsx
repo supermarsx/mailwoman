@@ -6,6 +6,8 @@ import {SenderBrandMark} from './SenderBrandMark.tsx';
 import {MailboxAvatar} from '../components/accounts/MailboxAvatar.tsx';
 import {clearSettings} from '../api/settings.ts';
 import {suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
+import { loadBrandRegistry } from './registry.ts';
+await loadBrandRegistry();
 
 vi.mock('../components/senderIcons/match.ts',async original=>{
  const actual=await original<typeof import('../components/senderIcons/match.ts')>();

@@ -7,6 +7,8 @@ vi.mock('../api/settings.ts', () => ({settings: () => (state.value === undefined
 
 import {authFailed, brandAvatarDecision, brandAvatarFor} from './senderBrand.ts';
 import {SenderBrandMark} from './SenderBrandMark.tsx';
+import { loadBrandRegistry } from './registry.ts';
+await loadBrandRegistry();
 
 const auth = (over: Partial<{dmarc: string; aligned: boolean; dkim: string; dkimDomain: string | null}> = {}): AuthVerdict => ({
   dkim: {result: (over.dkim ?? 'pass') as 'pass', domain: over.dkimDomain === undefined ? 'paypal.com' : over.dkimDomain, selector: 's1'},

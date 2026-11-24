@@ -1,7 +1,10 @@
 import {describe, expect, it} from 'vitest';
-import {BRANDS, brandForHost} from './registry.ts';
+import {brandForHost, loadBrandRegistry} from './registry.ts';
+import {BRANDS} from './registry.generated.ts';
 import {brandAvatarFor} from './senderBrand.ts';
 import {senderDomainIcon} from '../components/senderIcons/match.ts';
+
+await loadBrandRegistry();
 
 // Differential: the registry matcher (`brandForHost`, reader and list fallback) against the older
 // bundled-catalogue matcher (`senderDomainIcon`, list). Both match by registrable-domain suffix at any

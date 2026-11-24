@@ -3,6 +3,8 @@ import {render,screen,waitFor} from '@solidjs/testing-library';
 import {createSignal} from 'solid-js';
 import {avatarPresentation,PersonAvatar} from './PersonAvatar.tsx';
 import {AVATAR_COLORS} from './senderIcons/palette.ts';
+import { loadBrandRegistry } from '../brands/registry.ts';
+await loadBrandRegistry();
 const state=vi.hoisted(()=>({mode:'initials',icons:true,brands:true as boolean,requireAuth:undefined as string|undefined,fetch:vi.fn(),owner:{accountId:'one',generation:1}}));
 vi.mock('../api/settings.ts',()=>({settings:()=>({'contacts.avatarMode':{value:state.mode},'contacts.senderIcons':{value:state.icons},'mail.brandAvatars':{value:state.brands},'mail.brandAvatars.requireAuth':{value:state.requireAuth}})}));
 const mailboxLookup=vi.hoisted(()=>vi.fn());

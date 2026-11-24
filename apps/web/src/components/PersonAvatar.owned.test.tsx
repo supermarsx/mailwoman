@@ -7,6 +7,8 @@ import {rememberLinkedList} from '../api/mailboxLayout.ts';
 import {setPrimaryMailboxAuthority} from '../api/linkedMailboxSession.ts';
 import {activateAccountPreferences,suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
 import type {LinkedMailboxList} from '../api/linkedAccounts.ts';
+import { loadBrandRegistry } from '../brands/registry.ts';
+await loadBrandRegistry();
 const list={primary:{accountId:'primary',address:'me@example.test',storageAuthority:'msa1_owned_mailbox'},accounts:[{id:'linked',accountId:'child',address:'work@example.test',displayName:'Work',status:'ready'}],layout:{revision:'1',order:[],nicknames:{main:'Personal'},avatars:{main:{kind:'icon',icon:'star',bg:'#123456',fg:'#ffffff'},linked:{kind:'letter',text:'MW',bg:'#334455'}}},policy:{enabled:true}} as unknown as LinkedMailboxList;
 afterEach(()=>{suspendAccountPreferences();setPrimaryMailboxAuthority(undefined);});
 it('uses exactly the saved mailbox artwork for owned primary and linked addresses',()=>{

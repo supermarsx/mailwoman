@@ -170,6 +170,10 @@ export function checkLoadBudget({ report, html, sw, sizes, distFiles, budget, re
   const criticalCss = new Set(page.css);
   stats.critical = { js: critical.size, css: criticalCss.size, ...sum([...critical, ...criticalCss]) };
   const lim = budget.critical ?? {};
+  for (const plan of lim.forbidChunks ?? []) {
+    const hit = [...critical].find((file) => chunks[file].plan === plan);
+    if (hit) fail(`critical path: chunk ${plan} (${hit}) is in the pre-route closure; it must load on demand`);
+  }
   if (lim.maxJs !== undefined && critical.size > lim.maxJs) fail(`critical path: ${critical.size} JS files > ${lim.maxJs}`);
   if (lim.maxGzipBytes !== undefined && stats.critical.gz > lim.maxGzipBytes) fail(`critical path: ${stats.critical.gz} gzip bytes > ${lim.maxGzipBytes}`);
   if (lim.maxBrBytes !== undefined && stats.critical.br > lim.maxBrBytes) fail(`critical path: ${stats.critical.br} brotli bytes > ${lim.maxBrBytes}`);

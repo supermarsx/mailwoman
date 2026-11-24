@@ -26,7 +26,7 @@ function fixture() {
   const sw = 'const ASSET_DIGESTS = {};\nconst OFFLINE_ASSETS = ["/assets/index-a.js","/assets/core-a.js"];\n';
   const distFiles = [...Object.keys(chunks), 'assets/core-a.css', 'assets/login-a.css', 'assets/mail-a.css', 'assets/boot-a.js', 'index.html', 'sw.js'];
   const budget = {
-    critical: { maxJs: 3, maxBrBytes: 1000 },
+    critical: { maxJs: 3, maxBrBytes: 1000, forbidChunks: ['brand-paths'] },
     routes: {
       login: { root: 'src/screens/Login.tsx', maxJs: 4, maxCss: 2 },
       mailbox: { root: 'src/screens/Mailbox.tsx', maxJs: 5, maxCss: 2, maxBrBytes: 1000 },
@@ -111,6 +111,12 @@ test('negative: a route root loaded statically by its parent, or not a dynamic e
   f = fixture();
   f.budget.routes.mailbox.root = 'src/screens/Gone.tsx';
   failsWith(f, /route mailbox: root module src\/screens\/Gone\.tsx is in no chunk/);
+});
+
+test('negative: a chunk the critical path must not load (the brand index) enters its static closure', () => {
+  const f = fixture();
+  f.report.chunks['assets/core-a.js'].imports.push('assets/brand-paths-a.js');
+  failsWith(f, /critical path: chunk brand-paths .* is in the pre-route closure/);
 });
 
 test('negative: route, critical path and totals over budget', () => {

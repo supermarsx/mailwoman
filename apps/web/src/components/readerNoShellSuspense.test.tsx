@@ -12,6 +12,8 @@ vi.mock('../api/settings.ts', () => ({ settings: () => state.map, loadSettings: 
 
 import { HeaderFactsBadges } from './HeaderFactsBadges.tsx';
 import { BrandLogo } from '../brands/BrandLogo.tsx';
+import { loadBrandRegistry } from '../brands/registry.ts';
+await loadBrandRegistry();
 
 afterEach(() => { cleanup(); state.map = {}; });
 

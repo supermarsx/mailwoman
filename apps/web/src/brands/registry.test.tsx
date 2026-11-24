@@ -1,11 +1,13 @@
-import {describe, expect, it} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {render, screen, waitFor} from '@solidjs/testing-library';
 import {existsSync, readdirSync, readFileSync} from 'node:fs';
-import {BRANDS, PROVIDER_CATEGORIES, brandFor, brandForHost, brandInText, loadBrandPath} from './registry.ts';
+import {PROVIDER_CATEGORIES, brandFor, brandForHost, brandInText, loadBrandPath, loadBrandRegistry} from './registry.ts';
+import {BRANDS} from './registry.generated.ts';
 import {LOADERS} from './loaders.generated.ts';
 import {sanitizeSvg} from '../../scripts/brands/sanitize.mjs';
 import {BrandLogo, monogramHue, monogramLetter} from './BrandLogo.tsx';
 
+await loadBrandRegistry();
 const PATHS: Record<string, string> = {};
 await Promise.all(Object.values(LOADERS).map(async load => Object.assign(PATHS, (await load()).PATHS)));
 
@@ -276,4 +278,26 @@ it.each([['wise','wise.com'],['revolut','revolut.com'],['monzo','monzo.com'],['n
 });
 it('recognizes fintech business-account names without remote logo requests',()=>{
  expect(brandFor('Revolut Business')?.id).toBe('revolut');expect(brandFor('Wise Business')?.id).toBe('wise');expect(brandFor('Transfer Wise')?.id).toBe('wise');
+});
+
+describe('brand index loading', () => {
+  it('finds nothing and is not ready before the index chunk is in; finds the brand after, and does not remember the miss', async () => {
+    vi.resetModules();
+    const fresh = await import('./registry.ts');
+    expect(fresh.brandForHost('mail.google.com')).toBeUndefined();
+    expect(fresh.brandFor('google')).toBeUndefined();
+    await fresh.loadBrandRegistry();
+    expect(fresh.brandForHost('mail.google.com')?.id).toBe('google');
+    expect(fresh.brandFor('google')?.name).toBe('Google');
+    expect(await fresh.loadBrandPath('google')).toMatch(/^M/);
+  });
+
+  it('draws no mark, and no monogram, while the index is loading', async () => {
+    vi.resetModules();
+    const {BrandLogo: Fresh} = await import('./BrandLogo.tsx');
+    const {container} = render(() => <Fresh brand="google" />);
+    expect(container.querySelector('svg')?.children.length).toBe(0);
+    await waitFor(() => expect(container.querySelector('svg path')).not.toBeNull());
+    expect(container.querySelector('svg text')).toBeNull();
+  });
 });

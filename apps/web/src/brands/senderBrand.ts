@@ -1,7 +1,10 @@
 import type {AuthVerdict} from '../api/security-types.ts';
 import type {ListAuthSummary} from '../api/jmap-types.ts';
-import {brandForHost, type BrandEntry} from './registry.ts';
+import {brandForHost, loadBrandRegistry, type BrandEntry} from './registry.ts';
 import {brandAsset} from './assets.ts';
+
+// The mailbox loads this module with the first message list: start the brand index now, beside the list request.
+void loadBrandRegistry().catch(() => undefined);
 
 /** `mail.brandAvatars.requireAuth`: how much proof a sender brand icon needs. */
 export type RequireAuth = 'never' | 'known-failure' | 'always';

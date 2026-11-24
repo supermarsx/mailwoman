@@ -1,28 +1,50 @@
-// Brand lookup index. Only names, aliases and host suffixes live here (small, in the
-// main chunk); the vector paths are in `paths.generated.ts` and load on demand
+// Brand lookup index. Names, aliases and host suffixes load as their own chunk (see below); the vector paths are in `paths.generated.ts` and load on demand
 // (see `loadBrandPath`). Marks are bundled locally: nothing is fetched from a CDN or
 // a favicon service, so lookups never leak which providers an operator uses.
-import {BRANDS} from './registry.generated.ts';
+import {createSignal} from 'solid-js';
 import {LOADERS} from './loaders.generated.ts';
 import type {BrandCategory, BrandEntry} from './types.ts';
 
 export type {BrandEntry, BrandCategory} from './types.ts';
-export {BRANDS};
 
+// The index (`registry.generated.ts`, the `brand-index` chunk) is not in the entry: it loads
+// on the first lookup, or earlier through `loadBrandRegistry()`. Until it is in, lookups find
+// nothing and are not remembered; `brandRegistryReady()` is a signal, so a Solid computation
+// that did a lookup runs again once the index is in.
 const norm = (value: string): string => value.trim().toLowerCase().replace(/\s+/g, ' ');
 const byKey = new Map<string, BrandEntry>();
 const hostIndex = new Map<string, BrandEntry>();
-for (const entry of BRANDS) {
-  byKey.set(entry.id, entry);
-  byKey.set(norm(entry.name), entry);
+let brands: readonly BrandEntry[] = [];
+const [ready, setReady] = createSignal(false);
+let indexLoad: Promise<readonly BrandEntry[]> | undefined;
+
+/** Load the index once. Resolves with every entry; a failed load can be retried by calling again. */
+export function loadBrandRegistry(): Promise<readonly BrandEntry[]> {
+  indexLoad ??= import('./registry.generated.ts').then(({BRANDS}) => {
+    brands = BRANDS;
+    for (const entry of BRANDS) {
+      byKey.set(entry.id, entry);
+      byKey.set(norm(entry.name), entry);
+    }
+    // Aliases never override an id or a display name.
+    for (const entry of BRANDS) for (const alias of entry.aliases) if (!byKey.has(norm(alias))) byKey.set(norm(alias), entry);
+    for (const entry of BRANDS) for (const host of entry.hosts) hostIndex.set(host, entry);
+    setReady(true);
+    return BRANDS;
+  }, (error: unknown) => { indexLoad = undefined; throw error; });
+  return indexLoad;
 }
-// Aliases never override an id or a display name.
-for (const entry of BRANDS) for (const alias of entry.aliases) if (!byKey.has(norm(alias))) byKey.set(norm(alias), entry);
-for (const entry of BRANDS) for (const host of entry.hosts) hostIndex.set(host, entry);
+
+/** True once the index is loaded. Reading it in a computation subscribes to the load; it also starts the load. */
+export function brandRegistryReady(): boolean {
+  const done = ready();
+  if (!done) void loadBrandRegistry().catch(() => undefined);
+  return done;
+}
 
 /** Resolve by id, display name, alias, or a bare domain/host (`gmail.com`). */
 export function brandFor(key: string | undefined | null, categories?: readonly BrandCategory[]): BrandEntry | undefined {
-  if (!key) return undefined;
+  if (!key || !brandRegistryReady()) return undefined;
   const k = norm(key);
   const hit = byKey.get(k) ?? brandForHost(k);
   return hit && (!categories || categories.includes(hit.category)) ? hit : undefined;
@@ -40,7 +62,7 @@ export const PROVIDER_CATEGORIES: readonly BrandCategory[] = ['identity', 'mail'
  * The longest matching suffix wins. Unknown hosts return undefined.
  */
 export function brandForHost(input: string | undefined | null): BrandEntry | undefined {
-  if (!input) return undefined;
+  if (!input || !brandRegistryReady()) return undefined;
   // A list shows hundreds of rows from a handful of senders: memoise per input (bounded).
   if (hostMemo.has(input)) return hostMemo.get(input);
   const hit = resolveHost(input);
@@ -66,13 +88,14 @@ function resolveHost(input: string): BrandEntry | undefined {
 
 const chunks = new Map<string, Promise<Readonly<Record<string, string>>>>();
 /** Load (once per category chunk) the vector path for a brand id. Resolves undefined when the brand has no bundled mark. */
-export function loadBrandPath(id: string): Promise<string | undefined> {
+export async function loadBrandPath(id: string): Promise<string | undefined> {
+  await loadBrandRegistry();
   const entry = byKey.get(id);
   const load = entry && !entry.noMark ? LOADERS[entry.category] : undefined;
-  if (!entry || !load) return Promise.resolve(undefined);
+  if (!entry || !load) return undefined;
   let chunk = chunks.get(entry.category);
   if (!chunk) { chunk = load().then(module => module.PATHS); chunks.set(entry.category, chunk); }
-  return chunk.then(paths => paths[entry.id]);
+  return (await chunk)[entry.id];
 }
 
 const AMBIGUOUS = new Set(['live', 'teams', 'spaces', 'element', 'gpt', 'proton']);
@@ -85,10 +108,10 @@ const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
  * words ("box", "live") never match by accident. Exact keys and hosts win first.
  */
 export function brandInText(text: string | undefined | null, categories?: readonly BrandCategory[]): BrandEntry | undefined {
-  if (!text) return undefined;
+  if (!text || !brandRegistryReady()) return undefined;
   const exact = brandFor(text, categories);
   if (exact) return exact;
-  phrases ??= BRANDS.flatMap(entry => [entry.name, ...entry.aliases].map(norm).filter(p => p.length >= 4 && !AMBIGUOUS.has(p)).map(p => ({entry, p})))
+  phrases ??= brands.flatMap(entry => [entry.name, ...entry.aliases].map(norm).filter(p => p.length >= 4 && !AMBIGUOUS.has(p)).map(p => ({entry, p})))
     .sort((a, b) => b.p.length - a.p.length)
     .map(({entry, p}) => ({entry, re: new RegExp(String.raw`(^|[^\p{L}\p{N}])` + escapeRe(p) + String.raw`($|[^\p{L}\p{N}])`, 'u')}));
   const hay = norm(text);
