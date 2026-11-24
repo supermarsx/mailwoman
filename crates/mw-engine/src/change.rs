@@ -304,7 +304,11 @@ mod tests {
         };
         let full = account("parity-full").await;
         let crypto_only = account("parity-crypto").await;
-        let mail = [ChangeType::Email, ChangeType::Mailbox, ChangeType::EmailSubmission];
+        let mail = [
+            ChangeType::Email,
+            ChangeType::Mailbox,
+            ChangeType::EmailSubmission,
+        ];
         for (n, kind) in mail.iter().enumerate() {
             for i in 0..=n {
                 engine
@@ -313,7 +317,10 @@ mod tests {
                     .unwrap();
             }
         }
-        for (n, kind) in [ChangeType::CryptoKey, ChangeType::MailRule].iter().enumerate() {
+        for (n, kind) in [ChangeType::CryptoKey, ChangeType::MailRule]
+            .iter()
+            .enumerate()
+        {
             for i in 0..=n + 3 {
                 for id in [&full, &crypto_only] {
                     engine

@@ -131,8 +131,7 @@ pub(crate) fn resync(reason: ResyncReason) {
 /// [`super::PushHandle::resync_all`] was called.
 pub(crate) fn resync_signal(reason: ResyncReason) {
     RESYNC_SIGNALS[reason.index()].fetch_add(1, Relaxed);
-    metrics::counter!("mw_realtime_resync_signals_total", "reason" => reason.as_str())
-        .increment(1);
+    metrics::counter!("mw_realtime_resync_signals_total", "reason" => reason.as_str()).increment(1);
 }
 
 /// A resync could not read the state it needed; the stream was closed.
@@ -193,7 +192,11 @@ fn by<const N: usize, T: Copy>(
 /// The counters since process start, as JSON (no identities).
 pub fn snapshot() -> serde_json::Value {
     let consumers = [Consumer::Ws, Consumer::Sse, Consumer::Bridge];
-    let reasons = [ResyncReason::Lag, ResyncReason::Bridge, ResyncReason::Transport];
+    let reasons = [
+        ResyncReason::Lag,
+        ResyncReason::Bridge,
+        ResyncReason::Transport,
+    ];
     serde_json::json!({
         "streams": {
             "ws": STREAMS[Transport::Ws.index()].load(Relaxed),

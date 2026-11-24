@@ -763,7 +763,8 @@ async fn a_lagged_parent_stream_catches_up_its_links_from_the_store() {
         srv.push.send(change(&c1, "t46-lag-dropped"));
         srv.push.send(change(&c2, "t46-lag-unlinked"));
         for i in 0..1000 {
-            srv.push.send(change("t46-elsewhere", &format!("t46-x-{i}")));
+            srv.push
+                .send(change("t46-elsewhere", &format!("t46-x-{i}")));
         }
 
         let mut frames = s
@@ -776,11 +777,20 @@ async fn a_lagged_parent_stream_catches_up_its_links_from_the_store() {
         frames.extend(s.drain(Duration::from_millis(1500)).await);
         let text = serde_json::to_string(&frames).unwrap();
         for token in ["t46-lag-dropped", "t46-lag-unlinked", "t46-x-"] {
-            assert!(!text.contains(token), "{token} from the gap arrived: {text}");
+            assert!(
+                !text.contains(token),
+                "{token} from the gap arrived: {text}"
+            );
         }
-        assert!(!text.contains(l2.as_str()), "the removed link got a frame: {text}");
+        assert!(
+            !text.contains(l2.as_str()),
+            "the removed link got a frame: {text}"
+        );
         for raw in [&c1, &c2] {
-            assert!(!text.contains(&format!("\"{raw}\"")), "raw child id on the wire: {text}");
+            assert!(
+                !text.contains(&format!("\"{raw}\"")),
+                "raw child id on the wire: {text}"
+            );
         }
         let after = mw_server::push::metrics_snapshot()["resyncs"]["lag"]
             .as_u64()
@@ -788,7 +798,9 @@ async fn a_lagged_parent_stream_catches_up_its_links_from_the_store() {
         assert!(after > resyncs, "the stream resynced");
         // Still live afterwards.
         srv.push.send(change(&c1, "t46-lag-after"));
-        s.until(Duration::from_secs(5), |f| linked_token(f, &l1, "t46-lag-after"))
-            .await;
+        s.until(Duration::from_secs(5), |f| {
+            linked_token(f, &l1, "t46-lag-after")
+        })
+        .await;
     }
 }

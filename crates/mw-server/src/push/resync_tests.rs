@@ -96,13 +96,17 @@ async fn spawn(app: Router) -> SocketAddr {
 }
 
 async fn spawn_ws(push: PushHandle, account: &'static str, source: Source) -> SocketAddr {
-    spawn(Router::new().route(
-        "/jmap/ws",
-        get(move |ws: WebSocketUpgrade| {
-            let (push, source) = (push.clone(), source.clone());
-            async move { negotiated_upgrade(ws, scoped(&push, account, &source), BEAT, guard_holding()) }
-        }),
-    ))
+    spawn(
+        Router::new().route(
+            "/jmap/ws",
+            get(move |ws: WebSocketUpgrade| {
+                let (push, source) = (push.clone(), source.clone());
+                async move {
+                    negotiated_upgrade(ws, scoped(&push, account, &source), BEAT, guard_holding())
+                }
+            }),
+        ),
+    )
     .await
 }
 
@@ -219,10 +223,23 @@ async fn a_lagged_ws_stream_sends_its_accounts_current_state() {
     let last: serde_json::Value = serde_json::from_str(texts.last().unwrap()).unwrap();
     assert_eq!(last, change("acct1", "current-acct1").to_wire());
     let all = texts.join("\n");
-    assert!(!all.contains("dropped"), "the lost frame is not replayed: {all}");
-    assert!(!all.contains("other-"), "no other account reaches the stream: {all}");
-    assert_eq!(source.asked(), vec!["acct1".to_string()], "only its own account is read");
-    assert!(snap(&["lagged", "ws"]) > lagged_before, "the lag is counted");
+    assert!(
+        !all.contains("dropped"),
+        "the lost frame is not replayed: {all}"
+    );
+    assert!(
+        !all.contains("other-"),
+        "no other account reaches the stream: {all}"
+    );
+    assert_eq!(
+        source.asked(),
+        vec!["acct1".to_string()],
+        "only its own account is read"
+    );
+    assert!(
+        snap(&["lagged", "ws"]) > lagged_before,
+        "the lag is counted"
+    );
 
     // Still live afterwards.
     push.send(change("acct1", "after"));
@@ -243,7 +260,10 @@ async fn a_lagged_sse_stream_sends_its_accounts_current_state() {
     let (body, ended) = sse_read(&mut sock, Duration::from_secs(5), "current-acct1").await;
     assert!(!ended, "the body goes on: {body}");
     assert!(body.contains("current-acct1"), "{body}");
-    assert!(!body.contains("dropped") && !body.contains("other-"), "{body}");
+    assert!(
+        !body.contains("dropped") && !body.contains("other-"),
+        "{body}"
+    );
     assert_eq!(source.asked(), vec!["acct1".to_string()]);
     assert!(snap(&["lagged", "sse"]) > lagged_before);
 }
@@ -269,9 +289,15 @@ async fn lag_resync_off_restores_continue() {
             overflow_with_own_change_lost(&push);
             push.send(change("acct1", "after"));
             let (body, ended) = sse_read(&mut sock, Duration::from_secs(5), "after").await;
-            assert!(!ended && body.contains("after") && !body.contains("current-"), "{body}");
+            assert!(
+                !ended && body.contains("after") && !body.contains("current-"),
+                "{body}"
+            );
         }
-        assert!(source.asked().is_empty(), "nothing is read with the switch off");
+        assert!(
+            source.asked().is_empty(),
+            "nothing is read with the switch off"
+        );
     }
 }
 
@@ -308,7 +334,10 @@ async fn a_stream_without_a_source_closes_on_a_gap() {
         panic!("the receiver lagged");
     };
     assert!(n > 0);
-    assert!(!changes.lagged(Consumer::Ws, n).await, "close, do not continue");
+    assert!(
+        !changes.lagged(Consumer::Ws, n).await,
+        "close, do not continue"
+    );
 }
 
 /// A source that answers for a different account than asked is refused: the
@@ -342,13 +371,18 @@ async fn bridge_lag_makes_every_stream_resync() {
     tokio::spawn(bridge_engine(engine_rx, push.clone()));
     tokio::task::yield_now().await;
     for i in 0..16 {
-        engine_tx.send(change("engine-only", &i.to_string())).unwrap();
+        engine_tx
+            .send(change("engine-only", &i.to_string()))
+            .unwrap();
     }
 
     let (texts, _) = ws_read(&mut ws, Duration::from_secs(5), "current-acct1").await;
     assert!(texts.last().unwrap().contains("current-acct1"), "{texts:?}");
     let (body, _) = sse_read(&mut sse, Duration::from_secs(5), "current-acct3").await;
-    assert!(body.contains("current-acct3") && !body.contains("acct1"), "{body}");
+    assert!(
+        body.contains("current-acct3") && !body.contains("acct1"),
+        "{body}"
+    );
     resync.changed().await.unwrap();
     assert_eq!(resync.borrow().reason, ResyncReason::Bridge);
     assert!(snap(&["resyncSignals", "bridge"]) > signals_before);
@@ -372,7 +406,9 @@ async fn identical_frames_are_sent_once_per_account() {
     assert!(snap(&["duplicatesSuppressed"]) > before);
 
     // A resync that finds the state the stream last sent writes nothing.
-    changes.admit(Incoming::Own(change("acct1", "current-acct1"))).await;
+    changes
+        .admit(Incoming::Own(change("acct1", "current-acct1")))
+        .await;
     changes.pending.clear();
     assert!(changes.catch_up(ResyncReason::Lag).await);
     assert!(changes.pending.is_empty(), "{:?}", changes.pending);
@@ -455,7 +491,11 @@ async fn a_shared_read_never_predates_the_requesters_gap() {
         let (hub, source) = (hub.clone(), source.clone());
         async move { hub.read(&source, "acct1", g2, wait).await }
     });
-    assert_eq!(started_rx.recv().await.unwrap(), "acct1", "B started its own read");
+    assert_eq!(
+        started_rx.recv().await.unwrap(),
+        "acct1",
+        "B started its own read"
+    );
     // C: g1 predates read 2's start too, so C may join the newest read (2).
     let c = tokio::spawn({
         let (hub, source) = (hub.clone(), source.clone());
@@ -464,9 +504,16 @@ async fn a_shared_read_never_predates_the_requesters_gap() {
     tokio::task::yield_now().await;
     assert_eq!(calls.load(Ordering::SeqCst), 2, "C shares; no third read");
     release.notify_waiters();
-    let (a, b, c) = (a.await.unwrap().unwrap(), b.await.unwrap().unwrap(), c.await.unwrap().unwrap());
+    let (a, b, c) = (
+        a.await.unwrap().unwrap(),
+        b.await.unwrap().unwrap(),
+        c.await.unwrap().unwrap(),
+    );
     assert_eq!(a.email, "read-1");
-    assert_eq!(b.email, "read-2", "B is answered by the read that started after its gap");
+    assert_eq!(
+        b.email, "read-2",
+        "B is answered by the read that started after its gap"
+    );
     assert_eq!(c.email, "read-2");
 }
 
@@ -493,17 +540,27 @@ async fn a_queued_read_is_shared_and_concurrency_is_bounded() {
     for account in ["a", "b", "b", "b"] {
         let (hub, source) = (hub.clone(), source.clone());
         let gap = hub.gap();
-        tasks.push(tokio::spawn(async move { hub.read(&source, account, gap, wait).await }));
+        tasks.push(tokio::spawn(async move {
+            hub.read(&source, account, gap, wait).await
+        }));
     }
     for _ in 0..5 {
         tokio::task::yield_now().await;
     }
-    assert_eq!(calls.load(Ordering::SeqCst), 1, "one permit: only a's read runs");
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "one permit: only a's read runs"
+    );
     release.add_permits(2);
     for t in tasks {
         t.await.unwrap().unwrap();
     }
-    assert_eq!(calls.load(Ordering::SeqCst), 2, "b's three requesters share one read");
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        2,
+        "b's three requesters share one read"
+    );
 }
 
 #[tokio::test]
@@ -511,7 +568,9 @@ async fn a_read_that_outlasts_its_deadline_is_a_failure() {
     let hub = Hub::new(1);
     let source: ReadFn = Arc::new(|_| Box::pin(std::future::pending()));
     let gap = hub.gap();
-    let out = hub.read(&source, "acct1", gap, Duration::from_millis(50)).await;
+    let out = hub
+        .read(&source, "acct1", gap, Duration::from_millis(50))
+        .await;
     assert!(out.is_err());
     assert!(hub.idle(), "nothing left behind");
 }
@@ -539,8 +598,10 @@ async fn interest_counts_open_streams_per_account() {
 #[test]
 fn switches_default_and_refuse_invalid_values() {
     let parse = |pairs: &[(&str, &str)]| {
-        let pairs: Vec<(String, String)> =
-            pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let pairs: Vec<(String, String)> = pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
         parse_config(move |name| {
             pairs
                 .iter()
@@ -549,7 +610,11 @@ fn switches_default_and_refuse_invalid_values() {
         })
     };
     assert_eq!(parse(&[]).unwrap(), RealtimeConfig::default());
-    assert_eq!(RealtimeConfig::default().fanout_capacity, 256, "today's capacity");
+    assert_eq!(
+        RealtimeConfig::default().fanout_capacity,
+        256,
+        "today's capacity"
+    );
     let set = parse(&[
         (FANOUT_ENV, "1024"),
         (LAG_RESYNC_ENV, "off"),

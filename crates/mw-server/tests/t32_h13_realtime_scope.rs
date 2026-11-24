@@ -873,7 +873,8 @@ async fn a_lagged_stream_sends_its_accounts_current_state_from_the_store() {
 
     srv.push.send(change(&a.account_id, "h13-lag-dropped"));
     for i in 0..1000 {
-        srv.push.send(change(&b.account_id, &format!("h13-lag-b-{i}")));
+        srv.push
+            .send(change(&b.account_id, &format!("h13-lag-b-{i}")));
     }
 
     let current = mw_engine::change::state_change_from_store(&store, &a.account_id)
@@ -892,7 +893,9 @@ async fn a_lagged_stream_sends_its_accounts_current_state_from_the_store() {
                         s.kind()
                     );
                     assert!(
-                        !tokens.iter().any(|t| t == "h13-lag-dropped" || t.starts_with("h13-lag-b")),
+                        !tokens
+                            .iter()
+                            .any(|t| t == "h13-lag-dropped" || t.starts_with("h13-lag-b")),
                         "{} stream: a frame from the gap arrived: {v}",
                         s.kind()
                     );
@@ -909,9 +912,18 @@ async fn a_lagged_stream_sends_its_accounts_current_state_from_the_store() {
             }
         }
     }
-    assert!(realtime_counter(&["lagged", "ws"]) > lagged_ws, "the ws lag is counted");
-    assert!(realtime_counter(&["lagged", "sse"]) > lagged_sse, "the sse lag is counted");
-    assert!(realtime_counter(&["resyncs", "lag"]) >= resyncs + 2, "both streams resynced");
+    assert!(
+        realtime_counter(&["lagged", "ws"]) > lagged_ws,
+        "the ws lag is counted"
+    );
+    assert!(
+        realtime_counter(&["lagged", "sse"]) > lagged_sse,
+        "the sse lag is counted"
+    );
+    assert!(
+        realtime_counter(&["resyncs", "lag"]) >= resyncs + 2,
+        "both streams resynced"
+    );
     // Still live and still scoped afterwards.
     assert_alive(&srv, &mut streams, &a, "after-lag").await;
 }

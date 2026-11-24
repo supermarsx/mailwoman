@@ -170,15 +170,16 @@ impl Default for RealtimeConfig {
 }
 
 fn parse_config(get: impl Fn(&str) -> Option<String>) -> Result<RealtimeConfig, String> {
-    let number = |name: &str, (lo, hi): (usize, usize), default: usize| {
-        match get(name).as_deref().map(str::trim) {
-            None | Some("") => Ok(default),
-            Some(v) => v
-                .parse::<usize>()
-                .ok()
-                .filter(|n| (lo..=hi).contains(n))
-                .ok_or_else(|| format!("{name}={v:?} is not a whole number in {lo}..={hi}")),
-        }
+    let number = |name: &str, (lo, hi): (usize, usize), default: usize| match get(name)
+        .as_deref()
+        .map(str::trim)
+    {
+        None | Some("") => Ok(default),
+        Some(v) => v
+            .parse::<usize>()
+            .ok()
+            .filter(|n| (lo..=hi).contains(n))
+            .ok_or_else(|| format!("{name}={v:?} is not a whole number in {lo}..={hi}")),
     };
     let switch = |name: &str| match get(name).as_deref().map(str::trim) {
         None | Some("") | Some("on") => Ok(true),
@@ -378,7 +379,11 @@ impl PushHandle {
     /// its live links), for a transport that only needs those accounts'
     /// changes. Sorted.
     pub fn interest_accounts(&self) -> Vec<String> {
-        let interest = self.control.interest.lock().unwrap_or_else(|e| e.into_inner());
+        let interest = self
+            .control
+            .interest
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let mut accounts: Vec<String> = interest.keys().cloned().collect();
         accounts.sort();
         accounts
@@ -514,7 +519,11 @@ impl InterestGuard {
         if next == self.accounts {
             return;
         }
-        let mut interest = self.control.interest.lock().unwrap_or_else(|e| e.into_inner());
+        let mut interest = self
+            .control
+            .interest
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         for account in &next {
             *interest.entry(account.clone()).or_default() += 1;
         }
@@ -537,7 +546,11 @@ fn release(interest: &mut HashMap<String, usize>, account: &str) {
 
 impl Drop for InterestGuard {
     fn drop(&mut self) {
-        let mut interest = self.control.interest.lock().unwrap_or_else(|e| e.into_inner());
+        let mut interest = self
+            .control
+            .interest
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         for account in &self.accounts {
             release(&mut interest, account);
         }
@@ -621,10 +634,8 @@ impl ScopedChanges {
         state: AppState,
         parent: Session,
     ) -> Self {
-        let mut changes = Self::new(rx, accounts).attach(
-            &state.push,
-            Some(resync::store_reader(state.store.clone())),
-        );
+        let mut changes = Self::new(rx, accounts)
+            .attach(&state.push, Some(resync::store_reader(state.store.clone())));
         // Subscribed before the first resolution, so a link made meanwhile is
         // not missed.
         changes.links_epoch = Some(linked_accounts::subscribe_links());
@@ -635,7 +646,12 @@ impl ScopedChanges {
             .await
             .ok()
             .flatten();
-        let personal_owner = state.store.session_personal_subject(&parent.id).await.ok().flatten();
+        let personal_owner = state
+            .store
+            .session_personal_subject(&parent.id)
+            .await
+            .ok()
+            .flatten();
         changes.linked = Some(LinkedScope {
             state,
             parent,
@@ -693,16 +709,30 @@ impl ScopedChanges {
     async fn admit(&mut self, incoming: Incoming) {
         match incoming {
             Incoming::Preferences(target) => {
-                let token=uuid::Uuid::new_v4().simple().to_string();
-                if target.as_ref().is_none_or(|account|self.accounts.contains(account)) {
+                let token = uuid::Uuid::new_v4().simple().to_string();
+                if target
+                    .as_ref()
+                    .is_none_or(|account| self.accounts.contains(account))
+                {
                     for account in &self.accounts {
                         self.pending.push_back(serde_json::json!({"@type":"StateChange","changed":{account:{"Settings":token}}}).to_string());
                     }
                 }
-                if let Some(scope)=&self.linked {
+                if let Some(scope) = &self.linked {
                     for link in &scope.links {
-                        if target.as_ref().is_some_and(|account|account!=&link.account_id){continue;}
-                        if linked_accounts::verify_link(&scope.state,&scope.parent,&link.link).await.as_ref()!=Some(link){continue;}
+                        if target
+                            .as_ref()
+                            .is_some_and(|account| account != &link.account_id)
+                        {
+                            continue;
+                        }
+                        if linked_accounts::verify_link(&scope.state, &scope.parent, &link.link)
+                            .await
+                            .as_ref()
+                            != Some(link)
+                        {
+                            continue;
+                        }
                         self.pending.push_back(serde_json::json!({"@type":"MailboxChange","link":link.link,"storageAuthority":link.storage_authority,"changed":{"Settings":token}}).to_string());
                     }
                 }
@@ -768,32 +798,55 @@ impl ScopedChanges {
         // Seed the initial baseline without emitting spurious changes.
         let mut changed = serde_json::Map::new();
         if !scope.metadata.contains_key("Settings") {
-            let token=uuid::Uuid::new_v4().simple().to_string();
-            scope.metadata.insert("Settings".into(),token.clone());
-            changed.insert("Settings".into(),token.into());
+            let token = uuid::Uuid::new_v4().simple().to_string();
+            scope.metadata.insert("Settings".into(), token.clone());
+            changed.insert("Settings".into(), token.into());
         }
         // A reconnect also carries the current web build so an old open tab
         // notices a server restart/deploy without waiting for its slow poll.
-        let build=crate::client_policy::web_build_id(scope.state.web_dir.as_deref());
-        if scope.metadata.insert("WebVersion".into(),build.clone()).as_deref()!=Some(build.as_str()) {
-            changed.insert("WebVersion".into(),build.into());
+        let build = crate::client_policy::web_build_id(scope.state.web_dir.as_deref());
+        if scope
+            .metadata
+            .insert("WebVersion".into(), build.clone())
+            .as_deref()
+            != Some(build.as_str())
+        {
+            changed.insert("WebVersion".into(), build.into());
         }
-        if let Ok(mut rows) = scope.state.store.list_security_sessions(Some(&scope.parent.account_id), 100).await {
-            rows.sort_by(|a,b| a.handle.cmp(&b.handle));
+        if let Ok(mut rows) = scope
+            .state
+            .store
+            .list_security_sessions(Some(&scope.parent.account_id), 100)
+            .await
+        {
+            rows.sort_by(|a, b| a.handle.cmp(&b.handle));
             let snapshot: Vec<_> = rows.iter().map(|row| (&row.handle, &row.device)).collect();
             if let Ok(json) = serde_json::to_string(&snapshot) {
                 let token = crate::push_relay::hash_token(&json);
-                if scope.metadata.insert("Session".into(), token.clone()).is_some_and(|old| old != token) {
+                if scope
+                    .metadata
+                    .insert("Session".into(), token.clone())
+                    .is_some_and(|old| old != token)
+                {
                     changed.insert("Session".into(), token.into());
                 }
             }
         }
         if let Some(owner) = &scope.personal_owner {
-            if let Ok(mut rows) = scope.state.store.personal_records(owner, "notification-center:v1:").await {
+            if let Ok(mut rows) = scope
+                .state
+                .store
+                .personal_records(owner, "notification-center:v1:")
+                .await
+            {
                 rows.sort();
                 if let Ok(json) = serde_json::to_string(&rows) {
                     let token = crate::push_relay::hash_token(&json);
-                    if scope.metadata.insert("Notification".into(), token.clone()).is_some_and(|old| old != token) {
+                    if scope
+                        .metadata
+                        .insert("Notification".into(), token.clone())
+                        .is_some_and(|old| old != token)
+                    {
                         changed.insert("Notification".into(), token.into());
                     }
                 }
@@ -826,7 +879,8 @@ impl ScopedChanges {
         }
         scope.links = next;
         let live: Vec<&str> = scope.links.iter().map(|l| l.link.as_str()).collect();
-        self.last_link.retain(|link, _| live.contains(&link.as_str()));
+        self.last_link
+            .retain(|link, _| live.contains(&link.as_str()));
         let accounts = self.interest_set();
         if let Some(interest) = self.interest.as_mut() {
             interest.set(accounts);
@@ -893,7 +947,10 @@ impl ScopedChanges {
             Ok(()) => true,
             Err(why) => {
                 self::metrics::resync_failure();
-                tracing::info!("realtime stream closed: {} resync failed: {why}", reason.as_str());
+                tracing::info!(
+                    "realtime stream closed: {} resync failed: {why}",
+                    reason.as_str()
+                );
                 false
             }
         }
@@ -1545,22 +1602,25 @@ mod tests {
 
     #[tokio::test]
     async fn preference_changes_are_private_opaque_and_survive_receiver_lag() {
-        let h=PushHandle::new();
-        let mut mine=ScopedChanges::new(h.subscribe(),vec!["acct1".into()]);
-        mine.preferences=Some(h.preferences.subscribe());
+        let h = PushHandle::new();
+        let mut mine = ScopedChanges::new(h.subscribe(), vec!["acct1".into()]);
+        mine.preferences = Some(h.preferences.subscribe());
         h.preferences_changed(Some("other-account"));
         h.preferences_changed(Some("acct1"));
-        let event=mine.recv().await.unwrap();
-        assert_eq!(event,Incoming::Preferences(Some("acct1".into())));
+        let event = mine.recv().await.unwrap();
+        assert_eq!(event, Incoming::Preferences(Some("acct1".into())));
         mine.admit(event).await;
-        let frame:serde_json::Value=serde_json::from_str(&mine.pending.pop_front().unwrap()).unwrap();
+        let frame: serde_json::Value =
+            serde_json::from_str(&mine.pending.pop_front().unwrap()).unwrap();
         assert!(frame["changed"]["acct1"]["Settings"].is_string());
-        assert_eq!(frame["changed"]["acct1"].as_object().unwrap().len(),1);
+        assert_eq!(frame["changed"]["acct1"].as_object().unwrap().len(), 1);
         assert!(!frame.to_string().contains("other-account"));
         h.preferences_changed(None);
-        assert_eq!(mine.recv().await.unwrap(),Incoming::Preferences(None));
-        for _ in 0..300 {h.preferences_changed(Some("other-account"));}
-        assert_eq!(mine.recv().await.unwrap(),Incoming::Preferences(None));
+        assert_eq!(mine.recv().await.unwrap(), Incoming::Preferences(None));
+        for _ in 0..300 {
+            h.preferences_changed(Some("other-account"));
+        }
+        assert_eq!(mine.recv().await.unwrap(), Incoming::Preferences(None));
     }
 
     #[tokio::test]
