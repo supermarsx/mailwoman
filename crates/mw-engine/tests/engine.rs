@@ -2102,3 +2102,112 @@ async fn initial_sync_starts_watching_before_archive_backfill_finishes(){
  assert!(backend.watch_sink.lock().unwrap().is_some(),"live watch waited for archive backfill");
  gate.release.notify_one();h.engine.unregister(&h.account_id);
 }
+
+// ---- t55: creation-id references ----------------------------------------
+
+fn draft_spec(subject: &str) -> Value {
+    json!({
+        "from": [{ "email": "me@example.org" }],
+        "to": [{ "email": "friend@example.org" }],
+        "subject": subject,
+        "keywords": { "$draft": true, "$seen": true },
+        "bodyValues": { "b": { "value": "Draft body." } },
+        "textBody": [{ "partId": "b", "type": "text/plain" }]
+    })
+}
+
+/// RFC 8620 §5.3: `#<creationId>` in a later call of the same request names
+/// the record that call created, in `*/get` ids, `*/set` update keys and
+/// `*/set` destroy.
+#[tokio::test]
+async fn creation_ids_resolve_in_later_calls_of_the_same_request() {
+    let h = setup().await;
+    h.engine.resync(&h.account_id).await.unwrap();
+    let resp = jmap(
+        &h,
+        json!([
+            ["Email/set", { "create": { "d1": draft_spec("Back-referenced draft") } }, "save"],
+            ["Email/get", { "ids": ["#d1"], "properties": ["id", "subject", "keywords"] }, "get"],
+            ["Email/set", { "update": { "#d1": { "keywords/$flagged": true } } }, "flag"],
+            ["Email/set", { "destroy": ["#d1"] }, "discard"]
+        ]),
+    )
+    .await;
+    let id = method_result(&resp, "save")["created"]["d1"]["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{resp}"))
+        .to_string();
+    let got = method_result(&resp, "get");
+    assert_eq!(got["list"].as_array().unwrap().len(), 1, "{resp}");
+    assert_eq!(got["list"][0]["id"], id);
+    assert_eq!(got["list"][0]["subject"], "Back-referenced draft");
+    let flag = method_result(&resp, "flag");
+    assert!(flag["updated"].as_object().unwrap().contains_key(&id), "{resp}");
+    assert!(flag.get("notUpdated").is_none(), "{resp}");
+    assert_eq!(method_result(&resp, "discard")["destroyed"], json!([id]), "{resp}");
+}
+
+#[tokio::test]
+async fn unknown_creation_ids_are_not_found_and_a_scalar_ids_is_refused() {
+    let h = setup().await;
+    h.engine.resync(&h.account_id).await.unwrap();
+    let resp = jmap(
+        &h,
+        json!([
+            ["Email/get", { "ids": ["#nope"] }, "get"],
+            ["Email/set", { "destroy": ["#nope"] }, "discard"],
+            ["Email/set", { "create": { "d1": draft_spec("Scalar ids") } }, "save"],
+            // The pointer selects one id, not a list: invalidArguments, never
+            // an empty answer.
+            ["Email/get", { "#ids": { "resultOf": "save", "name": "Email/set", "path": "/created/d1/id" } }, "scalar"],
+            ["Email/get", { "#ids": { "resultOf": "save", "name": "Email/set", "path": "/created/*/id" } }, "listed"]
+        ]),
+    )
+    .await;
+    assert_eq!(method_result(&resp, "get")["notFound"], json!(["#nope"]), "{resp}");
+    assert_eq!(
+        method_result(&resp, "discard")["notDestroyed"]["#nope"]["type"],
+        "notFound",
+        "{resp}"
+    );
+    let responses = resp["methodResponses"].as_array().unwrap();
+    let scalar = responses.iter().find(|r| r[2] == "scalar").unwrap();
+    assert_eq!(scalar[0], "error", "{resp}");
+    assert_eq!(scalar[1]["type"], "invalidArguments", "{resp}");
+    // RFC 8620 §3.7: `*` maps over an array only; `created` is an object.
+    let listed = responses.iter().find(|r| r[2] == "listed").unwrap();
+    assert_eq!(listed[1]["type"], "invalidResultReference", "{resp}");
+}
+
+/// RFC 8620 §3.3: `createdIds` given in the request seeds the creation ids and
+/// comes back with this request's creations added; without it, no
+/// `createdIds` is returned.
+#[tokio::test]
+async fn request_created_ids_seed_and_return_the_creation_map() {
+    let h = setup().await;
+    h.engine.resync(&h.account_id).await.unwrap();
+    let first = h
+        .engine
+        .handle_jmap(
+            &h.account_id,
+            &json!({ "createdIds": {}, "methodCalls": [
+                ["Email/set", { "create": { "d1": draft_spec("Seeded") } }, "save"]
+            ]}),
+        )
+        .await;
+    let id = method_result(&first, "save")["created"]["d1"]["id"].clone();
+    assert!(id.is_string(), "{first}");
+    assert_eq!(first["createdIds"], json!({ "d1": id }), "{first}");
+    let second = h
+        .engine
+        .handle_jmap(
+            &h.account_id,
+            &json!({ "createdIds": { "d1": id }, "methodCalls": [
+                ["Email/get", { "ids": ["#d1"], "properties": ["id"] }, "get"]
+            ]}),
+        )
+        .await;
+    assert_eq!(method_result(&second, "get")["list"][0]["id"], id, "{second}");
+    let plain = jmap(&h, json!([["Email/get", { "ids": [] }, "get"]])).await;
+    assert!(plain.get("createdIds").is_none(), "{plain}");
+}

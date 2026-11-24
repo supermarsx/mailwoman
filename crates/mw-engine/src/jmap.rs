@@ -203,8 +203,12 @@ impl Engine {
         // A write that succeeded in this request: other sessions of the account
         // hear of it below (t39 L8).
         let mut wrote = false;
-        // Tracks Email/set creation-id → stable id so EmailSubmission/set can
-        // reference a just-created draft as `#clientId`.
+        // Creation id → server id for this request (RFC 8620 §3.3, §5.3): seeded
+        // from the request's own `createdIds`, filled by every successful
+        // `created` map, and consumed as `#<creationId>` in id arguments of later
+        // calls ([`resolve_creation_ids`]). `createdIds` is echoed back only when
+        // the request carried it. Kept explicit: a read-only recogniser
+        // (t50hp-e12 plan) must refuse any request that carries this key.
         let mut created_ids: HashMap<String, String> = request
             .get("createdIds")
             .and_then(Value::as_object)
@@ -238,6 +242,10 @@ impl Engine {
             // data, not the engine's method-error convention.
             if name == "Core/echo" {
                 responses.push(json!([name, args, call_id]));
+                continue;
+            }
+            if let Err(kind) = resolve_creation_ids(name, &mut args, &created_ids) {
+                responses.push(json!(["error", {"type":kind}, call_id]));
                 continue;
             }
             let using = request.get("using").and_then(Value::as_array);
@@ -340,6 +348,9 @@ impl Engine {
                 name
             };
             wrote |= response_name != "error" && changes_state(name, &resp);
+            if response_name != "error" {
+                record_created_ids(&resp, &mut created_ids);
+            }
             responses.push(json!([response_name, resp, call_id]));
             if let Some(email_set) = implicit {
                 wrote = true;
@@ -4744,6 +4755,67 @@ pub fn resolve_references(
         obj.remove(&key);
     }
     Ok(())
+}
+
+/// Replace `#<creationId>` references in a method's id arguments with the ids
+/// the server assigned earlier in the same request (RFC 8620 §5.3): `ids` of a
+/// `*/get`, `destroy` and the `update` keys of a `*/set`. A reference to no
+/// known creation id is left as it is, so the method answers `notFound` for
+/// it. Other string values are never rewritten: a property value that happens
+/// to start with `#` is data. An `ids` that is neither an array nor null (as
+/// produced by a result reference pointing at one id rather than a list) is
+/// `invalidArguments`, not an empty request.
+fn resolve_creation_ids(
+    name: &str,
+    args: &mut Value,
+    created: &HashMap<String, String>,
+) -> std::result::Result<(), &'static str> {
+    let Some(obj) = args.as_object_mut() else {
+        return Ok(());
+    };
+    let resolve = |id: &str| -> Option<String> { created.get(id.strip_prefix('#')?).cloned() };
+    let resolve_list = |list: &mut Value| {
+        if let Some(items) = list.as_array_mut() {
+            for item in items {
+                if let Some(real) = item.as_str().and_then(resolve) {
+                    *item = Value::String(real);
+                }
+            }
+        }
+    };
+    if name.ends_with("/get") {
+        match obj.get_mut("ids") {
+            None | Some(Value::Null) => {}
+            Some(ids @ Value::Array(_)) => resolve_list(ids),
+            Some(_) => return Err("invalidArguments"),
+        }
+    }
+    if name.ends_with("/set") {
+        if let Some(destroy) = obj.get_mut("destroy") {
+            resolve_list(destroy);
+        }
+        if let Some(Value::Object(update)) = obj.get_mut("update")
+            && update.keys().any(|key| resolve(key).is_some())
+        {
+            let entries = std::mem::take(update);
+            for (key, patch) in entries {
+                update.insert(resolve(&key).unwrap_or(key), patch);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Add a successful method response's `created` map (creation id → object with
+/// its server `id`) to the request's creation ids.
+fn record_created_ids(response: &Value, created: &mut HashMap<String, String>) {
+    if let Some(map) = response.get("created").and_then(Value::as_object) {
+        for (creation_id, object) in map {
+            if let Some(id) = object.get("id").and_then(Value::as_str) {
+                created.insert(creation_id.clone(), id.to_owned());
+            }
+        }
+    }
 }
 
 fn result_pointer(value: &Value, path: &str) -> Option<Value> {
