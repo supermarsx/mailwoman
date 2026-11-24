@@ -260,7 +260,7 @@ set_in "$PICK_STATE/deploy.env" ACME_CA=
 
 # A new installation's deploy.env carries the Helm chart's limits; values that are
 # not a size or a CPU count are refused.
-[[ $(grep -E '^(MEMORY|CPU)_LIMIT=' "$PICK_STATE/deploy.env" | tr '\n' ' ') == 'MEMORY_LIMIT=1g CPU_LIMIT=2 ' ]] || fail "init wrote no default limits: $(grep LIMIT "$PICK_STATE/deploy.env")"
+[[ $(grep -E '^(MEMORY|CPU)_LIMIT=' "$PICK_STATE/deploy.env" | tr '\n' ' ') == 'MEMORY_LIMIT=4g CPU_LIMIT=4 ' ]] || fail "init wrote no default limits: $(grep LIMIT "$PICK_STATE/deploy.env")"
 pick_reject() {
     local expected=$1
     shift
