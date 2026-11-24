@@ -7,7 +7,8 @@
     "critical.maxGzipBytes replaces the former 250 KB gzip entry-file gate (the entry is now a 4 KB bootstrap): the pre-route JS + CSS at its measured value.",
     "Admin sections are one chunk each and are not counted in nonAdminChunks; no route without \"console\" may load an admin shell, admin-common or section chunk.",
     "Probes: hashed files a one-line change in the module renames. basePath.ts (core) renames every app chunk, including the 66 admin sections, and the network worker (it bundles basePath).",
-    "The locale probe renames core because core imports the catalog URL table dynamically (t52w-e3 replaces that table)."
+    "Translations (t52w-e3, 2026-11-24): two JSON packs per locale (app, admin) = 28 files, English fallback merged at build time. The pack URL table is a JSON block in index.html, so a .ftl edit renames only its pack (probe `catalog`).",
+    "catalogPacks: caps are 5% above the measured .br / gzip bytes of each pack, rounded up to 1 KiB."
   ],
   "critical": { "maxJs": 3, "maxBrBytes": 320512, "maxGzipBytes": 337920 },
   "routes": {
@@ -20,16 +21,32 @@
   },
   "totals": {
     "nonAdminChunks": 26,
-    "catalogFiles": 1753,
+    "catalogFiles": 28,
     "precacheEntries": 1600,
     "precacheBytes": 34000000,
     "swBytes": 365000
   },
+  "catalogPacks": {
+    "ar": { "admin": { "maxBrBytes": 203776, "maxGzBytes": 222208 }, "app": { "maxBrBytes": 181248, "maxGzBytes": 197632 } },
+    "de": { "admin": { "maxBrBytes": 192512, "maxGzBytes": 212992 }, "app": { "maxBrBytes": 172032, "maxGzBytes": 187392 } },
+    "en": { "admin": { "maxBrBytes": 173056, "maxGzBytes": 186368 }, "app": { "maxBrBytes": 158720, "maxGzBytes": 169984 } },
+    "es": { "admin": { "maxBrBytes": 187392, "maxGzBytes": 204800 }, "app": { "maxBrBytes": 164864, "maxGzBytes": 180224 } },
+    "fr": { "admin": { "maxBrBytes": 192512, "maxGzBytes": 211968 }, "app": { "maxBrBytes": 169984, "maxGzBytes": 186368 } },
+    "it": { "admin": { "maxBrBytes": 187392, "maxGzBytes": 203776 }, "app": { "maxBrBytes": 164864, "maxGzBytes": 178176 } },
+    "ja": { "admin": { "maxBrBytes": 189440, "maxGzBytes": 219136 }, "app": { "maxBrBytes": 165888, "maxGzBytes": 190464 } },
+    "nl": { "admin": { "maxBrBytes": 189440, "maxGzBytes": 205824 }, "app": { "maxBrBytes": 168960, "maxGzBytes": 182272 } },
+    "pl": { "admin": { "maxBrBytes": 193536, "maxGzBytes": 215040 }, "app": { "maxBrBytes": 174080, "maxGzBytes": 192512 } },
+    "pt-BR": { "admin": { "maxBrBytes": 186368, "maxGzBytes": 203776 }, "app": { "maxBrBytes": 166912, "maxGzBytes": 181248 } },
+    "pt-PT": { "admin": { "maxBrBytes": 186368, "maxGzBytes": 203776 }, "app": { "maxBrBytes": 166912, "maxGzBytes": 181248 } },
+    "ru": { "admin": { "maxBrBytes": 212992, "maxGzBytes": 246784 }, "app": { "maxBrBytes": 200704, "maxGzBytes": 219136 } },
+    "uk": { "admin": { "maxBrBytes": 210944, "maxGzBytes": 243712 }, "app": { "maxBrBytes": 198656, "maxGzBytes": 217088 } },
+    "zh": { "admin": { "maxBrBytes": 176128, "maxGzBytes": 203776 }, "app": { "maxBrBytes": 157696, "maxGzBytes": 180224 } }
+  },
   "otherJs": ["^assets/boot-", "^assets/offline-background-", "^assets/worker\\.entry-", "^assets/networkWorker-", "^assets/calendarWorker-", "^assets/pbkdf2-"],
   "probes": [
-    { "module": "src/components/MessageList.tsx", "maxRenamed": 3, "forbid": ["vendor-core", "vendor-altcha", "brand-paths", "licences", "locale-urls"] },
-    { "module": "src/screens/Settings.tsx", "maxRenamed": 6, "forbid": ["vendor-core", "vendor-altcha", "brand-paths", "licences", "locale-urls"] },
-    { "module": "src/api/basePath.ts", "maxRenamed": 87, "forbid": ["vendor-core", "vendor-altcha", "brand-paths", "licences", "locale-urls"] },
-    { "module": "locales/en/mail.ftl?url", "maxRenamed": 88, "forbid": ["vendor-core", "vendor-altcha", "brand-paths", "licences"] }
+    { "module": "src/components/MessageList.tsx", "maxRenamed": 3, "forbid": ["vendor-core", "vendor-altcha", "brand-paths", "licences"] },
+    { "module": "src/screens/Settings.tsx", "maxRenamed": 6, "forbid": ["vendor-core", "vendor-altcha", "brand-paths", "licences"] },
+    { "module": "src/api/basePath.ts", "maxRenamed": 87, "forbid": ["vendor-core", "vendor-altcha", "brand-paths", "licences"] },
+    { "catalog": "en/mail", "maxRenamed": 3, "maxRenamedNewMessage": 14, "forbid": ["vendor-core", "vendor-altcha", "brand-paths", "licences", "core", "entry", "mail"] }
   ]
 }

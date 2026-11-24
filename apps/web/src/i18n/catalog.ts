@@ -19,7 +19,12 @@ import { fallbackChain, SOURCE_LOCALE, isKnownLocale, type Locale } from './loca
 import enCommon from '../../locales/en/common.ftl?raw';
 
 // Every OTHER catalog, lazily. Keys look like `../../locales/de/mail.ftl`.
-import lazyCatalogs from './catalogSources.ts';
+import lazyCatalogs, { mergedFallback } from './catalogSources.ts';
+
+// Production packs already hold the English text for ids a locale lacks (merged at
+// build time), so loading the active locale is enough; raw development catalogs
+// are separate files and load the whole chain.
+const loadChain = (active: Locale): Locale[] => (mergedFallback ? [active] : fallbackChain(active));
 
 /** Parse a glob key into its `{ locale, module }`. */
 function parseKey(key: string): { locale: string; module: string } | null {
@@ -55,6 +60,13 @@ function enqueue(locale:Locale,module:string):Pending {
  queue.push({locale,run:()=>{void(async()=>{
   try{
    if(generation!==localeGeneration(locale)){resolve();return;}
+   if(mergedFallback){
+    // Modules request catalogs before LocaleProvider picks the locale (same task as
+    // the entry's first render). One macrotask later a request for the default
+    // locale that the user is not using is dropped: its pack would be a second download.
+    if(locale===SOURCE_LOCALE)await new Promise<void>(done=>setTimeout(done,0));
+    if(!loadChain(activeLocaleSignal()).includes(locale)){resolve();return;}
+   }
    const source=await lazyCatalogs[globKey(locale,module)]!();
    if(generation!==localeGeneration(locale)){resolve();return;}
    registerResource(locale,source);
@@ -110,7 +122,7 @@ async function loadOne(locale: Locale, module: string): Promise<void> {
 export async function loadCatalog(module: string): Promise<void> {
   if(!knownModules.has(module))return;
   touched.add(module);
-  const chain = fallbackChain(activeLocaleSignal());
+  const chain = loadChain(activeLocaleSignal());
   await Promise.all(chain.map((locale) => loadOne(locale, module)));
 }
 
@@ -141,7 +153,7 @@ export async function preloadCatalogs(modules: readonly string[]): Promise<void>
  * switch repaints without a full reload. `en/common` is always present.
  */
 export async function reloadForActiveChain(): Promise<void> {
-  const chain = fallbackChain(activeLocaleSignal());
+  const chain = loadChain(activeLocaleSignal());
   await Promise.all(
     chain
       .filter((l): l is Locale => isKnownLocale(l))

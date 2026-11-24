@@ -176,3 +176,44 @@ test('negative: index.html loading something other than the entry chunk', () => 
   f.html = f.html.replace('index-a.js', 'index-b.js');
   failsWith(f, /index\.html loads assets\/index-b\.js, but the entry chunk is assets\/index-a\.js/);
 });
+
+// --- translation packs -------------------------------------------------------
+function withPacks(embed = false) {
+  const f = fixture();
+  const names = { 'en/app': 'assets/catalog.en.app-AAAA.json', 'en/admin': 'assets/catalog.en.admin-BBBB.json', 'de/app': 'assets/catalog.de.app-CCCC.json' };
+  const table = Object.fromEntries(Object.entries(names).map(([key, file]) => [key, `./${file}`]));
+  f.html += `<script type="application/json" id="mw-catalog-packs">${JSON.stringify(table)}</script>`;
+  f.sw = `const ASSET_DIGESTS = {${Object.values(names).map((file) => `"/${file}":"x"`).join(',')}};\nconst OFFLINE_ASSETS = ["/assets/index-a.js","/assets/core-a.js"];\n`;
+  f.distFiles.push(...Object.values(names));
+  f.budget.totals.catalogFiles = 3;
+  f.budget.catalogPacks = { en: { app: { maxBrBytes: 40, maxGzBytes: 50 }, admin: { maxBrBytes: 40, maxGzBytes: 50 } }, de: { app: { maxBrBytes: 40, maxGzBytes: 50 } } };
+  f.budget.probes.push({ catalog: 'en/mail', maxRenamed: 3, forbid: ['core'] });
+  const texts = { [names['en/app']]: '{"mail":"m = M"}', [names['en/admin']]: '{"admin-x":"x = X"}', [names['de/app']]: '{"mail":"m = M"}' };
+  f.readText = (file) => texts[file] ?? (embed && file === 'assets/core-a.js' ? `fetch("${names['en/app'].slice(7)}")` : 'export {}');
+  return f;
+}
+test('packs: a table naming every pack, digests, sizes and the catalog probe pass', () => {
+  const { failures, stats } = run(withPacks());
+  assert.deepEqual(failures, []);
+  assert.equal(stats.totals.catalogFiles, 3);
+  assert.equal(stats.probes['locales/en/mail.ftl'].renamed, 1);
+});
+test('negative: a chunk that names a pack makes a translation edit rename it and its importers', () => {
+  const f = withPacks(true);
+  failsWith(f, /probe en\/mail: renames \d+ hashed files > 3/);
+  failsWith(f, /probe en\/mail: renames core/);
+});
+test('negative: pack table, digest, size and budget gaps', () => {
+  let f = withPacks(); f.html = f.html.replace('./assets/catalog.de.app-CCCC.json', './assets/catalog.de.app-ZZZZ.json');
+  failsWith(f, /pack table: de\/app names .*ZZZZ/);
+  f = withPacks(); f.sw = f.sw.replace('"/assets/catalog.en.app-AAAA.json":"x",', '');
+  failsWith(f, /has no digest in sw\.js/);
+  f = withPacks(); f.sizes = () => ({ raw: 100, br: 41, gz: 50 });
+  failsWith(f, /pack en\/app: 41 br/);
+  f = withPacks(); delete f.budget.catalogPacks.de;
+  failsWith(f, /pack de\/app: no entry in budget catalogPacks/);
+  f = withPacks(); f.html = f.html.replace(/<script type="application\/json"[^]*?<\/script>/, '');
+  failsWith(f, /no translation pack table/);
+  f = withPacks(); f.budget.totals.catalogFiles = 2;
+  failsWith(f, /totals: catalogFiles 3 > 2/);
+});

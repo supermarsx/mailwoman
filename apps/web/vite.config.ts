@@ -2,6 +2,7 @@ import {assetCompression} from './scripts/assetCompression.ts';
 import {buildTimings} from './scripts/buildTimings.ts';
 import {bundleGraph} from './scripts/bundleGraph.ts';
 import {catalogAssets} from './scripts/catalogAssets.ts';
+import {isAppCatalogPack} from './scripts/catalogPacks.ts';
 import {chunkPlan,touchPlugin} from './scripts/chunkPlan.ts';
 import {build as bundleWorker} from 'esbuild';
 import { defineConfig } from 'vitest/config';
@@ -135,7 +136,7 @@ export function assetIntegrity(): Plugin {
       const sw = readFileSync(swPath, 'utf8');
       const marker = '/* @mw-asset-digests */ null';
       if (!sw.includes(marker)) throw new Error('mw-asset-integrity: dist/sw.js has no asset-digest placeholder');
-      writeFileSync(swPath, sw.replace(marker, JSON.stringify(digests)).replace('/* @mw-offline-assets */ []',JSON.stringify(Object.keys(digests).filter(path=>(path.startsWith('/pdfjs/')||/\.(?:js|mjs|css|wasm|ftl)$/.test(path))&&!/^\/assets\/(?:admin|offline-background)/.test(path)))).replace('/* @mw-offline-background */',offlineBackgroundFile?`importScripts('./${offlineBackgroundFile}');`:''));
+      writeFileSync(swPath, sw.replace(marker, JSON.stringify(digests)).replace('/* @mw-offline-assets */ []',JSON.stringify(Object.keys(digests).filter(path=>(path.startsWith('/pdfjs/')||/\.(?:js|mjs|css|wasm)$/.test(path)||isAppCatalogPack(path))&&!/^\/assets\/(?:admin|offline-background)/.test(path)))).replace('/* @mw-offline-background */',offlineBackgroundFile?`importScripts('./${offlineBackgroundFile}');`:''));
     },
   };
 }
@@ -170,7 +171,7 @@ export default defineConfig({
   plugins: [catalogAssets(),cachedSolid({stats:buildCacheStats}), vanillaExtractPlugin(), wasm(), bundledPackages({ main: true }), bootScript(), offlineBackground(), assetIntegrity(),assetCompression(),buildTimings(buildCacheStats),bundleGraph()],
   // t32-e75: the bundle recorder also sees the worker builds; the main instance writes
   // node_modules/.cache/mailwoman-about/bundled-packages.json for the third-party list.
-  worker: { format: 'es', plugins: () => [catalogAssets(),bundledPackages()] },
+  worker: { format: 'es', plugins: () => [catalogAssets(undefined,{emit:false}),bundledPackages()] },
   server: {
     port: 5173,
     proxy: {

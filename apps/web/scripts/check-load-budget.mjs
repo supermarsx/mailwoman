@@ -47,6 +47,15 @@ export function staticClosure(chunks, roots) {
   return found;
 }
 
+/** `assets/catalog.<locale>.<kind>-<hash>.json`: the translation packs. */
+const PACK = /^assets\/catalog\.([^./]+)\.(app|admin)-[^/]+\.json$/;
+
+/** The table of pack URLs the build writes into index.html, or null. */
+function packTableOf(html) {
+  const match = /<script type="application\/json" id="mw-catalog-packs">(.*?)<\/script>/s.exec(html);
+  return match ? JSON.parse(match[1]) : null;
+}
+
 /** Chunks renamed when `start` changes: it and all transitive importers (static and dynamic). */
 export function invalidated(chunks, start) {
   const importers = new Map();
@@ -101,7 +110,7 @@ export function htmlFiles(html) {
  * The whole check, on data already read. `sizes(path)` returns {raw, br, gz}
  * for a dist-relative path. Returns {failures, stats}.
  */
-export function checkLoadBudget({ report, html, sw, sizes, distFiles, budget }) {
+export function checkLoadBudget({ report, html, sw, sizes, distFiles, budget, readText }) {
   const failures = [];
   const fail = (message) => failures.push(message);
   const chunks = report.chunks;
@@ -114,7 +123,7 @@ export function checkLoadBudget({ report, html, sw, sizes, distFiles, budget }) 
   const data = new Set(policy.data);
   const vendor = new Set(policy.vendor);
   const entryExceptions = new Set(policy.entryImportExceptions);
-  const stats = { routes: {}, totals: {}, probes: {}, chunks: {} };
+  const stats = { routes: {}, totals: {}, probes: {}, chunks: {}, packs: {} };
 
   // --- the entry -----------------------------------------------------------
   const page = htmlFiles(html);
@@ -221,7 +230,7 @@ export function checkLoadBudget({ report, html, sw, sizes, distFiles, budget }) 
     adminSectionChunks: Object.values(chunks).filter((chunk) => fam(chunk.plan) === 'admin-section').length,
     jsFiles: assets.filter((file) => /\.m?js$/.test(file)).length,
     cssFiles: assets.filter((file) => file.endsWith('.css')).length,
-    catalogFiles: assets.filter((file) => file.endsWith('.ftl')).length,
+    catalogFiles: assets.filter((file) => file.endsWith('.ftl') || PACK.test(file)).length,
     precacheEntries: precache.length,
     precacheBytes,
     swBytes: Buffer.byteLength(sw),
@@ -235,8 +244,54 @@ export function checkLoadBudget({ report, html, sw, sizes, distFiles, budget }) 
   if (unreported.length > 0) fail(`JS files in dist that are neither in the chunk report nor in otherJs (stale report?): ${unreported.join(', ')}`);
   for (const file of Object.keys(chunks)) if (!distFiles.includes(file)) fail(`chunk report names ${file}, which dist does not have (stale report?)`);
 
+  // --- translation packs ---------------------------------------------------
+  const packFiles = assets.filter((file) => PACK.test(file));
+  const packName = (file) => { const m = PACK.exec(file); return `${m[1]}/${m[2]}`; };
+  const table = packTableOf(html);
+  if (packFiles.length > 0 || table !== null) {
+    if (table === null) fail('index.html has no translation pack table (mw-catalog-packs)');
+    else {
+      for (const [key, path] of Object.entries(table)) {
+        const file = path.replace(/^\.\//, '');
+        if (!distFiles.includes(file)) fail(`pack table: ${key} names ${path}, which dist does not have`);
+        else if (packName(file) !== key) fail(`pack table: ${key} names ${path}`);
+        if (!sw.includes(JSON.stringify(`/${file}`))) fail(`pack table: ${path} has no digest in sw.js`);
+      }
+      for (const file of packFiles) if (table[packName(file)] !== `./${file}`) fail(`pack ${file} is not the one index.html names for ${packName(file)}`);
+    }
+    for (const file of packFiles) {
+      const caps = budget.catalogPacks?.[PACK.exec(file)[1]]?.[PACK.exec(file)[2]];
+      const size = sizes(file);
+      stats.packs[packName(file)] = { raw: size.raw, br: size.br, gz: size.gz };
+      if (caps === undefined) fail(`pack ${packName(file)}: no entry in budget catalogPacks`);
+      else if (size.br > caps.maxBrBytes || size.gz > caps.maxGzBytes) fail(`pack ${packName(file)}: ${size.br} br / ${size.gz} gzip bytes > ${caps.maxBrBytes} / ${caps.maxGzBytes}`);
+    }
+    for (const [locale, kinds] of Object.entries(budget.catalogPacks ?? {})) for (const kind of Object.keys(kinds)) if (!packFiles.some((file) => packName(file) === `${locale}/${kind}`)) fail(`budget catalogPacks names ${locale}/${kind}, which dist does not have`);
+  }
+
   // --- invalidation --------------------------------------------------------
   for (const probe of budget.probes ?? []) {
+    if (probe.catalog !== undefined) {
+      // A translation edit renames the pack that holds the namespace, plus every
+      // chunk whose text names that pack (none, while the table is in index.html)
+      // and everything that imports such a chunk.
+      const [locale, namespace] = probe.catalog.split('/');
+      const hit = packFiles.find((file) => packName(file).startsWith(`${locale}/`) && readText !== undefined && namespace in JSON.parse(readText(file)));
+      if (hit === undefined) { fail(`probe ${probe.catalog}: no ${locale} pack holds the namespace ${namespace}`); continue; }
+      const embedding = Object.keys(chunks).filter((file) => readText(file).includes(hit.replace(/^assets\//, '')));
+      const renamed = new Set([hit]);
+      for (const file of embedding) for (const name of invalidated(chunks, file)) renamed.add(name);
+      const plans = [...renamed].map((file) => chunks[file]?.plan ?? 'catalog-pack').sort();
+      // A new English message is merged into the pack of every locale, as the fallback.
+      const kind = PACK.exec(hit)[2];
+      const newMessage = packFiles.filter((file) => PACK.exec(file)[2] === kind).length + embedding.length;
+      stats.probes[`locales/${probe.catalog}.ftl`] = { renamed: renamed.size, newMessage, chunks: plans, revalidated: ['index.html', 'sw.js'] };
+      if (probe.maxRenamedNewMessage !== undefined && newMessage > probe.maxRenamedNewMessage) fail(`probe ${probe.catalog}: a new English message renames ${newMessage} hashed files > ${probe.maxRenamedNewMessage}`);
+      if (probe.maxRenamed !== undefined && renamed.size > probe.maxRenamed) fail(`probe ${probe.catalog}: renames ${renamed.size} hashed files > ${probe.maxRenamed} (${plans.join(', ')})`);
+      const forbidden = plans.filter((plan) => (probe.forbid ?? []).includes(plan));
+      if (forbidden.length > 0) fail(`probe ${probe.catalog}: renames ${forbidden.join(', ')}`);
+      continue;
+    }
     const start = moduleChunk.get(probe.module);
     if (start === undefined) { fail(`probe ${probe.module}: in no chunk`); continue; }
     const renamed = invalidated(chunks, start);
@@ -287,7 +342,8 @@ export function printStats(stats) {
     console.log(`check-load-budget: route ${route.padEnd(9)} ${r.js} JS + ${r.css} CSS, ${kb(r.raw)} raw, ${kb(r.br)} br${adds}`);
   }
   console.log(`check-load-budget: totals ${JSON.stringify(stats.totals)}`);
-  for (const [module, p] of Object.entries(stats.probes)) console.log(`check-load-budget: a change in ${module} renames ${p.renamed} hashed files (${p.chunks.join(', ')}) and changes index.html + sw.js`);
+  for (const [pack, p] of Object.entries(stats.packs ?? {})) console.log(`check-load-budget: pack ${pack.padEnd(14)} ${kb(p.raw).padStart(11)} raw ${kb(p.br).padStart(10)} br ${kb(p.gz).padStart(10)} gzip`);
+  for (const [module, p] of Object.entries(stats.probes)) console.log(`check-load-budget: a change in ${module} renames ${p.renamed} hashed files (${p.chunks.join(', ')})${p.newMessage === undefined ? '' : `; a new English message renames ${p.newMessage}`} and changes index.html + sw.js`);
 }
 
 export function readInputs(distDir, reportPath) {
@@ -300,6 +356,7 @@ export function readInputs(distDir, reportPath) {
     sw: readFileSync(join(distDir, 'sw.js'), 'utf8'),
     sizes: distSizes(distDir),
     distFiles: listDist(distDir),
+    readText: (file) => readFileSync(join(distDir, file), 'utf8'),
   };
 }
 

@@ -4,7 +4,7 @@ vi.mock('./catalogSources.ts',()=>({default:Object.fromEntries(['en/common','en/
  probe.calls.push(key);probe.active++;probe.peak=Math.max(probe.peak,probe.active);
  try{if(probe.held)await new Promise<void>(resolve=>probe.releases.push(resolve));if(probe.fail){probe.fail=false;throw Error('transient asset failure');}return `probe = ${key}\ncommon-ok = OK`;}
  finally{probe.active--;}
-}]))}));
+}]))  ,mergedFallback:false}));
 import {loadCatalog,preloadCatalogs,reloadForActiveChain} from './catalog.ts';
 import {_resetRegistry,setActiveLocale,t,retainedLocales} from './registry.ts';
 import {applyWebPerformance,resetWebPerformance} from '../boot/performancePolicy.ts';

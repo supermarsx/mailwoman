@@ -56,7 +56,6 @@ test('representative dynamic import targets map to their chunks, each by exactly
     'src/about/ThirdPartyList.tsx': 'about',
     'src/about/texts/a.json': 'licences',
     'src/brands/paths.finance.generated.ts': 'brand-paths',
-    'src/i18n/catalogAssetUrls.ts': 'locale-urls',
     'src/components/StepUpDialog.tsx': 'core-lazy',
     'src/platform/tauri.ts': 'core-lazy',
     'src/modules/passwd/ForcedPasswordChange.tsx': 'rare',

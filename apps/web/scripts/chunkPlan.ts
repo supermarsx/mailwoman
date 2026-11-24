@@ -37,7 +37,7 @@
  *
  * A chunk imports only from layers below it (rare and the entry excepted, and
  * `mail` imports the entry for one module: ENTRY_IMPORT_EXCEPTIONS). Data
- * chunks (brand-paths, locale-urls, licences) import nothing, so a change in
+ * chunks (brand-paths, licences) import nothing, so a change in
  * app code never renames them.
  *
  * Every module outside the entry's static closure belongs to the screens whose
@@ -66,7 +66,6 @@ type Plugin = Rollup.Plugin;
 export const CHUNK_LAYERS = {
   'vendor-core': 0,
   'brand-paths': 0,
-  'locale-urls': 0,
   licences: 0,
   'vendor-altcha': 0,
   core: 1,
@@ -113,7 +112,7 @@ const isAdmin = (chunk: PlanChunk): boolean => ADMIN_CHUNKS.has(family(chunk));
 /** Chunks that may import a screen chunk (they are loaded after one, or alone). */
 export const LEAF_CHUNKS: ReadonlySet<ChunkName> = new Set(['rare', 'unplanned']);
 /** Chunks whose modules import nothing (pure data). */
-export const DATA_CHUNKS: ReadonlySet<ChunkName> = new Set(['brand-paths', 'locale-urls', 'licences']);
+export const DATA_CHUNKS: ReadonlySet<ChunkName> = new Set(['brand-paths', 'licences']);
 /** Chunks made of third-party code only. */
 export const VENDOR_CHUNKS: ReadonlySet<ChunkName> = new Set(['vendor-core', 'vendor-altcha']);
 /**
@@ -186,7 +185,6 @@ export const ROOTS: ReadonlyArray<readonly [RegExp, ChunkName]> = [
   [/^src\/worker\/networkCore\.ts$/, 'core-lazy'],
   [/^src\/observability\/e2eHook\.tsx$/, 'core-lazy'],
   [/^src\/brands\/paths\.[a-z]+\.generated\.ts$/, 'brand-paths'],
-  [/^src\/i18n\/catalogAssetUrls\.ts$/, 'locale-urls'],
   [/^src\/modules\/passwd\/ForcedPasswordChange\.tsx$/, 'rare'],
   [/^src\/screens\/(?:Consent|IdentityConsent)\/index\.tsx$/, 'rare'],
   [/^src\/screens\/Settings\/ProviderConnections\.tsx$/, 'rare'],
