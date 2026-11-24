@@ -46,6 +46,19 @@ impl RepresentativeBackend {
             ])),
         }
     }
+    /// t60: the same transport with each message's seeded flags (`flags[i]`
+    /// belongs to UID i + 1), so upstream flag state matches the Store seed.
+    pub fn with_flags(raws: Vec<Vec<u8>>, flags: Vec<Vec<Flag>>) -> Self {
+        let backend = Self::new(raws);
+        {
+            let mut state = backend.folders.lock().unwrap();
+            let inbox = state.get_mut("INBOX").expect("seeded inbox");
+            for ((_, message), seeded) in inbox.messages.iter_mut().zip(flags) {
+                message.flags = seeded;
+            }
+        }
+        backend
+    }
     fn coordinates(reference: &MessageRef) -> Result<(&str, u32)> {
         match reference {
             MessageRef::Imap {

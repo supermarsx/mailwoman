@@ -29,6 +29,8 @@ mod linked_login_preflight;
 mod native_enforced_policy;
 #[path = "common/t34_modes.rs"]
 mod t34_modes;
+#[path = "common/process_cpu.rs"]
+mod process_cpu;
 #[cfg(feature = "sql-shape-diagnostics")]
 #[path = "common/native_sql_shapes.rs"]
 mod native_sql_shapes;
@@ -45,7 +47,7 @@ fn index_ready(status: &mw_engine::maintenance::SearchIndexStatus, expected: u64
 async fn startup_readiness(
     engine: &Engine,
     accounts: &[String],
-    messages_per_account: u64,
+    messages_of: &(dyn Fn(&str) -> u64 + Sync),
     startup_started: Instant,
     timeout_seconds: u64,
 ) -> std::result::Result<Value, &'static str> {
@@ -57,8 +59,8 @@ async fn startup_readiness(
     let waiting = Instant::now();
     tokio::time::timeout(Duration::from_secs(timeout_seconds),async {
         let known=accounts.iter().map(String::as_str).collect::<std::collections::HashSet<_>>();
-        let excluded=engine.store().list_zeroaccess_enabled().await.map_err(|_|"Cannot verify index posture")?.iter().filter(|account|known.contains(account.as_str())).count() as u64*messages_per_account;
-        let seeded=accounts.len() as u64*messages_per_account;
+        let excluded=engine.store().list_zeroaccess_enabled().await.map_err(|_|"Cannot verify index posture")?.iter().filter(|account|known.contains(account.as_str())).map(|account|messages_of(account)).sum::<u64>();
+        let seeded=accounts.iter().map(|account|messages_of(account)).sum::<u64>();
         let expected=seeded.checked_sub(excluded).ok_or("Invalid fixture index posture")?;
         let restrictions=engine.store().restriction_list(Some("native-load.invalid"),true,chrono::Utc::now().timestamp()).await.map_err(|_|"Cannot verify fixture index restrictions")?;
         if restrictions.iter().any(|restriction|known.contains(restriction.account_id.as_str())&&restriction.covers("indexing")){
@@ -134,7 +136,7 @@ async fn readiness_waits_for_real_engine_rebuild_and_blocks_paused_indexing() {
     assert_eq!(cold.documents, 0);
     assert!(!index_ready(&cold, 2), "a genuinely cold index is not ready");
     let (expired, queries) = mw_store::pool_telemetry::measure_queries(
-        startup_readiness(&engine, &accounts, 2, Instant::now(), 0),
+        startup_readiness(&engine, &accounts, &|_| 2, Instant::now(), 0),
     ).await;
     assert!(
         expired.unwrap_err().contains("deadline exceeded"),
@@ -145,7 +147,7 @@ async fn readiness_waits_for_real_engine_rebuild_and_blocks_paused_indexing() {
     assert!(store.list_zeroaccess_enabled().await.is_ok());
     let rebuilding = engine.clone();
     let task = tokio::spawn(async move { rebuilding.rebuild_search_index_all().await.unwrap() });
-    let report = startup_readiness(&engine, &accounts, 2, Instant::now(), 20)
+    let report = startup_readiness(&engine, &accounts, &|_| 2, Instant::now(), 20)
         .await
         .unwrap();
     assert_eq!(report["verified"], true);
@@ -173,7 +175,7 @@ async fn readiness_waits_for_real_engine_rebuild_and_blocks_paused_indexing() {
         .await
         .unwrap();
     assert!(
-        startup_readiness(&engine, &accounts, 2, Instant::now(), 20)
+        startup_readiness(&engine, &accounts, &|_| 2, Instant::now(), 20)
             .await
             .unwrap_err()
             .contains("paused by policy")
@@ -317,7 +319,7 @@ impl MailSubmitter for NoSend {
 }
 
 async fn seed(store: &Store, count: usize) -> Vec<Value> {
-    seed_profile(store, count, 2, false, 26, 4).await.0
+    seed_profile(store, count, 2, false, 26, 4, false).await.0
 }
 // Validation chooses chunks BEFORE a write. A failed write is terminal and is
 // never retried as smaller batches: its commit outcome may be uncertain.
@@ -347,6 +349,7 @@ async fn seed_profile(
     representative: bool,
     body_sample_bytes: usize,
     attachment_sample_bytes: usize,
+    large_mailbox: bool,
 ) -> (
     Vec<Value>,
     std::collections::BTreeMap<String, Arc<representative::RepresentativeBackend>>,
@@ -356,6 +359,9 @@ async fn seed_profile(
     let mut identities = std::collections::HashSet::with_capacity(count);
     let now = chrono::Utc::now().timestamp();
     for index in 0..count {
+        // t60: the large-mailbox profile sizes each user by cohort.
+        let messages = if large_mailbox { large_mailbox_messages(index) } else { messages };
+        let unread = if large_mailbox { (1..=messages).filter(|uid| !large_mailbox_flags(*uid).0).count() as u32 } else { messages };
         let username = format!("user{index}@native-load.invalid");
         let credentials = Credentials {
             username: username.clone(),
@@ -388,7 +394,7 @@ async fn seed_profile(
                 uidnext: messages + 1,
                 highestmodseq: 0,
                 total: messages,
-                unread: messages,
+                unread,
                 parent_id: None,
             })
             .await
@@ -422,8 +428,9 @@ async fn seed_profile(
         let mut message_ids = Vec::new();
         for uid in 1..=messages {
             let message_id = format!("<{index}-{uid}@native-load.invalid>");
+            let planted = if large_mailbox { large_mailbox_terms(uid) } else { String::new() };
             let raw = format!(
-                "From: sender@native-load.invalid\r\nTo: {username}\r\nSubject: Native fixture {index}/{uid}\r\nMessage-ID: {message_id}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nIsolated seeded message.\r\n"
+                "From: sender@native-load.invalid\r\nTo: {username}\r\nSubject: Native fixture {index}/{uid}\r\nMessage-ID: {message_id}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nIsolated seeded message.\r\n{planted}"
             );
             let raw = if representative && uid == 1 {
                 use base64::Engine as _;
@@ -456,12 +463,14 @@ async fn seed_profile(
             envelopes.push(envelope);
             message_ids.push(message_id);
         }
+        let flag_rows:Vec<Vec<Flag>>=(1..=messages).map(|uid| if large_mailbox {let (seen,flagged)=large_mailbox_flags(uid);[(seen,Flag::Seen),(flagged,Flag::Flagged)].into_iter().filter(|(on,_)|*on).map(|(_,flag)|flag).collect()} else {Vec::new()}).collect();
+        let flag_json:Vec<String>=flag_rows.iter().map(|flags|serde_json::to_string(flags).unwrap()).collect();
         let inputs:Vec<_>=raws.iter().zip(&envelopes).zip(&message_ids).enumerate().map(|(index,((raw,envelope),message_id))| {
             (MessageUpsert {
                 account_id:&account,mailbox_id:&mailbox,uid:index as u32+1,uidvalidity:1,
                 message_id:Some(message_id),thread_id:None,
                 internaldate:Some("2026-11-01T00:00:00Z"),size:raw.len() as u64,
-                flags_json:"[]",envelope:Some(envelope),blob_ref:None,
+                flags_json:&flag_json[index],envelope:Some(envelope),blob_ref:None,
             },raw.as_slice())
         }).collect();
         let ids=seed_message_batches(store,&inputs).await;
@@ -496,11 +505,12 @@ async fn seed_profile(
         let attachment_blob = attachment_part
             .as_ref()
             .map(|part| format!("{}.{}", ids[0], part));
-        principals.push(json!({"cookie":format!("mw_session={session}; mw_csrf={csrf}"),"csrfToken":csrf,"accountId":account,"ownerAccountId":account,"messageIds":ids,"inboxId":mailbox,"archiveId":archive,"attachmentBlobId":attachment_blob,"attachmentSampleBytes":attachment_sample_bytes,"bodySampleBytes":body_sample_bytes,"clientAddress":simulated_client(index).to_string()}));
+        let cohort = if !large_mailbox { "default" } else { ["big-100000", "big-20000", "ordinary"][large_mailbox_cohort(index)] };
+        principals.push(json!({"cohort":cohort,"messageCount":messages,"unreadCount":unread,"flaggedCount":flag_rows.iter().filter(|f|f.contains(&Flag::Flagged)).count(),"plantedQuarterly":(1..=messages).filter(|uid|uid%5==0).count(),"cookie":format!("mw_session={session}; mw_csrf={csrf}"),"csrfToken":csrf,"accountId":account,"ownerAccountId":account,"messageIds":ids,"inboxId":mailbox,"archiveId":archive,"attachmentBlobId":attachment_blob,"attachmentSampleBytes":attachment_sample_bytes,"bodySampleBytes":body_sample_bytes,"clientAddress":simulated_client(index).to_string()}));
         if representative {
             runtimes.insert(
                 account,
-                Arc::new(representative::RepresentativeBackend::new(raws)),
+                Arc::new(representative::RepresentativeBackend::with_flags(raws, flag_rows)),
             );
         }
         if (index + 1) % 1000 == 0 {
@@ -514,7 +524,7 @@ async fn seed_profile(
 async fn bounded_batch_seed_keeps_distinct_principals_fifty_owned_messages_and_ready_index() {
     let store=Store::open_in_memory(ServerKey::generate()).await.unwrap();
     // Exercise the maximum permitted sample payloads, not a reduced workload.
-    let (principals,runtimes)=seed_profile(&store,2,50,true,16384,262144).await;
+    let (principals,runtimes)=seed_profile(&store,2,50,true,16384,262144,false).await;
     assert_eq!(principals.len(),2);assert_eq!(runtimes.len(),2);
     let mut passwords=std::collections::HashSet::new();
     let mut owned_ids=std::collections::HashSet::new();
@@ -775,9 +785,54 @@ fn worker_stack_bytes() -> usize {
         2 * 1024 * 1024
     }
 }
-// t60: large-mailbox profile bounds (a few accounts with many messages each).
-const LARGE_MAILBOX_PRINCIPALS: [usize; 2] = [1, 4];
-const LARGE_MAILBOX_MESSAGES: [u32; 2] = [10_000, 100_000];
+// t60: large-mailbox profile, the hot-path planner's shape: 1,000 users in
+// cohorts (2 x 100,000, 8 x 20,000, 990 x 50 messages), 30% unread, 2% flagged,
+// planted search terms. The default profile keeps its own bounds.
+const LARGE_MAILBOX_PRINCIPALS: usize = 1_000;
+const LARGE_MAILBOX_COHORTS: [(usize, u32); 3] = [(2, 100_000), (8, 20_000), (990, 50)];
+/// Smoke shape (`MW_NATIVE_LOAD_LARGE_MAILBOX_SCALE=50`): big cohorts divided
+/// by 50 and 90 ordinary users, 100 in total. Never a measurement profile.
+const LARGE_MAILBOX_SMOKE_PRINCIPALS: usize = 100;
+fn large_mailbox_cohorts() -> [(usize, u32); 3] {
+    if large_mailbox_scale() == 1 { LARGE_MAILBOX_COHORTS } else { [(2, 100_000 / 50), (8, 20_000 / 50), (90, 50)] }
+}
+fn large_mailbox_principals() -> usize {
+    if large_mailbox_scale() == 1 { LARGE_MAILBOX_PRINCIPALS } else { LARGE_MAILBOX_SMOKE_PRINCIPALS }
+}
+fn large_mailbox_cohort(index: usize) -> usize {
+    let mut start = 0;
+    for (cohort, (count, _)) in large_mailbox_cohorts().iter().enumerate() {
+        if index < start + count {
+            return cohort;
+        }
+        start += count;
+    }
+    panic!("large-mailbox profile has {} users", large_mailbox_principals())
+}
+/// Smoke-only divisor for the big cohorts (`MW_NATIVE_LOAD_LARGE_MAILBOX_SCALE`
+/// 1 or 50; ordinary users keep 50 messages). Recorded in the handoff.
+fn large_mailbox_scale() -> u32 {
+    match std::env::var("MW_NATIVE_LOAD_LARGE_MAILBOX_SCALE").as_deref() {
+        Err(_) | Ok("1") => 1,
+        Ok("50") => 50,
+        Ok(other) => panic!("MW_NATIVE_LOAD_LARGE_MAILBOX_SCALE={other:?} must be 1 or 50"),
+    }
+}
+fn large_mailbox_messages(index: usize) -> u32 {
+    large_mailbox_cohorts()[large_mailbox_cohort(index)].1
+}
+/// `(seen, flagged)`: UIDs ending 0-2 unread (30%), every 50th flagged (2%).
+fn large_mailbox_flags(uid: u32) -> (bool, bool) {
+    (uid % 10 >= 3, uid % 50 == 0)
+}
+/// Planted words with exact frequencies: `quarterly` on every 5th message,
+/// `zephyrine` on every 2000th (UID % 2000 == 7).
+fn large_mailbox_terms(uid: u32) -> String {
+    let mut out = String::new();
+    if uid % 5 == 0 { out.push_str("The quarterly figures follow.\r\n"); }
+    if uid % 2000 == 7 { out.push_str("Reference zephyrine attached.\r\n"); }
+    out
+}
 fn large_mailbox_profile(raw: Option<&str>) -> std::result::Result<bool, String> {
     match raw {
         None | Some("default") => Ok(false),
@@ -792,7 +847,13 @@ fn large_mailbox_profile_is_explicit_and_keeps_default_bounds() {
     assert!(!large_mailbox_profile(Some("default")).unwrap());
     assert!(large_mailbox_profile(Some("large-mailbox")).unwrap());
     for raw in ["", "large", "Large-mailbox", " large-mailbox"] { assert!(large_mailbox_profile(Some(raw)).is_err()); }
-    assert!(LARGE_MAILBOX_PRINCIPALS.iter().all(|count| *count as u64 * 100_000 <= 400_000));
+    assert_eq!(LARGE_MAILBOX_COHORTS.iter().map(|(count, _)| count).sum::<usize>(), LARGE_MAILBOX_PRINCIPALS);
+    let total: u64 = (0..LARGE_MAILBOX_PRINCIPALS).map(|i| u64::from(large_mailbox_messages(i))).sum();
+    assert_eq!(total, 409_500);
+    assert!(total <= 500_000);
+    assert_eq!([large_mailbox_messages(0), large_mailbox_messages(1), large_mailbox_messages(2), large_mailbox_messages(9), large_mailbox_messages(10), large_mailbox_messages(999)], [100_000, 100_000, 20_000, 20_000, 50, 50]);
+    assert_eq!((1..=1000).filter(|u| !large_mailbox_flags(*u).0).count(), 300);
+    assert_eq!((1..=1000).filter(|u| large_mailbox_flags(*u).1).count(), 20);
 }
 
 fn fixture_index_timing(raw: Option<&str>) -> std::result::Result<bool, String> {
@@ -935,7 +996,7 @@ async fn run(workers: usize) {
         .unwrap();
     if large_mailbox {
         assert!(representative, "the large-mailbox profile requires the representative workload");
-        assert!(LARGE_MAILBOX_MESSAGES.contains(&messages), "large-mailbox messages must be 10000 or 100000");
+        assert!(std::env::var_os("MW_NATIVE_LOAD_MESSAGES").is_none(), "the large-mailbox profile sizes users by cohort; leave MW_NATIVE_LOAD_MESSAGES unset");
     } else {
         assert!(
             (2..=100).contains(&messages) && (representative || messages == 2),
@@ -957,8 +1018,7 @@ async fn run(workers: usize) {
         .parse()
         .unwrap();
     if large_mailbox {
-        assert!(LARGE_MAILBOX_PRINCIPALS.contains(&count), "large-mailbox principals must be 1 or 4");
-        assert!(count as u64 * messages as u64 <= 400000, "large-mailbox seeded messages capped at 400000");
+        assert_eq!(count, large_mailbox_principals(), "the large-mailbox profile has 1000 users (MW_NATIVE_LOAD_PRINCIPALS=1000; 100 with the smoke scale)");
     } else {
         assert!(
             [1, 100, 1000, 10000].contains(&count),
@@ -1013,6 +1073,7 @@ async fn run(workers: usize) {
         representative,
         body_sample_bytes,
         attachment_sample_bytes,
+        large_mailbox,
     )
     .await;
     let seed_seconds = seeding_started.elapsed().as_secs_f64();
@@ -1132,10 +1193,11 @@ async fn run(workers: usize) {
     // Always call it so the fixture matches `engine_mode::start_index_publication`.
     let t34_startup = measured_engine.get().unwrap().start_index_publication().await.expect("start index publication");
     eprintln!("native fixture: index publication start: {t34_startup:?}");
+    let seeded_counts: std::collections::HashMap<String, u64> = principals.iter().map(|p| (p["accountId"].as_str().unwrap().to_owned(), p["messageIds"].as_array().unwrap().len() as u64)).collect();
     let startup_readiness = startup_readiness(
         measured_engine.get().unwrap(),
         &push_accounts,
-        messages as u64,
+        &|account: &str| seeded_counts.get(account).copied().unwrap_or(0),
         startup_started,
         readiness_seconds,
     )
@@ -1180,11 +1242,13 @@ async fn run(workers: usize) {
                 snapshot["ordinaryRequestInputs"] = serde_json::to_value(mw_server::request_inputs_fixture::snapshot()).unwrap();
                 snapshot["t34Modes"] = t34_modes::witness(&engine);
                 snapshot["httpTelemetry"] = mw_server::http_telemetry_snapshot();
+                snapshot["processCpuSeconds"] = json!(process_cpu::process_cpu_seconds());
                 snapshot["searchIndex"] = json!({
                     "storage":fixture_storage_proof(&engine,index_mode),
                     "writerConfiguration":engine.search().writer_configuration(),
                     "commitAttempts":mw_search::commit_count(),
                     "documentFetches":engine.search().doc_fetch_count(),
+                    "writeAndHitCounts":{"documentsWritten":mw_search::write_and_hit_counts().0,"bodyBytesTokenised":mw_search::write_and_hit_counts().1,"hitsMaterialised":mw_search::write_and_hit_counts().2},
                     "listProjectionSearches":engine.search().list_projection_search_count(),
                     "listProjectionDocumentReads":engine.search().list_projection_doc_read_count(),
                     "timings":mw_search::timing::snapshot(),
@@ -1404,6 +1468,14 @@ async fn run(workers: usize) {
     data["linkedLoginPolicyProbe"] = linked_login_policy_probe;
     data["workloadProfile"] = json!({"kind":workload,"messagesPerPrincipal":messages,"seededMessages":count as u64*messages as u64,"seedSeconds":seed_seconds,"transport":if representative {"deterministic-read-flag-move"} else {"read-only"},"sendsMeasured":false,"upstreamNetworkMeasured":false});
     data["workloadProfile"]["profile"] = json!(if large_mailbox { "large-mailbox" } else { "default" });
+    if large_mailbox {
+        data["workloadProfile"]["messagesPerPrincipal"] = Value::Null;
+        data["workloadProfile"]["seededMessages"] = json!(seeded_counts.values().sum::<u64>());
+        data["workloadProfile"]["cohorts"] = json!(large_mailbox_cohorts().iter().map(|(users, messages)| json!({"users":users,"messages":messages})).collect::<Vec<_>>());
+        data["workloadProfile"]["smokeScale"] = json!(large_mailbox_scale() != 1);
+        data["workloadProfile"]["flagPattern"] = json!({"unread":"uid % 10 < 3 (30%)","flagged":"uid % 50 == 0 (2%)"});
+        data["workloadProfile"]["plantedTerms"] = json!({"quarterly":"uid % 5 == 0","zephyrine":"uid % 2000 == 7"});
+    }
     if representative {
         data["workloadProfile"]["bodySampleBytes"] = json!(body_sample_bytes);
         data["workloadProfile"]["attachmentSampleBytes"] = json!(attachment_sample_bytes);
@@ -1412,9 +1484,20 @@ async fn run(workers: usize) {
     let outcome = if std::env::var("MW_LOAD_FIXTURE_EXTERNAL_DRIVER").as_deref() == Ok("1") {
         external_control::run(&data, &format!("native-{count}"), &report, deadline).await
     } else {
-        let mut command = fixture_runtime::internal_http_driver(
-            &root, &handoff.0, &report.join(format!("native-{count}.json")),
-        );
+        let mut command = match std::env::var("MW_NATIVE_LOAD_DRIVER").as_deref() {
+            // t60: the large-mailbox cohort driver (ordinary users' latency while
+            // the big accounts run heavy queries). The default generator refuses
+            // more than 100 seeded ids per principal.
+            Ok("large-mailbox") => {
+                assert!(large_mailbox, "MW_NATIVE_LOAD_DRIVER=large-mailbox requires MW_NATIVE_LOAD_PROFILE=large-mailbox");
+                let mut command = tokio::process::Command::new("node");
+                command.arg(root.join("scripts/perf/bulk-ops/large-mailbox-driver.mjs")).arg(&handoff.0)
+                    .arg(report.join(format!("native-large-mailbox-{count}.json"))).current_dir(&root).kill_on_drop(true);
+                command
+            }
+            Err(_) | Ok("default") => fixture_runtime::internal_http_driver(&root, &handoff.0, &report.join(format!("native-{count}.json"))),
+            Ok(other) => panic!("MW_NATIVE_LOAD_DRIVER={other:?} must be default or large-mailbox"),
+        };
         match tokio::time::timeout(Duration::from_secs(deadline + 10), command.output()).await {
             Ok(Ok(output)) if output.status.success() => Ok(()),
             Ok(Ok(_)) => {
