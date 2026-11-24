@@ -217,7 +217,10 @@ fn evaluate_inputs_touch(
             .expired(&session.id, &state.hardening)
             .is_some()
         || !crate::request_protection::native_account_already_admitted(&session.account_id)
-        || (!settling_due && state.store.session_touch_may_be_due_at(
+        // t50hp-e22: with the store's touch buffer a due touch is recorded in
+        // memory before the final observation (try_dispatch), so it no longer
+        // refuses this path.
+        || (!settling_due && !state.store.session_touch_buffered() && state.store.session_touch_may_be_due_at(
             current.map(|f|f.last_seen()).unwrap_or(source.last_seen.as_deref()),
             crate::session_persistence::flush_seconds(),
             chrono::Utc::now(),
@@ -517,7 +520,9 @@ async fn observe_published_guard(
     let observed=read(state,cookie,entry,data,allow_reuse).await?;
     if crate::published_guard_context::consumed() && let Some((source,_))=observed.as_ref() {
         let age=crate::session_persistence::flush_seconds();
-        if state.store.session_touch_may_be_due_at(source.last_seen(),age,chrono::Utc::now()) {
+        // The buffered time of this process counts (t50hp-e22): the outer
+        // guards already recorded the touch, so nothing is settled then.
+        if state.store.session_touch_due(cookie,source.last_seen(),age,chrono::Utc::now()) {
             if !entry.matches(source) || !crate::published_guard_context::verify_source(source) {return Ok(None);}
             let Ok(checked)=evaluate_inputs_touch(state,&entry.snapshot,needs,Some(entry),Some(source),true) else{return Ok(None);};
             // Zero affected rows may be a concurrent same-actor touch. Never
@@ -658,6 +663,12 @@ pub(crate) async fn try_dispatch(
     let candidate=if published.is_some() && request.get("createdIds").is_none() && engine.configure_prepared_mail_at_revision(first.prepared_mail,&first.prepared_revision) {
         engine.prepare_metadata_candidate(&first.session.account_id,&request["methodCalls"][0][1]).await
     }else {None};
+    // t50hp-e22: the touch this path no longer refuses is recorded here, in
+    // memory (written through only at the buffer's cap), before the final
+    // observation so nothing awaits between that proof and the response.
+    if state.store.session_touch_buffered() && crate::session_persistence::flush_seconds() > 0 {
+        let _ = state.store.touch_session_throttled(&id, crate::session_persistence::flush_seconds()).await;
+    }
     #[cfg(test)]
     test_control::wait(test_control::Stage::BeforeConnector, &id).await;
     let lock = engine_mode::connect_lock(&first.session.account_id);

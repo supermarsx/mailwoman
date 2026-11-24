@@ -22,10 +22,18 @@
 //! Session clocks (`created_at`, `activity_at`, `last_seen`) have no authority
 //! trigger. A reused fence carries clocks that can only be OLDER than the row
 //! (writers move them forward). So a reused fence is accepted only when (a) the
-//! existing touch-due test is false for its `last_seen`, and (b) where the caller
-//! knows the clock policy, the session deadline computed from its clocks does not
-//! pass within [`CLOCK_MARGIN`]. Otherwise the caller reads fresh, so expiry and
-//! touch decisions are never made from a stale clock.
+//! session touch does not select the path ([`touch_selects_path`]), and (b) where
+//! the caller knows the clock policy, the session deadline computed from its
+//! clocks does not pass within [`CLOCK_MARGIN`]. Otherwise the caller reads
+//! fresh, so expiry decisions are never made from a stale clock.
+//!
+//! (a) with the store's touch buffer (t50hp-e22, the server default): a due
+//! touch is recorded in memory by the request itself (`touch_session_throttled`)
+//! and written by the buffer's background flush, so a due touch no longer
+//! requires the original path and never refuses a fence. `last_seen` is
+//! telemetry, not the idle clock (`activity_at`); expiry stays decided by (b) and
+//! by the original clock check on the fence's `created_at` / `activity_at`.
+//! Without a buffer, the original rule: a due touch takes the original path.
 //!
 //! Local revocations call [`expedite`]: every later `still_valid` fails until a
 //! mirror poll that started after the call completes, so the next request after
@@ -407,13 +415,21 @@ impl<T> GlobalSlot<T> {
     }
 }
 
-/// The touch-due half of the clock condition, for any reused fence.
+/// Whether this fence's session touch requires the original path: only
+/// without the store's touch buffer, when the touch is due. With the buffer the
+/// request records the touch in memory and keeps its published inputs.
+pub(crate) fn touch_selects_path(store: &Store, fence: &NativeAuthorityFence) -> bool {
+    !store.session_touch_buffered()
+        && store.session_touch_may_be_due_at(
+            fence.last_seen(),
+            crate::session_persistence::flush_seconds(),
+            chrono::Utc::now(),
+        )
+}
+
+/// The touch half of the clock condition, for any reused fence.
 pub(crate) fn touch_not_due(store: &Store, fence: &NativeAuthorityFence) -> bool {
-    !store.session_touch_may_be_due_at(
-        fence.last_seen(),
-        crate::session_persistence::flush_seconds(),
-        chrono::Utc::now(),
-    )
+    !touch_selects_path(store, fence)
 }
 
 /// The deadline half: the session deadline from this fence's clocks does not
@@ -462,6 +478,10 @@ pub(crate) mod test_control {
 #[cfg(test)]
 #[path = "guard_snapshot_pg_tests.rs"]
 pub(crate) mod pg_tests;
+
+#[cfg(test)]
+#[path = "guard_snapshot_touch_tests.rs"]
+mod touch_tests;
 
 #[cfg(test)]
 mod tests {

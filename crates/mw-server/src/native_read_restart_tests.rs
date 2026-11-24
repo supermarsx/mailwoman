@@ -86,6 +86,9 @@ async fn queued_restart(
 fn due_touch_after_queued_preparation_reproduces_legacy503_and_fresh_restart200() {
     run_fixture(|| async {
         let f = Fixture::new().await;
+        // The due touch is this test's trigger: the original rule, without the
+        // store's touch buffer (with it a due touch no longer restarts; t50hp-e22).
+        f.measured.disable_session_touch_buffer().await.unwrap();
         let old = queued_restart(&f, true, false, false).await;
         assert_eq!(old.0, StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(old.1["code"], "authorizationNotConfirmedBeforeDispatch");
@@ -142,6 +145,9 @@ fn read_restart_does_not_resurrect_expired_persisted_activity() {
 fn second_change_during_restarted_chain_is_refused_without_another_restart() {
     run_fixture(|| async {
         let f = Fixture::new().await;
+        // The due touch is this test's trigger: the original rule, without the
+        // store's touch buffer (with it a due touch no longer restarts; t50hp-e22).
+        f.measured.disable_session_touch_buffer().await.unwrap();
         let last = test_control::pause(test_control::Stage::RestartBeforeFinal, &f.session);
         let pending = queued_restart(&f, false, false, false);
         tokio::pin!(pending);

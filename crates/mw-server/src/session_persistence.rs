@@ -9,7 +9,9 @@
 //! The settings read here apply at start-up:
 //! * `session.persistAcrossRestarts` (default on): off ends every session when the
 //!   process starts.
-//! * `session.lastActivityFlushSeconds`: how often a request writes `last_seen`.
+//! * `session.lastActivityFlushSeconds`: how often a request records `last_seen`.
+//!   The recorded time is written by the store's touch buffer
+//!   ([`enable_touch_buffer`]) every [`TOUCH_FLUSH_EVERY`], not by the request.
 //! * `server.shutdownGraceSeconds`: how long a stopping server waits for requests.
 
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
@@ -45,6 +47,7 @@ pub(crate) async fn apply_at_startup(store: &Store) {
     {
         GRACE_SECS.store(n.clamp(1, 120), Ordering::Relaxed);
     }
+    enable_touch_buffer(store);
     let persist = global(store, "session.persistAcrossRestarts")
         .await
         .and_then(|v| v.as_bool())
@@ -66,6 +69,35 @@ pub(crate) async fn apply_at_startup(store: &Store) {
 /// Minimum seconds between two `last_seen` writes for one session.
 pub(crate) fn flush_seconds() -> i64 {
     FLUSH_SECS.load(Ordering::Relaxed)
+}
+
+/// Test hook: run `future` with another touch throttle, restoring the old one.
+#[cfg(test)]
+pub(crate) async fn with_flush_seconds<F: std::future::Future>(secs: i64, future: F) -> F::Output {
+    let previous = FLUSH_SECS.swap(secs, Ordering::Relaxed);
+    let output = future.await;
+    FLUSH_SECS.store(previous, Ordering::Relaxed);
+    output
+}
+
+/// Interval of the touch buffer's background write (plan A2: 5 s). With the
+/// default 15 s throttle a crash loses at most 20 s of `last_seen` telemetry,
+/// inside the guard snapshot's 120 s clock margin.
+pub(crate) const TOUCH_FLUSH_EVERY: Duration = Duration::from_secs(5);
+/// Most sessions the touch buffer holds; above it a touch is written through.
+pub(crate) const TOUCH_BUFFER_SESSIONS: usize = 65_536;
+
+/// t50hp-e22: requests record a due `last_seen` in memory and the store writes
+/// it in batches (`mw_store::ephemeral::touch_buffer`). Off when the throttle
+/// is 0 (every request writes, as configured) or outside a runtime.
+pub(crate) fn enable_touch_buffer(store: &Store) -> bool {
+    let throttle_secs = flush_seconds();
+    throttle_secs > 0
+        && store.enable_session_touch_buffer(mw_store::ephemeral::touch_buffer::TouchBufferConfig {
+            flush_every: TOUCH_FLUSH_EVERY,
+            max_sessions: TOUCH_BUFFER_SESSIONS,
+            throttle_secs,
+        })
 }
 
 /// The operator's shutdown grace, when the setting was read.
@@ -119,5 +151,6 @@ pub(crate) async fn posture(store: &Store, key_persistent: bool) -> serde_json::
         "sessionsUnopenable": unopenable,
         "endedAtStart": PURGED_AT_START.load(Ordering::Relaxed),
         "lastActivityFlushSeconds": flush_seconds(),
+        "lastSeenBuffer": store.session_touch_buffer_stats(),
     })
 }

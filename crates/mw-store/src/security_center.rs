@@ -317,7 +317,11 @@ impl Store {
                 account_id: r.get_string("account_id"),
                 username: r.get_string("username"),
                 created_at: r.get_string("created_at"),
-                last_seen: r.get_string("last_seen"),
+                // t50hp-e22: a touch buffered in this process is newer.
+                last_seen: crate::ephemeral::touch_buffer::later(
+                    r.get_string("last_seen"),
+                    self.buffered_last_seen(&r.get_string("id")),
+                ),
                 last_activity: r.get_string("last_activity"),
                 device: SessionDevice {
                     user_agent: r.get_opt_string("user_agent").unwrap_or_default(),
@@ -331,6 +335,8 @@ impl Store {
                 },
             });
         }
+        // Same order as the query, on the merged time (stable: ties keep id order).
+        out.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
         Ok(out)
     }
     /// Resolve the link behind a private linked session. The link keeps the

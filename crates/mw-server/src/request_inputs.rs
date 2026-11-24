@@ -332,15 +332,11 @@ async fn scoped(state: AppState, request: Request, next: Next) -> Response {
     if !crate::request_inputs_fixture::enabled() { return next.run(request).await; }
     #[cfg(test)]
     if !test_control::enabled() { return next.run(request).await; }
-    let eligible_route = (request.method() == Method::GET && request.uri().path() == "/api/me")
-        || (request.method() == Method::POST && request.uri().path() == "/jmap/api")
-        // t34-e11: the session document, in bounded mode only (off: unchanged).
-        || (request.method() == Method::GET && request.uri().path() == "/jmap/session"
-            && snapshot::mode() != snapshot::Mode::Off);
+    let eligible_route = eligible_route(request.method(), request.uri().path(), request.uri().query());
     let headers = request.headers();
     // Selector expansion and other credential kinds retain their complete
     // original path. No body is consumed or source work queued here.
-    if !eligible_route || request.uri().query().is_some() || state.engine.is_none()
+    if !eligible_route || state.engine.is_none()
         || !snapshot::published_inputs(&state)
         || crate::session_persistence::flush_seconds() == 0
         || headers.contains_key(header::AUTHORIZATION) || headers.contains_key("x-api-key")
@@ -359,6 +355,57 @@ async fn scoped(state: AppState, request: Request, next: Next) -> Response {
     crate::request_inputs_fixture::record(crate::request_inputs_fixture::Event::Context);
     let scope = Arc::new(Scope { state, cookie, first: OnceCell::new(), body: Mutex::new(None), held_allowed });
     SCOPE.scope(scope, next.run(request)).await
+}
+
+/// t50hp-e22 (W-2): cookie-authenticated GET reads whose guards are the
+/// common chain (`authed` -> `authed_with_gate_inner` -> `authed_cookie`, the
+/// account gate, linked login, domain upgrade and the session clock) and whose
+/// handler reads its own data with its own statements. Each consumes published
+/// DATA only through the readers that already validate it against the session
+/// (`matches_session`); see `request_inputs_route_tests.rs` for the table.
+/// Not here, each with its reason:
+/// * `/api/accounts`: reads each linked child credential and may renew a
+///   child session, write audit rows and expedite (`linked_accounts::credential`);
+///   that is authority over other sessions, which the frame does not describe.
+/// * admin console, sign-in, 2FA, SSO, sign-out: not GET reads of a signed-in
+///   mailbox, or their own credential.
+/// * any write method; any request with the linked-account selector, an
+///   `Authorization` header or an API key (checked in `scoped`).
+pub(crate) const WARM_READS: &[&str] = &[
+    "/api/account/preferences", "/api/account/appearance",
+    "/api/account/appearance/customization", "/api/account/notifications",
+    "/api/account/notification-center", "/api/settings", "/api/features",
+    "/api/policy", "/api/bootstrap",
+];
+
+/// Routes that may install published request inputs. A query string keeps the
+/// original path (it can carry `mwLink`, which a later layer turns into the
+/// linked-account selector), except the one `accountId=<value>` check the
+/// appearance customization read takes (the handler compares it with the
+/// session's account and refuses a mismatch; it selects nothing).
+pub(crate) fn eligible_route(method: &Method, path: &str, query: Option<&str>) -> bool {
+    let plain = query.is_none();
+    match *method {
+        Method::POST => path == "/jmap/api" && plain,
+        Method::GET => match path {
+            "/api/me" => plain,
+            // t34-e11: the session document, in bounded mode only (off: unchanged).
+            "/jmap/session" => plain && snapshot::mode() != snapshot::Mode::Off,
+            "/api/account/appearance/customization" => query.is_none_or(account_check_only),
+            _ => plain && WARM_READS.contains(&path),
+        },
+        _ => false,
+    }
+}
+
+/// Exactly one `accountId=<value>` pair with an unreserved or percent-encoded
+/// value: the key is literal, so no other parameter (`mwLink` in any encoding)
+/// can be present.
+fn account_check_only(query: &str) -> bool {
+    query.strip_prefix("accountId=").is_some_and(|value| {
+        !value.is_empty() && value.len() <= 256
+            && value.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~' | b'%'))
+    })
 }
 
 pub(crate) async fn current(store: &Store) -> Option<Arc<Current>> {
@@ -430,12 +477,18 @@ fn first_frame(scope: &Scope, store: &Store, fingerprint: &str, entry: &Arc<Publ
         || session.credentials.username.trim() != account.username.trim()
     { return None; }
     let (created, activity) = fence.clocks();
+    let (idle, absolute) = effective_clock(&scope.state, prepared);
+    // t50hp-e22: with the touch buffer a due touch is recorded in memory by
+    // `authed_cookie` and no longer refuses the frame (guard_snapshot docs).
+    // A session whose deadline falls within the clock margin keeps the
+    // original path, whatever the touch state.
     if chrono::DateTime::parse_from_rfc3339(created).is_err()
         || chrono::DateTime::parse_from_rfc3339(activity).is_err()
-        || store.session_touch_may_be_due_at(fence.last_seen(),
-            crate::session_persistence::flush_seconds(), chrono::Utc::now())
+        || snapshot::touch_selects_path(store, fence)
+        || (store.session_touch_buffered() && !snapshot::clocks_clear(fence, idle, absolute))
     { return None; }
     let first = fence.clone();
+    #[cfg(test)] test_control::frame_ready();
     #[cfg(feature="load-test-fixtures")]
     crate::request_inputs_fixture::record(crate::request_inputs_fixture::Event::Ready);
     Some(Arc::new(Current { entry: entry.clone(), current: Mutex::new((first.clone(), observed.built)), first,
@@ -496,6 +549,8 @@ pub(crate) mod test_control {
         pub first_fences: u64, pub refresh_fences: u64, pub session_decodes: u64,
         pub legacy_session_reads: u64, pub failure_classifications: u64,
         pub stored_reader_hits: u64, pub legacy_guard_session_reads: u64,
+        /// Frames installed for the request (first_frame accepted a fence).
+        pub frames_ready: u64,
     }
     tokio::task_local! { static FROZEN_ENV: Option<std::sync::Arc<super::ProcessEnvironment>>; }
     pub(super) fn frozen_environment() -> Option<Option<std::sync::Arc<super::ProcessEnvironment>>> {
@@ -525,9 +580,30 @@ pub(crate) mod test_control {
                 entered: tokio::sync::Notify::new(), release: tokio::sync::Notify::new() })
         }
     }
-    pub(super) fn enabled() -> bool { ENABLED.try_with(|enabled| *enabled).unwrap_or(false) }
+    /// Process-wide switch for requests that start in tasks of their own
+    /// (`/api/bootstrap` sections), which no task-local reaches.
+    static PROCESS_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    static PROCESS_FRAMES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    pub(super) fn enabled() -> bool {
+        ENABLED.try_with(|enabled| *enabled).unwrap_or(false)
+            || PROCESS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    /// Enable published inputs for every request of the process while `future`
+    /// runs (tests run with --test-threads=1); returns the frames installed.
+    pub(crate) async fn process_wide<F: std::future::Future>(future: F) -> (F::Output, u64) {
+        use std::sync::atomic::Ordering;
+        let before = PROCESS_FRAMES.load(Ordering::Relaxed);
+        PROCESS_ENABLED.store(true, Ordering::Relaxed);
+        let output = future.await;
+        PROCESS_ENABLED.store(false, Ordering::Relaxed);
+        (output, PROCESS_FRAMES.load(Ordering::Relaxed) - before)
+    }
     pub(crate) fn record(update: impl FnOnce(&mut Counts)) {
         let _ = COUNTS.try_with(|counts| update(&mut counts.borrow_mut()));
+    }
+    pub(super) fn frame_ready() {
+        PROCESS_FRAMES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        record(|counts| counts.frames_ready += 1);
     }
     pub(crate) async fn scope<F: std::future::Future>(enabled: bool, future: F) -> F::Output {
         ENABLED.scope(enabled, future).await

@@ -292,6 +292,7 @@ impl Held {
                 false
             }
         };
+        let _ = tokio::time::timeout(RECORDER_SAVE_BUDGET, self.store.flush_session_touches()).await; // t50hp-e22: buffered last_seen
         let request_history_saved = saved(
             "request history",
             tokio::time::timeout(RECORDER_SAVE_BUDGET, self.request_history.flush_now(&self.store)).await,

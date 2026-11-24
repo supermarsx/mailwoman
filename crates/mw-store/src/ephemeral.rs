@@ -11,6 +11,10 @@ use sha2::{Digest, Sha256};
 use crate::backend::q;
 use crate::{Store, StoreError};
 
+/// Coalesced `last_seen` writes (t50hp-e22).
+#[path = "session_touch_buffer.rs"]
+pub mod touch_buffer;
+
 /// How many live rows each session store holds (for the admin status line).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct SessionCounts {
@@ -213,10 +217,15 @@ impl Store {
         if min_age_secs <= 0 {
             return self.touch_session(id).await;
         }
-        let now = Utc::now();
-        let cutoff = (now - chrono::Duration::seconds(min_age_secs)).to_rfc3339();
-        self.touch_session_before(id, &now.to_rfc3339(), &cutoff)
-            .await?;
+        let at = Utc::now();
+        let now = at.to_rfc3339();
+        let cutoff = (at - chrono::Duration::seconds(min_age_secs)).to_rfc3339();
+        // A buffered store records the time in memory; at its cap (or without
+        // a buffer) this is the original UPDATE.
+        if self.buffer_session_touch(id, &now, &cutoff) {
+            return Ok(());
+        }
+        self.touch_session_before(id, &now, &cutoff).await?;
         Ok(())
     }
 

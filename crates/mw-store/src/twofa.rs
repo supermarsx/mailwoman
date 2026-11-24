@@ -433,15 +433,21 @@ impl Store {
         .bind(account_id)
         .fetch_all(&self.backend)
         .await?;
-        Ok(rows
+        let mut sessions = rows
             .iter()
             .map(|r| SessionMeta {
                 handle: session_handle(&r.get_string("id")),
                 username: r.get_string("username"),
                 created_at: r.get_string("created_at"),
-                last_seen: r.get_string("last_seen"),
+                // t50hp-e22: a touch buffered in this process is newer.
+                last_seen: crate::ephemeral::touch_buffer::later(
+                    r.get_string("last_seen"),
+                    self.buffered_last_seen(&r.get_string("id")),
+                ),
             })
-            .collect())
+            .collect::<Vec<_>>();
+        sessions.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
+        Ok(sessions)
     }
 
     /// Revoke one session of `account_id` by its non-secret [`session_handle`].

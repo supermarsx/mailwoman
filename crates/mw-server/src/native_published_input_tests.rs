@@ -748,6 +748,9 @@ fn bounded_snapshot_clock_decisions_never_use_a_reused_fence() {
 fn bounded_snapshot_due_touch_is_never_skipped_by_a_reused_fence() {
     run_fixture(|| async {
         let f = Fixture::new().await;
+        // The original rule, without the store's touch buffer (t50hp-e22; the
+        // buffered case is the next test).
+        f.measured.disable_session_touch_buffer().await.unwrap();
         f.writer.touch_session(&f.session).await.unwrap();
         snapcase::published(&f).await;
         // last_seen 14 s ago: not due (15 s) when the slot is stamped.
@@ -764,6 +767,33 @@ fn bounded_snapshot_due_touch_is_never_skipped_by_a_reused_fence() {
         assert!(due.sql.write.calls >= 1, "due touch written");
         let next = snapcase::reusing(&f, snapcase::SHORT, || snapcase::mail(&f)).await;
         assert_eq!(next.sql.write.calls, 0);
+    });
+}
+
+/// t50hp-e22: with the touch buffer the same due touch keeps the reuse; the
+/// touch is recorded in memory, nothing is written by the request, and the
+/// buffer's flush writes it.
+#[test]
+fn bounded_snapshot_due_touch_with_the_buffer_is_recorded_without_leaving_the_reuse() {
+    run_fixture(|| async {
+        let f = Fixture::new().await;
+        assert!(f.measured.session_touch_buffered());
+        f.writer.touch_session(&f.session).await.unwrap();
+        snapcase::published(&f).await;
+        snapcase::raw(&f, "UPDATE sessions SET last_seen=?1", &snapcase::ago(14)).await;
+        snapcase::started(&f, snapcase::SHORT).await;
+        snapcase::reusing(&f, snapcase::SHORT, || snapcase::mail(&f)).await;
+        // Start from no held touch younger than the throttle.
+        f.measured.disable_session_touch_buffer().await.unwrap();
+        assert!(crate::session_persistence::enable_touch_buffer(&f.measured));
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        let due = snapcase::send(&f, snapcase::mail(&f), snapcase::SHORT).await;
+        assert_eq!(due.status, StatusCode::OK);
+        assert!(due.snap.reused > 0, "the due touch does not refuse the reuse: {:?}", due.snap);
+        assert_eq!(due.inputs.legacy_session_reads, 0, "published inputs kept");
+        assert_eq!(due.sql.write.calls, 0, "the request writes nothing");
+        assert!(f.measured.buffered_last_seen(&f.session).is_some(), "touch recorded in memory");
+        assert_eq!(f.measured.flush_session_touches().await.unwrap(), 1, "the flush writes it");
     });
 }
 
