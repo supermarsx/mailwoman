@@ -17,6 +17,7 @@ import { transformWithEsbuild, type Plugin } from 'vite';
 import { bundledPackages } from './scripts/about-bundled-packages.mjs';
 import { swTrustedImport } from './scripts/swTrustedImport.ts';
 import { buildBootManifest, manifestTag, readManifestTag } from './src/boot/bootManifest.ts';
+import { offlineTiers, type TierChunk } from './src/sw/offlineTiers.ts';
 
 const buildCacheStats={hits:0,misses:0};
 const webRoot = fileURLToPath(new URL('.', import.meta.url));
@@ -118,6 +119,8 @@ export function assetIntegrity(): Plugin {
   let outDir = '';
   let build = false;
   let written = false;
+  // t52w: the chunk graph, for the offline tiers (src/sw/offlineTiers.ts).
+  let chunks: TierChunk[] | null = null;
   const walk = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const full = join(dir, entry.name);
     return entry.isDirectory() ? walk(full) : [full];
@@ -126,7 +129,12 @@ export function assetIntegrity(): Plugin {
     name: 'mw-asset-integrity',
     apply: 'build',
     configResolved(config) { build = config.command === 'build'; outDir = resolve(config.root, config.build.outDir); },
-    writeBundle() { written = true; },
+    writeBundle(_options, bundle) {
+      written = true;
+      chunks = bundle === undefined ? null : Object.values(bundle).flatMap((o) => o.type === 'chunk'
+        ? [{ fileName: o.fileName, name: o.name, isEntry: o.isEntry, imports: o.imports, importedCss: [...(o.viteMetadata?.importedCss ?? [])] }]
+        : []);
+    },
     closeBundle() {
       // Rollup also calls closeBundle when the build FAILED, before anything was
       // written; throwing here would mask the real error with an ENOENT.
@@ -159,9 +167,15 @@ export function assetIntegrity(): Plugin {
         },
       );
       // t52w: the boot manifest's scripts get the same SRI as the tags above.
+      // t52w: the install set of precacheMode "app" and the idle fill list
+      // (src/sw/offlineTiers.ts). Without the chunk graph (unit fixtures) the
+      // app set is the full offline list.
+      const offline = Object.keys(digests).filter(path=>(path.startsWith('/pdfjs/')||/\.(?:js|mjs|css|wasm)$/.test(path)||isAppCatalogPack(path))&&!/^\/assets\/(?:admin|offline-background)/.test(path));
+      const tiers = chunks === null ? { app: offline, idle: [] } : offlineTiers(chunks, Object.keys(digests).filter((path) => path.startsWith('/assets/')), (path) => readFileSync(join(outDir, path.slice(1)), 'utf8'));
       // (A shell without one is refused by scripts/check-build-assets.mjs.)
       const boot = readManifestTag(html);
       if (boot !== null) {
+        boot.manifest.idle = tiers.idle.map((path) => `.${path}`);
         for (const path of [...boot.manifest.mail, ...boot.manifest.login]) {
           if (path.endsWith('.js')) boot.manifest.sri[path] = `sha384-${createHash('sha384').update(readFileSync(join(outDir, path))).digest('base64')}`;
         }
@@ -177,7 +191,7 @@ export function assetIntegrity(): Plugin {
       const sw = readFileSync(swPath, 'utf8');
       const marker = '/* @mw-asset-digests */ null';
       if (!sw.includes(marker)) throw new Error('mw-asset-integrity: dist/sw.js has no asset-digest placeholder');
-      writeFileSync(swPath, sw.replace(marker, JSON.stringify(digests)).replace('/* @mw-offline-assets */ []',JSON.stringify(Object.keys(digests).filter(path=>(path.startsWith('/pdfjs/')||/\.(?:js|mjs|css|wasm)$/.test(path)||isAppCatalogPack(path))&&!/^\/assets\/(?:admin|offline-background)/.test(path)))).replace('/* @mw-offline-background */',offlineBackgroundFile?swTrustedImport(offlineBackgroundFile):''));
+      writeFileSync(swPath, sw.replace(marker, JSON.stringify(digests)).replace('/* @mw-offline-assets */ []',JSON.stringify(offline)).replace('/* @mw-app-assets */ []',JSON.stringify(tiers.app)).replace('/* @mw-offline-background */',offlineBackgroundFile?swTrustedImport(offlineBackgroundFile):''));
     },
   };
 }

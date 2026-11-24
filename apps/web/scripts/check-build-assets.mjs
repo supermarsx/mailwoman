@@ -85,7 +85,7 @@ for (const page of all.filter((p) => p.endsWith('.html') && !p.startsWith('pdfjs
     try { manifest = JSON.parse(block); } catch { fail('index.html: the boot manifest is not JSON'); }
     if (manifest !== null) {
       if (manifest.v !== 1) fail(`boot manifest: unknown version ${manifest.v}`);
-      const targets = [...(manifest.mail ?? []), ...(manifest.login ?? []), ...Object.values(manifest.fonts ?? {}), ...Object.values(manifest.packs ?? {})];
+      const targets = [...(manifest.mail ?? []), ...(manifest.login ?? []), ...(manifest.idle ?? []), ...Object.values(manifest.fonts ?? {}), ...Object.values(manifest.packs ?? {})];
       if ((manifest.mail ?? []).length === 0 || (manifest.login ?? []).length === 0) fail('boot manifest: the mail or login set is empty');
       if (!manifest.fonts?.jost) fail('boot manifest: no preload for the default UI font (jost)');
       if (!manifest.packs?.en) fail('boot manifest: no English app pack');
@@ -147,7 +147,7 @@ let digests = {};
 if (!has('sw.js')) fail('sw.js: missing (the app registers it and the server preloads it)');
 else {
   const sw = read('sw.js').toString('utf8');
-  for (const marker of ['/* @mw-asset-digests */ null', '/* @mw-offline-assets */ []', '/* @mw-offline-background */']) {
+  for (const marker of ['/* @mw-asset-digests */ null', '/* @mw-offline-assets */ []', '/* @mw-app-assets */ []', '/* @mw-offline-background */']) {
     if (sw.includes(marker)) fail(`sw.js: build placeholder ${marker} was never filled`);
   }
   const value = (name, open, close) => {
@@ -174,6 +174,23 @@ else {
   for (const path of offline) {
     count('sw offline entry');
     if (!(path in digests)) fail(`sw.js offline list: ${path} has no integrity digest`);
+  }
+  // t52w: the default install (precacheMode "app", src/sw/offlineTiers.ts).
+  let app = [];
+  try {
+    app = value('OFFLINE_APP_ASSETS', '[', ']');
+  } catch {
+    fail('sw.js: the app install list could not be parsed');
+  }
+  for (const path of app) {
+    count('sw app install entry');
+    if (!(path in digests)) fail(`sw.js app install list: ${path} has no integrity digest`);
+  }
+  if (app.length > 0) {
+    const entryTag = /<script type="module"[^>]*src="\.\/(assets\/[^"]+\.js)"/.exec(has('index.html') ? read('index.html').toString('utf8') : '')?.[1];
+    if (entryTag && !app.includes(`/${entryTag}`)) fail(`sw.js app install list: the entry script ${entryTag} is not in it`);
+    if (!app.some((path) => /^\/assets\/mw_sanitize_bg-[^/]+\.wasm$/.test(path))) fail('sw.js app install list: no sanitizer wasm (an offline HTML message could not be shown)');
+    if (app.some((path) => /^\/assets\/mw_crypto_bg-|^\/pdfjs\/|^\/assets\/catalog\./.test(path))) fail('sw.js app install list: holds mw_crypto wasm, PDF.js or a translation pack (first-use files)');
   }
   // t59: sw.js is served under `require-trusted-types-for 'script'`; a plain
   // string passed to importScripts is refused there and the worker never installs.

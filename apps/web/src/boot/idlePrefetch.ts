@@ -8,10 +8,17 @@
 // time, so the first open finds them in memory. Nothing is executed beyond
 // module evaluation (catalog registration, component definitions); no request
 // to the API is made. Skipped when the user asked to save data.
+//
+// t52w: one mechanism for everything fetched ahead after the mailbox is up.
+// Its first step is the idle fill (idleFill.ts): the active locale's pack and
+// the Settings/PIM files, one file at a time with a pause and the chunk retry,
+// downloaded but not run. The module steps (`web.prefetch.modules`) come after
+// it and then find their files cached; each runs in its own idle period.
 
 import { preloadCatalogs } from '../i18n/catalog.ts';
 import {webPerformancePolicy,webPerformanceReady} from './performancePolicy.ts';
 import {loadComposePane,loadSettingsPane} from '../screens/mailboxPaneLoaders.ts';
+import {idleFill} from './idleFill.ts';
 
 /** Catalogs the first message open needs (reader, privacy banner, verdicts, receipts). */
 export const READER_CATALOGS = ['reader', 'privacy', 'remote-images', 'security', 'spam-score', 'mail-dsn', 'mailing-list', 'nextcloud', 'receipts'] as const;
@@ -25,6 +32,7 @@ type Step = () => Promise<unknown>;
 /** The prefetch steps, in order of how soon each is likely needed. */
 export function prefetchSteps(): Step[] {
   return [
+    () => idleFill(),
     () => preloadCatalogs(READER_CATALOGS),
     ...(webPerformancePolicy().prefetchModules?[
     () => preloadCatalogs(SETTINGS_CATALOGS),

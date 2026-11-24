@@ -3727,7 +3727,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!("web.prefetch.enabled",Kind::Bool,"true",G,"interface","Allow speculative mailbox/module/catalog prefetch; demanded navigation remains available"),
     def!("web.prefetch.modules",Kind::Bool,"false",G,"interface","Preload unopened Settings, Compose/editor and PIM modules while idle; off by default to reduce startup JavaScript. Reader catalog and mail-data prefetch keep their own controls"),
     def!("web.prefetch.idleDelayMs",int(0,30000),"2500",G,"interface","Milliseconds after an authenticated mail session before scheduling optional idle prefetch"),
-    def!("web.offline.precacheMode",Kind::Enum(&["all","core"]),"\"all\"",G,"offline","Service worker install prewarm: all retains the existing full asset set; core omits unopened translation/PDF assets, which may need network on first use"),
+    def!("web.offline.precacheMode",Kind::Enum(&["app","all","core"]),"\"app\"",G,"offline","Service worker install set: app (default) installs what an offline start into the mailbox needs (sign-in, mailbox, reading, compose, their workers and the sanitizer); all also installs every other script, stylesheet, app translation pack and PDF.js file; core is the former name of app. Other files are stored on first use"),
     def!("web.offline.precacheConcurrency",int(1,4),"4",G,"offline","Maximum parallel service worker install asset fetches; changed values apply at the next worker installation"),
     def!("web.offline.respectSaveData",Kind::Bool,"true",G,"offline","Use core prewarm when the browser advertises SaveData; cached bytes retain manifest integrity checks"),
     def!(
@@ -11548,8 +11548,8 @@ mod web_performance_tests {
             for value in [min,max,default]{assert!(validate(def,&json!(value),"value").is_ok());}
             for value in [json!(min-1),json!(max+1),json!(1.5),json!("4")]{assert!(validate(def,&value,"value").is_err());}
         }
-        let mode=lookup("web.offline.precacheMode").unwrap();assert_eq!(mode.default_value(),json!("all"));
-        for value in ["all","core"]{assert!(validate(mode,&json!(value),"value").is_ok());}
+        let mode=lookup("web.offline.precacheMode").unwrap();assert_eq!(mode.default_value(),json!("app"));
+        for value in ["app","all","core"]{assert!(validate(mode,&json!(value),"value").is_ok());}
         assert!(validate(mode,&json!("https://bad.test/"),"value").is_err());
         for key in ["web.prefetch.enabled","web.offline.respectSaveData"]{
             let def=lookup(key).unwrap();assert_eq!(def.scopes,G);assert_eq!(def.default_value(),json!(true));

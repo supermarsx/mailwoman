@@ -13,8 +13,9 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 
 describe('idlePrefetch (t99)', () => {
   it('keeps unopened application modules out of default idle imports, with an administrator opt-in',()=>{
-    applyWebPerformance({});expect(prefetchSteps()).toHaveLength(1);
-    applyWebPerformance({prefetchModules:true});expect(prefetchSteps()).toHaveLength(7);
+    // The idle fill (t52w, idleFill.ts) and the reader catalogs; the module steps only with the opt-in.
+    applyWebPerformance({});expect(prefetchSteps()).toHaveLength(2);
+    applyWebPerformance({prefetchModules:true});expect(prefetchSteps()).toHaveLength(8);
   });
   beforeEach(() => {resetIdlePrefetch();applyWebPerformance({});});
 

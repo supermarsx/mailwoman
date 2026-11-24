@@ -2,9 +2,10 @@ import {afterEach,expect,it,vi} from 'vitest';
 import {applyWebPerformance,DEFAULT_WEB_PERFORMANCE,parseWebPerformance,resetWebPerformance,webPerformancePolicy} from './performancePolicy.ts';
 import {resetIdlePrefetch,scheduleIdlePrefetch} from './idlePrefetch.ts';
 afterEach(()=>{resetWebPerformance();resetIdlePrefetch();});
-it('rejects invalid bounds/types and preserves the historical all/four prewarm defaults',()=>{
+it('rejects invalid bounds/types and keeps the app/four prewarm defaults; core reads as app',()=>{
  expect(parseWebPerformance({retainedLocales:1,concurrentLoads:0,idleDelayMs:Infinity,precacheMode:'https://bad.test/',precacheConcurrency:50,prefetchEnabled:'true',respectSaveData:null})).toEqual(DEFAULT_WEB_PERFORMANCE);
- expect(parseWebPerformance({retainedLocales:8,concurrentLoads:1,idleDelayMs:30000,precacheMode:'core',precacheConcurrency:1,prefetchEnabled:false,respectSaveData:false})).toEqual({retainedLocales:8,concurrentLoads:1,idleDelayMs:30000,precacheMode:'core',precacheConcurrency:1,prefetchEnabled:false,prefetchModules:false,respectSaveData:false});
+ expect(parseWebPerformance({precacheMode:'all'}).precacheMode).toBe('all');
+ expect(parseWebPerformance({retainedLocales:8,concurrentLoads:1,idleDelayMs:30000,precacheMode:'core',precacheConcurrency:1,prefetchEnabled:false,respectSaveData:false})).toEqual({retainedLocales:8,concurrentLoads:1,idleDelayMs:30000,precacheMode:'app',precacheConcurrency:1,prefetchEnabled:false,prefetchModules:false,respectSaveData:false});
 });
 it('actually suppresses optional scheduling and stops later idle steps after an admin disable',async()=>{
  const idle:Array<()=>void>=[],run=vi.fn(async()=>undefined),host={requestIdleCallback:(callback:()=>void)=>{idle.push(callback);return 1;},setTimeout:vi.fn()};

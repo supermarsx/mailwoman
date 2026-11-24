@@ -48,7 +48,13 @@ const CACHE_NAME = 'mw-shell-v1';
 //   - a stored timestamp from the future is treated as no timestamp;
 //   - the two cached public API answers must parse as JSON.
 const ASSET_DIGESTS = /* @mw-asset-digests */ null;
+// What installation fetches (t52w, src/sw/offlineTiers.ts). `web.offline.precacheMode`
+// "app" (the default): what an offline start into the mailbox, reading and
+// writing mail need (OFFLINE_APP_ASSETS). "all": every script, stylesheet,
+// wasm module, app translation pack and PDF.js file (OFFLINE_ASSETS). Anything
+// else is stored when first used, by cacheFirst() below.
 const OFFLINE_ASSETS = /* @mw-offline-assets */ [];
+const OFFLINE_APP_ASSETS = /* @mw-app-assets */ [];
 const PDF_DOCUMENT = '/pdfjs/web/mailwoman.html';
 const OFFLINE_PDF_CSP = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' data:; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self' blob: data:; connect-src 'self' blob: data:; media-src blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; require-trusted-types-for 'script'; trusted-types default";
 const isPdfAsset = (path) => path.startsWith('/pdfjs/') && ASSET_DIGESTS !== null && typeof ASSET_DIGESTS[path] === 'string';
@@ -491,17 +497,16 @@ function respond(request, strategy) {
 }
 
 // Fresh public delivery hints are NOT security authority and are never cached.
-// Failure preserves the historical full-prewarm default. Core explicitly leaves
-// unopened catalogs/PDF resources to demand loading (then normal integrity cache).
+// Failure means the default, the "app" set. The old value "core" reads as "app".
 async function installPerformancePolicy() {
-  const defaults={precacheMode:'all',precacheConcurrency:4,respectSaveData:true};
+  const defaults={precacheMode:'app',precacheConcurrency:4,respectSaveData:true};
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),5000);
   try{
     const response=await fetch(BASE+'/api/public-config',{cache:'no-store',credentials:'same-origin',signal:controller.signal});
     if(!response.ok)return defaults;
     const body=await response.json(),value=body&&body.webPerformance;
     if(!value||typeof value!=='object')return defaults;
-    return {precacheMode:value.precacheMode==='core'?'core':'all',precacheConcurrency:Number.isInteger(value.precacheConcurrency)&&value.precacheConcurrency>=1&&value.precacheConcurrency<=4?value.precacheConcurrency:4,respectSaveData:typeof value.respectSaveData==='boolean'?value.respectSaveData:true};
+    return {precacheMode:value.precacheMode==='all'?'all':'app',precacheConcurrency:Number.isInteger(value.precacheConcurrency)&&value.precacheConcurrency>=1&&value.precacheConcurrency<=4?value.precacheConcurrency:4,respectSaveData:typeof value.respectSaveData==='boolean'?value.respectSaveData:true};
   }catch{return defaults;}finally{clearTimeout(timer);}
 }
 self.addEventListener('install', (event) => {
@@ -524,9 +529,9 @@ self.addEventListener('install', (event) => {
       // A bounded pool avoids flooding the server with parallel asset requests.
       if(cache){
         const policy=await installPerformancePolicy();
-        const core=policy.precacheMode==='core'||(policy.respectSaveData&&self.navigator?.connection?.saveData===true);
-        // Only filter the BUILD'S fixed list; policy never supplies asset URLs.
-        const assets=core?OFFLINE_ASSETS.filter(path=>!path.startsWith('/pdfjs/')&&!path.endsWith('.ftl')):OFFLINE_ASSETS;
+        const all=policy.precacheMode==='all'&&!(policy.respectSaveData&&self.navigator?.connection?.saveData===true);
+        // One of the BUILD'S fixed lists; policy never supplies asset URLs.
+        const assets=all?OFFLINE_ASSETS:OFFLINE_APP_ASSETS;
         let next=0;
         await Promise.all(Array.from({length:policy.precacheConcurrency},async()=>{
           while(next<assets.length){

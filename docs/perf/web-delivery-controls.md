@@ -9,7 +9,7 @@ they confer no authentication, feature, rendering, sanitizer or offline-data aut
 | `web.i18n.concurrentLoads` | 4 | 1–8 active catalog jobs |
 | `web.prefetch.enabled` | true | boolean |
 | `web.prefetch.idleDelayMs` | 2500 | 0–30000 milliseconds |
-| `web.offline.precacheMode` | all | all / core |
+| `web.offline.precacheMode` | app | app / all (core = app) |
 | `web.offline.precacheConcurrency` | 4 | 1–4 install downloads |
 | `web.offline.respectSaveData` | true | boolean |
 
@@ -40,15 +40,24 @@ authenticated mail session and fresh performance configuration, not a measured
 first-list paint. Existing SaveData/slow-network suppression of page prefetch stays.
 
 Worker prewarm controls are read freshly at the next service-worker installation;
-an admin save does not reinstall a live worker or flush browser caches. `all`
-preserves the existing full prewarm asset set. `core` prewarms the same fixed build
-list except `.ftl` catalogs and `/pdfjs/` resources; unopened translations/PDF
-features may need a connection on first use. Previously demanded hashed resources
-continue to be integrity-checked and cached normally. SaveData chooses `core` when
-enabled and reported by the worker's browser. If public configuration is unavailable,
-the worker retains the historical all/four-download defaults (and respects SaveData
-when available). Neither policy supplies URLs or relaxes digest checks, logout
-cleanup, navigation freshness or the exclusion of private mailbox data.
+an admin save does not reinstall a live worker or flush browser caches. `app` (the
+default, t52w) installs the build's app tier (apps/web/src/sw/offlineTiers.ts): the
+entry with vendor-core and core, the mailbox and its panes, the UI-plugin tier,
+compose with the editor, sign-in, their stylesheets, the boot script, the network,
+calendar, sanitizer and crypto workers, the pbkdf2 helper and the sanitizer's wasm.
+Measured on 2026-11-24 at the t52w-e5 build: 29 files, 5.3 MB raw, 1.56 MB brotli.
+`all` installs every script, stylesheet, wasm module, app translation pack and
+PDF.js file: 459 files, 33.0 MB raw at the same build. The former value `core` is
+read as `app`. SaveData chooses `app` when `web.offline.respectSaveData` is on and
+the worker's browser reports it. If public configuration is unavailable, the worker
+installs `app` with four downloads. Not installed by `app`, and stored on first use
+(cache-first, digest-checked): Settings, PIM, admin, viewers, dialogs, brand marks,
+fonts, translation packs, PDF.js and the mw_crypto wasm. After the mailbox is up and
+`web.prefetch.idleDelayMs` has passed, the page downloads the active locale's app
+pack and the Settings and PIM files, one file at a time (src/boot/idleFill.ts), when
+`web.prefetch.enabled` is on and the browser does not ask to save data; the admin
+pack is never fetched ahead. Neither policy supplies URLs or relaxes digest checks,
+logout cleanup, navigation freshness or the exclusion of private mailbox data.
 
 Lazy Compose/Settings splitting and response compression are separate follow-ups;
 there are no controls pretending those changes have been implemented. Build-cache

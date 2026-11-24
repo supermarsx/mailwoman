@@ -160,7 +160,7 @@ type Listener = (event: Record<string, unknown>) => void;
  * `scriptUrl` is where the worker is served from — its directory is the deploy
  * prefix the worker derives for itself.
  */
-export function bootWorker(scriptUrl = 'https://mail.example.com/sw.js', options: { digests?: Record<string, string> | null; onReplay?:()=>Promise<void>;offlineAssets?:string[];saveData?:boolean } = {}): Worker {
+export function bootWorker(scriptUrl = 'https://mail.example.com/sw.js', options: { digests?: Record<string, string> | null; onReplay?:()=>Promise<void>;offlineAssets?:string[];appAssets?:string[];saveData?:boolean } = {}): Worker {
   const location = new URL(scriptUrl);
   const caches = new FakeCacheStorage(location.href);
   const listeners = new Map<string, Listener>();
@@ -187,7 +187,7 @@ export function bootWorker(scriptUrl = 'https://mail.example.com/sw.js', options
     network.calls.push(new URL(typeof req === 'string' ? req : req.url, location.href).href);
     return network.fetch(req);
   };
-  const source = SW_SOURCE.replace('/* @mw-asset-digests */ null', 'self.__assetDigests').replace('/* @mw-offline-assets */ []',JSON.stringify(options.offlineAssets??[]));
+  const source = SW_SOURCE.replace('/* @mw-asset-digests */ null', 'self.__assetDigests').replace('/* @mw-offline-assets */ []',JSON.stringify(options.offlineAssets??[])).replace('/* @mw-app-assets */ []',JSON.stringify(options.appAssets??[]));
   if (source === SW_SOURCE) throw new Error('sw.js lost its asset-digest placeholder');
   new Function('self', 'caches', 'fetch', source)(self, caches, fetchFromWorker);
 

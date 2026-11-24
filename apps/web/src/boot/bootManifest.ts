@@ -39,6 +39,8 @@ export interface BootManifest {
   packs: Record<string, string>;
   /** Subresource Integrity for the JS files, filled after the files are written. */
   sri: Record<string, string>;
+  /** Files the idle fill downloads after the mailbox is up (sw/offlineTiers.ts), filled with `sri`. */
+  idle?: string[];
 }
 
 /** What the manifest needs from one Rollup output item. */
@@ -103,6 +105,16 @@ function sortKeys(value: Record<string, string>): Record<string, string> {
 /** The data block as written into index.html (`<` escaped so no text can close it). */
 export function manifestTag(manifest: BootManifest): string {
   return `<script type="application/json" id="${BOOT_MANIFEST_ID}">${JSON.stringify(manifest).replace(/</g, '\\u003c')}</script>`;
+}
+
+/** The manifest the page carries; `null` outside a production page (dev server, tests). */
+export function pageManifest(doc: Document = document): BootManifest | null {
+  try {
+    const value: unknown = JSON.parse(doc.getElementById(BOOT_MANIFEST_ID)?.textContent ?? 'null');
+    return value !== null && typeof value === 'object' && (value as { v?: unknown }).v === 1 ? (value as BootManifest) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Read the data block back out of a built index.html (null when absent). */

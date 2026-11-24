@@ -5435,7 +5435,7 @@ Every key in the settings registry, generated from the registry and checked agai
 
 | Key | Type | Default | Set at | Environment | Effect |
 |---|---|---|---|---|---|
-| <a id="web.offline.precachemode"></a>[`web.offline.precacheMode`](#web.offline.precacheMode) | one of `all`, `core` | `"all"` | server |  | Applied by the server and the web app. |
+| <a id="web.offline.precachemode"></a>[`web.offline.precacheMode`](#web.offline.precacheMode) | one of `app`, `all`, `core` | `"app"` | server |  | Applied by the server and the web app. |
 | <a id="web.offline.precacheconcurrency"></a>[`web.offline.precacheConcurrency`](#web.offline.precacheConcurrency) | integer, 1 to 4 | `4` | server |  | Applied by the server and the web app. |
 | <a id="web.offline.respectsavedata"></a>[`web.offline.respectSaveData`](#web.offline.respectSaveData) | on or off | `true` | server |  | Applied by the server and the web app. |
 | <a id="sync.headerswindow"></a>[`sync.headersWindow`](#sync.headersWindow) | one of `30`, `90`, `365`, `all` | `"90"` | server, domain, user |  | Applied by the web app only. |

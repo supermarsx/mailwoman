@@ -74,6 +74,21 @@ the background, the notice "Keep Mailwoman open to sync queued changes on this d
 can appear. The desktop app can wake up in the background; see
 [Desktop and mobile apps](/user/apps-desktop-mobile).
 
+### What is stored for an offline start
+
+The first time Mailwoman opens in a browser, it stores the files it needs to start
+without a connection: the sign-in screen, the mailbox, reading and writing messages, the
+background workers and the HTML sanitizer. With them you can start Mailwoman offline into
+the mailbox, read the mail already downloaded to this device, write messages and have
+queued ones sent when the connection is back, also after the tab was closed where the
+browser supports background sync. A screen you have not opened online, such as Settings,
+Calendar, Contacts or the PDF viewer, needs a connection the first time; Settings and the
+calendar, tasks, notes and contacts modules are normally downloaded a few seconds after the
+mailbox opens, unless the browser asks to save data. Encrypted (OpenPGP or S/MIME) mail
+opens offline only on a device that has already opened encrypted mail online, which
+downloads the decryption module. An administrator can have every file stored on the first
+visit instead ([`web.offline.precacheMode`](/admin/settings#web.offline.precachemode)).
+
 ### Drafts
 
 While you write, the message editor keeps a recovery copy in the browser. The status at

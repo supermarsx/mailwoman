@@ -139,7 +139,7 @@ mod web_performance_tests {
                     assert_eq!(response.status(),200);assert_eq!(response.headers()[header::CACHE_CONTROL],"no-store");
                     serde_json::from_slice::<serde_json::Value>(&to_bytes(response.into_body(),1024*1024).await.unwrap()).unwrap()
                 };
-                let before=read(router.clone()).await;assert_eq!(before["webPerformance"],json!({"retainedLocales":3,"concurrentLoads":4,"prefetchEnabled":true,"prefetchModules":false,"idleDelayMs":2500,"precacheMode":"all","precacheConcurrency":4,"respectSaveData":true}));
+                let before=read(router.clone()).await;assert_eq!(before["webPerformance"],json!({"retainedLocales":3,"concurrentLoads":4,"prefetchEnabled":true,"prefetchModules":false,"idleDelayMs":2500,"precacheMode":"app","precacheConcurrency":4,"respectSaveData":true}));
                 for(key,value)in [("web.i18n.retainedLocales",json!(2)),("web.i18n.concurrentLoads",json!(1)),("web.prefetch.enabled",json!(false)),("web.prefetch.idleDelayMs",json!(800)),("web.offline.precacheMode",json!("core")),("web.offline.precacheConcurrency",json!(1)),("web.offline.respectSaveData",json!(false))]{
                     store.put_setting_policy(&SettingPolicyRow{key:key.into(),global_value:Some(value.to_string()),allow_user_override:false,global_locked:true,updated_by:"web-performance-fixture".into(),updated_at:chrono::Utc::now().timestamp()}).await.unwrap();
                 }
