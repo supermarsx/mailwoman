@@ -167,6 +167,8 @@ pub(crate) struct WriteBehindStatus {
     /// Observations not recorded because the queue was full.
     pub dropped: u64,
     pub loads: u64,
+    /// Answers reported as storage failures (the caller's failure policy applied).
+    pub storage_failures: u64,
     pub degraded: bool,
     pub cache_size: usize,
     pub evictions: u64,
@@ -182,6 +184,7 @@ struct Counters {
     dropped: AtomicU64,
     loads: AtomicU64,
     evictions: AtomicU64,
+    storage_failures: AtomicU64,
 }
 fn bump(counter: &AtomicU64, by: u64) {
     counter.fetch_add(by, Ordering::Relaxed);
@@ -305,6 +308,7 @@ impl WriteBehind {
     pub(crate) fn start(store: Store, config: AccountingConfig) -> Arc<Self> {
         let accounting = Arc::new(Self::new(store, config));
         let weak = Arc::downgrade(&accounting);
+        *lock(&ACTIVE) = Some(weak.clone());
         let wake = accounting.wake.clone();
         let every = accounting.flush_every;
         tokio::spawn(async move {
@@ -395,8 +399,28 @@ impl WriteBehind {
         bump(&self.counters.evictions, (before - entries.len()) as u64);
     }
 
+    fn counted(&self, answer: Answer) -> Answer {
+        if answer.storage_failed {
+            bump(&self.counters.storage_failures, 1);
+        }
+        answer
+    }
+
     /// Charge (`signal == None`) or observe one request, deciding from the cache.
     pub(crate) async fn record(
+        &self,
+        kind: &'static str,
+        value: &str,
+        policy: &Policy,
+        now: i64,
+        signal: Option<Signal>,
+        source: ProtectionSource<'_>,
+    ) -> Answer {
+        let answer = self.record_inner(kind, value, policy, now, signal, source).await;
+        self.counted(answer)
+    }
+
+    async fn record_inner(
         &self,
         kind: &'static str,
         value: &str,
@@ -492,7 +516,7 @@ impl WriteBehind {
         let Ok(key) = self.store.request_protection_subject(kind, value) else {
             return Answer::failed(Decision::default());
         };
-        match self
+        let answer = match self
             .with_entry(&key, kind, now, |entry| {
                 if entry.expires_at <= now {
                     Decision::default()
@@ -504,7 +528,8 @@ impl WriteBehind {
         {
             Ok(decision) => Answer::ok(decision),
             Err(_) => Answer::failed(Decision::default()),
-        }
+        };
+        self.counted(answer)
     }
 
     /// Commit every observation up to and including `target`, in queue order.
@@ -686,11 +711,35 @@ impl WriteBehind {
             rejected: counter(&self.counters.rejected),
             dropped: counter(&self.counters.dropped),
             loads: counter(&self.counters.loads),
+            storage_failures: counter(&self.counters.storage_failures),
             degraded: lock(&self.degraded_since).is_some(),
             cache_size: self.shards.iter().map(|shard| lock(shard).len()).sum(),
             evictions: counter(&self.counters.evictions),
         }
     }
+}
+
+/// The most recently started accounting in this process, for the load-fixture
+/// witness. Weak: it never keeps a stopped server's accounting alive.
+static ACTIVE: Mutex<Option<std::sync::Weak<WriteBehind>>> = Mutex::new(None);
+
+/// Load-fixture witness: process-global write-behind counters, counts only (no
+/// subject keys, addresses or account ids). `accounting` is `synchronous` with
+/// zero counters when no write-behind accounting is running in this process.
+/// Counters are monotonic per accounting instance; sample before and after.
+#[cfg(any(test, feature = "load-test-fixtures"))]
+pub fn fixture_snapshot() -> serde_json::Value {
+    let active = lock(&ACTIVE).as_ref().and_then(std::sync::Weak::upgrade);
+    let (accounting, status) = match active {
+        Some(active) => ("write-behind", active.status()),
+        None => ("synchronous", WriteBehindStatus::default()),
+    };
+    let mut value = serde_json::to_value(status).expect("status serializes");
+    if let Some(object) = value.as_object_mut() {
+        object.insert("supported".into(), true.into());
+        object.insert("accounting".into(), accounting.into());
+    }
+    value
 }
 
 #[cfg(test)]

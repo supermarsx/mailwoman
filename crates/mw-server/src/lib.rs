@@ -205,6 +205,8 @@ pub use request_inputs::freeze_environment;
 pub mod t34_modes;
 #[cfg(feature="load-test-fixtures")]
 pub mod request_inputs_fixture;
+#[cfg(feature="load-test-fixtures")]
+pub use request_protection::write_behind::fixture_snapshot as request_protection_fixture_snapshot;
 mod sanitize_gate;
 mod security_center;
 mod server_text;

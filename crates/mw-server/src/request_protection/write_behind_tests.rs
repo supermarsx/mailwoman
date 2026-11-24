@@ -421,3 +421,39 @@ async fn idle_cache_is_bounded_and_rereads_after_one_interval() {
     deferred.probe_decision("client", "probe-path:10.0.0.1", &p, 1000).await;
     assert!(deferred.status().loads >= loads + 1);
 }
+
+#[tokio::test]
+async fn fixture_snapshot_reports_counts_only_and_zero_when_synchronous() {
+    let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+    // Synchronous mode registers nothing; any earlier instance is gone.
+    let synchronous = super::super::Runtime::start_with(store.clone(), AccountingConfig::default());
+    let idle = fixture_snapshot();
+    assert_eq!(idle["accounting"], "synchronous");
+    assert_eq!(idle["supported"], true);
+    for field in ["pending", "flushed", "batches", "writeThroughs", "writeThroughFailures",
+        "flushFailures", "rejected", "dropped", "loads", "storageFailures"] {
+        assert_eq!(idle[field], 0, "{field}");
+    }
+    assert_eq!(idle["degraded"], false);
+    drop(synchronous);
+    let runtime = super::super::Runtime::start_with(store.clone(), config(5000, 4096));
+    let accounting = runtime.write_behind().unwrap();
+    let mut p = policy();
+    p.rate_limit = 100;
+    for _ in 0..5 {
+        accounting.record("account", "witness", &p, 1000, None, NONE).await;
+    }
+    let busy = fixture_snapshot();
+    assert_eq!(busy["accounting"], "write-behind");
+    assert_eq!(busy["pending"], 4);
+    assert_eq!(busy["writeThroughs"], 1);
+    accounting.flush_pending().await.unwrap();
+    let flushed = fixture_snapshot();
+    assert_eq!(flushed["pending"], 0);
+    assert_eq!(flushed["flushed"], 5);
+    let text = flushed.to_string();
+    let key = store.request_protection_subject("account", "witness").unwrap();
+    assert!(!text.contains(&key) && !text.contains("witness"), "counts only: {text}");
+    drop(runtime);
+    assert_eq!(fixture_snapshot()["accounting"], "synchronous");
+}
