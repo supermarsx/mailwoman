@@ -224,10 +224,15 @@ export function checkLoadBudget({ report, html, sw, sizes, distFiles, budget, re
   // --- totals --------------------------------------------------------------
   const assets = distFiles.filter((file) => file.startsWith('assets/'));
   const swList = /const OFFLINE_ASSETS = (\[[^\n]*?\]);/.exec(sw)?.[1];
-  let precache = [];
+  let all = [];
   if (swList === undefined) fail('sw.js: no OFFLINE_ASSETS list');
-  else precache = JSON.parse(swList);
-  const precacheBytes = precache.reduce((total, path) => total + (distFiles.includes(path.slice(1)) ? sizes(path.slice(1)).raw : 0), 0);
+  else all = JSON.parse(swList);
+  // precache*: the default install (precacheMode "app", OFFLINE_APP_ASSETS, t52w);
+  // allPrecache*: precacheMode "all" (OFFLINE_ASSETS). Bytes raw; *BrBytes brotli.
+  const appList = /const OFFLINE_APP_ASSETS = (\[[^\n]*?\]);/.exec(sw)?.[1];
+  const precache = appList === undefined ? all : JSON.parse(appList);
+  const sumOf = (list, key) => list.reduce((total, path) => total + (distFiles.includes(path.slice(1)) ? sizes(path.slice(1))[key] : 0), 0);
+  const precacheBytes = sumOf(precache, 'raw');
   stats.totals = {
     jsChunks: Object.keys(chunks).length,
     nonAdminChunks: Object.values(chunks).filter((chunk) => fam(chunk.plan) !== 'admin-section').length,
@@ -237,6 +242,10 @@ export function checkLoadBudget({ report, html, sw, sizes, distFiles, budget, re
     catalogFiles: assets.filter((file) => file.endsWith('.ftl') || PACK.test(file)).length,
     precacheEntries: precache.length,
     precacheBytes,
+    precacheBrBytes: sumOf(precache, 'br'),
+    allPrecacheEntries: all.length,
+    allPrecacheBytes: sumOf(all, 'raw'),
+    allPrecacheBrBytes: sumOf(all, 'br'),
     swBytes: Buffer.byteLength(sw),
   };
   for (const [key, max] of Object.entries(budget.totals ?? {})) {

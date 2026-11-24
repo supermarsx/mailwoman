@@ -9,7 +9,8 @@
     "Admin sections are one chunk each and are not counted in nonAdminChunks; no route without \"console\" may load an admin shell, admin-common or section chunk.",
     "Probes: hashed files a one-line change in the module renames. basePath.ts (core) renames every app chunk, including the 66 admin sections, and the network worker (it bundles basePath).",
     "Translations (t52w-e3, 2026-11-24): two JSON packs per locale (app, admin) = 28 files, English fallback merged at build time. The pack URL table is a JSON block in index.html, so a .ftl edit renames only its pack (probe `catalog`).",
-    "catalogPacks: caps are 5% above the measured .br / gzip bytes of each pack, rounded up to 1 KiB."
+    "catalogPacks: caps are 5% above the measured .br / gzip bytes of each pack, rounded up to 1 KiB.",
+    "Service worker (t52w-e5, 2026-11-24): precache* is the default install, precacheMode \"app\" (OFFLINE_APP_ASSETS, src/sw/offlineTiers.ts), measured 29 files, 5,235,056 B raw, 1,540,467 B br (at e00ee3ee0 + this change); allPrecache* is precacheMode \"all\", measured 460 files, 33,006,087 B raw; sw.js measured 133,446 B. Caps about 5% above the first measurement (29 / 5,321,326 / 1,558,928 / 459 / 33,005,661 / 133,311)."
   ],
   "critical": { "maxJs": 3, "maxBrBytes": 304128, "maxGzipBytes": 335872, "forbidChunks": ["brand-index", "brand-paths"] },
   "routes": {
@@ -23,9 +24,12 @@
   "totals": {
     "nonAdminChunks": 26,
     "catalogFiles": 28,
-    "precacheEntries": 1600,
-    "precacheBytes": 34000000,
-    "swBytes": 365000
+    "precacheEntries": 31,
+    "precacheBytes": 5588000,
+    "precacheBrBytes": 1637000,
+    "allPrecacheEntries": 482,
+    "allPrecacheBytes": 34656000,
+    "swBytes": 140000
   },
   "catalogPacks": {
     "ar": { "admin": { "maxBrBytes": 203776, "maxGzBytes": 222208 }, "app": { "maxBrBytes": 181248, "maxGzBytes": 197632 } },
