@@ -1168,18 +1168,14 @@ mod tests {
             )
             .await
             .unwrap();
-        let mailbox_id = s
-            .upsert_mailbox(&MailboxUpsert {
-                account_id: &account_id,
-                name: "INBOX",
-                role: Some("inbox"),
-                uidvalidity: 100,
-                uidnext: 1,
-                highestmodseq: 0,
-                total: 0,
-                unread: 0,
-                parent_id: None,
-            })
+        // The 0002 columns only: `seed_pre_0029` runs this on a pre-0029
+        // schema, where later mailbox columns (0122) do not exist yet.
+        let mailbox_id = crate::seal::random_token();
+        q("INSERT INTO mailboxes (id, account_id, name, role, uidvalidity, uidnext, highestmodseq, total, unread)
+           VALUES (?1, ?2, 'INBOX', 'inbox', 100, 1, 0, 0, 0)")
+            .bind(mailbox_id.as_str())
+            .bind(account_id.as_str())
+            .execute(&s.backend)
             .await
             .unwrap();
         let sid = s
