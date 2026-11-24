@@ -791,6 +791,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
     mw_server::t34_modes::validate_startup(&config.db_path, config.mode == ServerMode::Engine)
         .map_err(|e| anyhow::anyhow!("refusing to start: {e}"))?;
     mw_server::proxy_posture::validate_startup().map_err(|e| anyhow::anyhow!("refusing to start: {e}"))?;
+    mw_server::push::validate_startup().map_err(|e| anyhow::anyhow!("refusing to start: {e}"))?;
     let app = build_app(config).await?;
     // Keep the engine and protection runtime alive past the HTTP server so the
     // shutdown drain below can finish their queued work.
@@ -894,6 +895,10 @@ async fn fonts_cmd(args: FontsArgs) -> anyhow::Result<()> {
 async fn shutdown_signal() {
     mw_server::termination_signal().await;
     tracing::info!("shutdown signal received");
+    // t35: realtime streams close first (WebSocket 1012 "service restart", end of
+    // the SSE body). They own no work, and an open SSE body would otherwise hold
+    // the HTTP graceful shutdown until its timeout.
+    mw_server::push::begin_shutdown_all();
 }
 
 async fn healthcheck(args: HealthArgs) -> std::process::ExitCode {
