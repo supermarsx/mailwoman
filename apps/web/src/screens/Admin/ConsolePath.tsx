@@ -7,11 +7,12 @@ import {toast} from '../../components/toast/toast.ts';
 // own, or a generated one). The server asks for step-up, writes an audit entry and
 // applies the new path at its next start, which also ends every admin session.
 import {createSignal,onMount,Show,type JSX} from 'solid-js';
-import {consolePathApi,validChosenPath,type ConsolePathApi,type ConsolePathChange,type ConsolePathView} from '../../api/admin/consolePath.ts';
+import {consolePathApi,validChosenPath,type ConsolePathApi,type ConsolePathChange,type ConsolePathMailApi,type ConsolePathView} from '../../api/admin/consolePath.ts';
 import {basePath} from '../../api/basePath.ts';
 import { InlineLoading } from '../../components/InlineLoading.tsx';
 import {loadCatalog,t} from '../../i18n';
 import {ConfirmDialog} from './shell/ConfirmDialog.tsx';
+import {ConsolePathMail} from './ConsolePathMail.tsx';
 import {Feedback,describeAdminError} from './shell/Feedback.tsx';
 import * as css from './admin.css.ts';
 import * as ux from './shell/ux.css.ts';
@@ -21,7 +22,7 @@ function address(path:string):string{
   return `${origin}${basePath()}${path}`;
 }
 
-export function ConsolePath(props:{readOnly:boolean;api?:ConsolePathApi}):JSX.Element {
+export function ConsolePath(props:{readOnly:boolean;api?:ConsolePathApi;mailApi?:ConsolePathMailApi}):JSX.Element {
   const api=props.api??consolePathApi;
   const [view,setView]=createSignal<ConsolePathView>();
   const [etag,setEtag]=createSignal<string|null>(null);
@@ -63,6 +64,7 @@ export function ConsolePath(props:{readOnly:boolean;api?:ConsolePathApi}):JSX.El
     <Show when={error()&&!view()}><button class="btn" onClick={()=>void load()}>{t('common-retry')}</button></Show>
     <Show when={view()}>{v=><div class={css.subsectionBody}>
       <p><strong>{t('admin-console-path-current')}</strong> <code data-testid="console-path-current">{address(v().path)}</code></p>{shareActions(v().path)}
+      <div class={ux.pageActions}><ConsolePathMail pending={v().pending!=null} {...(props.mailApi?{api:props.mailApi}:{})}/></div>
       <p class={css.note}>{t(`admin-console-path-source-${v().source}`)}</p>
       <Show when={v().legacyDefault}><p role="alert" class={css.error}>{t('admin-console-path-legacy')}</p></Show>
       <Show when={v().pending}>{p=><div><p role="status" data-testid="console-path-pending">{t('admin-console-path-pending',{address:address(p())})}</p>{shareActions(p())}</div>}</Show>
