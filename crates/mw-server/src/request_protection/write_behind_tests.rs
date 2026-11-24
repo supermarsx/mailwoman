@@ -334,27 +334,60 @@ async fn flush_failure_degrades_after_two_intervals_and_recovers_without_loss() 
     assert!(events.iter().any(|event| event.reason == "probe-path"));
 }
 
+/// What the guard answers for a write-behind admission (request_protection.rs
+/// `Context::admit`): the decision, or the storage-failure policy.
+fn guard_status(answer: Answer, fail_closed: bool, p: &Policy) -> Option<axum::http::StatusCode> {
+    use axum::http::StatusCode;
+    if !answer.storage_failed {
+        return answer.decision.enforced.then_some(StatusCode::TOO_MANY_REQUESTS);
+    }
+    super::super::storage_failure_answer(fail_closed, p, answer.decision).err().map(|error| error.status)
+}
+
+/// R5 with failing storage: at MAX_PENDING observations are still recorded and
+/// written through; the write-throughs fail, so the storage-failure policy
+/// applies (503 when closed, the local decision when open: known abuse stays
+/// refused). Only beyond 2 x MAX_PENDING is an observation not recorded. After
+/// recovery every recorded observation is committed.
 #[tokio::test]
-async fn full_queue_is_a_storage_failure_that_still_refuses_known_abuse() {
-    let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+async fn full_queue_with_failing_storage_applies_the_policy_and_keeps_counting_up_to_the_hard_cap() {
+    use axum::http::StatusCode;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("full.db");
+    let store = Store::open(path.to_str().unwrap(), ServerKey::generate()).await.unwrap();
     let deferred = WriteBehind::new(store.clone(), config(5000, 64));
     let mut p = policy();
     p.rate_limit = 1000;
     let blocked = deferred.record("client", "192.0.2.5", &p, 1000, Some(Signal::ProbePath), NONE).await;
-    assert!(blocked.decision.enforced);
-    for _ in 0..64 {
+    assert!(blocked.decision.enforced && !blocked.storage_failed);
+    deferred.record("account", "a", &p, 1000, None, NONE).await; // row created while healthy
+    let mut connection = raw(&path).await;
+    exec(&mut connection, FAIL_UPDATES).await;
+    for _ in 0..63 {
         assert!(!deferred.record("account", "a", &p, 1000, None, NONE).await.storage_failed);
     }
-    assert_eq!(deferred.status().pending, 63, "first charge was written through");
+    assert_eq!(deferred.status().pending, 63);
     deferred.record("account", "a", &p, 1000, None, NONE).await;
-    assert_eq!(deferred.status().pending, 64);
-    let full = deferred.record("account", "a", &p, 1000, None, NONE).await;
-    assert!(full.storage_failed && !full.decision.enforced);
+    assert_eq!(deferred.status().pending, 64, "full");
+    let mut recorded = 65;
+    for _ in 0..64 {
+        let answer = deferred.record("account", "a", &p, 1000, None, NONE).await;
+        recorded += 1;
+        assert!(answer.storage_failed, "the write-through failed");
+        assert_eq!(guard_status(answer, true, &p), Some(StatusCode::SERVICE_UNAVAILABLE));
+        assert_eq!(guard_status(answer, false, &p), None);
+    }
+    assert_eq!(deferred.status().pending, 128, "recorded, not dropped");
+    assert_eq!(deferred.status().dropped, 0);
+    // The hard cap: not recorded; known abuse is still refused when open.
     let refused = deferred.record("client", "192.0.2.5", &p, 1001, None, NONE).await;
     assert!(refused.storage_failed && refused.decision.enforced);
-    assert_eq!(deferred.status().dropped, 2);
+    assert_eq!(guard_status(refused, false, &p), Some(StatusCode::TOO_MANY_REQUESTS));
+    assert_eq!(guard_status(refused, true, &p), Some(StatusCode::SERVICE_UNAVAILABLE));
+    assert_eq!(deferred.status().dropped, 1);
+    exec(&mut connection, "DROP TRIGGER wb_fail").await;
     deferred.flush_pending().await.unwrap();
-    assert_eq!(rate_count(&store, "account", "a", 1000).await, Some(65));
+    assert_eq!(rate_count(&store, "account", "a", 1000).await, Some(recorded));
 }
 
 #[tokio::test]
@@ -892,4 +925,51 @@ async fn review_r4_losing_ownership_rereads_recently_synced_entries() {
     // The entry was synced well within the 5 s interval.
     let next = owner.record("client", "192.0.2.81", &p, 1001, None, NONE).await;
     assert!(next.decision.enforced, "re-read after losing ownership");
+}
+
+/// R5: a full queue does not stop counting. With healthy storage the request
+/// is counted (written through) and answered by its decision. (Failed before
+/// the fix: the request was answered as a storage failure and not counted.)
+#[tokio::test]
+async fn review_r5_a_full_queue_still_counts_every_request() {
+    let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+    let accounting = WriteBehind::new(store.clone(), config(5000, 64));
+    let mut p = policy();
+    p.rate_limit = 1000;
+    for _ in 0..65 {
+        accounting.record("account", "full", &p, 1000, None, NONE).await;
+    }
+    assert_eq!(accounting.status().pending, 64, "the queue is full");
+    for _ in 0..10 {
+        let answer = accounting.record("account", "full", &p, 1000, None, NONE).await;
+        assert!(!answer.storage_failed && !answer.decision.enforced, "{answer:?}");
+    }
+    accounting.flush_pending().await.unwrap();
+    assert_eq!(accounting.status().dropped, 0);
+    assert_eq!(rate_count(&store, "account", "full", 1000).await, Some(75), "every request counted");
+}
+
+/// R5 with healthy storage under both storage-failure settings: a full queue
+/// never answers 503 and never admits uncounted; the limit holds exactly.
+#[tokio::test]
+async fn review_r5_full_queue_answers_by_decision_under_both_settings() {
+    let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+    let accounting = WriteBehind::new(store.clone(), config(5000, 64));
+    let mut p = policy();
+    p.rate_limit = 70;
+    for _ in 0..65 {
+        accounting.record("account", "both", &p, 1000, None, NONE).await;
+    }
+    let mut statuses = Vec::new();
+    for _ in 0..10 {
+        let answer = accounting.record("account", "both", &p, 1000, None, NONE).await;
+        assert!(!answer.storage_failed);
+        let (closed, open) = (guard_status(answer, true, &p), guard_status(answer, false, &p));
+        assert_eq!(closed, open, "the setting does not matter with healthy storage");
+        statuses.push(closed.map(|status| status.as_u16()));
+    }
+    // 65 + 5 admitted reach the limit of 70; the next 5 are refused (counted).
+    assert_eq!(statuses, [None, None, None, None, None, Some(429), Some(429), Some(429), Some(429), Some(429)]);
+    // The first full-queue write-through drained the queue; later ones were queued.
+    assert!(accounting.status().backpressure_writes >= 1);
 }

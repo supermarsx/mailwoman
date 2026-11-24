@@ -41,7 +41,13 @@
 //! those observations. Transitions are never in that set: they are committed before
 //! their decision is returned (a failed write-through is a storage failure, below).
 //!
-//! Storage failure: a failed flush keeps its observations (bounded by `MAX_PENDING`) and
+//! Full queue: at `MAX_PENDING` queued observations every further observation is written
+//! through (backpressure: the request waits for the queue to drain up to it), so it is
+//! counted and answered from the database. Only beyond `2 x MAX_PENDING`, which needs
+//! write-throughs to keep failing, is an observation not recorded and the answer a storage
+//! failure (as the synchronous mode answers when storage fails).
+//!
+//! Storage failure: a failed flush keeps its observations (bounded by `2 x MAX_PENDING`) and
 //! marks the accounting degraded. The request is reported as a storage failure, so the
 //! caller applies its configured failure policy (`storageFailure: closed` with an
 //! enforcing mode answers 503), when the accounting has been degraded for longer than
@@ -211,6 +217,8 @@ pub(crate) struct WriteBehindStatus {
     pub owned: bool,
     pub ownership_gained: u64,
     pub ownership_lost: u64,
+    /// Observations written through because the queue was full.
+    pub backpressure_writes: u64,
 }
 #[derive(Default)]
 struct Counters {
@@ -226,6 +234,7 @@ struct Counters {
     storage_failures: AtomicU64,
     ownership_gained: AtomicU64,
     ownership_lost: AtomicU64,
+    backpressure_writes: AtomicU64,
 }
 fn bump(counter: &AtomicU64, by: u64) {
     counter.fetch_add(by, Ordering::Relaxed);
@@ -313,7 +322,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 enum Recorded {
     Full(Decision),
-    Queued { pending: Arc<Pending>, decision: Decision, through: bool, queued: usize },
+    Queued { pending: Arc<Pending>, decision: Decision, through: bool, full: bool, queued: usize },
 }
 
 pub(crate) struct WriteBehind {
@@ -577,7 +586,11 @@ impl WriteBehind {
         let recorded = self
             .with_entry(&key, kind, now, |entry| {
                 let mut queue = lock(&self.queue);
-                if queue.len() >= self.max_pending {
+                // At MAX_PENDING the observation is still recorded and written
+                // through (backpressure). Only beyond twice that, which needs
+                // write-throughs to keep failing, is it not recorded.
+                let full = queue.len() >= self.max_pending;
+                if queue.len() >= self.max_pending.saturating_mul(2) {
                     // Refusals still apply; nothing is recorded.
                     let (mut state, mut expires_at) = (entry.state.clone(), entry.expires_at);
                     let step = evaluate_protection(
@@ -608,7 +621,8 @@ impl WriteBehind {
                 Recorded::Queued {
                     pending,
                     decision: step.decision,
-                    through: step.transition || new_row || typed,
+                    through: step.transition || new_row || typed || full,
+                    full,
                     queued: queue.len(),
                 }
             })
@@ -619,7 +633,10 @@ impl WriteBehind {
                 bump(&self.counters.dropped, 1);
                 return Answer::failed(decision);
             }
-            Ok(Recorded::Queued { pending, decision, through, queued }) => {
+            Ok(Recorded::Queued { pending, decision, through, full, queued }) => {
+                if full {
+                    bump(&self.counters.backpressure_writes, 1);
+                }
                 (pending, decision, through, queued)
             }
         };
@@ -871,6 +888,7 @@ impl WriteBehind {
             owned: self.owned(),
             ownership_gained: counter(&self.counters.ownership_gained),
             ownership_lost: counter(&self.counters.ownership_lost),
+            backpressure_writes: counter(&self.counters.backpressure_writes),
         }
     }
 }
