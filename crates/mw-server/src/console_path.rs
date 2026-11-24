@@ -59,6 +59,8 @@ use crate::admin_ctx::{AdminApiError, AdminCtx, AdminJson, check_if_match, etag_
 use crate::admin_router::AdminRegistrar;
 use crate::capabilities::Capability;
 
+mod mail;
+
 /// The console path chosen for this deployment (`/…`, relative to the deploy
 /// prefix). The next start applies it unless `MW_ADMIN_PATH` is set.
 pub const STORED_KEY: &str = "admin.consolePath";
@@ -300,6 +302,7 @@ pub(crate) fn register(r: &mut impl AdminRegistrar) {
         Capability::SecurityPolicyWrite,
         save,
     );
+    mail::register(r);
 }
 
 async fn snapshot_with_stored(state: &AppState) -> Result<(Value, Option<String>), AdminApiError> {
