@@ -67,6 +67,25 @@ function readRow(record) {
   const note = record.scenario === 'open-changes' ? `arrival sync ${fmt(r.arrivalSyncMs)} ms` : r.queryResponse?.totalTruncated ? 'total truncated' : '';
   return `| ${cell(record.scenario)} | OK | ${fmt(r.returned)} / ${fmt(total)} | ${fmt(r.coldMs)} | ${fmt(r.warm?.latencyMs?.p50)} / ${fmt(r.warm?.latencyMs?.max)} | ${fmt(hits)} | ${cell(note)} |`;
 }
+const SEARCH_HEADER = '| Scenario | Status | Matched / returned | Cold (ms) | Warm p50 / max (ms) | Hits materialised (cold) | Stored docs decoded (cold) | Index bytes read (cold) | CPU ms (cold) | Notes |';
+function searchRow(record) {
+  if (record.status !== 'OK') return `| ${cell(record.scenario)} | ${record.status} | ${cell(why(record))} | | | | | | | |`;
+  const r = record.results;
+  if (record.scenario.startsWith('search-fresh-')) {
+    return `| ${cell(record.scenario)} | OK | ${fmt(r.expectedTotal)} expected, first query ${fmt(r.firstQueryTotal)} | ${fmt(r.firstQueryMs)} | | | | | | ${cell(`correct ${fmt(r.correctAfterChangeMs)} ms after the change; change ${fmt(r.changeMs)} ms for ${fmt(r.messagesChanged)} messages; read-fence waits ${fmt(r.counters?.publication?.readFenceWaits)}`)} |`;
+  }
+  if (record.scenario === 'search-as-you-type') {
+    const keys = (r.keystrokes ?? []).map(k => `${k.typed}:${fmt(k.latencyMs)}`).join(' ');
+    return `| ${cell(record.scenario)} | OK | | | ${fmt(r.requests?.latencyMs?.p50)} / ${fmt(r.requests?.latencyMs?.max)} | ${fmt(r.counters?.hitsMaterialisedPerRequest)} /req | ${fmt(r.counters?.storedDocumentsDecodedPerRequest)} /req | | ${fmt(r.counters?.processCpuMsPerRequest)} /req | ${cell(`${keys}; slower than 250 ms: ${fmt(r.responsesSlowerThanDebounce)}`)} |`;
+  }
+  if (record.scenario === 'search-index-rebuild') {
+    return `| ${cell(record.scenario)} | OK | ${fmt(r.messagesIndexed)} indexed | ${fmt(r.rebuildMs)} | | | | | | ${cell(`${fmt(r.documentsPerSecond)} documents/s; index ${fmt((r.disk?.searchIndexBytes ?? 0) / 1048576, 1)} MiB`)} |`;
+  }
+  const c = r.cold ?? r.firstAfterReload ?? {};
+  const cold = r.coldMs ?? r.firstAfterReloadMs;
+  return `| ${cell(record.scenario)} | OK | ${fmt(r.hitsMatched ?? r.snippets)} / ${fmt(r.returned)} | ${fmt(cold)} | ${fmt(r.warm?.latencyMs?.p50)} / ${fmt(r.warm?.latencyMs?.max)} | ${fmt(c.hitsMaterialisedPerRequest)} | ${fmt(c.storedDocumentsDecodedPerRequest)} | ${fmt(c.sealedIndexBytesReadPerRequest)} | ${fmt(c.processCpuMsPerRequest, 1)} | ${cell(r.queryResponse?.totalTruncated ? 'total truncated' : '')} |`;
+}
+
 function setupRows(records) {
   const lines = [];
   for (const record of records) {
@@ -98,8 +117,10 @@ export function renderMarkdown(records) {
     out.push(`Inputs: encryption ${JSON.stringify(first.inputs?.encryption ?? {})}; security profile ${first.inputs?.config?.securityProfile}; batch ${first.inputs?.config?.batch}; index publication ack ${first.inputs?.limits?.indexPublication?.ack}; hardware ${hw && hw.supplied !== false ? JSON.stringify(hw) : 'not supplied'}.`, '');
     out.push(...setupRows(list), '');
     const reads = list.filter(r => r.scenario.startsWith('open-'));
-    const bulk = list.filter(r => !r.scenario.startsWith('open-') && r.scenario !== 'seed');
+    const searches = list.filter(r => r.scenario.startsWith('search-'));
+    const bulk = list.filter(r => !r.scenario.startsWith('open-') && !r.scenario.startsWith('search-') && r.scenario !== 'seed');
     if (reads.length) out.push(READ_HEADER, '| --- | --- | ---: | ---: | ---: | ---: | --- |', ...reads.map(readRow), '');
+    if (searches.length) out.push(SEARCH_HEADER, '| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |', ...searches.map(searchRow), '');
     if (bulk.length) out.push(BULK_HEADER, '| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: |', ...bulk.map(bulkRow), '');
   }
   return out.join('\n');

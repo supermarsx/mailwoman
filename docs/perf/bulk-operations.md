@@ -72,6 +72,21 @@ Message properties:
 - 97 distinct senders.
 - Received times are one minute apart, so the newest message has the highest seed.
 - Every fifth message contains the word `quarterly`, which is the many-hit text search.
+- Planted search terms, each found nowhere else in the corpus:
+
+  | Term | Where | Frequency |
+  | --- | --- | --- |
+  | `quarterly` | body | seed % 5 == 0 (20%) |
+  | `zephyrine` (rare) | body | seed % 2000 == 7 |
+  | `zephyrus` (shares the `zephyr` prefix) | body | seed % 1000 == 501 |
+  | "amber lantern" as a phrase | body | seed % 50 == 3 |
+  | `amber` alone | body | seed % 10 == 6 |
+  | `lantern` alone | body | seed % 7 == 2 |
+  | `urgent` | subject | seed % 40 == 11 |
+  | Cc `audit@corpus.invalid` | header | seed % 25 == 0 |
+
+- The `search` account also carries a flag pattern: 30% unread (seed % 10 < 3)
+  and 2% flagged (seed % 50 == 0), in Store and upstream.
 
 ### Accounts
 
@@ -82,7 +97,8 @@ Message properties:
 | `destroy` | INBOX with N messages | destroy |
 | `folder` | Folder `Bulk` with K messages | delete-folder |
 | `ingest` | Nothing cached; N messages upstream | ingest |
-| `reader` | INBOX with `MW_BULK_READER_MESSAGES` messages (default 1,000) | Concurrent reader |
+| `search` | INBOX with N messages and Archive with N/10, with the flag pattern | search-\* |
+| `reader` … `reader8` | INBOX with `MW_BULK_READER_MESSAGES` messages (default 1,000); `MW_BULK_READER_ACCOUNTS` of them (default 2) | Concurrent readers |
 
 N is `MW_BULK_MAILBOX_MESSAGES` and K is `MW_BULK_OPERATION_MESSAGES`. An
 account exists only when a selected scenario needs it.
@@ -97,6 +113,7 @@ comma-separated list of the group names in the first column.
 | (always) | `seed` | Store batch seed, then startup index build | Index documents equal stored messages |
 | `ingest` | `ingest` | `cache_mailbox_list` and `start_initial_sync`, which is what engine-mode sign-in does. The store, the index and the first page are polled every 100 ms. | N rows; N index documents; unread counters N in Store, `Mailbox/get` and upstream; one fetch per message; the first page is the newest message |
 | `open` | `open-first-page`, `open-page-2`, `open-deep-page` (offset N/2), `open-unread`, `open-sort-from`, `open-text-search`, `open-changes` | The web client's list batch (`Email/query` plus `Email/get` with the client's list properties), cold then 5 warm. `open-changes` delivers one upstream arrival, refreshes the folder and calls `Email/changes`. | Totals, page length, order, first row, folder membership, warm equals cold; exactly one created id, which is the arrival |
+| `search` | `search-*`; see [Search scenarios](#search-scenarios) | The client's search request | Against a brute-force oracle over the corpus |
 | `flag` | `flag-seen`, `flag-unseen`, `flag-flagged`, `flag-unflagged` | `Email/set` update `keywords/$seen` or `keywords/$flagged` (true or null) plus `Mailbox/get`, the client's shape | Unread and flagged counts in Store, `Mailbox/get` and upstream; keywords of every message; states strictly increase; index equals Store |
 | `move` | `move`, `move-back` | `Email/set` update `mailboxIds: {<dest>: true}` | Counts in both folders; every row in the destination; each destination UID holds the same Message-ID upstream; UIDs unique and contiguous; the destination lists every moved id; index equals Store |
 | `mark-folder-read` | `mark-folder-read` | The client's `folderBulk.ts`: `Email/query notKeyword $seen` 100 at a time, then `Email/set` 100 per request | Every unread id listed once; unread counter 0 everywhere |
@@ -113,6 +130,65 @@ batch (`MW_BULK_BATCH=max`) is the advertised `maxObjectsInSet`, and a
 client's folder-operation chunking. Every record reports the request count.
 More than 5,000 ids in one request fails with `requestTooLarge`. That is
 recorded as a refusal, not worked around.
+
+## Search scenarios
+
+The web client sends search as you type, 250 ms after the last keystroke
+(apps/web/src/components/search/SearchBox.tsx:21). It puts the whole typed
+string, operators included, into `filter.text` (state/slices/mail.ts). With the
+default scope it adds `inMailbox` for the current folder and `notKeyword: $junk`.
+With the "all folders" scope it uses `inMailboxOtherThan` Trash and Junk instead.
+It asks for `limit: 50` with `calculateTotal: true`, plus the list `Email/get`.
+
+The suite sends exactly these requests. Every expected result comes from a
+brute-force oracle (`corpus::Fields`). The oracle:
+- re-tokenises each generated message the way the index's default analyzer
+  does (split on non-alphanumeric characters, lowercase, drop tokens over 40
+  bytes), over from, to, cc, subject, body and filename;
+- applies date bounds as the index does (`after:` inclusive, `before:`
+  exclusive) and size bounds as `>`/`<`.
+
+Every record checks:
+- the total against the oracle;
+- the page length;
+- that every row matches;
+- for date order, the exact page of ids.
+
+A mismatch is FAILED.
+
+| Record | Query (`filter.text` unless noted) | Measures |
+| --- | --- | --- |
+| `search-rare-term`, `-common-term`, `-phrase`, `-and-terms`, `-prefix` | `zephyrine`, `quarterly`, `"amber lantern"`, `amber lantern`, `zephyr*` | Selectivity. The phrase and the AND differ by construction. |
+| `search-from`, `-cc`, `-subject`, `-has-attachment`, `-filename`, `-date-range`, `-larger`, `-smaller`, `-is-unread`, `-is-flagged` | The client's operators (`from:sender07`, `cc:audit`, `subject:urgent`, `has:attachment`, `filename:report`, `after:… before:…`, `larger:20k`, `smaller:1500`, `is:unread`, `is:flagged`) | Field filters alone |
+| `search-unread-and-text`, `-from-and-attachment`, `-text-and-date`, `-subject-and-flagged` | Combinations | Field filters combined with text |
+| `search-all-folders`, `-saved-search-folder` | `quarterly` without a folder (Trash and Junk excluded); a saved search created through `PUT /api/account/saved-searches`, queried as `inMailbox=<id>` | Scope |
+| `search-page-2`, `-page-5`, `-deep-page`, `-page-2-no-total`, `-sort-from`, `-sort-size`, `-size-sort-folder` | `quarterly` at positions 50, 200 and half the hits; `calculateTotal: false`; sort by sender or size | Sorting and paging. There is no relevance sort: the engine supports receivedAt, sentAt, importance, size, from and subject. |
+| `search-unread-count`, `-flagged-page` | The client's unread count (`notKeyword $seen`, limit 1, workspaceMail.ts); `is:flagged` | The planner's endpoint groups |
+| `search-as-you-type` | `q`, `qu`, … `quarterly`, one request per keystroke | The worst case: the user pauses at least 250 ms after every key. Per-keystroke latency, and how many responses took longer than the debounce. |
+| `search-snippets` | `SearchSnippet/get` for the 50 ids of the common-term page | The engine implements it; the web client never calls it |
+| `search-after-reader-reload` | First common-term query after one committed flag write | Cold reader after reload, against warm |
+| `search-fresh-after-arrival`, `-mark-read`, `-move-1000` | After one arrival with the rare term, one mark-read, or a move of up to 1,000 matches to Archive | What the first query returns (`firstQueryWasCurrent`), when it becomes correct (`correctAfterChangeMs`), read-fence waits. A concurrent reader runs during the change. |
+| `search-index-rebuild` | `rebuild_search_index_all` | Rebuild time, documents per second, index size before and after, then a verified query |
+
+The `seed` record adds `searchIndexOpenMs`: Engine construction with the sealed
+index at start-up.
+
+Every query record carries the following. Each counter is read around one
+request with no other request running, but the counters are process-wide.
+
+| Field | Meaning |
+| --- | --- |
+| `hitsMatched` | Oracle count |
+| `cold.hitsMaterialisedPerRequest` | Stored hits the ordered search read before paging |
+| `storedDocumentsDecodedPerRequest` | Hits plus document fetches plus list-projection reads |
+| `sealedIndexBytesReadPerRequest` | Bytes decrypted from sealed index files (mw-search timing counters, enabled for this suite). It is normally 0 per query, because files are read when the reader opens. |
+| `processCpuMsPerRequest` | Process CPU, all threads |
+| `executionContext` | The search runs inline in the async request task (no `spawn_blocking`), from reading crates/mw-engine/src/jmap.rs |
+
+Not covered:
+- Unified search across linked accounts. It needs linked-account setup, and the
+  client sends one query per account (apps/web/src/api/workspaceMail.ts:61-78).
+- Highlighting in the client. It does not request snippets.
 
 ## What each number means
 
@@ -184,7 +260,8 @@ Runner options:
 | `--batch` | `max` or 1 to 5,000 |
 | `--on-limit` | `stop`, or `retry-after` (honours Retry-After and counts it) |
 | `--reader` | `on` or `off` |
-| `--reader-rate` | Reads per second |
+| `--reader-rate` | Reads per second, per reader account |
+| `--reader-accounts` | Concurrent reader accounts, 1 to 8 (default 2) |
 | `--deadline` | Seconds per scenario |
 | `--ready` | Seconds allowed for the startup index |
 | `--ack` | `commit` or `journal`: index publication acknowledgement |
@@ -231,14 +308,27 @@ per operation, on a shared development host:
   of the move check.
 - PostgreSQL 16, HTTP layer: 21 of 21 OK.
 
-Each debug smoke took about ten minutes. That proves the suite runs and
-verifies; it says nothing about speed.
+Each debug smoke took about ten minutes.
+
+After the search group was added:
+- Search group only, 2,000 messages per mailbox, 100 per operation:
+  - SQLite, HTTP layer: 37 of 38 OK. The saved-search PUT lacked the storage
+    authority header the client sends; it now sends it.
+  - PostgreSQL 16, HTTP layer: 38 of 38 OK.
+- Whole suite, 300 messages per mailbox and 100 per operation (the corpus now
+  has planted terms and two reader accounts), SQLite, engine layer: 58 of 58 OK.
+
+These smokes prove the suite runs and verifies; they say nothing about speed.
 
 The smoke also shows structural counts, which do not depend on the host:
 - a flag change rewrites one full index document per message, body included
   (`documentsWrittenPerMessage` 1, body bytes about equal to the message text);
 - ingest and import publish one index job, and one index commit, per message;
-- a move writes one Email and two Mailbox change rows per message.
+- a move writes one Email and two Mailbox change rows per message;
+- the client's unread count (`limit: 1`) reads one stored hit per unread
+  message (`search-unread-count`: hits materialised equal the unread count);
+- every filtered or custom-sorted page reads every matching stored hit before
+  paging (hits materialised equal `hitsMatched`, not the 50 returned).
 
 ## Known limits found by reading the code
 
@@ -265,18 +355,112 @@ REFUSED or slow record can be traced; none of them has been measured here.
   per 60 s. The client's mark-folder-read on 100,000 unread messages needs about
   2,000 requests.
 
+## Reading the "before" numbers
+
+These records are the baseline for planned fixes. Each concern is one field:
+
+| Concern | Record and field |
+| --- | --- |
+| Upstream commands per message | `counters.upstream` (`store`, `move`, `expunge`) divided by `messages`, on flag-\*, move, destroy |
+| Change rows per moved message | `changeRows.email` and `changeRows.mailbox` divided by `messages`, on move |
+| Store statements per destroyed message | `counters.statements.perMessage` and `writePerMessage`, on destroy and empty-trash. Store commits are not counted separately (`null`). |
+| Stored documents loaded per page | `cold.storedDocumentsDecodedPerRequest` and `hitsMaterialisedPerRequest`, on search-\* and open-unread or open-sort-from (`coldCounters.searchIndex.hitsMaterialised`) |
+| Messages per ingest write | `counters.commits.indexPerMessage` and `counters.publication.submittedJobs` divided by `messages`, on ingest and import |
+| Unread count enumerating every unread message | `search-unread-count`: `hitsMaterialisedPerRequest` against `hitsMatched`; the mailbox row already holds the count |
+| Flag change or move re-tokenising the body | `counters.searchIndex.documentsWrittenPerMessage` and `bodyBytesTokenised`, on flag-\* and move |
+
 ## Large-mailbox profile of the native load fixture
 
-`MW_NATIVE_LOAD_PROFILE=large-mailbox`, with
-`MW_NATIVE_LOAD_WORKLOAD=representative`, admits 1 or 4 principals
-(`MW_NATIVE_LOAD_PRINCIPALS`) with 10,000 or 100,000 messages each
-(`MW_NATIVE_LOAD_MESSAGES`), capped at 400,000 in total. The default profile
-keeps its bounds: 2 to 100 messages per user and 500,000 in total.
+`MW_NATIVE_LOAD_PROFILE=large-mailbox`, with `MW_NATIVE_LOAD_WORKLOAD=representative`
+and `MW_NATIVE_LOAD_PRINCIPALS=1000`, uses the hot-path planner's shape:
 
-The report records the profile in `workloadProfile.profile`. Seed time and
-startup index wait are reported as before.
+| Users | Messages each |
+| --- | --- |
+| 2 | 100,000 |
+| 8 | 20,000 |
+| 990 | 50 |
 
-The representative HTTP generator still refuses principals with more than 100
-seeded ids (`scripts/perf/fixture-requests.mjs`). Use this profile with
-`MW_LOAD_FIXTURE_EXTERNAL_DRIVER=1` or with this suite until the generator
-learns it.
+That is 409,500 messages, inside the 500,000 cap. Every user has:
+- 30% unread (UID % 10 < 3) and 2% flagged (UID % 50 == 0), in the Store and in
+  the fake upstream;
+- small bodies with planted terms: `quarterly` on every fifth message, and
+  `zephyrine` where UID % 2000 == 7.
+
+Seeding goes through the batch API. `MW_NATIVE_LOAD_MESSAGES` must stay unset.
+
+`MW_NATIVE_LOAD_LARGE_MAILBOX_SCALE=50` gives a smoke-only shape for checking
+the driver: 2 x 2,000, 8 x 400 and 90 x 50 messages, 100 users (set
+`MW_NATIVE_LOAD_PRINCIPALS=100`). The handoff records `smokeScale: true`. Never
+report it as the profile.
+The default profile keeps its bounds: 2 to 100 messages per user and 500,000 in
+total.
+
+Each principal in the handoff carries:
+- `cohort` (`big-100000`, `big-20000` or `ordinary`);
+- `messageCount`, `unreadCount`, `flaggedCount` and `plantedQuarterly`.
+
+`workloadProfile` lists the cohorts.
+
+The representative generator refuses more than 100 seeded ids per principal
+(`scripts/perf/fixture-requests.mjs`). This profile therefore has its own
+driver, selected with `MW_NATIVE_LOAD_DRIVER=large-mailbox`:
+`scripts/perf/bulk-ops/large-mailbox-driver.mjs`.
+
+```sh
+MW_RUN_NATIVE_HTTP_LOAD_FIXTURE=1 MW_NATIVE_LOAD_PROFILE=large-mailbox MW_NATIVE_LOAD_WORKLOAD=representative \
+MW_NATIVE_LOAD_PRINCIPALS=1000 MW_NATIVE_LOAD_POLICY=loaded MW_NATIVE_LOAD_SECURITY_PROFILE=enforced \
+MW_NATIVE_LOAD_DRIVER=large-mailbox MW_NATIVE_LOAD_READY_SECONDS=1800 MW_LOAD_FIXTURE_DEADLINE_SECONDS=1800 \
+  cargo test --locked --release -p mw-server --features load-test-fixtures --test native_load_fixture \
+  native_multi_principal_http_load_fixture -- --exact --ignored --nocapture --test-threads=1
+```
+
+The driver runs four phases. Durations and rates come from `MW_LARGE_DRIVER_*`:
+phase seconds (default 60), ordinary rate (default 50 requests per second),
+isolated requests (default 5), heavy loops per account (default 1).
+
+1. **isolated**: each heavy group alone against one 100,000-message and one
+   20,000-message account, with fixture diagnostics before and after. It
+   reports per request:
+   - latency;
+   - `hitsEnumeratedPerRequest`;
+   - `storedDocumentsLoadedPerRequest`;
+   - `cpuMsPerRequest`.
+
+   The groups are unread page, flagged page, size-sort page, text search page 1
+   and page 5, the client's unread count, and the list batch.
+2. **baseline**: ordinary users only. Identity (`/api/me`) and the list batch
+   alternate, open loop, at the fixed rate. Latency is measured from the
+   scheduled send time.
+3. **heavy**: the same ordinary traffic while every big account runs the heavy
+   groups in a closed loop. A 429 from request protection counts as throttled
+   (reported under `<group>:throttled`), not as a wrong answer.
+4. **recovery**: ordinary users only.
+
+`headline.ordinaryIdentityP99Ms` and `headline.ordinaryListP99Ms` compare the
+three ordinary windows. Every response is validated against the seeded counts.
+Any mismatch makes the report FAILED and the fixture fails.
+
+## Product finding: selections over 5,000 messages
+
+Nothing in the web client keeps a selection under the server's
+`maxObjectsInSet` (5,000):
+- Infinite scroll keeps adding pages (apps/web/src/state/slices/mail.ts:2006),
+  and select-all takes every loaded row (mail.ts:1106).
+- Move, archive, spam and delete (move to Trash) put every id in one `Email/set`
+  (`relocateWithUndo`, mail.ts:1502-1516). The client never reads
+  `maxObjectsInSet`.
+
+What happens then:
+- **Move and delete**: the server answers with the method error
+  `requestTooLarge` (crates/mw-engine/src/jmap.rs:227). The client marks every
+  id refused and puts the rows back (mail.ts:1050-1056, 1531-1536). The toast
+  reads "The server refused the move for {count} messages: requestTooLarge"
+  (`mail-toast-update-refused-reason`, locales/en/mail.ftl:1387). It gives no
+  hint to select fewer.
+- **Read/flag changes**: these are undone with "The server refused the change
+  for N messages", which names no reason (mail.ts:1186, mail.ftl:426), or
+  silently when the change is quiet.
+- **Permanent delete**: also sends one unchunked request (apps/web/src/api/jmap.ts:459).
+
+This suite does not change any of that. With `MW_BULK_BATCH=max` it sends
+5,000 per request, as the advertised limit allows.

@@ -60,3 +60,36 @@ test('the matrix covers both backends, both layers, 10k/100k mailboxes and 1k/10
   assert.ok(runs.every(run => run.operation <= run.mailbox));
   assert.deepEqual([...new Set(runs.map(label))].length, 16);
 });
+
+import { heavyGroups, validate, percentiles, counterDelta, settings } from './large-mailbox-driver.mjs';
+
+test('large-mailbox driver groups carry exact expectations from the seeded counts', () => {
+  const p = { accountId: 'a', inboxId: 'i', messageCount: 100000, unreadCount: 30000, flaggedCount: 2000, plantedQuarterly: 20000 };
+  const groups = heavyGroups(p);
+  assert.deepEqual(Object.keys(groups), ['unread-page', 'flagged-page', 'size-sort-page', 'text-search-page-1', 'text-search-page-5', 'unread-count', 'list-batch']);
+  assert.equal(groups['unread-count'].calls[0][1].limit, 1);
+  assert.equal(groups['text-search-page-5'].calls[0][1].position, 200);
+  const ok = { methodResponses: [['Email/query', { total: 30000 }, 'q'], ['Email/get', { list: new Array(50).fill({}) }, 'g']] };
+  assert.equal(validate(ok, groups['unread-page']), true);
+  assert.equal(validate({ methodResponses: [['Email/query', { total: 29999 }, 'q'], ok.methodResponses[1]] }, groups['unread-page']), false);
+  assert.equal(validate({ methodResponses: [['error', { type: 'serverFail' }, 'q']] }, groups['unread-count']), false);
+  const small = heavyGroups({ ...p, plantedQuarterly: 210 });
+  assert.equal(small['text-search-page-5'].rows, 10);
+});
+
+test('driver statistics use nearest rank and per-request deltas', () => {
+  assert.deepEqual(percentiles([1, 2, 3, 4]), { count: 4, p50: 2, p95: 4, p99: 4, max: 4 });
+  assert.equal(percentiles([]).p99, null);
+  const d = counterDelta({ hitsMaterialised: 0, documentFetches: 0, listProjectionDocumentReads: 0, cpuSeconds: 1 }, { hitsMaterialised: 500, documentFetches: 10, listProjectionDocumentReads: 40, cpuSeconds: 1.5 }, 5);
+  assert.deepEqual([d.hitsEnumeratedPerRequest, d.storedDocumentsLoadedPerRequest, d.cpuMsPerRequest], [100, 110, 100]);
+  assert.equal(settings({}).ordinaryRate, 50);
+  assert.throws(() => settings({ MW_LARGE_DRIVER_ORDINARY_RATE: '0' }));
+});
+
+test('search records render their own table with oracle counts and decode costs', () => {
+  const search = { ...base, scenario: 'search-common-term', status: 'OK', results: { hitsMatched: 2000, returned: 50, coldMs: 80, warm: { latencyMs: { p50: 40, max: 45 } }, cold: { hitsMaterialisedPerRequest: 2000, storedDocumentsDecodedPerRequest: 2050, sealedIndexBytesReadPerRequest: 0, processCpuMsPerRequest: 75.5 } } };
+  const fresh = { ...base, scenario: 'search-fresh-after-move-1000', status: 'OK', results: { expectedTotal: 1000, firstQueryTotal: 1000, firstQueryMs: 30, correctAfterChangeMs: 31, changeMs: 9000, messagesChanged: 1000, counters: { publication: { readFenceWaits: 0 } } } };
+  const markdown = renderMarkdown([search, fresh]);
+  assert.match(markdown, /\| search-common-term \| OK \| 2,000 \/ 50 \| 80 \| 40 \/ 45 \| 2,000 \| 2,050 \| 0 \| 75.5 \|/);
+  assert.match(markdown, /search-fresh-after-move-1000 \| OK \| 1,000 expected, first query 1,000/);
+});

@@ -17,21 +17,21 @@ import { parseRecords } from './records.mjs';
 import { renderMarkdown } from './report.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-export const SCENARIOS = Object.freeze(['ingest', 'open', 'flag', 'move', 'mark-folder-read', 'import', 'trash', 'destroy', 'delete-folder']);
+export const SCENARIOS = Object.freeze(['ingest', 'open', 'search', 'flag', 'move', 'mark-folder-read', 'import', 'trash', 'destroy', 'delete-folder']);
 const TEST = 'bulk_mailbox_operations_benchmark';
 
 const DEFAULTS = Object.freeze({
   backend: 'sqlite', layer: 'http', mailbox: 10000, operation: 1000, scenarios: 'all', batch: 'max',
-  onLimit: 'stop', reader: 'on', readerRate: 2, deadline: 3600, ready: 7200, workers: 4, profile: 'enforced',
+  onLimit: 'stop', reader: 'on', readerRate: 2, readerAccounts: 2, deadline: 3600, ready: 7200, workers: 4, profile: 'enforced',
   release: false, out: null, hardware: null, plan: false, matrix: false, ack: null, accounting: null, guard: null, sqliteWriter: null, keepDir: false,
 });
-const NUMERIC = { mailbox: [100, 100000], operation: [1, 100000], readerRate: [1, 20], deadline: [10, 86400], ready: [10, 86400], workers: [1, 32] };
+const NUMERIC = { mailbox: [100, 100000], operation: [1, 100000], readerRate: [1, 20], readerAccounts: [1, 8], deadline: [10, 86400], ready: [10, 86400], workers: [1, 32] };
 const CHOICES = {
   backend: ['sqlite', 'postgres'], layer: ['http', 'engine'], onLimit: ['stop', 'retry-after'], reader: ['on', 'off'],
   profile: ['enforced', 'defaults'], ack: ['commit', 'journal'], accounting: ['synchronous', 'write-behind'], guard: ['off', 'bounded'],
 };
 const FLAGS = { release: true, plan: true, matrix: true, keepDir: true };
-const NAMES = { 'on-limit': 'onLimit', 'reader-rate': 'readerRate', 'sqlite-writer': 'sqliteWriter', 'keep-dir': 'keepDir' };
+const NAMES = { 'on-limit': 'onLimit', 'reader-rate': 'readerRate', 'reader-accounts': 'readerAccounts', 'sqlite-writer': 'sqliteWriter', 'keep-dir': 'keepDir' };
 
 export function parseArgs(argv) {
   const options = { ...DEFAULTS };
@@ -88,6 +88,7 @@ export function environment(options, base = process.env) {
     MW_BULK_ON_LIMIT: options.onLimit,
     MW_BULK_CONCURRENT_READER: options.reader,
     MW_BULK_READER_RATE: String(options.readerRate),
+    MW_BULK_READER_ACCOUNTS: String(options.readerAccounts),
     MW_BULK_SCENARIO_DEADLINE_SECONDS: String(options.deadline),
     MW_BULK_READY_SECONDS: String(options.ready),
     MW_BULK_WORKERS: String(options.workers),
