@@ -84,7 +84,7 @@ fn actual_router_header_sql_shapes_keep_real_policy_and_ownership_checks() {
                     let key = ServerKey::generate();
                     let seed_store = Store::open(&path, key.clone()).await.unwrap();
                     let (principals, mut runtimes) =
-                        seed_profile(&seed_store, 1, 50, true, 4096, 65536).await;
+                        seed_profile(&seed_store, 1, 50, true, 4096, 65536, false, false).await;
                     set_protocol_policy(&seed_store, &["imap"]).await;
                     let principal = principals.into_iter().next().unwrap();
                     let account = principal["accountId"].as_str().unwrap().to_owned();
@@ -125,7 +125,7 @@ fn actual_router_header_sql_shapes_keep_real_policy_and_ownership_checks() {
                     .await
                     .unwrap();
                     let engine = installed.get().unwrap();
-                    startup_readiness(engine, &[account.clone()], 50, Instant::now(), 30)
+                    startup_readiness(engine, &[account.clone()], &|_| 50, Instant::now(), 30)
                         .await
                         .expect("real rebuild must complete before attribution");
                     let (status, value, first) = header(router.clone(), &principal).await;
@@ -324,7 +324,7 @@ fn run_route_baseline(profile: native_enforced_policy::Profile) {
                     let key = ServerKey::generate();
                     let seed_store = Store::open(&path, key.clone()).await.unwrap();
                     let (principals, mut runtimes) =
-                        seed_profile(&seed_store, 2, 50, true, 4096, 65536).await;
+                        seed_profile(&seed_store, 2, 50, true, 4096, 65536, false, false).await;
                     set_protocol_policy(&seed_store, &["imap"]).await;
                     let link = seed_link(&seed_store, &principals[0], &principals[1]).await;
                     if profile == native_enforced_policy::Profile::Enforced {
@@ -371,7 +371,7 @@ fn run_route_baseline(profile: native_enforced_policy::Profile) {
                     .await
                     .unwrap();
                     let engine = installed.get().unwrap();
-                    startup_readiness(engine, &[account.clone(), child["accountId"].as_str().unwrap().to_owned()], 50, Instant::now(), 30)
+                    startup_readiness(engine, &[account.clone(), child["accountId"].as_str().unwrap().to_owned()], &|_| 50, Instant::now(), 30)
                         .await
                         .expect("real rebuild must complete before attribution");
                     let ids = principal["messageIds"].clone();

@@ -74,3 +74,24 @@ test('request-input evidence knows the goal mix, every single-shape group and th
  const stage={endpoint:'transport-healthz',phase:'concurrency-ramp',byRequest:{'transport-healthz':{requests:10,acceptedDuringScheduledWindow:10}},requestInputsWindow:{schema:1,kind:'workload-and-drain-only',eligibleControlRequests:0},diagnostics:{before:{ordinaryRequestInputs:status},after:{ordinaryRequestInputs:status}}};
  assert.doesNotThrow(()=>requestInputsEvidence(status,[stage],'published',{backend:'sqlite'}));
 });
+
+test('PostgreSQL: published inputs are expected exactly when the guard snapshot mirror is live, and must be zero otherwise',async()=>{
+ const {requestInputsEvidence:evidence,mirrorLive,requestInputCounters:keys}=await import('./request-inputs-experiment.mjs');
+ const witness=(count)=>({mode:'published',processImmutable:true,...Object.fromEntries(keys.map(key=>[key,count]))});
+ const guard=(mode,polls,failures=0)=>({supported:true,mode,maxStalenessMs:1000,polls,failures,rowsApplied:0,hits:0,misses:0,expedites:0});
+ const stage=(before,after,{mode='bounded',polls=[1,5],failures=[0,0]}={})=>({endpoint:'identity',phase:'offered-rate',byRequest:{'authenticated-identity':{requests:2,acceptedDuringScheduledWindow:1}},requestInputsWindow:{schema:1,kind:'workload-and-drain-only',eligibleControlRequests:0},
+  diagnostics:{before:{ordinaryRequestInputs:witness(before),t34Modes:{guardSnapshot:guard(mode,polls[0],failures[0])}},after:{ordinaryRequestInputs:witness(after),t34Modes:{guardSnapshot:guard(mode,polls[1],failures[1])}}}});
+ // Live mirror: consumption is expected and counted as on SQLite.
+ const live=evidence(witness(10),[stage(10,11)],'published',{backend:'postgres'});
+ assert.equal(live.qualified,true);assert.equal(live.liveMirrorPhases,1);assert.equal(live.observations[0].liveMirror,true);
+ // Live mirror and nothing consumed in the whole run: refused, as on SQLite.
+ assert.throws(()=>evidence(witness(10),[stage(10,10)],'published',{backend:'postgres'}),/did not consume/);
+ // No live mirror (off, no polls, or new poll failures): consumption must be zero.
+ for(const options of [{mode:'off'},{polls:[5,5]},{failures:[0,2]}]){
+  assert.equal(mirrorLive(stage(10,11,options)),false);
+  assert.throws(()=>evidence(witness(10),[stage(10,11,options)],'published',{backend:'postgres'}),/without a live guard snapshot mirror/);
+  assert.equal(evidence(witness(10),[stage(10,10,options)],'published',{backend:'postgres'}).exercise,'not-applicable-backend');
+ }
+ // A stage without the t34 witness is not live.
+ assert.equal(mirrorLive({diagnostics:{before:{},after:{}}}),false);
+});

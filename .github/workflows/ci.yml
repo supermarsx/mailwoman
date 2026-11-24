@@ -249,6 +249,11 @@ jobs:
         run: cargo test --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile --doc
       - name: build
         run: cargo build --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile
+      # The load fixture behind its features (sql-shape-diagnostics includes
+      # load-test-fixtures). No other job compiles it, and the statement-shape
+      # helper went stale unnoticed once (t62-n12); a compile check, not a run.
+      - name: load fixture compiles with sql-shape-diagnostics
+        run: cargo test -p mw-server --features sql-shape-diagnostics --test native_load_fixture --no-run
       - uses: actions/setup-node@v4
         with:
           node-version: 22
