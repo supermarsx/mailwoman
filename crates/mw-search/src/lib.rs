@@ -451,6 +451,22 @@ pub fn commit_count() -> u64 {
     INDEX_COMMITS.load(Ordering::Relaxed)
 }
 
+// t60: read-only process-wide counters for the bulk-operation benchmark.
+static DOCUMENTS_WRITTEN: AtomicU64 = AtomicU64::new(0);
+static BODY_BYTES_WRITTEN: AtomicU64 = AtomicU64::new(0);
+static HITS_MATERIALISED: AtomicU64 = AtomicU64::new(0);
+
+/// Cumulative `(documents written, body + attachment text bytes in them, stored
+/// hits read by ordered searches)` for this process. A document written is one
+/// full replacement: every field, including the body, is tokenised again.
+pub fn write_and_hit_counts() -> (u64, u64, u64) {
+    (
+        DOCUMENTS_WRITTEN.load(Ordering::Relaxed),
+        BODY_BYTES_WRITTEN.load(Ordering::Relaxed),
+        HITS_MATERIALISED.load(Ordering::Relaxed),
+    )
+}
+
 const DEFAULT_WRITER_MEMORY_BYTES: usize = 50_000_000;
 const MIN_WRITER_MEMORY_PER_WORKER: usize = 15_000_000;
 
@@ -712,6 +728,8 @@ impl Index {
     fn write_one(&self, writer: &IndexWriter, doc: &IndexDoc) -> Result<()> {
         writer.delete_term(Term::from_field_text(self.fields.stable_id, &doc.stable_id));
         let td = self.to_document(doc)?;
+        DOCUMENTS_WRITTEN.fetch_add(1, Ordering::Relaxed);
+        BODY_BYTES_WRITTEN.fetch_add((doc.body.len() + doc.attachment_text.len()) as u64, Ordering::Relaxed);
         writer.add_document(td)?;
         Ok(())
     }
@@ -1057,6 +1075,7 @@ impl Index {
         };
 
         let truncated = addrs.len() > cap;
+        HITS_MATERIALISED.fetch_add(addrs.len().min(if !compound { cap } else { probe }) as u64, Ordering::Relaxed);
         let mut ids = Vec::with_capacity(addrs.len().min(cap));
         let mut keyed = Vec::new();
         let sorts: Vec<_> = std::iter::once(query.sort)
