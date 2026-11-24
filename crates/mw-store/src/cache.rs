@@ -3564,35 +3564,62 @@ mod tests {
         // ONE statement, with ids the width the store really mints (the account
         // id is itself a 64-character token, so `id || n` is production-shaped
         // and unique across concurrent runs).
-        q("INSERT INTO messages
-                (stable_id, account_id, mailbox_id, uid, uidvalidity, internaldate, size, flags_json)
-             SELECT ?1 || n::text, ?2, ?3, n, 100, to_char(n, 'FM00000000'), 0, '[]'
-             FROM generate_series(1, 20000) AS n")
-        .bind(&account_id)
-        .bind(&account_id)
-        .bind(&mailbox_id)
-        .execute(s.backend())
-        .await
-        .expect("bulk seed");
-        q("INSERT INTO messages
-                (stable_id, account_id, mailbox_id, uid, uidvalidity, internaldate, size, flags_json)
-             SELECT 'other-' || ?1 || n::text, ?2, ?3, n, 100, to_char(n, 'FM00000000'), 0, '[]'
-             FROM generate_series(1, 80000) AS n")
-        .bind(&account_id)
-        .bind(&account_id)
-        .bind(&other_id)
-        .execute(s.backend())
-        .await
-        .expect("bulk seed neighbour");
+        //
+        // The seed runs with `session_replication_role = replica` (SET LOCAL, this
+        // transaction only), which skips the row-level triggers on `messages`.
+        // With them, the mail-data trigger's per-row upsert of the account's one
+        // `mail_data_accounts` / `mail_data_outbox` row makes a 100 000-row
+        // statement quadratic (measured: 2 000 rows 1.2 s, 8 000 rows 11.4 s;
+        // this seed took 11-30+ minutes). Nothing asserted below reads what the
+        // triggers write: the plans are of `messages` and its index only. The
+        // rows are removed the same way before the account is deleted.
+        let crate::backend::Backend::Postgres(pool) = s.backend() else {
+            unreachable!("opened via open_postgres")
+        };
+        async fn without_row_triggers(
+            pool: &sqlx::PgPool,
+            statements: &[(&str, &[&str])],
+        ) {
+            use sqlx::Executor as _;
+            let mut tx = pool.begin().await.unwrap();
+            tx.execute("SET LOCAL session_replication_role = replica")
+                .await
+                .expect("the deep-offset seed needs a role allowed to set session_replication_role");
+            for (sql, args) in statements {
+                let mut query = sqlx::query(sql);
+                for arg in *args {
+                    query = query.bind(*arg);
+                }
+                query.execute(&mut *tx).await.expect("seed statement");
+            }
+            tx.commit().await.unwrap();
+        }
+        without_row_triggers(
+            pool,
+            &[
+                (
+                    "INSERT INTO messages
+                        (stable_id, account_id, mailbox_id, uid, uidvalidity, internaldate, size, flags_json)
+                     SELECT $1 || n::text, $2, $3, n, 100, to_char(n, 'FM00000000'), 0, '[]'
+                     FROM generate_series(1, 20000) AS n",
+                    &[account_id.as_str(), account_id.as_str(), mailbox_id.as_str()],
+                ),
+                (
+                    "INSERT INTO messages
+                        (stable_id, account_id, mailbox_id, uid, uidvalidity, internaldate, size, flags_json)
+                     SELECT 'other-' || $1 || n::text, $2, $3, n, 100, to_char(n, 'FM00000000'), 0, '[]'
+                     FROM generate_series(1, 80000) AS n",
+                    &[account_id.as_str(), account_id.as_str(), other_id.as_str()],
+                ),
+            ],
+        )
+        .await;
         // VACUUM builds the visibility map an Index Only Scan needs, and cannot
         // run through the extended protocol (it would be inside an implicit
         // transaction), so it goes out on the simple-query path — the same
         // reasoning as `Store::reclaim_note_metadata_residue`.
         {
             use sqlx::Executor as _;
-            let crate::backend::Backend::Postgres(pool) = s.backend() else {
-                unreachable!("opened via open_postgres")
-            };
             pool.execute("VACUUM ANALYZE messages").await.unwrap();
         }
 
@@ -3633,7 +3660,13 @@ mod tests {
         .execute(s.backend())
         .await
         .unwrap();
-        // The account cascade takes the mailbox and all 20 000 rows with it.
+        // The seeded rows go the way they came (the per-row delete trigger has
+        // the same quadratic cost); the account cascade then takes the rest.
+        without_row_triggers(
+            pool,
+            &[("DELETE FROM messages WHERE account_id = $1", &[account_id.as_str()])],
+        )
+        .await;
         q("DELETE FROM accounts WHERE id = ?1")
             .bind(&account_id)
             .execute(s.backend())
