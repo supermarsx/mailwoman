@@ -537,6 +537,10 @@ async fn main() -> std::process::ExitCode {
         tracing::warn!("WebSocket actions did not drain within 2 seconds; dispatched actions may have an unknown outcome and must not be replayed automatically");
     }
     if was_serving {
+        // t34: accepted index publication jobs (journal mode) and queued
+        // write-behind accounting, each within its budget, before the store
+        // handles are released.
+        mw_server::t34_modes::drain_for_shutdown().await;
         mw_server::flush_trust_tiers().await;
     }
     let _ = mw_server::flush_http_telemetry().await;
@@ -782,7 +786,14 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         security: SecurityConfig::from_env(),
     };
     mw_server::freeze_environment(); // t34: no env mutation after this point; one snapshot per process
+    // t34: refuse invalid or unsupported mode combinations before the database
+    // opens, and log the effective modes once.
+    mw_server::t34_modes::validate_startup(&config.db_path, config.mode == ServerMode::Engine)
+        .map_err(|e| anyhow::anyhow!("refusing to start: {e}"))?;
     let app = build_app(config).await?;
+    // Keep the engine and protection runtime alive past the HTTP server so the
+    // shutdown drain below can finish their queued work.
+    mw_server::t34_modes::hold_for_shutdown();
 
     // Decide the transport: ACME > external cert > plaintext.
     let tls = if !args.acme.is_empty() {

@@ -109,6 +109,15 @@ impl Recorder {
         });
         recorder
     }
+    /// Graceful shutdown: save the current buckets now instead of waiting for
+    /// the next 15-second tick (t34 e8).
+    pub(crate) async fn flush_now(&self, store: &Store) -> Result<(), mw_store::StoreError> {
+        let buckets = self.snapshot(now());
+        let policy = Policy::load(store).await?;
+        store
+            .save_request_metrics_with_minute_retention(&self.instance, &buckets, now(), policy.retention_days, policy.minute_retention_hours)
+            .await
+    }
     pub(crate) fn snapshot(&self, time: i64) -> Vec<Bucket> {
         let mut memory = self
             .memory

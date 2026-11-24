@@ -182,7 +182,7 @@ pub(crate) fn publication_options_from_env(
     publication_options_from(db_path, |name| std::env::var(name).ok())
 }
 
-fn publication_options_from(
+pub(crate) fn publication_options_from(
     db_path: &str,
     var: impl Fn(&str) -> Option<String>,
 ) -> Result<mw_engine::PublicationOptions, String> {
@@ -412,11 +412,9 @@ pub(crate) async fn start_index_publication(engine: &Engine) {
 }
 
 /// Close index publication admission and wait for accepted jobs, at most
-/// `MW_INDEX_PUBLICATION_DRAIN_SECS`. For graceful shutdown (t34 e8 wires it).
-/// Returns whether the queue drained; rows of undrained jobs replay at the
-/// next start.
-// Unused until e8 wires it into graceful shutdown in lib.rs.
-#[allow(dead_code)]
+/// `MW_INDEX_PUBLICATION_DRAIN_SECS`. Called by graceful shutdown
+/// (`t34_modes::drain_for_shutdown`). Returns whether the queue drained; rows
+/// of undrained jobs replay at the next start.
 pub(crate) async fn drain_index_publication(engine: &Engine) -> bool {
     let drained = engine.drain_index_publication().await;
     if !drained {

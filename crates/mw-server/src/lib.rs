@@ -198,6 +198,8 @@ mod published_guard_inputs;
 mod published_guard_context;
 mod request_inputs;
 pub use request_inputs::freeze_environment;
+/// t34 modes: startup validation and the graceful-shutdown drain.
+pub mod t34_modes;
 #[cfg(feature="load-test-fixtures")]
 pub mod request_inputs_fixture;
 mod sanitize_gate;
@@ -1567,6 +1569,7 @@ async fn build_app_inner(
         inbound_allowlist: Arc::new(inbound_allowlist::Runtime::default()),
         directory: directory.clone(),
     }));
+    t34_modes::register(&state);
     jobs::start(state.clone());
     compliance_mail::start(state.clone());
     operational_incidents::start(state.clone());

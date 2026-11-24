@@ -194,6 +194,16 @@ impl Recorder {
         });
         recorder
     }
+    /// Graceful shutdown: save the current buckets now instead of waiting for
+    /// the next 30-second tick (t34 e8).
+    pub(crate) async fn flush_now(&self, store: &Store) -> Result<(), mw_store::StoreError> {
+        let buckets = self.snapshot(now());
+        if buckets.is_empty() {
+            return Ok(());
+        }
+        let policy = Policy::load(store).await;
+        store.save_client_timing(&self.instance, &buckets, now(), policy.retention_days).await
+    }
     /// Current and previous hour only: older hours were flushed long ago.
     fn snapshot(&self, time: i64) -> Vec<TimingBucket> {
         let mut memory = self
