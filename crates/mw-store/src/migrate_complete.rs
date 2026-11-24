@@ -25,6 +25,56 @@ fn identifier(value: &str) -> Result<String, StoreError> {
     Ok(format!("\"{value}\""))
 }
 
+/// Tables a complete move does not copy: the destination's own triggers rebuild
+/// them from the copied tables, as in `migrate-store`'s default mode (the reason
+/// for each sits at its entry in `NOT_MIGRATED_DELIBERATELY` in
+/// `tests/backend_parity.rs`). Their rows are process-local publication state
+/// (incarnations, worker claims, invalidation hints), so they are neither
+/// required to be empty nor compared with the source. A table that a trigger
+/// writes must be listed here or in [`TRIGGER_WRITTEN_COPIED`]; the
+/// `complete_move_classification` test fails on a new one that is in neither.
+pub(crate) const REGENERATED: &[&str] = &[
+    "authority_change_log",
+    "authority_epoch",
+    "authority_publication_outbox",
+    "authority_subject_anchor",
+    "index_publication_journal",
+    "index_publication_journal_control",
+    "mail_data_accounts",
+    "mail_data_outbox",
+    "mail_data_rows",
+];
+
+/// Copied tables that destination triggers also write while the copy runs, and
+/// why the verbatim copy still holds: `messages` (only BEFORE-trigger column
+/// reassignment, see [`REASSIGNED_COLUMNS`]; the body trigger updates messages
+/// that `bodies` precedes in copy order), `message_list_envelope` (invalidated
+/// on message UPDATE only; the copy only inserts), `settings_revision` (bumped
+/// by `settings` inserts, so it is cleared first and copied last).
+#[cfg(test)]
+pub(crate) const TRIGGER_WRITTEN_COPIED: &[&str] =
+    &["message_list_envelope", "messages", "settings_revision"];
+
+/// Rows that migrations seed into copied tables of a fresh destination, as a
+/// predicate every seeded row satisfies. Rows matching it are deleted before
+/// the copy (the source carries its own); any other row means the destination
+/// is not empty. The `complete_move_classification` test fails when a fresh
+/// migrated database has rows in a copied table that is not listed here.
+pub(crate) const SEEDED: &[(&str, &str)] = &[
+    (
+        "change_log_maintenance_cursor",
+        "id=1 AND account_id='' AND type=''",
+    ),
+    ("identity_serialization", "id=1"),
+    ("settings_revision", "id=1 AND n=0"),
+];
+
+/// Copied columns a PostgreSQL BEFORE INSERT trigger always reassigns, so the
+/// destination value differs from the source by design: 0105's per-write cache
+/// token (default mode accepts the same; old replica keys simply miss). They
+/// are left out of the byte verification; every other column is compared.
+const REASSIGNED_COLUMNS: &[(&str, &str)] = &[("messages", "cache_revision")];
+
 #[derive(Clone, Copy)]
 enum Kind {
     Text,
@@ -91,6 +141,12 @@ async fn pg_rows(tx: &mut Tx, sql: &str) -> Result<Vec<Row>, sqlx::Error> {
         .collect())
 }
 
+async fn q_dynamic(tx: &mut Tx, sql: &str) -> Result<(), sqlx::Error> {
+    let Tx::Postgres(pg) = tx else { unreachable!() };
+    sqlx::query(sql).execute(&mut **pg).await?;
+    Ok(())
+}
+
 impl Store {
     /// Move the complete installation to an empty PostgreSQL store. The source
     /// must be offline; the deployment script supplies a disposable volume copy.
@@ -146,30 +202,37 @@ impl Store {
         sqlx::query(&format!("LOCK TABLE {locks} IN ACCESS EXCLUSIVE MODE"))
             .execute(&mut **pg)
             .await?;
-        // Check every table before writing. The serialization and revision singletons are seeded
-        // by migrations; all other application tables must be empty.
+        // Check every table before writing. Migration-seeded rows (SEEDED) are
+        // allowed and removed; destination-maintained tables (REGENERATED) are
+        // not copied; every other application table must be empty.
         for name in &names {
+            if REGENERATED.contains(&name.as_str()) {
+                continue;
+            }
             let table = identifier(name)?;
-            let rows = pg_rows(&mut tx, &format!("SELECT * FROM {table} LIMIT 2")).await?;
-            let seeded = rows.len() == 1
-                && matches!(value(&rows[0], "id", Kind::Int), Ok(Arg::OptInt(Some(1))))
-                && (name == "identity_serialization"
-                    || (name == "settings_revision"
-                        && matches!(value(&rows[0], "n", Kind::Int), Ok(Arg::OptInt(Some(0))))));
-            if !rows.is_empty() && !seeded {
+            let sql = match SEEDED.iter().find(|(seeded, _)| seeded == name) {
+                Some((_, seed)) => {
+                    format!(
+                        "SELECT 1 AS present FROM {table} WHERE NOT COALESCE(({seed}),false) LIMIT 1"
+                    )
+                }
+                None => format!("SELECT 1 AS present FROM {table} LIMIT 1"),
+            };
+            if !pg_rows(&mut tx, &sql).await?.is_empty() {
                 return Err(StoreError::Invalid(
                     "complete migration requires an empty destination",
                 ));
             }
         }
-        q("DELETE FROM identity_serialization")
-            .execute_tx(&mut tx)
-            .await?;
-        q("DELETE FROM settings_revision")
-            .execute_tx(&mut tx)
-            .await?;
+        for (name, _) in SEEDED {
+            q_dynamic(&mut tx, &format!("DELETE FROM {}", identifier(name)?)).await?;
+        }
         let mut report = MigrationReport::default();
         for name in names {
+            if REGENERATED.contains(&name.as_str()) {
+                report.tables.push((name, 0));
+                continue;
+            }
             let table = identifier(&name)?;
             let schema = sqlx::query(&format!("PRAGMA table_info({table})"))
                 .fetch_all(&mut *source_tx)
@@ -225,6 +288,9 @@ impl Store {
         // Verify after every insert and trigger has run, while both source and
         // destination are still held in their transactions.
         for (name, _) in &report.tables {
+            if REGENERATED.contains(&name.as_str()) {
+                continue;
+            }
             let table = identifier(name)?;
             let schema = sqlx::query(&format!("PRAGMA table_info({table})"))
                 .fetch_all(&mut *source_tx)
@@ -232,6 +298,9 @@ impl Store {
             let columns: Vec<(String, Kind)> = schema
                 .iter()
                 .map(|r| Ok((r.try_get("name")?, kind(r.try_get::<&str, _>("type")?)?)))
+                .filter(|column: &Result<(String, Kind), StoreError>| {
+                    !matches!(column, Ok((column, _)) if REASSIGNED_COLUMNS.contains(&(name.as_str(), column.as_str())))
+                })
                 .collect::<Result<_, StoreError>>()?;
             let select = format!("SELECT * FROM {table}");
             // Retain only row hashes for unordered comparison, never whole
@@ -262,3 +331,7 @@ impl Store {
         Ok(report)
     }
 }
+
+#[cfg(test)]
+#[path = "migrate_complete_tests.rs"]
+mod tests;

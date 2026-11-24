@@ -36,6 +36,43 @@ async fn complete_installation_preserves_configuration_and_verifies_before_commi
     let opaque = vec![0_u8, 255, 17, 0, 128];
     sqlx::query("INSERT INTO accounts(id,kind,host,port,tls,username,sealed_creds) VALUES('account1','imap','mail.example.test',993,'tls','user@example.test',?1)")
         .bind(&opaque).execute(&sqlite).await.unwrap();
+    // Mail rows exercise the destination's triggers during the copy (0105 cache
+    // token, 0110 content revision, 0113 mail-data and 0116 index journal).
+    let mailbox = source
+        .upsert_mailbox(&mw_store::MailboxUpsert {
+            account_id: "account1",
+            name: "INBOX",
+            role: Some("inbox"),
+            uidvalidity: 7,
+            uidnext: 2,
+            highestmodseq: 0,
+            total: 1,
+            unread: 1,
+            parent_id: None,
+        })
+        .await
+        .unwrap();
+    let raw = b"Message-ID: <moved@example.test>\r\nSubject: moved\r\n\r\nbody\r\n";
+    let moved = source
+        .ingest_message_with_body(
+            &mw_store::MessageUpsert {
+                account_id: "account1",
+                mailbox_id: &mailbox,
+                uid: 1,
+                uidvalidity: 7,
+                message_id: Some("<moved@example.test>"),
+                thread_id: None,
+                internaldate: None,
+                size: raw.len() as u64,
+                flags_json: "[]",
+                envelope: None,
+                blob_ref: None,
+            },
+            raw,
+        )
+        .await
+        .unwrap()
+        .stable_id;
     sqlx::query("INSERT INTO crypto_keys(id,account_id,kind,created_at,public_key,encrypted_private_backup) VALUES('key1','account1','pgp','2026-11-15T00:00:00Z','Unicode Δ and line breaks',?1)")
         .bind(&opaque).execute(&sqlite).await.unwrap();
     sqlx::query("INSERT INTO domains(name,upstream_json) VALUES('example.test','{}')")
@@ -91,6 +128,21 @@ async fn complete_installation_preserves_configuration_and_verifies_before_commi
             .await
             .unwrap();
     assert_eq!(domain, "{}");
+    let message = destination.get_message(&moved).await.unwrap();
+    assert_eq!(
+        message.mailbox_id, mailbox,
+        "message kept its id and mailbox"
+    );
+    let regenerated: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM mail_data_rows WHERE stable_id=$1")
+            .bind(&moved)
+            .fetch_one(&pg)
+            .await
+            .unwrap();
+    assert_eq!(
+        regenerated, 1,
+        "destination triggers rebuilt the derived mail-data row"
+    );
     let revision: i64 = sqlx::query_scalar("SELECT n FROM settings_revision")
         .fetch_one(&pg)
         .await
