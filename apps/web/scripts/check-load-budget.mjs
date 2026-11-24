@@ -17,7 +17,8 @@
 //     anything, a chunk importing a chunk of its own or a higher layer (leaf
 //     chunks excepted), a chunk the plan does not name, a static import cycle;
 //  4. route boundaries: a route's root module must be in a dynamically loaded
-//     chunk outside its parent's static closure;
+//     chunk outside its parent's static closure, and a route not marked
+//     "console" must not load an admin shell or admin section chunk statically;
 //  5. invalidation: for each probe module, the hashed files renamed when it
 //     changes = its chunk + every chunk that imports it, transitively, by
 //     static or dynamic import (Rollup's file hash covers the names of the
@@ -105,7 +106,10 @@ export function checkLoadBudget({ report, html, sw, sizes, distFiles, budget }) 
   const fail = (message) => failures.push(message);
   const chunks = report.chunks;
   const policy = report.policy;
-  const layer = (plan) => policy.layers[plan];
+  // One admin section is one chunk, `admin-section.<path>`: it follows the rules of `admin-section`.
+  const fam = (plan) => (typeof plan === 'string' && plan.startsWith('admin-section.') ? 'admin-section' : plan);
+  const layer = (plan) => policy.layers[fam(plan)];
+  const consoleOnly = new Set(policy.admin ?? []);
   const leaf = new Set(policy.leaf);
   const data = new Set(policy.data);
   const vendor = new Set(policy.vendor);
@@ -125,11 +129,11 @@ export function checkLoadBudget({ report, html, sw, sizes, distFiles, budget }) 
 
   // --- layering ------------------------------------------------------------
   for (const [name, chunk] of Object.entries(chunks)) {
-    const plan = chunk.plan;
+    const plan = fam(chunk.plan);
     if (plan === null || layer(plan) === undefined) { fail(`layering: ${name} is not a chunk the plan names (modules of several chunks or an unplanned chunk)`); continue; }
     if (data.has(plan) && chunk.imports.length + chunk.dynamicImports.length > 0) fail(`layering: data chunk ${plan} imports ${[...chunk.imports, ...chunk.dynamicImports].join(', ')}`);
     for (const target of chunk.imports) {
-      const to = chunks[target]?.plan;
+      const to = fam(chunks[target]?.plan);
       if (to === undefined) { fail(`layering: ${plan} imports ${target}, which is not in the chunk report`); continue; }
       if (to === null || layer(to) === undefined) continue;
       if (to === 'entry') { if (!entryExceptions.has(plan)) fail(`layering: ${plan} imports the entry chunk`); continue; }
@@ -192,6 +196,10 @@ export function checkLoadBudget({ report, html, sw, sizes, distFiles, budget }) 
       chunks: [...js].map((file) => chunks[file].plan).sort(),
     };
     const r = stats.routes[route];
+    if (!def.console) {
+      const admin = [...js].filter((file) => consoleOnly.has(fam(chunks[file].plan)));
+      if (admin.length > 0) fail(`route ${route}: its static closure contains admin console chunks ${admin.map((file) => chunks[file].plan).join(', ')}`);
+    }
     const counted = def.after === undefined ? { js: r.js, css: r.css, br: r.br } : { js: r.addsJs, css: r.addsCss, br: r.addsBr };
     if (def.maxJs !== undefined && counted.js > def.maxJs) fail(`route ${route}: ${counted.js} JS files > ${def.maxJs}`);
     if (def.maxCss !== undefined && counted.css > def.maxCss) fail(`route ${route}: ${counted.css} CSS files > ${def.maxCss}`);
@@ -209,6 +217,8 @@ export function checkLoadBudget({ report, html, sw, sizes, distFiles, budget }) 
   const precacheBytes = precache.reduce((total, path) => total + (distFiles.includes(path.slice(1)) ? sizes(path.slice(1)).raw : 0), 0);
   stats.totals = {
     jsChunks: Object.keys(chunks).length,
+    nonAdminChunks: Object.values(chunks).filter((chunk) => fam(chunk.plan) !== 'admin-section').length,
+    adminSectionChunks: Object.values(chunks).filter((chunk) => fam(chunk.plan) === 'admin-section').length,
     jsFiles: assets.filter((file) => /\.m?js$/.test(file)).length,
     cssFiles: assets.filter((file) => file.endsWith('.css')).length,
     catalogFiles: assets.filter((file) => file.endsWith('.ftl')).length,
@@ -306,5 +316,5 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     for (const message of failures) console.error(`check-load-budget: FAIL ${message}`);
     process.exit(1);
   }
-  console.log('check-load-budget: OK');
+  if (!process.argv.includes('--json')) console.log('check-load-budget: OK');
 }

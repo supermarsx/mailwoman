@@ -1,33 +1,35 @@
 {
   "notes": [
-    "Read by scripts/check-load-budget.mjs (pnpm run size). Bytes are brotli bytes of the build's .br files; counts are exact.",
-    "Set on 2026-11-24 (t52w-e2) from the first layered build: counts as measured, bytes about 5% above measured,",
-    "mailbox before the chunk plan, same commit (1801d9348): 805.5 KB br in 40 JS + 21 CSS; with it 798.5 KB br in 5 JS + 3 CSS.",
-    "Probes: hashed files a one-line change in the module renames. basePath.ts also renames the network worker (it bundles basePath).",
+    "Read by scripts/check-load-budget.mjs and scripts/check-size.mjs (pnpm run size). Bytes are brotli bytes of the build's .br files unless named gzip; counts are exact.",
+    "Set on 2026-11-24 (t52w-e2, at 60bca4fc5) from the layered build: counts as measured, bytes about 5% above measured, except:",
+    "mailbox.maxBrBytes 802.5 KB: the lead's cap (plan build 801.8 KB br in 5 JS + 3 CSS; the same commit without the plan: about 805 KB br in 40 JS + 21 CSS).",
+    "admin.maxBrBytes 377.5 KB: the console's first view (index + dashboard) before the plan was 343 KB br in 28 JS + 16 CSS; cap = +10%. Measured 359.5 KB br.",
+    "critical.maxGzipBytes replaces the former 250 KB gzip entry-file gate (the entry is now a 4 KB bootstrap): the pre-route JS + CSS at its measured value.",
+    "Admin sections are one chunk each and are not counted in nonAdminChunks; no route without \"console\" may load an admin shell, admin-common or section chunk.",
+    "Probes: hashed files a one-line change in the module renames. basePath.ts (core) renames every app chunk, including the 66 admin sections, and the network worker (it bundles basePath).",
     "The locale probe renames core because core imports the catalog URL table dynamically (t52w-e3 replaces that table)."
   ],
-  "critical": { "maxJs": 3, "maxBrBytes": 307200 },
+  "critical": { "maxJs": 3, "maxBrBytes": 320512, "maxGzipBytes": 337920 },
   "routes": {
-    "login": { "root": "src/screens/Login.tsx", "maxJs": 4, "maxCss": 2, "maxBrBytes": 315392 },
-    "mailbox": { "root": "src/screens/Mailbox.tsx", "maxJs": 5, "maxCss": 3, "maxBrBytes": 866304 },
-    "compose": { "root": "src/components/Compose.tsx", "after": "mailbox", "maxJs": 3, "maxCss": 3, "maxBrBytes": 300032 },
-    "settings": { "root": "src/screens/Settings.tsx", "after": "mailbox", "maxJs": 2, "maxCss": 2, "maxBrBytes": 207872 },
-    "admin": { "root": "src/screens/Admin/index.tsx", "maxJs": 6, "maxCss": 4, "maxBrBytes": 1085440 }
+    "login": { "root": "src/screens/Login.tsx", "maxJs": 4, "maxCss": 2, "maxBrBytes": 328192 },
+    "mailbox": { "root": "src/screens/Mailbox.tsx", "maxJs": 5, "maxCss": 3, "maxBrBytes": 821760 },
+    "compose": { "root": "src/components/Compose.tsx", "after": "mailbox", "maxJs": 4, "maxCss": 4, "maxBrBytes": 301056 },
+    "settings": { "root": "src/screens/Settings.tsx", "after": "mailbox", "maxJs": 3, "maxCss": 3, "maxBrBytes": 208896 },
+    "admin": { "root": "src/screens/Admin/index.tsx", "console": true, "maxJs": 5, "maxCss": 3, "maxBrBytes": 386560 },
+    "admin-users": { "root": "src/screens/Admin/Users.tsx", "after": "admin", "console": true }
   },
   "totals": {
-    "jsChunks": 24,
-    "jsFiles": 32,
-    "cssFiles": 16,
+    "nonAdminChunks": 26,
     "catalogFiles": 1753,
     "precacheEntries": 1600,
     "precacheBytes": 34000000,
-    "swBytes": 350000
+    "swBytes": 365000
   },
   "otherJs": ["^assets/boot-", "^assets/offline-background-", "^assets/worker\\.entry-", "^assets/networkWorker-", "^assets/calendarWorker-", "^assets/pbkdf2-"],
   "probes": [
     { "module": "src/components/MessageList.tsx", "maxRenamed": 3, "forbid": ["vendor-core", "vendor-altcha", "brand-paths", "licences", "locale-urls"] },
     { "module": "src/screens/Settings.tsx", "maxRenamed": 6, "forbid": ["vendor-core", "vendor-altcha", "brand-paths", "licences", "locale-urls"] },
-    { "module": "src/api/basePath.ts", "maxRenamed": 19, "forbid": ["vendor-core", "vendor-altcha", "brand-paths", "licences", "locale-urls"] },
-    { "module": "locales/en/mail.ftl?url", "maxRenamed": 20, "forbid": ["vendor-core", "vendor-altcha", "brand-paths", "licences"] }
+    { "module": "src/api/basePath.ts", "maxRenamed": 87, "forbid": ["vendor-core", "vendor-altcha", "brand-paths", "licences", "locale-urls"] },
+    { "module": "locales/en/mail.ftl?url", "maxRenamed": 88, "forbid": ["vendor-core", "vendor-altcha", "brand-paths", "licences"] }
   ]
 }

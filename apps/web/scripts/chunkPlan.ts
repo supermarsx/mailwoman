@@ -21,8 +21,14 @@
  *   editor        ProseMirror and the editor UI
  *   <screen>      login, mail, compose, settings, admin, pim, viewers,
  *                 crypto-ui, plugins, about: what one screen alone reaches
+ *   admin-lazy    what the admin shell shares with screens other than the
+ *                 mailbox
  *   mail-lazy     panes of the mailbox loaded on demand (templates, unified
  *                 inbox); may import mail
+ *   admin, admin-common, admin-section.<path>
+ *                 the admin console: the shell with its first view
+ *                 (dashboard), code several sections share, and one chunk per
+ *                 section; no other screen loads them
  *   rare          screens most sessions never load; may import any screen
  *   unplanned     dynamic import targets no ROOTS rule names yet: the build
  *                 still works, and check-load-budget.mjs fails until a rule
@@ -67,6 +73,7 @@ export const CHUNK_LAYERS = {
   'core-lazy': 2,
   shared: 3,
   dialogs: 4,
+  'admin-lazy': 4.5,
   'shared-lazy': 5,
   editor: 6,
   login: 7,
@@ -80,11 +87,28 @@ export const CHUNK_LAYERS = {
   plugins: 7,
   about: 7,
   'mail-lazy': 8,
-  rare: 9,
-  unplanned: 9,
-  entry: 10,
+  'admin-common': 8,
+  'admin-section': 9,
+  rare: 10,
+  unplanned: 10,
+  entry: 11,
 } as const;
 export type ChunkName = keyof typeof CHUNK_LAYERS;
+/**
+ * A chunk of the plan: a ChunkName, or one admin console section,
+ * `admin-section.<path>`, which has the layer of `admin-section`.
+ */
+export type PlanChunk = ChunkName | `admin-section.${string}`;
+/** The ChunkName a plan chunk takes its layer and rules from. */
+export function family(chunk: PlanChunk): ChunkName {
+  return chunk.startsWith('admin-section.') ? 'admin-section' : (chunk as ChunkName);
+}
+export const layerOf = (chunk: PlanChunk): number => CHUNK_LAYERS[family(chunk)];
+/** Chunks of the admin console's shell (with its first view) and sections. */
+export const ADMIN_CHUNKS: ReadonlySet<ChunkName> = new Set(['admin', 'admin-section', 'admin-lazy']);
+/** Chunks no screen but the admin console may load. */
+export const CONSOLE_CHUNKS: ReadonlySet<ChunkName> = new Set(['admin', 'admin-section', 'admin-common']);
+const isAdmin = (chunk: PlanChunk): boolean => ADMIN_CHUNKS.has(family(chunk));
 
 /** Chunks that may import a screen chunk (they are loaded after one, or alone). */
 export const LEAF_CHUNKS: ReadonlySet<ChunkName> = new Set(['rare', 'unplanned']);
@@ -142,7 +166,8 @@ export const ROOTS: ReadonlyArray<readonly [RegExp, ChunkName]> = [
   [/^src\/components\/compose\/(?:RichTextEditor|HtmlSourceEditor)\.tsx$/, 'editor'],
   [/^src\/screens\/Settings\.tsx$/, 'settings'],
   [/^src\/screens\/Settings\/Signatures\.tsx$/, 'settings'],
-  [/^src\/screens\/Admin\//, 'admin'],
+  [/^src\/screens\/Admin\/(?:index\.tsx$|shell\/|Dashboard\/)/, 'admin'],
+  [/^src\/screens\/Admin\/(?!index\.tsx$|shell\/|Dashboard\/)/, 'admin-section'],
   [/^src\/api\/admin\//, 'admin'],
   [/^src\/api\/nextcloudAccounts\.ts$/, 'admin'],
   [/^src\/state\/slices\/plugins\.ts$/, 'admin'],
@@ -198,7 +223,7 @@ export function isEntryModule(key: string): boolean {
 }
 
 /** Screen chunks whose modules belong to the editor when compose shares them. */
-const EDITOR_FAMILY: ReadonlySet<ChunkName> = new Set(['editor', 'compose']);
+const EDITOR_FAMILY: ReadonlySet<PlanChunk> = new Set(['editor', 'compose']);
 
 /**
  * The chunk of a module outside the entry closure, from the chunks whose roots
@@ -211,27 +236,61 @@ const EDITOR_FAMILY: ReadonlySet<ChunkName> = new Set(['editor', 'compose']);
  *     path of a first visit, and core is loaded there anyway.
  *  6. Reached from the mailbox and another screen: `shared`. The mailbox loads
  *     it in any case, so the mailbox path carries no other screen's code.
- *  7. Reached only from compose and the editor: `editor` (compose loads it).
- *  8. Anything else two screens reach: `shared-lazy`, never on the mailbox's
+ *     If the admin shell reaches it too: `core` (see below).
+ *  7. Reached only from the admin shell and sections: `admin`, the shell.
+ *  8. Reached from the admin shell and another screen (not the mailbox):
+ *     `admin-lazy`, never on the mailbox's path.
+ *  Code that admin sections reach but the shell does not is placed first (see
+ *  the start of the function): one section keeps it, several share
+ *  `admin-common`, and with other screens it follows these rules with
+ *  `admin-common` standing in for the sections.
+ *  9. Reached only from compose and the editor: `editor` (compose loads it).
+ * 10. Anything else two screens reach: `shared-lazy`, never on the mailbox's
  *     cold path.
  */
-export function resolveOwners(set: ReadonlySet<ChunkName>, pkg: string | null): ChunkName {
+export function resolveOwners(set: ReadonlySet<PlanChunk>, pkg: string | null): PlanChunk {
   if (pkg !== null && EDITOR_PACKAGES.test(pkg)) return 'editor';
-  const strong = [...set].filter((c) => !LEAF_CHUNKS.has(c));
+  // Code only admin sections reach (not the shell or its first view): one
+  // section keeps it; else it is placed as if `admin-common` were one screen,
+  // so it never rides along with the shell or into shared-admin.
+  const sections = [...set].filter((c) => family(c) === 'admin-section');
+  if (sections.length > 0 && !set.has('admin')) {
+    if (sections.length === set.size && sections.length === 1) return sections[0]!;
+    const rest = new Set<PlanChunk>([...set].filter((c) => family(c) !== 'admin-section'));
+    rest.add('admin-common');
+    return resolveOwners(rest, pkg);
+  }
+  const strong = [...set].filter((c) => !LEAF_CHUNKS.has(family(c)));
   const pool = strong.length > 0 ? strong : [...set];
   if (pool.length === 1 && set.size === 1) return pool[0]!;
   // Rules 2, 5 and 6 can all apply; the lowest layer wins, so that no chunk
   // ever imports above its own layer.
   const candidates: ChunkName[] = [];
-  for (const chunk of set) { const base = BASE_OF.get(chunk); if (base !== undefined) candidates.push(base); }
+  for (const chunk of set) { const base = BASE_OF.get(family(chunk)); if (base !== undefined) candidates.push(base); }
   if (candidates.length === 0 && pool.length === 1) return pool[0]!;
-  const parents = new Set(pool.map((c) => PARENT_OF.get(c) ?? c));
+  const parents = new Set(pool.map((c) => PARENT_OF.get(family(c)) ?? c));
   const parent = [...parents][0]!;
   if (candidates.length === 0 && parents.size === 1 && pool.includes(parent)) return parent;
   if (pool.includes('login')) candidates.push('core');
   if (pool.includes('mail')) candidates.push('shared');
-  if (candidates.length === 0) return pool.every((c) => EDITOR_FAMILY.has(c)) ? 'editor' : 'shared-lazy';
-  return candidates.reduce((low, c) => (CHUNK_LAYERS[c] < CHUNK_LAYERS[low] ? c : low));
+  if (candidates.length === 0) {
+    if (pool.every(isAdmin)) return 'admin';
+    if (pool.some(isAdmin)) return 'admin-lazy';
+    return pool.every((c) => EDITOR_FAMILY.has(c)) ? 'editor' : 'shared-lazy';
+  }
+  const low = candidates.reduce((min, c) => (CHUNK_LAYERS[c] < CHUNK_LAYERS[min] ? c : min));
+  // The admin console loads shared-admin, never the mailbox's shared code.
+  // Code the admin shell (with its first view) and the mailbox both reach: core.
+  // In `shared` it would put the mailbox's shared code on the console's first
+  // view; in a chunk of its own it cost the mailbox path one more file and
+  // 1.7 KB br (measured 2026-11-24, 804.1 against 802.4 KB br).
+  return low === 'shared' && pool.some(isAdmin) ? 'core' : low;
+}
+
+/** `admin-section.<path below src/screens/Admin, dashes for slashes>`. */
+export function sectionChunk(key: string): PlanChunk {
+  const path = key.replace(/^src\/screens\/Admin\//, '').replace(/\.[a-z]+$/, '').replace(/\/index$/, '');
+  return `admin-section.${path.replace(/[^A-Za-z0-9]+/g, '-')}`;
 }
 
 /** The subset of Rollup's ModuleInfo the plan reads. */
@@ -247,9 +306,9 @@ export interface PlanGraph {
 
 export interface Placement {
   /** module id -> chunk. */
-  readonly chunks: ReadonlyMap<string, ChunkName>;
+  readonly chunks: ReadonlyMap<string, PlanChunk>;
   /** module id -> the screen chunks whose roots reach it (diagnostics). */
-  readonly owners: ReadonlyMap<string, ReadonlySet<ChunkName>>;
+  readonly owners: ReadonlyMap<string, ReadonlySet<PlanChunk>>;
   /** Dynamic import targets outside the entry closure that match no ROOTS rule. */
   readonly unrootedDynamicTargets: readonly string[];
 }
@@ -274,7 +333,7 @@ export function planChunks(graph: PlanGraph, root: string): Placement {
     entryClosure.add(id);
     queue.push(...(info.get(id)?.importedIds ?? []));
   }
-  const chunks = new Map<string, ChunkName>();
+  const chunks = new Map<string, PlanChunk>();
   for (const id of entryClosure) {
     const name = k(id);
     const pkg = packageOf(name);
@@ -285,18 +344,19 @@ export function planChunks(graph: PlanGraph, root: string): Placement {
   //    by a ROOTS rule; one no rule names goes to `unplanned` and is reported.
   //    A rule never makes a statically imported module a root: ownership comes
   //    from the graph.
-  const roots = new Map<string, ChunkName>();
+  const roots = new Map<string, PlanChunk>();
   const unrooted = new Set<string>();
   for (const id of ids) for (const target of info.get(id)?.dynamicallyImportedIds ?? []) {
     if (entryClosure.has(target) || roots.has(target) || !info.has(target)) continue;
     const chunk = rootChunk(k(target));
     if (chunk === null) unrooted.add(target);
-    roots.set(target, chunk ?? 'unplanned');
+    // One chunk per admin console section: a section loads only its own code.
+    roots.set(target, chunk === 'admin-section' ? sectionChunk(k(target)) : chunk ?? 'unplanned');
   }
 
   // 3. Owners: the chunks whose roots reach a module through static imports
   //    (never through the entry closure, which is already placed).
-  const owners = new Map<string, Set<ChunkName>>();
+  const owners = new Map<string, Set<PlanChunk>>();
   for (const [rootId, chunk] of roots) {
     const seen = new Set<string>();
     const stack = [rootId];
@@ -359,6 +419,7 @@ export function chunkPlan(root: string): { manualChunks: (id: string, meta: Plan
           data: [...DATA_CHUNKS],
           vendor: [...VENDOR_CHUNKS],
           entryImportExceptions: [...ENTRY_IMPORT_EXCEPTIONS],
+          admin: [...CONSOLE_CHUNKS],
         },
         unrootedDynamicTargets: placement?.unrootedDynamicTargets ?? [],
         chunks,

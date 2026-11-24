@@ -32,7 +32,7 @@ function fixture() {
       mailbox: { root: 'src/screens/Mailbox.tsx', maxJs: 5, maxCss: 2, maxBrBytes: 1000 },
       settings: { root: 'src/screens/Settings.tsx', after: 'mailbox', maxJs: 1, maxCss: 0 },
     },
-    totals: { jsChunks: 9, cssFiles: 3, precacheEntries: 2 },
+    totals: { jsChunks: 9, nonAdminChunks: 9, cssFiles: 3, precacheEntries: 2 },
     otherJs: ['^assets/boot-'],
     probes: [
       { module: 'src/components/MessageList.tsx', maxRenamed: 2, forbid: ['vendor-core', 'brand-paths'] },
@@ -147,6 +147,22 @@ test('negative: a stale report (missing file, unknown JS in dist)', () => {
   f = fixture();
   f.distFiles.push('assets/Login-old.js');
   failsWith(f, /neither in the chunk report nor in otherJs.*Login-old/);
+});
+
+test('negative: a non-console route loading an admin section chunk', () => {
+  const f = fixture();
+  f.report.policy.layers['admin-section'] = 9;
+  f.report.policy.admin = ['admin', 'admin-section', 'admin-common'];
+  f.report.chunks['assets/admin-section.Users-a.js'] = chunk('admin-section.Users', ['src/screens/Admin/Users.tsx'], ['assets/core-a.js'], [], { isDynamicEntry: true });
+  f.distFiles.push('assets/admin-section.Users-a.js');
+  f.budget.totals.jsChunks = 10;
+  f.budget.probes[1].maxRenamed = 8;
+  assert.deepEqual(run(f).failures, [], 'an unreferenced section chunk is fine, and its layer comes from admin-section');
+  f.report.chunks['assets/rare-a.js'].imports.push('assets/admin-section.Users-a.js');
+  f.budget.routes.rare = { root: 'src/modules/passwd/ForcedPasswordChange.tsx' };
+  failsWith(f, /route rare: its static closure contains admin console chunks admin-section\.Users/);
+  f.budget.routes.rare.console = true;
+  assert.ok(!run(f).failures.some((m) => /admin console chunks/.test(m)), 'a console route may');
 });
 
 test('negative: a dynamic import target no chunk rule names', () => {

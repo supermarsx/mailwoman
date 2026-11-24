@@ -2,8 +2,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CHUNK_LAYERS, ROOTS, chunkPlan, moduleKey, packageOf, planChunks, resolveOwners, rootChunk,
-  type ChunkName, type PlanGraph,
+  CHUNK_LAYERS, ROOTS, chunkPlan, moduleKey, packageOf, planChunks, resolveOwners, rootChunk, sectionChunk,
+  type ChunkName, type PlanChunk, type PlanGraph,
 } from './chunkPlan.ts';
 
 const ROOT = '/repo/apps/web';
@@ -22,7 +22,7 @@ function graph(spec: Record<string, [string[], string[]?]>): PlanGraph {
     },
   };
 }
-const placed = (g: PlanGraph): Record<string, ChunkName> => {
+const placed = (g: PlanGraph): Record<string, PlanChunk> => {
   const { chunks } = planChunks(g, ROOT);
   return Object.fromEntries([...chunks].map(([full, chunk]) => [moduleKey(full, ROOT), chunk]));
 };
@@ -46,7 +46,8 @@ test('representative dynamic import targets map to their chunks, each by exactly
     'src/components/compose/RichTextEditor.tsx': 'editor',
     'src/screens/Settings.tsx': 'settings',
     'src/screens/Admin/index.tsx': 'admin',
-    'src/screens/Admin/Compliance/DpiaTab.tsx': 'admin',
+    'src/screens/Admin/Compliance/DpiaTab.tsx': 'admin-section',
+    'src/screens/Admin/Dashboard/Dashboard.tsx': 'admin',
     'src/shell/mounts.tsx': 'pim',
     'src/modules/calendar/index.tsx': 'pim',
     'src/modules/keys/index.tsx': 'crypto-ui',
@@ -72,11 +73,11 @@ test('representative dynamic import targets map to their chunks, each by exactly
 });
 
 test('owner sets resolve by the documented rules', () => {
-  const r = (owners: ChunkName[], pkg: string | null = null): ChunkName => resolveOwners(new Set(owners), pkg);
+  const r = (owners: PlanChunk[], pkg: string | null = null): PlanChunk => resolveOwners(new Set(owners), pkg);
   assert.equal(r(['settings']), 'settings');
   assert.equal(r(['mail', 'settings']), 'shared');
   assert.equal(r(['login', 'mail']), 'core');
-  assert.equal(r(['settings', 'admin']), 'shared-lazy');
+  assert.equal(r(['settings', 'pim']), 'shared-lazy');
   assert.equal(r(['compose', 'editor']), 'editor');
   assert.equal(r(['compose', 'editor', 'settings']), 'shared-lazy');
   assert.equal(r(['mail', 'mail-lazy']), 'mail', 'a pane and its parent only: the parent');
@@ -87,6 +88,21 @@ test('owner sets resolve by the documented rules', () => {
   assert.equal(r(['dialogs', 'settings']), 'shared', 'dialogs never import above shared');
   assert.equal(r(['dialogs', 'login', 'mail']), 'core', 'the lowest layer wins');
   assert.equal(r(['mail'], 'prosemirror-view'), 'editor', 'ProseMirror always goes to the editor');
+  // The admin console.
+  assert.equal(r(['admin', 'admin-section.Users']), 'admin', 'shell and a section: the shell');
+  assert.equal(r(['admin-section.Users']), 'admin-section.Users');
+  assert.equal(r(['admin-section.Users', 'admin-section.Roles']), 'admin-common', 'sections only, not the shell');
+  assert.equal(r(['admin', 'settings']), 'admin-lazy');
+  assert.equal(r(['admin', 'mail']), 'core', 'the shell and the mailbox: core, never shared');
+  assert.equal(r(['admin-section.Users', 'mail']), 'shared', 'a section and the mailbox: shared, off the shell');
+  assert.equal(r(['admin-section.Users', 'settings']), 'shared-lazy');
+  assert.equal(r(['admin-section.Users', 'login']), 'core');
+});
+
+test('one chunk per admin section, named by its path', () => {
+  assert.equal(sectionChunk('src/screens/Admin/Users.tsx'), 'admin-section.Users');
+  assert.equal(sectionChunk('src/screens/Admin/Compliance/index.tsx'), 'admin-section.Compliance');
+  assert.equal(sectionChunk('src/screens/Admin/Privacy/OverviewTab.tsx'), 'admin-section.Privacy-OverviewTab');
 });
 
 test('layers: every chunk has one, the entry is the top', () => {

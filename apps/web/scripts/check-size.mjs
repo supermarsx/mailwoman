@@ -1,5 +1,6 @@
-// Bundle-size gate (SPEC §23 / §5.2, plan §3 e8/e11): the login->inbox entry
-// chunk must be < 250 KB gzip, AND pdfjs (~1 MB) must NOT ride the critical
+// Bundle-size gate (SPEC §23 / §5.2, plan §3 e8/e11): what index.html loads
+// before any route (entry chunk, modulepreloaded imports, linked stylesheets)
+// must stay within load-budget.json `critical.maxGzipBytes`, AND pdfjs (~1 MB) must NOT ride the critical
 // path — it is a lazy chunk pulled only when a PDF attachment is opened
 // (`lazy(() => import('./PdfViewer.tsx'))`, plan §1.7).
 //
@@ -28,7 +29,7 @@
 // ordinary email HTML strings are not application DOM templates. Missing proof
 // fails closed for every rendered module, including libraries and lazy chunks.
 //
-// Run after `vite build`. Exits non-zero on: entry over budget, pdfjs on the
+// Run after `vite build`. Exits non-zero on: critical path over budget, pdfjs on the
 // critical path, or a literal style attribute in an app chunk. An optional first
 // argument names another dist directory (default `apps/web/dist`).
 import { readdir, readFile } from 'node:fs/promises';
@@ -39,7 +40,13 @@ import {createHash} from 'node:crypto';
 import {mailboxPaneGraphProof} from './bundleGraphContract.mjs';
 import {solidTemplateGraphProof,solidTemplateAssetCoverage} from './solidTemplateContract.mjs';
 
-const BUDGET_BYTES = 250 * 1024;
+// t52w: since the layered chunk plan the entry chunk is a 4 KB bootstrap, so the
+// former 250 KB gzip entry-file gate measured nothing. The gate is now the whole
+// pre-route critical path (JS + CSS) at the value measured when the plan landed,
+// read from load-budget.json; check-load-budget.mjs holds its brotli bytes.
+const loadBudget = JSON.parse(await readFile(new URL('./load-budget.json', import.meta.url), 'utf8'));
+const BUDGET_BYTES = loadBudget.critical?.maxGzipBytes;
+if (!Number.isInteger(BUDGET_BYTES)) throw Error('load-budget.json: critical.maxGzipBytes missing');
 const distDir = process.argv[2] ?? fileURLToPath(new URL('../dist/', import.meta.url));
 const assetsDir = join(distDir, 'assets');
 // The graph is private build evidence, not an asset served to the browser. A
@@ -96,6 +103,7 @@ const preloadNames = [...html.matchAll(/<link[^>]*\brel="modulepreload"[^>]*\bhr
   (m) => toAssetName(m[1]),
 );
 const criticalNames = new Set([entryName, ...preloadNames]);
+const stylesheetNames = [...html.matchAll(/<link[^>]*\brel="stylesheet"[^>]*\bhref="([^"]+)"/g)].map((m) => toAssetName(m[1]));
 if(graph.chunks[`assets/${entryName}`]?.entry!==true)throw Error('Rendered graph does not identify the actual HTML module entry');
 console.log('check-size: deferred mailbox UI graph',JSON.stringify(mailboxPaneGraphProof(graph,[...criticalNames].map(name=>`assets/${name}`))));
 
@@ -147,13 +155,15 @@ for (const f of assetFiles) {
 
 }
 
-// --- gate 1: entry chunk under the gzip budget ------------------------------
+// --- gate 1: the pre-route critical path under the gzip budget -------------
+let criticalGz = 0;
+for (const name of [...criticalNames, ...stylesheetNames]) criticalGz += (await gzipOf(join(assetsDir, name))).gz;
 console.log(
-  `\ncheck-size: entry ${entryName} = ${kb(entryGz)} gzip (budget ${BUDGET_BYTES / 1024} KB)`,
+  `\ncheck-size: entry ${entryName} = ${kb(entryGz)} gzip; critical path ${criticalNames.size} JS + ${stylesheetNames.length} CSS = ${kb(criticalGz)} gzip (budget ${kb(BUDGET_BYTES)})`,
 );
 let failed = false;
-if (entryGz > BUDGET_BYTES) {
-  console.error(`check-size: OVER BUDGET — entry exceeds ${BUDGET_BYTES / 1024} KB gzip`);
+if (criticalGz > BUDGET_BYTES) {
+  console.error(`check-size: OVER BUDGET — critical path exceeds ${kb(BUDGET_BYTES)} gzip`);
   failed = true;
 }
 
