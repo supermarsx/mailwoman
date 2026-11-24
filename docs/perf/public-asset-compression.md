@@ -19,7 +19,8 @@ comparison against the already-adapted raw representation, including complete
 encoded consumption. Names, mtimes or unsigned metadata alone are not proof.
 A stale/corrupt/missing sidecar falls back to bounded generation on a cache miss,
 including prefix-adapted CSS. Both codec paths run only inside the existing two
-blocking workers and sixteen queued unique loads. Hits share cached Bytes and
+blocking workers and sixteen dispatcher slots for unique loads. Files above the
+per-file limit (default 8 MiB) are served identity and not retained. Hits share cached Bytes and
 validators without compressing, decoding or hashing again. Codec scratch,
 in-flight bodies and embedded immutable bytes are not a hard process-RSS budget.
 A cooperative HTTP wait timeout cannot preempt an OS read or a running codec.

@@ -9,16 +9,33 @@ use axum::{
 use serde::Serialize;
 use std::{
     borrow::Cow,
-    collections::HashMap,
-    path::PathBuf,
+    collections::{HashMap, HashSet},
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
 const WORKERS: usize = 2;
+/// Unique misses that may hold a dispatcher task at once. A miss beyond this
+/// waits for a slot (within the observer deadline) instead of failing.
 const QUEUED: usize = 16;
+/// One deadline covers admission and the load itself; 503 only when it passes.
+const OBSERVE: Duration = Duration::from_secs(5);
 const PREFIX: &str = "web.assets.cache.";
 const MAX_DISCOVERY_BYTES: usize = 256 * 1024;
+/// Bounds for the build enumeration used by the "app" preload.
+const MAX_WALK_ENTRIES: usize = 50_000;
+const MAX_WALK_DEPTH: usize = 8;
+/// The `en` app translation pack (`assets/catalog.en.app-<hash>.json`). The
+/// server has no default-locale setting, so `en`, the build's source locale,
+/// is the one preloaded; other locales and the admin packs fill on first use.
+const SOURCE_LOCALE_PACK: &str = "assets/catalog.en.app-";
+fn is_source_locale_pack(path: &str) -> bool {
+    path.starts_with(SOURCE_LOCALE_PACK)
+        && path.ends_with(".json")
+        && !path[SOURCE_LOCALE_PACK.len()..].contains('/')
+        && crate::is_content_hashed(path)
+}
 // Discovery is optional. Never scan an unbounded deployed document on Tokio.
 fn core_paths(shell: &[u8], base: &str) -> Vec<String> {
     let mut paths = vec!["sw.js".to_string(), "manifest.webmanifest".to_string()];
@@ -45,12 +62,118 @@ fn core_paths(shell: &[u8], base: &str) -> Vec<String> {
     }
     paths
 }
+/// Relative file paths of a deployed web directory. Symbolic links and other
+/// reparse points (Windows junctions) are not followed or listed, names that
+/// are not UTF-8 or that the request path guard would refuse are skipped, and
+/// depth and entry count are bounded. Runs on a blocking thread.
+fn walk(root: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut seen = 0usize;
+    let mut stack = vec![(root.to_path_buf(), String::new(), 0usize)];
+    while let Some((dir, prefix, depth)) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries {
+            seen += 1;
+            if seen > MAX_WALK_ENTRIES {
+                out.sort();
+                return out;
+            }
+            let Ok(entry) = entry else { continue };
+            let Ok(name) = entry.file_name().into_string() else {
+                continue;
+            };
+            let relative = if prefix.is_empty() {
+                name
+            } else {
+                format!("{prefix}/{name}")
+            };
+            if relative.len() > 4096 || crate::error_pages::is_unsafe_asset_path(&relative) {
+                continue;
+            }
+            let Ok(meta) = std::fs::symlink_metadata(entry.path()) else {
+                continue;
+            };
+            if is_link(&meta) {
+                continue;
+            }
+            if meta.is_dir() {
+                if depth + 1 < MAX_WALK_DEPTH {
+                    stack.push((entry.path(), relative, depth + 1));
+                }
+            } else if meta.is_file() {
+                out.push(relative);
+            }
+        }
+    }
+    out.sort();
+    out
+}
+fn is_link(meta: &std::fs::Metadata) -> bool {
+    if meta.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return true;
+        }
+    }
+    false
+}
+fn extension(path: &str) -> &str {
+    path.rsplit('/')
+        .next()
+        .and_then(|name| name.rsplit_once('.'))
+        .map_or("", |(_, ext)| ext)
+}
+/// The "app" preload set in load order: shell, worker, manifest, the files the
+/// shell names, then every content-hashed script, stylesheet and WebAssembly
+/// module, then the `en` app translation pack. Names the request path guard
+/// would refuse are never planned.
+fn app_paths(available: &[String], shell: Option<&[u8]>, base: &str) -> Vec<String> {
+    let present: HashSet<&str> = available.iter().map(String::as_str).collect();
+    let mut out: Vec<String> = Vec::new();
+    let mut seen = HashSet::new();
+    let mut push = |path: &str, out: &mut Vec<String>| {
+        if present.contains(path)
+            && !crate::error_pages::is_unsafe_asset_path(path)
+            && seen.insert(path.to_string())
+        {
+            out.push(path.to_string());
+        }
+    };
+    push("index.html", &mut out);
+    for path in shell.map(|shell| core_paths(shell, base)).unwrap_or_else(|| {
+        vec!["sw.js".to_string(), "manifest.webmanifest".to_string()]
+    }) {
+        push(&path, &mut out);
+    }
+    for path in available {
+        if path.starts_with("assets/")
+            && matches!(extension(path), "js" | "mjs" | "css" | "wasm")
+            && crate::is_content_hashed(path)
+        {
+            push(path, &mut out);
+        }
+    }
+    for path in available {
+        if is_source_locale_pack(path) {
+            push(path, &mut out);
+        }
+    }
+    out
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum Preload {
     Off,
     Shell,
     Core,
+    App,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -71,11 +194,11 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             enabled: true,
-            budget_mib: 64,
-            max_file_mib: 4,
-            max_entries: 1024,
+            budget_mib: 128,
+            max_file_mib: 8,
+            max_entries: 4096,
             revalidate_seconds: 1,
-            preload: Preload::Shell,
+            preload: Preload::App,
             compression_enabled: true,
             brotli_enabled: true,
             compression_min_bytes: 1024,
@@ -88,6 +211,11 @@ impl Config {
     }
     fn file(self) -> usize {
         self.max_file_mib.min(self.budget_mib) as usize * 1024 * 1024
+    }
+    /// The per-file limit bounds owned retention. Embedded (borrowed) bytes cost
+    /// no owned copy, so their encodings are prepared whatever their size.
+    fn encodes(self, prepared: &Prepared) -> bool {
+        prepared.charge == 0 || prepared.bytes.len() <= self.file()
     }
     fn from_values(values: &[crate::settings_registry::Effective]) -> Self {
         let mut out = Self::default();
@@ -103,23 +231,25 @@ impl Config {
         out.budget_mib = v("budgetMiB")
             .and_then(serde_json::Value::as_u64)
             .filter(|n| (8..=512).contains(n))
-            .unwrap_or(64) as u32;
+            .map_or(out.budget_mib, |n| n as u32);
         out.max_file_mib = v("maxFileMiB")
             .and_then(serde_json::Value::as_u64)
             .filter(|n| (1..=16).contains(n))
-            .unwrap_or(4) as u32;
+            .map_or(out.max_file_mib, |n| n as u32);
         out.max_entries = v("maxEntries")
             .and_then(serde_json::Value::as_u64)
             .filter(|n| (16..=4096).contains(n))
-            .unwrap_or(1024) as usize;
+            .map_or(out.max_entries, |n| n as usize);
         out.revalidate_seconds = v("revalidateSeconds")
             .and_then(serde_json::Value::as_u64)
             .filter(|n| (1..=60).contains(n))
-            .unwrap_or(1);
+            .unwrap_or(out.revalidate_seconds);
         out.preload = match v("preload").and_then(serde_json::Value::as_str) {
             Some("off") => Preload::Off,
+            Some("shell") => Preload::Shell,
             Some("core") => Preload::Core,
-            _ => Preload::Shell,
+            Some("app") => Preload::App,
+            _ => out.preload,
         };
         out.compression_enabled = v("compression.enabled").and_then(serde_json::Value::as_bool).unwrap_or(true);
         out.brotli_enabled = v("compression.brotli").and_then(serde_json::Value::as_bool).unwrap_or(true);
@@ -180,10 +310,34 @@ struct Key {
     base: Arc<str>,
     generation: u64,
 }
+/// Length and modification time of a deployed file, taken before it is read.
+/// An expired entry whose file still has the same stamp is kept without a
+/// re-read; a stamp without a modification time never matches.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Stamp {
+    len: u64,
+    modified: SystemTime,
+}
+fn stamp(path: &Path) -> Option<Stamp> {
+    let meta = std::fs::metadata(path).ok()?;
+    Some(Stamp {
+        len: meta.len(),
+        modified: meta.modified().ok()?,
+    })
+    .filter(|_| meta.is_file())
+}
 struct Entry {
     value: Prepared,
     expires: Option<Instant>,
+    stamp: Option<Stamp>,
     touched: u64,
+}
+struct Loaded {
+    value: Prepared,
+    stamp: Option<Stamp>,
+    /// Content hash of the deployed shell's raw bytes (before prefix adaptation).
+    shell_digest: Option<String>,
+    reused: bool,
 }
 struct Flight {
     result: watch::Sender<Option<Result<Option<Prepared>, Busy>>>,
@@ -206,6 +360,37 @@ struct Counters {
     preload_skipped: u64,
     generated_encodings: u64,
     validated_sidecars: u64,
+    /// Expired deployed entries kept because length and mtime were unchanged.
+    revalidated_unchanged: u64,
+    /// Misses that waited for an admission slot instead of being refused.
+    admission_waits: u64,
+    /// Generation increments caused by a changed deployed shell.
+    shell_changes: u64,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum PreloadState {
+    #[default]
+    Idle,
+    Running,
+    Done,
+    /// Stopped early: the planned set would exceed three quarters of the budget
+    /// or entry limit; the rest fills on first use.
+    Limited,
+    /// A clear, configuration change or shell change started a new pass.
+    Superseded,
+}
+#[derive(Clone, Copy, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PreloadProgress {
+    generation: u64,
+    mode: Option<Preload>,
+    state: PreloadState,
+    planned: usize,
+    ready: usize,
+    absent: usize,
+    skipped: usize,
+    catalogs: usize,
 }
 struct Inner {
     config: Config,
@@ -216,6 +401,9 @@ struct Inner {
     bytes: usize,
     clock: u64,
     running: usize,
+    waiting: usize,
+    shell_digest: Option<String>,
+    progress: PreloadProgress,
     stats: Counters,
     configuration_stale: bool,
     last_config_at: Option<u64>,
@@ -260,6 +448,14 @@ fn now() -> u64 {
         .unwrap_or_default()
         .as_secs()
 }
+/// Decrements the admission-wait count however the waiting future ends.
+struct Waiting<'a>(&'a Cache);
+impl Drop for Waiting<'_> {
+    fn drop(&mut self) {
+        let mut s = self.0.lock();
+        s.waiting = s.waiting.saturating_sub(1);
+    }
+}
 impl Cache {
     pub(crate) fn new(
         web_dir: Option<PathBuf>,
@@ -277,6 +473,9 @@ impl Cache {
                 bytes: 0,
                 clock: 0,
                 running: 0,
+                waiting: 0,
+                shell_digest: None,
+                progress: PreloadProgress::default(),
                 stats: Counters::default(),
                 configuration_stale: false,
                 last_config_at: None,
@@ -354,7 +553,7 @@ impl Cache {
     }
     pub(crate) fn status(&self) -> serde_json::Value {
         let s = self.lock();
-        serde_json::json!({"scope":"public-static-representations-only","config":s.config,"effectivePreload":if s.config.enabled { s.config.preload } else { Preload::Off },"generation":s.generation,"residentOwnedBytes":s.bytes,"compressionEffectiveEnabled":s.config.enabled&&s.config.compression_enabled,"encodedResidentBytes":s.entries.values().map(|entry|entry.value.encodings.bytes()).sum::<usize>(),"ownedEncodedResidentBytes":s.entries.values().map(|entry|entry.value.encodings.charge()).sum::<usize>(),"entries":s.entries.len(),"effectiveMaxFileBytes":s.config.file(),"pendingUnique":s.pending.len(),"runningLoads":s.running,"queuedUnique":s.pending.len().saturating_sub(s.running),"maxQueuedUnique":QUEUED,"maxRunningLoads":WORKERS,"configurationStale":s.configuration_stale,"lastConfigAt":s.last_config_at,"counters":s.stats,"hardRssLimit":false,"embeddedRawBytesDuplicated":false})
+        serde_json::json!({"scope":"public-static-representations-only","config":s.config,"effectivePreload":if s.config.enabled { s.config.preload } else { Preload::Off },"preloadProgress":s.progress,"generation":s.generation,"residentOwnedBytes":s.bytes,"compressionEffectiveEnabled":s.config.enabled&&s.config.compression_enabled,"encodedResidentBytes":s.entries.values().map(|entry|entry.value.encodings.bytes()).sum::<usize>(),"ownedEncodedResidentBytes":s.entries.values().map(|entry|entry.value.encodings.charge()).sum::<usize>(),"entries":s.entries.len(),"effectiveMaxFileBytes":s.config.file(),"pendingUnique":s.pending.len(),"runningLoads":s.running,"queuedUnique":s.pending.len().saturating_sub(s.running),"admissionWaiting":s.waiting,"maxQueuedUnique":QUEUED,"maxRunningLoads":WORKERS,"configurationStale":s.configuration_stale,"lastConfigAt":s.last_config_at,"counters":s.stats,"hardRssLimit":false,"embeddedRawBytesDuplicated":false})
     }
     pub(crate) async fn refresh(&self, store: &mw_store::Store) {
         let ticket = self.begin_refresh();
@@ -384,6 +583,9 @@ impl Cache {
                 }
             }
         });
+        self.start_preloader();
+    }
+    fn start_preloader(self: &Arc<Self>) {
         let weak = Arc::downgrade(self);
         let mut changes = self.preload.subscribe();
         tokio::spawn(async move {
@@ -391,53 +593,164 @@ impl Cache {
             // requires an immediately available worker with no foreground work pending.
             tokio::task::yield_now().await;
             loop {
+                changes.borrow_and_update();
                 let Some(cache) = weak.upgrade() else { break };
-                let (mode, epoch) = {
-                    let s = cache.lock();
-                    (
-                        if s.config.enabled {
-                            s.config.preload
-                        } else {
-                            Preload::Off
-                        },
-                        s.generation,
-                    )
-                };
-                if mode != Preload::Off {
-                    let shell = cache
-                        .get_inner(Source::Web, Variant::Public, "index.html", true)
-                        .await
-                        .ok()
-                        .flatten();
-                    if mode == Preload::Core
-                        && let Some(shell) = shell
-                    {
-                        if shell.bytes.len() > MAX_DISCOVERY_BYTES {
-                            let mut state = cache.lock();
-                            state.stats.preload_skipped =
-                                state.stats.preload_skipped.saturating_add(1);
-                        }
-                        let paths = core_paths(&shell.bytes, &cache.base);
-                        for path in paths {
-                            if cache.lock().generation != epoch
-                                || changes.has_changed().unwrap_or(true)
-                            {
-                                break;
-                            }
-                            let _ = cache
-                                .get_inner(Source::Web, Variant::Public, &path, true)
-                                .await;
-                            tokio::task::yield_now().await;
-                        }
-                    }
-                }
+                cache.preload_pass(&changes).await;
                 drop(cache);
                 if changes.changed().await.is_err() {
                     break;
                 }
-                changes.borrow_and_update();
             }
         });
+    }
+    /// One preload pass for the current generation. Returns early when the
+    /// generation changes; the caller then starts a new pass.
+    async fn preload_pass(self: &Arc<Self>, changes: &watch::Receiver<u64>) {
+        let (mode, epoch) = {
+            let mut s = self.lock();
+            let mode = if s.config.enabled {
+                s.config.preload
+            } else {
+                Preload::Off
+            };
+            let epoch = s.generation;
+            s.progress = PreloadProgress {
+                generation: epoch,
+                mode: Some(mode),
+                state: if mode == Preload::Off {
+                    PreloadState::Idle
+                } else {
+                    PreloadState::Running
+                },
+                ..Default::default()
+            };
+            (mode, epoch)
+        };
+        if mode == Preload::Off {
+            return;
+        }
+        let superseded = |cache: &Cache| {
+            cache.lock().generation != epoch || changes.has_changed().unwrap_or(true)
+        };
+        // "app" waits for the loaders to be idle; the older modes keep their
+        // single best-effort attempt.
+        if mode == Preload::App && !self.wait_idle(&superseded).await {
+            return self.finish_pass(epoch, PreloadState::Superseded);
+        }
+        let shell = self
+            .get_inner(Source::Web, Variant::Public, "index.html", true)
+            .await
+            .ok()
+            .flatten();
+        let paths = match mode {
+            Preload::Off | Preload::Shell => Vec::new(),
+            Preload::Core => {
+                let Some(shell) = &shell else {
+                    return self.finish_pass(epoch, PreloadState::Done);
+                };
+                if shell.bytes.len() > MAX_DISCOVERY_BYTES {
+                    let mut state = self.lock();
+                    state.stats.preload_skipped = state.stats.preload_skipped.saturating_add(1);
+                }
+                core_paths(&shell.bytes, &self.base)
+            }
+            Preload::App => {
+                let available = match self.web_dir.clone() {
+                    Some(root) => tokio::task::spawn_blocking(move || walk(&root))
+                        .await
+                        .unwrap_or_default(),
+                    None => mw_web_assets::web_paths()
+                        .map(Cow::into_owned)
+                        .filter(|path| {
+                            !crate::error_pages::is_unsafe_asset_path(path)
+                        })
+                        .collect(),
+                };
+                let mut plan = app_paths(
+                    &available,
+                    shell.as_ref().map(|shell| &shell.bytes[..]),
+                    &self.base,
+                );
+                // The shell was loaded above; it stays first only for counting.
+                plan.retain(|path| path != "index.html");
+                let catalogs = plan.iter().filter(|path| is_source_locale_pack(path)).count();
+                self.lock().progress.catalogs = catalogs;
+                plan
+            }
+        };
+        {
+            let mut s = self.lock();
+            if s.progress.generation == epoch {
+                s.progress.planned = paths.len() + 1;
+                if shell.is_some() {
+                    s.progress.ready += 1;
+                } else {
+                    s.progress.absent += 1;
+                }
+            }
+        }
+        for path in paths {
+            if !self.wait_idle(&superseded).await {
+                return self.finish_pass(epoch, PreloadState::Superseded);
+            }
+            {
+                let s = self.lock();
+                if mode == Preload::App
+                    && (s.bytes >= s.config.budget() / 4 * 3
+                        || s.entries.len() >= s.config.max_entries / 4 * 3)
+                {
+                    drop(s);
+                    return self.finish_pass(epoch, PreloadState::Limited);
+                }
+            }
+            let mut outcome = Err(Busy);
+            for _ in 0..3 {
+                outcome = self
+                    .get_inner(Source::Web, Variant::Public, &path, true)
+                    .await;
+                if outcome.is_ok() || mode != Preload::App || !self.wait_idle(&superseded).await {
+                    break;
+                }
+            }
+            {
+                let mut s = self.lock();
+                if s.progress.generation == epoch {
+                    match outcome {
+                        Ok(Some(_)) => s.progress.ready += 1,
+                        Ok(None) => s.progress.absent += 1,
+                        Err(_) => s.progress.skipped += 1,
+                    }
+                }
+            }
+            tokio::task::yield_now().await;
+        }
+        let state = if superseded(self.as_ref()) {
+            PreloadState::Superseded
+        } else {
+            PreloadState::Done
+        };
+        self.finish_pass(epoch, state);
+    }
+    fn finish_pass(&self, epoch: u64, state: PreloadState) {
+        let mut s = self.lock();
+        if s.progress.generation == epoch {
+            s.progress.state = state;
+        }
+    }
+    /// Waits until no foreground miss is pending or waiting and a worker is free.
+    async fn wait_idle(&self, superseded: &impl Fn(&Cache) -> bool) -> bool {
+        loop {
+            if superseded(self) {
+                return false;
+            }
+            {
+                let s = self.lock();
+                if s.pending.is_empty() && s.waiting == 0 && self.workers.available_permits() > 0 {
+                    return true;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
     }
     pub(crate) async fn get(
         self: &Arc<Self>,
@@ -465,104 +778,85 @@ impl Cache {
         {
             return Ok(None);
         }
-        let mut receiver = {
-            let mut s = self.lock();
-            let key = Key {
-                source,
-                variant,
-                path: path.into(),
-                base: self.base.clone(),
-                generation: s.generation,
-            };
-            s.clock = s.clock.saturating_add(1);
-            let clock = s.clock;
-            if s.config.enabled {
-                if let Some(entry) = s.entries.get_mut(&key) {
-                    if entry
-                        .expires
-                        .map_or(true, |expires| expires > Instant::now())
-                    {
-                        entry.touched = clock;
-                        let value = entry.value.clone();
-                        s.stats.hits = s.stats.hits.saturating_add(1);
-                        return Ok(Some(value));
+        let deadline = tokio::time::Instant::now() + OBSERVE;
+        let mut admission: Option<OwnedSemaphorePermit> = None;
+        let mut previous: Option<(Prepared, Stamp)> = None;
+        let mut receiver = loop {
+            {
+                let mut s = self.lock();
+                let key = Key {
+                    source,
+                    variant,
+                    path: path.into(),
+                    base: self.base.clone(),
+                    generation: s.generation,
+                };
+                s.clock = s.clock.saturating_add(1);
+                let clock = s.clock;
+                if s.config.enabled {
+                    if let Some(entry) = s.entries.get_mut(&key) {
+                        if entry
+                            .expires
+                            .map_or(true, |expires| expires > Instant::now())
+                        {
+                            entry.touched = clock;
+                            let value = entry.value.clone();
+                            s.stats.hits = s.stats.hits.saturating_add(1);
+                            return Ok(Some(value));
+                        }
+                    }
+                    if let Some(old) = s.entries.remove(&key) {
+                        s.bytes = s.bytes.saturating_sub(old.value.charge);
+                        s.stats.expired = s.stats.expired.saturating_add(1);
+                        if let Some(stamp) = old.stamp {
+                            previous = Some((old.value, stamp));
+                        }
                     }
                 }
-                if let Some(old) = s.entries.remove(&key) {
-                    s.bytes = s.bytes.saturating_sub(old.value.charge);
-                    s.stats.expired = s.stats.expired.saturating_add(1);
+                if let Some(flight) = s.pending.get(&key).cloned() {
+                    s.stats.coalesced = s.stats.coalesced.saturating_add(1);
+                    break flight.result.subscribe();
                 }
-            }
-            let receiver = if let Some(flight) = s.pending.get(&key).cloned() {
-                s.stats.coalesced = s.stats.coalesced.saturating_add(1);
-                flight.result.subscribe()
-            } else {
-                let (worker, queued) = if preload {
-                    if !s.pending.is_empty() {
+                if preload {
+                    if !s.pending.is_empty() || s.waiting > 0 {
                         s.stats.preload_skipped = s.stats.preload_skipped.saturating_add(1);
                         return Err(Busy);
                     }
                     match self.workers.clone().try_acquire_owned() {
-                        Ok(w) => (Some(w), None),
+                        Ok(worker) => {
+                            break self.spawn_job(&mut s, key, Some(worker), None, true, previous.take());
+                        }
                         Err(_) => {
                             s.stats.preload_skipped = s.stats.preload_skipped.saturating_add(1);
                             return Err(Busy);
                         }
                     }
-                } else {
-                    match self.queue.clone().try_acquire_owned() {
-                        Ok(q) => (None, Some(q)),
-                        Err(_) => {
-                            s.stats.busy = s.stats.busy.saturating_add(1);
-                            return Err(Busy);
-                        }
-                    }
-                };
-                let (sender, receiver) = watch::channel(None);
-                let flight = Arc::new(Flight { result: sender });
-                s.pending.insert(key.clone(), flight.clone());
-                s.stats.misses = s.stats.misses.saturating_add(1);
-                if worker.is_some() {
-                    s.running += 1;
                 }
-                let mut job = Job {
-                    config: s.config,
-                    cache: self.clone(),
-                    key,
-                    flight,
-                    worker,
-                    queued,
-                    running: preload,
-                    preload,
-                    done: false,
-                };
-                tokio::spawn(async move {
-                    if job.worker.is_none() {
-                        let Ok(worker) = job.cache.workers.clone().acquire_owned().await else {
-                            return;
-                        };
-                        job.worker = Some(worker);
-                        job.running = true;
-                        job.cache.lock().running += 1;
-                        job.queued.take();
-                    }
-                    // The blocking closure owns cleanup and permits. Cancelling the HTTP waiter
-                    // or aborting this async dispatcher cannot release a still-running worker.
-                    let _ = tokio::task::spawn_blocking(move || {
-                        let result =
-                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| job.load()));
-                        match result {
-                            Ok(value) => job.finish(value, false),
-                            Err(_) => job.finish(None, true),
-                        }
-                    })
-                    .await;
-                });
-                receiver
-            };
-            receiver
+                if let Some(queued) = admission
+                    .take()
+                    .or_else(|| self.queue.clone().try_acquire_owned().ok())
+                {
+                    break self.spawn_job(&mut s, key, None, Some(queued), false, previous.take());
+                }
+                // All dispatcher slots are taken: wait for one instead of refusing.
+                s.waiting += 1;
+                s.stats.admission_waits = s.stats.admission_waits.saturating_add(1);
+            }
+            let waiting = Waiting(self);
+            let permit = tokio::time::timeout_at(deadline, self.queue.clone().acquire_owned()).await;
+            drop(waiting);
+            match permit {
+                Ok(Ok(permit)) => admission = Some(permit),
+                _ => {
+                    let mut state = self.lock();
+                    state.stats.busy = state.stats.busy.saturating_add(1);
+                    return Err(Busy);
+                }
+            }
         };
-        let observed = tokio::time::timeout(Duration::from_secs(5), async {
+        // A slot taken while waiting is not needed to join another load.
+        drop(admission);
+        let observed = tokio::time::timeout_at(deadline, async {
             loop {
                 if let Some(value) = receiver.borrow().clone() {
                     return value;
@@ -582,6 +876,58 @@ impl Cache {
             }
         }
     }
+    fn spawn_job(
+        self: &Arc<Self>,
+        s: &mut Inner,
+        key: Key,
+        worker: Option<OwnedSemaphorePermit>,
+        queued: Option<OwnedSemaphorePermit>,
+        preload: bool,
+        previous: Option<(Prepared, Stamp)>,
+    ) -> watch::Receiver<Option<Result<Option<Prepared>, Busy>>> {
+        let (sender, receiver) = watch::channel(None);
+        let flight = Arc::new(Flight { result: sender });
+        s.pending.insert(key.clone(), flight.clone());
+        s.stats.misses = s.stats.misses.saturating_add(1);
+        if worker.is_some() {
+            s.running += 1;
+        }
+        let mut job = Job {
+            config: s.config,
+            cache: self.clone(),
+            key,
+            flight,
+            running: worker.is_some(),
+            worker,
+            queued,
+            preload,
+            previous,
+            done: false,
+        };
+        tokio::spawn(async move {
+            if job.worker.is_none() {
+                let Ok(worker) = job.cache.workers.clone().acquire_owned().await else {
+                    return;
+                };
+                job.worker = Some(worker);
+                job.running = true;
+                job.cache.lock().running += 1;
+                job.queued.take();
+            }
+            // The blocking closure owns cleanup and permits. Cancelling the HTTP waiter
+            // or aborting this async dispatcher cannot release a still-running worker.
+            let _ = tokio::task::spawn_blocking(move || {
+                let result =
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| job.load()));
+                match result {
+                    Ok(value) => job.finish(value, false),
+                    Err(_) => job.finish(None, true),
+                }
+            })
+            .await;
+        });
+        receiver
+    }
 }
 struct Job {
     config: Config,
@@ -592,10 +938,11 @@ struct Job {
     queued: Option<OwnedSemaphorePermit>,
     running: bool,
     preload: bool,
+    previous: Option<(Prepared, Stamp)>,
     done: bool,
 }
 impl Job {
-    fn load(&self) -> Option<Prepared> {
+    fn load(&self) -> Option<Loaded> {
         #[cfg(test)]
         {
             let hook = self.cache.before_load.lock().unwrap().clone();
@@ -603,9 +950,25 @@ impl Job {
                 hook(&self.key.path);
             }
         }
+        let deployed = match (self.key.source, &self.cache.web_dir) {
+            (Source::Web, Some(root)) => Some(root.join(&self.key.path)),
+            _ => None,
+        };
+        // Taken before the read: a write after this point changes the stamp.
+        let file_stamp = deployed.as_deref().and_then(stamp);
+        if let (Some((previous, old)), Some(current)) = (&self.previous, file_stamp)
+            && *old == current
+        {
+            return Some(Loaded {
+                value: previous.clone(),
+                stamp: Some(current),
+                shell_digest: None,
+                reused: true,
+            });
+        }
         let raw: Cow<'static, [u8]> = match self.key.source {
-            Source::Web => match &self.cache.web_dir {
-                Some(root) => Cow::Owned(std::fs::read(root.join(&self.key.path)).ok()?),
+            Source::Web => match &deployed {
+                Some(file) => Cow::Owned(std::fs::read(file).ok()?),
                 None => mw_web_assets::web(&self.key.path)?,
             },
             Source::Pdf => {
@@ -613,10 +976,17 @@ impl Job {
             }
             Source::Retained => Cow::Owned(self.cache.retained.as_ref()?.read(&self.key.path)?),
         };
+        // A content-hashed name of this build cannot change content, so a
+        // deployed copy is kept like embedded bytes; a new build has new names
+        // and a new shell (see `shell_digest`).
+        let hashed = self.key.source == Source::Web && crate::is_content_hashed(&self.key.path);
         // A PDF embedded fallback can become a permitted deployed override later.
         // Its bytes are static, but source selection must still be revalidated.
-        let immutable = matches!(&raw, Cow::Borrowed(_))
-            && !(self.key.source == Source::Pdf && self.cache.web_dir.is_some());
+        let immutable = hashed
+            || matches!(&raw, Cow::Borrowed(_))
+                && !(self.key.source == Source::Pdf && self.cache.web_dir.is_some());
+        let shell_digest = (deployed.is_some() && self.key.path == "index.html")
+            .then(|| crate::asset_etag(&raw));
         let raw = if self.key.variant == Variant::Raw || self.key.source == Source::Pdf {
             raw
         } else if self.key.variant == Variant::Console {
@@ -640,7 +1010,7 @@ impl Job {
         let mut prepared = Prepared::new(raw);
         prepared.immutable = immutable;
         prepared.compressible = self.key.variant == Variant::Public && crate::public_asset_compression::eligible(&self.key.path);
-        if prepared.compressible && self.config.enabled && self.config.compression_enabled && prepared.bytes.len()>=self.config.compression_min_bytes && prepared.bytes.len()<=self.config.file() {
+        if prepared.compressible && self.config.enabled && self.config.compression_enabled && prepared.bytes.len()>=self.config.compression_min_bytes && self.config.encodes(&prepared) {
             prepared.encodings = crate::public_asset_compression::prepare(&prepared.bytes,self.config.brotli_enabled,self.config.budget().saturating_sub(prepared.charge),|coding|{
                 let sidecar=format!("{}{}",self.key.path,coding.suffix());
                 match (&self.key.source,&self.cache.web_dir) {
@@ -661,9 +1031,14 @@ impl Job {
             });
             prepared.charge += prepared.encodings.charge();
         }
-        Some(prepared)
+        Some(Loaded {
+            value: prepared,
+            stamp: if immutable { None } else { file_stamp },
+            shell_digest,
+            reused: false,
+        })
     }
-    fn finish(&mut self, value: Option<Prepared>, failed: bool) {
+    fn finish(&mut self, loaded: Option<Loaded>, failed: bool) {
         if self.done {
             return;
         }
@@ -677,11 +1052,39 @@ impl Job {
         if failed {
             s.stats.load_failures = s.stats.load_failures.saturating_add(1);
         }
-        if let Some(value) = &value {
-            for encoded in [value.encodings.gzip.as_ref(),value.encodings.brotli.as_ref()].into_iter().flatten() {
-                if encoded.generated {s.stats.generated_encodings=s.stats.generated_encodings.saturating_add(1);}else{s.stats.validated_sidecars=s.stats.validated_sidecars.saturating_add(1);}
+        let mut discarded = None;
+        let mut new_epoch = None;
+        if let Some(loaded) = &loaded {
+            let value = &loaded.value;
+            if loaded.reused {
+                s.stats.revalidated_unchanged = s.stats.revalidated_unchanged.saturating_add(1);
+            } else {
+                for encoded in [value.encodings.gzip.as_ref(),value.encodings.brotli.as_ref()].into_iter().flatten() {
+                    if encoded.generated {s.stats.generated_encodings=s.stats.generated_encodings.saturating_add(1);}else{s.stats.validated_sidecars=s.stats.validated_sidecars.saturating_add(1);}
+                }
             }
-            if s.generation != self.key.generation {
+            // A changed deployed shell means a new build: drop the old set under a
+            // new generation, as clear does. Only a load started in the current
+            // generation may decide this, so a slow read of the previous shell
+            // cannot flip it back.
+            let mut key = self.key.clone();
+            if let Some(digest) = &loaded.shell_digest
+                && s.generation == key.generation
+            {
+                if s.shell_digest.as_ref().is_some_and(|old| old != digest) {
+                    s.generation = s
+                        .generation
+                        .checked_add(1)
+                        .expect("asset cache generation exhausted");
+                    s.bytes = 0;
+                    discarded = Some(std::mem::take(&mut s.entries));
+                    s.stats.shell_changes = s.stats.shell_changes.saturating_add(1);
+                    key.generation = s.generation;
+                    new_epoch = Some(s.generation);
+                }
+                s.shell_digest = Some(digest.clone());
+            }
+            if s.generation != key.generation {
                 s.stats.stale_inserts = s.stats.stale_inserts.saturating_add(1);
             } else if s.config.enabled
                 && value.charge <= s.config.budget()
@@ -712,10 +1115,11 @@ impl Job {
                 };
                 s.bytes += value.charge;
                 s.entries.insert(
-                    self.key.clone(),
+                    key,
                     Entry {
                         value: value.clone(),
                         expires,
+                        stamp: loaded.stamp,
                         touched,
                     },
                 );
@@ -727,9 +1131,15 @@ impl Job {
             }
         }
         drop(s);
-        self.flight
-            .result
-            .send_replace(Some(if failed { Err(Busy) } else { Ok(value) }));
+        drop(discarded);
+        if let Some(epoch) = new_epoch {
+            self.cache.preload.send_replace(epoch);
+        }
+        self.flight.result.send_replace(Some(if failed {
+            Err(Busy)
+        } else {
+            Ok(loaded.map(|loaded| loaded.value))
+        }));
     }
 }
 impl Drop for Job {

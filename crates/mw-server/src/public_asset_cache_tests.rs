@@ -144,7 +144,7 @@ async fn clear_epoch_prevents_inflight_repopulation_and_disable_still_serves() {
     assert_eq!(cache.status()["entries"], 0);
 }
 #[tokio::test]
-async fn queue_is_bounded_and_aborted_waiters_keep_real_worker_permits() {
+async fn full_admission_waits_for_a_slot_and_aborted_waiters_keep_real_worker_permits() {
     let (directory, cache) = fixture();
     let gate = Gate::new();
     let _release = Release(gate.clone());
@@ -160,24 +160,29 @@ async fn queue_is_bounded_and_aborted_waiters_keep_real_worker_permits() {
         }
     }
     until(&cache, |s| s["pendingUnique"] == WORKERS + QUEUED).await;
-    assert!(
-        cache
-            .get(Source::Web, Variant::Public, "overflow.js")
-            .await
-            .is_err()
-    );
+    // A further unique miss is not refused: it waits for a dispatcher slot.
+    std::fs::write(directory.path().join("overflow.js"), b"late").unwrap();
+    let overflow = {
+        let cache = cache.clone();
+        tokio::spawn(async move { get(&cache, "overflow.js").await })
+    };
+    until(&cache, |s| s["admissionWaiting"] == 1).await;
+    assert_eq!(cache.status()["pendingUnique"], WORKERS + QUEUED);
     for task in tasks {
         task.abort();
     }
     assert_eq!(cache.workers.available_permits(), 0);
     assert_eq!(cache.status()["runningLoads"], 2);
     gate.release();
-    until(&cache, |s| s["pendingUnique"] == 0).await;
+    assert_eq!(&overflow.await.unwrap().bytes[..], b"late");
+    until(&cache, |s| s["pendingUnique"] == 0 && s["admissionWaiting"] == 0).await;
     until(&cache, |_| {
         cache.workers.available_permits() == WORKERS && cache.queue.available_permits() == QUEUED
     })
     .await;
-    assert_eq!(cache.status()["counters"]["loads"], WORKERS + QUEUED);
+    assert_eq!(cache.status()["counters"]["loads"], WORKERS + QUEUED + 1);
+    assert_eq!(cache.status()["counters"]["busy"], 0);
+    assert_eq!(cache.status()["counters"]["admissionWaits"], 1);
 }
 #[tokio::test]
 async fn worker_failure_is_busy_not_spa_miss_and_releases_admission() {
@@ -208,10 +213,11 @@ async fn mutable_file_expiry_reloads_bytes_etag_and_service_worker() {
             entry.expires = Some(Instant::now());
         }
     }
-    std::fs::write(directory.path().join("sw.js"), b"new worker").unwrap();
+    // A different length, so the stamp differs even within one mtime tick.
+    std::fs::write(directory.path().join("sw.js"), b"new worker v2").unwrap();
     let new = get(&cache, "sw.js").await;
     assert_ne!(old.etag, new.etag);
-    assert_eq!(&new.bytes[..], b"new worker");
+    assert_eq!(&new.bytes[..], b"new worker v2");
     assert_eq!(cache.status()["counters"]["expired"], 1);
 }
 #[tokio::test]
@@ -534,8 +540,10 @@ fn actual_static_router_keeps_head_etag_csp_console_and_admin_auth() {
 #[test]
 fn configuration_wire_names_match_registry_and_browser_contract() {
     let value = serde_json::to_value(Config::default()).unwrap();
-    assert_eq!(value.get("budgetMiB"), Some(&serde_json::json!(64)));
-    assert_eq!(value.get("maxFileMiB"), Some(&serde_json::json!(4)));
+    assert_eq!(value.get("budgetMiB"), Some(&serde_json::json!(128)));
+    assert_eq!(value.get("maxFileMiB"), Some(&serde_json::json!(8)));
+    assert_eq!(value.get("maxEntries"), Some(&serde_json::json!(4096)));
+    assert_eq!(value.get("preload"), Some(&serde_json::json!("app")));
     assert!(value.get("budgetMib").is_none());
     assert!(value.get("maxFileMib").is_none());
 }
@@ -654,4 +662,441 @@ async fn adapted_prefix_css_is_encoded_once_on_miss_and_policy_changes_clear_var
     for _ in 0..2 {let uncached=get(&cache,"fixture.css").await;assert!(uncached.encodings.gzip.is_none()&&uncached.encodings.brotli.is_none());}
     assert_eq!(cache.status()["compressionEffectiveEnabled"],false);
     assert_eq!(cache.status()["counters"]["generatedEncodings"],generated,"cache-off cannot generate on every request");
+}
+
+fn write(root: &std::path::Path, path: &str, bytes: &[u8]) {
+    let file = root.join(path);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(file, bytes).unwrap();
+}
+fn resident(cache: &Cache) -> std::collections::BTreeSet<String> {
+    let s = cache.lock();
+    s.entries
+        .keys()
+        .filter(|key| key.generation == s.generation)
+        .map(|key| key.path.clone())
+        .collect()
+}
+fn expire_mutable(cache: &Cache) {
+    for entry in cache.lock().entries.values_mut() {
+        if entry.expires.is_some() {
+            entry.expires = Some(Instant::now());
+        }
+    }
+}
+
+#[tokio::test]
+async fn deployed_hashed_entry_outlives_revalidate_seconds_and_unhashed_does_not() {
+    let (directory, cache) = fixture();
+    write(directory.path(), "assets/app-AbCd1234.js", b"hashed build bytes");
+    write(directory.path(), "sw.js", b"unhashed worker");
+    let first = get(&cache, "assets/app-AbCd1234.js").await;
+    get(&cache, "sw.js").await;
+    {
+        let s = cache.lock();
+        for (key, entry) in &s.entries {
+            match key.path.as_str() {
+                "assets/app-AbCd1234.js" => {
+                    assert!(entry.expires.is_none() && entry.stamp.is_none())
+                }
+                "sw.js" => assert!(entry.expires.is_some() && entry.stamp.is_some()),
+                other => panic!("unexpected entry {other}"),
+            }
+        }
+    }
+    // Disk changes under a hashed name are not re-read; a new build has new names.
+    write(directory.path(), "assets/app-AbCd1234.js", b"rewritten in place");
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    let later = get(&cache, "assets/app-AbCd1234.js").await;
+    assert_eq!(later.bytes.as_ptr(), first.bytes.as_ptr());
+    assert_eq!(&later.bytes[..], b"hashed build bytes");
+    let status = cache.status();
+    assert_eq!(status["counters"]["loads"], 2);
+    assert_eq!(status["counters"]["expired"], 0);
+}
+
+#[tokio::test]
+async fn expired_unhashed_entry_with_unchanged_stamp_is_kept_without_reread() {
+    let (directory, cache) = fixture();
+    write(directory.path(), "sw.js", &b"// worker\n".repeat(400));
+    let old = get(&cache, "sw.js").await;
+    assert!(old.encodings.gzip.is_some(), "fixture must exercise encoding work");
+    let generated = cache.status()["counters"]["generatedEncodings"].clone();
+    expire_mutable(&cache);
+    let kept = get(&cache, "sw.js").await;
+    assert_eq!(kept.bytes.as_ptr(), old.bytes.as_ptr());
+    assert_eq!(kept.etag, old.etag);
+    let status = cache.status();
+    assert_eq!(status["counters"]["expired"], 1);
+    assert_eq!(status["counters"]["revalidatedUnchanged"], 1);
+    assert_eq!(status["counters"]["generatedEncodings"], generated);
+    assert_eq!(status["entries"], 1);
+    assert_eq!(status["residentOwnedBytes"].as_u64().unwrap() as usize, old.charge);
+}
+
+#[tokio::test]
+async fn shell_change_bumps_generation_and_drops_the_previous_build() {
+    let (directory, cache) = fixture();
+    write(directory.path(), "index.html", b"<script src=\"./assets/a-AbCd1234.js\"></script>");
+    write(directory.path(), "assets/a-AbCd1234.js", b"build one");
+    get(&cache, "index.html").await;
+    get(&cache, "assets/a-AbCd1234.js").await;
+    let before = cache.status()["generation"].as_u64().unwrap();
+    // Unchanged shell: expiry keeps the generation and the set.
+    expire_mutable(&cache);
+    get(&cache, "index.html").await;
+    assert_eq!(cache.status()["generation"], before);
+    assert_eq!(resident(&cache).len(), 2);
+    // A new build: new shell (different length), new hashed names.
+    write(directory.path(), "index.html", b"<script src=\"./assets/b-EfGh5678.js\"></script> ");
+    write(directory.path(), "assets/b-EfGh5678.js", b"build two");
+    expire_mutable(&cache);
+    let shell = get(&cache, "index.html").await;
+    assert!(String::from_utf8_lossy(&shell.bytes).contains("b-EfGh5678.js"));
+    let status = cache.status();
+    assert_eq!(status["generation"], before + 1);
+    assert_eq!(status["counters"]["shellChanges"], 1);
+    assert_eq!(status["counters"]["clears"], 0);
+    assert_eq!(resident(&cache), ["index.html".to_string()].into());
+    assert_eq!(*cache.preload.borrow(), before + 1, "the preloader is told to run again");
+    // The old hashed file is no longer resident; a request reads disk again.
+    let misses = status["counters"]["misses"].as_u64().unwrap();
+    get(&cache, "assets/a-AbCd1234.js").await;
+    assert_eq!(cache.status()["counters"]["misses"], misses + 1);
+}
+
+#[tokio::test]
+async fn shell_load_from_an_older_generation_cannot_bump_or_insert() {
+    let (directory, cache) = fixture();
+    write(directory.path(), "index.html", b"shell one");
+    get(&cache, "index.html").await;
+    let gate = Gate::new();
+    let _release = Release(gate.clone());
+    *cache.before_load.lock().unwrap() = Some(gate.hook());
+    write(directory.path(), "index.html", b"shell two, longer");
+    let raw = {
+        let cache = cache.clone();
+        tokio::spawn(async move {
+            cache.get(Source::Web, Variant::Raw, "index.html").await.unwrap().unwrap()
+        })
+    };
+    gate.entered(1).await;
+    cache.clear();
+    let generation = cache.status()["generation"].clone();
+    gate.release();
+    assert_eq!(&raw.await.unwrap().bytes[..], b"shell two, longer");
+    let status = cache.status();
+    assert_eq!(status["generation"], generation);
+    assert_eq!(status["counters"]["shellChanges"], 0);
+    assert_eq!(status["counters"]["staleInserts"], 1);
+}
+
+fn app_build(root: &std::path::Path) {
+    write(
+        root,
+        "index.html",
+        b"<link rel=\"stylesheet\" href=\"./assets/index-Css12345.css\"><script type=\"module\" src=\"./assets/index-AbCd1234.js\"></script>",
+    );
+    write(root, "sw.js", b"self.addEventListener('fetch',()=>{});");
+    write(root, "manifest.webmanifest", b"{}");
+    write(root, "favicon.svg", b"<svg/>");
+    write(root, "assets/index-AbCd1234.js", b"entry");
+    write(root, "assets/index-AbCd1234.js.br", b"not a key");
+    write(root, "assets/index-AbCd1234.js.map", b"{}");
+    write(root, "assets/index-Css12345.css", b"body{}");
+    write(root, "assets/Mailbox-Ef567890.css", b".m{}");
+    write(root, "assets/networkWorker-Byfrw9g2.js", b"worker");
+    write(root, "assets/mw_crypto_bg-DbOVROPL.wasm", b"\0asm");
+    write(root, "assets/mw_sanitize_bg-De1o9umO.wasm", b"\0asm");
+    write(root, "assets/mail-settings.css", b"hand written, unhashed");
+    write(root, "assets/catalog.en.app-DZnSKoWf.json", b"{}");
+    write(root, "assets/catalog.en.admin-Q1w2E3r4.json", b"{}");
+    write(root, "assets/catalog.nl.app-Bao7Q7Kh.json", b"{}");
+    write(root, "assets/sender-Pq9Rs8Tu.png", b"png");
+    write(root, "fonts/jost-latin-Jk1Lm2No.woff2", b"font");
+    write(root, "pdfjs/build/pdf-Zz9Yy8Xx.mjs", b"pdf");
+}
+fn app_set() -> std::collections::BTreeSet<String> {
+    [
+        "index.html",
+        "sw.js",
+        "manifest.webmanifest",
+        "assets/index-AbCd1234.js",
+        "assets/index-Css12345.css",
+        "assets/Mailbox-Ef567890.css",
+        "assets/networkWorker-Byfrw9g2.js",
+        "assets/mw_crypto_bg-DbOVROPL.wasm",
+        "assets/mw_sanitize_bg-De1o9umO.wasm",
+        "assets/catalog.en.app-DZnSKoWf.json",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect()
+}
+
+#[tokio::test]
+async fn app_preload_loads_the_listed_set_and_reports_progress() {
+    let (directory, cache) = fixture();
+    app_build(directory.path());
+    cache.apply(Config::default());
+    assert_eq!(cache.status()["effectivePreload"], "app");
+    cache.start_preloader();
+    until(&cache, |s| s["preloadProgress"]["state"] == "done").await;
+    let expected = app_set();
+    assert_eq!(resident(&cache), expected);
+    let status = cache.status();
+    let progress = &status["preloadProgress"];
+    assert_eq!(progress["planned"], expected.len());
+    assert_eq!(progress["ready"], expected.len());
+    assert_eq!(progress["absent"], 0);
+    assert_eq!(progress["skipped"], 0);
+    assert_eq!(progress["catalogs"], 1);
+    assert_eq!(status["counters"]["preloadLoaded"], expected.len());
+    // Every preloaded hashed file is a permanent entry.
+    for (key, entry) in &cache.lock().entries {
+        assert_eq!(entry.expires.is_none(), crate::is_content_hashed(&key.path), "{}", key.path);
+    }
+    // A clear starts a new pass that fills the same set again.
+    cache.clear();
+    until(&cache, |s| {
+        s["preloadProgress"]["state"] == "done" && s["preloadProgress"]["generation"] == s["generation"]
+    })
+    .await;
+    assert_eq!(resident(&cache), expected);
+}
+
+#[tokio::test]
+async fn app_preload_yields_to_foreground_misses() {
+    let (directory, cache) = fixture();
+    app_build(directory.path());
+    write(directory.path(), "late.js", b"foreground");
+    cache.apply(Config::default());
+    let gate = Gate::new();
+    let _release = Release(gate.clone());
+    *cache.before_load.lock().unwrap() = Some(gate.hook());
+    let foreground = {
+        let cache = cache.clone();
+        tokio::spawn(async move { get(&cache, "late.js").await })
+    };
+    gate.entered(1).await;
+    cache.start_preloader();
+    // With a foreground miss pending, the preloader starts nothing.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(gate.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(cache.status()["preloadProgress"]["state"], "running");
+    gate.release();
+    foreground.await.unwrap();
+    until(&cache, |s| s["preloadProgress"]["state"] == "done").await;
+    assert_eq!(cache.status()["preloadProgress"]["skipped"], 0);
+    assert_eq!(resident(&cache).len(), app_set().len() + 1);
+}
+
+#[tokio::test]
+async fn app_preload_stops_at_three_quarters_of_the_entry_limit() {
+    let (directory, cache) = fixture();
+    app_build(directory.path());
+    for n in 0..40 {
+        write(directory.path(), &format!("assets/chunk{n}-AbCd{n:04}.js"), b"x");
+    }
+    cache.apply(Config {
+        max_entries: 16,
+        ..Config::default()
+    });
+    cache.start_preloader();
+    until(&cache, |s| s["preloadProgress"]["state"] == "limited").await;
+    assert_eq!(cache.status()["entries"], 12);
+    assert_eq!(cache.status()["counters"]["evictions"], 0);
+}
+
+#[test]
+fn build_walk_skips_links_junctions_and_deep_or_unsafe_names() {
+    let outside = tempfile::tempdir().unwrap();
+    write(outside.path(), "secret-AbCd1234.js", b"outside");
+    let root = tempfile::tempdir().unwrap();
+    write(root.path(), "assets/real-AbCd1234.js", b"inside");
+    let mut deep = String::from("assets");
+    for n in 0..MAX_WALK_DEPTH + 1 {
+        deep.push_str(&format!("/d{n}"));
+    }
+    write(root.path(), &format!("{deep}/deep-AbCd1234.js"), b"deep");
+    let mut links = 0;
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(
+            outside.path().join("secret-AbCd1234.js"),
+            root.path().join("assets/file-AbCd1234.js"),
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.path().join("assets/dir")).unwrap();
+        links += 2;
+    }
+    #[cfg(windows)]
+    {
+        // Symbolic links need a privilege a test host may lack; junctions do not.
+        if std::os::windows::fs::symlink_file(
+            outside.path().join("secret-AbCd1234.js"),
+            root.path().join("assets/file-AbCd1234.js"),
+        )
+        .is_ok()
+        {
+            links += 1;
+        }
+        if std::os::windows::fs::symlink_dir(outside.path(), root.path().join("assets/dir")).is_ok() {
+            links += 1;
+        }
+        let made = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(root.path().join("assets").join("junction"))
+            .arg(outside.path())
+            .output()
+            .unwrap();
+        assert!(made.status.success(), "junction fixture: {made:?}");
+        assert!(root.path().join("assets/junction/secret-AbCd1234.js").exists());
+        links += 1;
+    }
+    assert!(links >= 1, "at least one link fixture must exist");
+    let listed = walk(root.path());
+    assert_eq!(listed, ["assets/real-AbCd1234.js".to_string()], "links, junctions and over-deep files are not listed");
+    #[cfg(windows)]
+    std::fs::remove_dir(root.path().join("assets").join("junction")).unwrap();
+    // The plan never contains anything the request guard would refuse.
+    let plan = app_paths(
+        &[
+            "assets/ok-AbCd1234.js".into(),
+            "assets/..%2fx-AbCd1234.js".into(),
+            "assets/x-AbCd1234.js.map".into(),
+            "assets/x-AbCd1234.js.gz".into(),
+            "fonts/f-AbCd1234.woff2".into(),
+            "assets/catalog.en.app-AbCd1234.json".into(),
+            "assets/catalog.en.app-AbCd1234.json.br".into(),
+            "assets/catalog.en.admin-AbCd1234.json".into(),
+            "assets/catalog.de.app-AbCd1234.json".into(),
+            "assets/catalog.en.app-x/y-AbCd1234.json".into(),
+        ],
+        None,
+        "",
+    );
+    assert_eq!(plan, ["assets/ok-AbCd1234.js", "assets/catalog.en.app-AbCd1234.json"]);
+}
+
+#[tokio::test]
+async fn large_wasm_is_retained_under_default_limits_and_brotli_negotiated() {
+    use crate::public_asset_compression::Coding;
+    let (directory, cache) = fixture();
+    // 6.6 MB, the size of the current mw_crypto build; compressible but not trivial.
+    let mut raw = Vec::with_capacity(6_610_000);
+    let mut state = 0x2545_f491_u32;
+    while raw.len() < 6_610_000 {
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        raw.extend_from_slice(&[b'a' + (state % 16) as u8, b' ', b'(', b')']);
+    }
+    let path = "assets/mw_crypto_bg-DbOVROPL.wasm";
+    write(directory.path(), path, &raw);
+    let sidecar = crate::public_asset_compression::prepare(&raw, true, 64 * 1024 * 1024, |_| None);
+    let brotli = sidecar.brotli.expect("fixture compresses").bytes;
+    write(directory.path(), &format!("{path}.br"), &brotli);
+    let prepared = get(&cache, path).await;
+    let status = cache.status();
+    assert_eq!(status["config"]["maxFileMiB"], 8);
+    assert_eq!(status["entries"], 1, "{status}");
+    assert_eq!(status["counters"]["oversize"], 0);
+    assert!(status["counters"]["validatedSidecars"].as_u64().unwrap() >= 1);
+    assert!(!prepared.encodings.brotli.as_ref().unwrap().generated);
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(header::ACCEPT_ENCODING, HeaderValue::from_static("gzip, deflate, br"));
+    let response = crate::asset_response_prepared(path, "application/wasm", &prepared, &headers);
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CONTENT_ENCODING], "br");
+    assert_eq!(response.headers()[header::CONTENT_LENGTH], brotli.len().to_string());
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "public, max-age=31536000, immutable");
+    assert_eq!(
+        prepared.encodings.get(Coding::Brotli).unwrap().bytes.as_ref(),
+        &brotli[..]
+    );
+}
+
+/// 100 distinct cold files requested at the same instant (a barrier releases
+/// all requests together), each load holding its worker briefly.
+async fn hundred_simultaneous_distinct_misses(cache: Arc<Cache>, source: Source, paths: Vec<String>) {
+    assert_eq!(paths.len(), 100);
+    *cache.before_load.lock().unwrap() =
+        Some(Arc::new(|_| std::thread::sleep(Duration::from_millis(5))));
+    let start = Arc::new(tokio::sync::Barrier::new(paths.len()));
+    let mut tasks = Vec::new();
+    for path in paths.clone() {
+        let (cache, start) = (cache.clone(), start.clone());
+        tasks.push(tokio::spawn(async move {
+            start.wait().await;
+            cache.get(source, Variant::Public, &path).await
+        }));
+    }
+    for (task, path) in tasks.into_iter().zip(&paths) {
+        let prepared = task.await.unwrap().unwrap_or_else(|_| panic!("503 for {path}"));
+        assert!(prepared.is_some(), "{path} exists");
+    }
+    let status = cache.status();
+    assert_eq!(status["counters"]["busy"], 0, "{status}");
+    assert_eq!(status["counters"]["loads"], 100);
+    assert!(status["counters"]["admissionWaits"].as_u64().unwrap() > 0, "{status}");
+    assert_eq!(status["admissionWaiting"], 0);
+    assert_eq!(status["pendingUnique"], 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hundred_simultaneous_cold_requests_get_no_busy_answer_from_a_deployed_directory() {
+    let (directory, cache) = fixture();
+    let paths: Vec<String> = (0..100).map(|n| format!("assets/c{n}-AbCd{n:04}.js")).collect();
+    for (n, path) in paths.iter().enumerate() {
+        write(directory.path(), path, format!("chunk {n}").repeat(200).as_bytes());
+    }
+    hundred_simultaneous_distinct_misses(cache, Source::Web, paths).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hundred_simultaneous_cold_requests_get_no_busy_answer_from_the_embedded_build() {
+    // The embedded pdf.js table is present in every checkout, unlike apps/web/dist.
+    let cache = Cache::new(None, Arc::from(""), None);
+    cache.apply(Config {
+        preload: Preload::Off,
+        ..Config::default()
+    });
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&mw_web_assets::pdf("pdfjs/manifest.json").unwrap()).unwrap();
+    let paths: Vec<String> = manifest["files"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(|name| format!("pdfjs/{name}"))
+        .filter(|path| mw_web_assets::pdf(path).is_some())
+        .take(100)
+        .collect();
+    hundred_simultaneous_distinct_misses(cache, Source::Pdf, paths).await;
+}
+
+#[tokio::test]
+async fn embedded_file_above_the_owned_file_limit_still_gets_encodings() {
+    // Before, a borrowed embedded file over maxFileMiB (the 6.6 MB wasm in a
+    // release build) was cached but always served identity. Borrowed bytes cost
+    // no owned copy, so the limit does not apply to them; owned (deployed) files
+    // above it are still served identity and not retained.
+    static BIG: [u8; 2 * 1024 * 1024] = [b'a'; 2 * 1024 * 1024];
+    let config = Config {
+        max_file_mib: 1,
+        ..Config::default()
+    };
+    assert!(config.encodes(&Prepared::new(Cow::Borrowed(&BIG))));
+    assert!(!config.encodes(&Prepared::new(Cow::Owned(BIG.to_vec()))));
+    assert!(config.encodes(&Prepared::new(Cow::Owned(vec![b'a'; 1024 * 1024]))));
+    let (directory, owned) = fixture();
+    owned.apply(Config {
+        preload: Preload::Off,
+        ..config
+    });
+    write(directory.path(), "assets/big-AbCd1234.js", &BIG);
+    let deployed = get(&owned, "assets/big-AbCd1234.js").await;
+    assert!(deployed.encodings.gzip.is_none() && deployed.encodings.brotli.is_none());
+    assert_eq!(owned.status()["counters"]["oversize"], 1);
+    assert_eq!(owned.status()["entries"], 0);
 }
