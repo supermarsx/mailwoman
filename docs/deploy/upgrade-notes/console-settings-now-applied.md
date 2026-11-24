@@ -53,6 +53,9 @@ These settings were listed in the console, but no part of Mailwoman acted on the
 | `jobs.historyDays` | It duplicated `retention.jobRuns.days` (default 90), which already prunes job history. Set that instead. |
 | `metrics.drilldownTopN` | No drill-down limits its rows to a top-N count. |
 | `consent.analytics.version`, `consent.analyticsTag.version`, `consent.remoteContent.version`, `consent.telemetry.version` | These purposes are not checked against the consent ledger, so the version never asked anyone again. Decisions for them are recorded with version 1. `cookies.policyVersion` still asks again for cookie consent. |
+| `privacy.watermark.enabled`, `privacy.watermark.opacity` | Nothing draws a watermark. `MW_WATERMARK` and `MW_WATERMARK_OPACITY` still set what `GET /api/security/watermark` returns. |
+| `about.projectLinks` | No About screen reads it. |
+| `observability.errorForwardUrl`, `egress.probeUrl` | These are now set only by the environment (`MW_ERROR_FORWARD_URL`, `MW_EGRESS_PROBE_URL`), so an administrator with settings write access cannot point the server's outbound requests at another address. A value saved in the console never applied; set the variable to use one. |
 
 ## Other notes for this release
 
