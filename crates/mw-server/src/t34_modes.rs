@@ -309,6 +309,9 @@ impl Held {
             "client timing",
             tokio::time::timeout(RECORDER_SAVE_BUDGET, self.client_timing.flush_now(&self.store)).await,
         );
+        // MW_SQLITE_WRITER=group: every write submitted by now (including the
+        // flushes above) is answered before the handles drop. No-op otherwise.
+        let _ = self.store.drain_sqlite_writer(tokio::time::Instant::now() + RECORDER_SAVE_BUDGET).await;
         DrainReport { index_drained, accounting_flushed, request_history_saved, client_timing_saved }
     }
 }

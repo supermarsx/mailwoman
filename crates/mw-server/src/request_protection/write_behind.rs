@@ -68,7 +68,7 @@
 //! one process is seen by the others within one interval. The default `synchronous`
 //! mode keeps exact serialization across processes.
 use mw_store::{
-    Store, StoreError,
+    Store, StoreError, WriteLane,
     request_protection::{
         Ownership, PreparedProtection, ProtectionObservation, ProtectionOutcome,
         ProtectionParticipant, ProtectionSource, SUBJECT_CAPACITY, StoredProtection,
@@ -719,7 +719,7 @@ impl WriteBehind {
         }
         if through {
             bump(&self.counters.write_throughs, 1);
-            let flushed = self.drain(pending.seq).await;
+            let flushed = self.drain(pending.seq, WriteLane::Priority).await;
             return match (flushed, pending.durable.get()) {
                 (Ok(()), Some(durable)) => Answer::ok(*durable),
                 _ => {
@@ -765,12 +765,16 @@ impl WriteBehind {
     }
 
     /// Commit every observation up to and including `target`, in queue order.
-    async fn drain(&self, target: u64) -> Result<(), StoreError> {
+    /// `lane` is the queue of the SQLite group writer (`MW_SQLITE_WRITER=group`):
+    /// priority for a write-through (a transition answered to a client) and an
+    /// administrative clear, normal for the timer and shutdown flushes. Without
+    /// the writer it changes nothing.
+    async fn drain(&self, target: u64, lane: WriteLane) -> Result<(), StoreError> {
         let _flushing = self.flushing.lock().await;
-        self.drain_locked(target).await
+        self.drain_locked(target, lane).await
     }
     /// `drain` for a caller that already holds `flushing`.
-    async fn drain_locked(&self, target: u64) -> Result<(), StoreError> {
+    async fn drain_locked(&self, target: u64, lane: WriteLane) -> Result<(), StoreError> {
         loop {
             let front = lock(&self.queue).front().map(|pending| pending.seq);
             match front {
@@ -779,7 +783,7 @@ impl WriteBehind {
                         Ok(participant) => participant,
                         Err(error) => return Err(self.degrade(error)),
                     };
-                    self.flush_batch(&participant).await?
+                    self.flush_batch(&participant, lane).await?
                 }
                 _ => return Ok(()),
             }
@@ -791,7 +795,7 @@ impl WriteBehind {
         let Some(last) = lock(&self.queue).back().map(|pending| pending.seq) else {
             return Ok(());
         };
-        self.drain(last).await
+        self.drain(last, WriteLane::Normal).await
     }
 
     /// Graceful shutdown: commit everything queued before `deadline`.
@@ -806,13 +810,13 @@ impl WriteBehind {
 
     /// One group of at most 64 from the front of the queue, one writer transaction
     /// (set-based in the store when every subject has a row). Caller holds `flushing`.
-    async fn flush_batch(&self, participant: &ProtectionParticipant) -> Result<(), StoreError> {
+    async fn flush_batch(&self, participant: &ProtectionParticipant, lane: WriteLane) -> Result<(), StoreError> {
         let batch: Vec<Arc<Pending>> = lock(&self.queue).iter().take(BATCH).cloned().collect();
         if batch.is_empty() {
             return Ok(());
         }
         let observations: Vec<_> = batch.iter().map(|pending| pending.observation()).collect();
-        match self.store.request_protection_sqlite_batch_as(participant, &observations).await {
+        match self.store.request_protection_sqlite_batch_in(participant, &observations, lane).await {
             Ok(results) => {
                 self.committed(&batch, results);
                 Ok(())
@@ -823,7 +827,7 @@ impl WriteBehind {
                 for pending in &batch {
                     match self
                         .store
-                        .request_protection_sqlite_batch_as(participant, &[pending.observation()])
+                        .request_protection_sqlite_batch_in(participant, &[pending.observation()], lane)
                         .await
                     {
                         Ok(results) => self.committed(std::slice::from_ref(pending), results),
@@ -917,7 +921,7 @@ impl WriteBehind {
         let _flushing = self.flushing.lock().await;
         let last = lock(&self.queue).back().map(|pending| pending.seq);
         if let Some(last) = last {
-            self.drain_locked(last).await?;
+            self.drain_locked(last, WriteLane::Priority).await?;
         }
         let participant = self.participant().await?;
         let cleared = self.store.clear_request_protection_as(&participant, key, expected, now).await?;

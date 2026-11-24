@@ -79,6 +79,16 @@ These are still written at once, before the request is answered: the first obser
 
 PostgreSQL: the setting is ignored with a warning and accounting stays synchronous.
 
+## SQLite group commit (`MW_SQLITE_WRITER=group`)
+
+`MW_SQLITE_WRITER` (default `gate`) also accepts `group`. Unlike the switches above it changes no consistency guarantee; it is listed here because it is opt-in and still under review.
+
+With `group`, one writer in the server runs several independent writes in one SQLite transaction with one commit, instead of one transaction and one commit each. In this release it is used for message flag changes (for example marking mail read), change-log appends, and the request-protection accounting writes; every other write keeps its own transaction and waits in the same first-in-first-out queue as with `gate`. Each write runs as its own savepoint: a write that fails is undone alone and only its caller gets the error. A caller is answered only after the commit that contains its write, so an answered write is stored with the same durability as before (`synchronous=NORMAL` in WAL mode) and is visible to every later read. If a shared commit fails as a whole, each of its writes runs again alone in a transaction of its own.
+
+Limits: at most 64 writes per commit, and no write joins a commit later than 10 ms after its transaction began. A write that waits longer than 5 seconds for its turn fails with `database is locked`, as with `gate`. Request-protection writes that must be stored before the answer (a throttle or block starting, an administrator's clear) use a priority lane: they are served before queued ordinary writes, and their commit follows them at once. Writes that do not use the shared writer (sign-in, sign-out and every other write in this release) wait in the queue for at most one shared commit. On shutdown the server waits (at most 5 seconds) until every submitted write has been answered.
+
+PostgreSQL: not used; the value is accepted and has no effect there.
+
 ## Combining the modes
 
 The switches are independent; each can be turned on alone. Their checks are the same whether one or all three are on. On shutdown the order is: stop accepting HTTP connections, finish WebSocket actions, drain index publication, flush write-behind accounting, save the request-history and browser-timing buckets (at most 5 seconds each), then the remaining telemetry and log flushes. Each step runs with every mode at its default too; with no queued work it returns at once.
