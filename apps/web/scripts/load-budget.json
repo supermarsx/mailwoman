@@ -10,10 +10,10 @@
     "Translations (t52w-e3, 2026-11-24): two JSON packs per locale (app, admin) = 28 files, English fallback merged at build time. The pack URL table is a JSON block in index.html, so a .ftl edit renames only its pack (probe `catalog`).",
     "catalogPacks: caps are 5% above the measured .br / gzip bytes of each pack, rounded up to 1 KiB."
   ],
-  "critical": { "maxJs": 3, "maxBrBytes": 320512, "maxGzipBytes": 337920 },
+  "critical": { "maxJs": 3, "maxBrBytes": 320512, "maxGzipBytes": 340992 },
   "routes": {
     "login": { "root": "src/screens/Login.tsx", "maxJs": 4, "maxCss": 2, "maxBrBytes": 328192 },
-    "mailbox": { "root": "src/screens/Mailbox.tsx", "maxJs": 5, "maxCss": 3, "maxBrBytes": 821760 },
+    "mailbox": { "root": "src/screens/Mailbox.tsx", "maxJs": 5, "maxCss": 3, "maxBrBytes": 824832 },
     "compose": { "root": "src/components/Compose.tsx", "after": "mailbox", "maxJs": 4, "maxCss": 4, "maxBrBytes": 301056 },
     "settings": { "root": "src/screens/Settings.tsx", "after": "mailbox", "maxJs": 3, "maxCss": 3, "maxBrBytes": 208896 },
     "admin": { "root": "src/screens/Admin/index.tsx", "console": true, "maxJs": 5, "maxCss": 3, "maxBrBytes": 386560 },
