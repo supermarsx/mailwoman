@@ -1,5 +1,13 @@
-import {expect,it} from 'vitest';
+import {expect,it,vi} from 'vitest';
 import {inspectMessageLink,reviewMessageLinks} from './messageLinks.ts';
+it('processes styled mail without using a document that inherits the shell CSP',()=>{
+ const parser=vi.spyOn(DOMParser.prototype,'parseFromString').mockImplementation(()=>{throw new Error('CSP-active parser forbidden');});
+ try{
+  const result=reviewMessageLinks('<p style="color:red">person@example.test</p>','Review');
+  expect(result.html).toContain('data-mw-contact-address="person@example.test"');
+  expect(result.html).toContain('color: red');expect(result.html).toContain('cursor: pointer');
+ }finally{parser.mockRestore();}
+});
 it('neutralizes navigation while preserving CSP, body text and local fragment navigation',()=>{
  const source='<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src \'none\'"></head><body><a href="https://evil.example/path" target="_self" ping="https://tracker.example" download>https://bank.example</a><a href="#foot">Footnote</a></body></html>';
  const result=reviewMessageLinks(source,'Review above');const doc=new DOMParser().parseFromString(result.html,'text/html');const anchors=doc.querySelectorAll('a');
