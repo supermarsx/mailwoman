@@ -827,6 +827,10 @@ impl Store {
     /// contended caller waits out `busy_timeout` instead of failing with a
     /// `SQLITE_BUSY_SNAPSHOT` "database is locked" (which a deferred transaction
     /// that reads-then-upgrades cannot avoid, timeout or not).
+    ///
+    /// PostgreSQL has no single writer, so the same statement runs inside a
+    /// transaction that first takes the per-account change-sequence lock (see
+    /// [`append_changes`]).
     pub async fn record_change(
         &self,
         account_id: &str,
@@ -835,7 +839,7 @@ impl Store {
         op: &str,
     ) -> Result<u64, StoreError> {
         let now = chrono::Utc::now().to_rfc3339();
-        let next = q(
+        let insert = q(
             "INSERT INTO changes (account_id, type, state, stable_id, op, at)
              VALUES (
                  ?1, ?2,
@@ -848,10 +852,12 @@ impl Store {
         .bind(kind)
         .bind(stable_id)
         .bind(op)
-        .bind(&now)
-        .fetch_scalar_i64(&self.backend)
-        .await?;
-        Ok(next as u64)
+        .bind(&now);
+        let rows = append_changes(&self.backend, account_id, insert).await?;
+        Ok(rows
+            .first()
+            .map(|r| r.get_i64_idx(0) as u64)
+            .unwrap_or_default())
     }
 
     /// Append **N change rows sharing ONE state**, returning that state (26.20
@@ -881,11 +887,13 @@ impl Store {
     /// An empty slice records nothing and returns the **current** state — a batch
     /// that changed no message must not advance the token.
     ///
-    /// Concurrency posture is [`Store::record_change`]'s, unchanged: one
-    /// statement that takes the write lock directly, computing `MAX(state) + 1`
-    /// against the latest committed row, so concurrent appends serialize rather
-    /// than collide. The `MAX` is an aggregate in a `FROM` subquery, so it is
-    /// evaluated **once** for the whole insert rather than per row — the test
+    /// Concurrency posture is [`Store::record_change`]'s: one statement that
+    /// takes the write lock directly on SQLite, and the per-account
+    /// change-sequence lock first on PostgreSQL (see [`append_changes`]),
+    /// computing `MAX(state) + 1` against the latest committed row, so
+    /// concurrent appends serialize rather than collide. The `MAX` is an
+    /// aggregate in a `FROM` subquery, so it is evaluated **once** for the
+    /// whole insert rather than per row — the test
     /// asserts that directly, since a per-row re-evaluation would silently
     /// restore the N-states behaviour this method exists to remove.
     pub async fn record_changes(
@@ -927,14 +935,13 @@ impl Store {
                  RETURNING state"
             }
         };
-        let rows = q(sql)
+        let insert = q(sql)
             .bind(account_id)
             .bind(kind)
             .bind(id_list_json(&ids))
             .bind(op)
-            .bind(&now)
-            .fetch_all(&self.backend)
-            .await?;
+            .bind(&now);
+        let rows = append_changes(&self.backend, account_id, insert).await?;
         // Every row carries the same state by construction; read it off the
         // first rather than trusting the caller's arithmetic.
         Ok(rows
@@ -1092,6 +1099,40 @@ fn identity_from_row(r: &Row) -> IdentityRow {
         sent_mailbox_id: r.get_opt_string("sent_mailbox_id"),
         source: r.get_string("source"),
         ..Default::default()
+    }
+}
+
+/// Run a change-log `INSERT … MAX(state)+1 … RETURNING state` so concurrent
+/// writers for one account get distinct states that become visible in order.
+///
+/// SQLite: the statement runs on its own; the single writer serializes it.
+///
+/// PostgreSQL (READ COMMITTED, no unique index on `(account_id, type, state)`):
+/// two concurrent statements can read the same `MAX(state)`, and a statement
+/// that computed a lower state can commit after one that computed a higher
+/// state, so a client already synced past it misses the row (t54). The insert
+/// therefore runs in a transaction that first takes the account's
+/// `pg_advisory_xact_lock` — the same key the ingest path takes
+/// (`lock_body_account`) before its own change rows — and holds it to commit.
+/// The lock is taken in a separate statement, so the INSERT's snapshot is taken
+/// after the previous holder committed. Lock order: advisory account lock, then
+/// the `changes` insert (its FK takes `FOR KEY SHARE` on the account row) —
+/// the same order as ingest, so the two cannot deadlock. Callers must not hold
+/// that account lock in another open transaction while calling this.
+async fn append_changes(
+    backend: &crate::backend::Backend,
+    account_id: &str,
+    insert: crate::backend::Sql,
+) -> Result<Vec<Row>, StoreError> {
+    match backend.dialect() {
+        Dialect::Sqlite => Ok(insert.fetch_all(backend).await?),
+        Dialect::Postgres => {
+            let mut tx = backend.begin().await?;
+            crate::background_maintenance::lock_body_account(&mut tx, account_id).await?;
+            let rows = insert.fetch_all_tx(&mut tx).await?;
+            tx.commit().await?;
+            Ok(rows)
+        }
     }
 }
 
