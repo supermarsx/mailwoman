@@ -25,6 +25,9 @@ use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 #[path = "write_gate.rs"]
 pub(crate) mod write_gate;
 use write_gate::{Site, WriteGate, WritePermit};
+#[path = "sqlite_writer.rs"]
+pub(crate) mod sqlite_writer;
+use sqlite_writer::{GroupWriter, Lane, WriteLease};
 
 /// How often the background checkpointer looks at the active WAL.
 pub(crate) const WAL_CHECKPOINT_TICK: Duration = Duration::from_millis(250);
@@ -136,6 +139,9 @@ struct Inner {
     /// In-process write gate (managed databases with `MW_SQLITE_WRITER=gate`).
     /// Shared by every generation of this database.
     write_gate: Option<Arc<WriteGate>>,
+    /// Group-commit writer (`MW_SQLITE_WRITER=group`), for the write paths
+    /// converted to [`LiveSqlite::write_lease`]. Always with a gate.
+    writer: Option<Arc<GroupWriter>>,
 }
 struct Generation {
     pool: SqlitePool,
@@ -202,6 +208,7 @@ impl LiveSqlite {
                 cache_registry: Arc::new(Default::default()),
                 wal: Arc::default(),
                 write_gate: unmanaged_write_gate(),
+                writer: unmanaged_group_writer(),
             }),
         }
     }
@@ -211,7 +218,43 @@ impl LiveSqlite {
         let live = Self::unmanaged(pool);
         let mut inner = Arc::try_unwrap(live.inner).ok().expect("fresh manager");
         inner.write_gate = gate;
+        inner.writer = None;
         Self { inner: Arc::new(inner) }
+    }
+    /// An unmanaged pool with a gate and a group writer (tests of the writer).
+    #[cfg(test)]
+    pub(crate) fn unmanaged_with_writer(pool: SqlitePool, writer: Arc<GroupWriter>) -> Self {
+        let live = Self::unmanaged(pool);
+        let mut inner = Arc::try_unwrap(live.inner).ok().expect("fresh manager");
+        inner.write_gate = Some(WriteGate::new());
+        inner.writer = Some(writer);
+        Self { inner: Arc::new(inner) }
+    }
+    /// The group writer of this database, if it has one.
+    pub(crate) fn group_writer(&self) -> Option<&Arc<GroupWriter>> {
+        self.inner.writer.as_ref()
+    }
+    /// A write lease: a savepoint in the group writer's shared batch when this
+    /// database has a writer and `solo` is false, otherwise an ordinary
+    /// transaction of its own (exactly `begin_at`).
+    pub(crate) async fn write_lease(
+        &self,
+        lane: Lane,
+        solo: bool,
+        at: &'static std::panic::Location<'static>,
+    ) -> Result<WriteLease, Error> {
+        match (&self.inner.writer, solo) {
+            (Some(writer), false) => writer.lease(self, lane).await,
+            _ => Ok(WriteLease::solo(crate::backend::Tx::Sqlite(self.begin_at(at).await?))),
+        }
+    }
+    /// Wait until the group writer (if any) has answered every submitted
+    /// job, at most until `deadline`. It keeps admitting jobs.
+    pub(crate) async fn drain_writer(&self, deadline: tokio::time::Instant) -> bool {
+        match &self.inner.writer {
+            Some(writer) => writer.drain(deadline).await,
+            None => true,
+        }
     }
     /// The write gate of this database, if it has one.
     #[cfg(test)]
@@ -382,6 +425,12 @@ impl LiveSqlite {
         }
     }
     pub(crate) async fn close(&self) {
+        // The group writer stops admitting jobs and answers the queued ones
+        // (bounded by the same wait limit a queued writer has) before the pool
+        // closes.
+        if let Some(writer) = &self.inner.writer {
+            writer.close(tokio::time::Instant::now() + write_gate::WAIT_LIMIT).await;
+        }
         self.exclusive().await.close_old().await;
     }
     /// Count one committed write for the background checkpointer.
@@ -519,6 +568,18 @@ fn unmanaged_write_gate() -> Option<Arc<WriteGate>> {
 fn unmanaged_write_gate() -> Option<Arc<WriteGate>> {
     gate_every_pool_for_tests().then(WriteGate::new)
 }
+/// Unmanaged pools have no group writer. Test builds give them one when the
+/// whole suite runs in group mode (`MW_SQLITE_WRITER=group` together with
+/// `MW_TEST_WRITE_GATE_EVERY_POOL=1`).
+#[cfg(not(test))]
+fn unmanaged_group_writer() -> Option<Arc<GroupWriter>> {
+    None
+}
+#[cfg(test)]
+fn unmanaged_group_writer() -> Option<Arc<GroupWriter>> {
+    (gate_every_pool_for_tests() && write_gate::configured_mode() == Ok(write_gate::Mode::Group))
+        .then(GroupWriter::new)
+}
 #[cfg(test)]
 pub(crate) fn gate_every_pool_for_tests() -> bool {
     std::env::var("MW_TEST_WRITE_GATE_EVERY_POOL").as_deref() == Ok("1")
@@ -574,7 +635,8 @@ impl Opening {
                 cache_policy: OnceLock::new(),
                 cache_registry: Arc::new(Default::default()),
                 wal: Arc::default(),
-                write_gate: (self.write_mode == write_gate::Mode::Gate).then(WriteGate::new),
+                write_gate: (self.write_mode != write_gate::Mode::Off).then(WriteGate::new),
+                writer: (self.write_mode == write_gate::Mode::Group).then(GroupWriter::new),
             }),
         };
         let mut registry = REGISTRY.lock().unwrap_or_else(|p| p.into_inner());

@@ -44,7 +44,13 @@ pub struct QuerySnapshot {
     /// per-request snapshot.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub write_gate: Option<WriteGateStats>,
+    /// SQLite group-commit writer (`MW_SQLITE_WRITER=group`), summed over the
+    /// process's managed databases; like `write_gate`, only in
+    /// [`process_snapshot`] and only once a writer exists.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sqlite_writer: Option<SqliteWriterStats>,
 }
+pub use crate::sqlite_live::sqlite_writer::SqliteWriterStats;
 pub use crate::sqlite_live::write_gate::WriteGateStats;
 impl QuerySnapshot {
     pub fn merge(&mut self, other: &Self) {
@@ -102,6 +108,7 @@ impl Counters {
             other: self.other.snapshot(),
             acquire: self.acquire.snapshot(),
             write_gate: None,
+            sqlite_writer: None,
         }
     }
 }
@@ -118,6 +125,7 @@ pub async fn measure_queries<F: Future>(future: F) -> (F::Output, QuerySnapshot)
 pub fn process_snapshot() -> QuerySnapshot {
     let mut snapshot = PROCESS.snapshot();
     snapshot.write_gate = crate::sqlite_live::write_gate::process_stats();
+    snapshot.sqlite_writer = crate::sqlite_live::sqlite_writer::process_stats();
     snapshot
 }
 #[derive(Clone, Copy)]

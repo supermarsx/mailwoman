@@ -73,33 +73,33 @@ impl Store {
         expected: &Message,
         flags: &str,
     ) -> Result<bool, StoreError> {
-        let mut tx = self.backend.begin().await?;
-        if lock_mailboxes(
-            &mut tx,
-            &expected.account_id,
-            &expected.mailbox_id,
-            &expected.mailbox_id,
-        )
-        .await?
-            != 1
-        {
-            tx.commit().await?;
-            return Ok(false);
-        }
-        let n=q("UPDATE messages SET flags_json=?8 WHERE stable_id=?1 AND account_id=?2 AND mailbox_id=?3 AND uidvalidity=?4 AND uid=?5 AND cache_revision=?6 AND (blob_ref=?7 OR (blob_ref IS NULL AND ?7 IS NULL))")
-            .bind(&expected.stable_id).bind(&expected.account_id).bind(&expected.mailbox_id).bind(i64::from(expected.uidvalidity)).bind(i64::from(expected.uid)).bind(&expected.cache_revision).bind(expected.blob_ref.as_deref()).bind(flags).execute_tx(&mut tx).await?;
-        if n == 0 {
-            tx.commit().await?;
-            return Ok(false);
-        }
-        let old = crate::cache::flags_json_is_unread(&expected.flags_json);
-        let new = crate::cache::flags_json_is_unread(flags);
-        if old != new {
-            let delta = if new { 1i64 } else { -1i64 };
-            q("UPDATE mailboxes SET unread=CASE WHEN unread+?1<0 THEN 0 ELSE unread+?1 END WHERE id=?2 AND account_id=?3").bind(delta).bind(&expected.mailbox_id).bind(&expected.account_id).execute_tx(&mut tx).await?;
-        }
-        tx.commit().await?;
-        Ok(true)
+        // One write job: a savepoint in the group writer's batch with
+        // MW_SQLITE_WRITER=group, otherwise its own transaction, as before.
+        crate::backend::write_job!(self.backend, crate::backend::WriteLane::Normal, |tx| async {
+            if lock_mailboxes(
+                tx,
+                &expected.account_id,
+                &expected.mailbox_id,
+                &expected.mailbox_id,
+            )
+            .await?
+                != 1
+            {
+                return Ok(false);
+            }
+            let n=q("UPDATE messages SET flags_json=?8 WHERE stable_id=?1 AND account_id=?2 AND mailbox_id=?3 AND uidvalidity=?4 AND uid=?5 AND cache_revision=?6 AND (blob_ref=?7 OR (blob_ref IS NULL AND ?7 IS NULL))")
+                .bind(&expected.stable_id).bind(&expected.account_id).bind(&expected.mailbox_id).bind(i64::from(expected.uidvalidity)).bind(i64::from(expected.uid)).bind(&expected.cache_revision).bind(expected.blob_ref.as_deref()).bind(flags).execute_tx(tx).await?;
+            if n == 0 {
+                return Ok(false);
+            }
+            let old = crate::cache::flags_json_is_unread(&expected.flags_json);
+            let new = crate::cache::flags_json_is_unread(flags);
+            if old != new {
+                let delta = if new { 1i64 } else { -1i64 };
+                q("UPDATE mailboxes SET unread=CASE WHEN unread+?1<0 THEN 0 ELSE unread+?1 END WHERE id=?2 AND account_id=?3").bind(delta).bind(&expected.mailbox_id).bind(&expected.account_id).execute_tx(tx).await?;
+            }
+            Ok::<_, StoreError>(true)
+        })
     }
 
     /// Mirror an upstream move only if its complete original source still

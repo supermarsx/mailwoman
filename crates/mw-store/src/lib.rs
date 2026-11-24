@@ -125,6 +125,8 @@ mod backend;
 mod sqlite_live;
 /// `MW_SQLITE_WRITER` (in-process SQLite write gate), for the startup check.
 pub use sqlite_live::write_gate::{Mode as SqliteWriterMode, parse_mode as parse_sqlite_writer_mode};
+/// Queue of a write job in the SQLite group-commit writer (`MW_SQLITE_WRITER=group`).
+pub use sqlite_live::sqlite_writer::Lane as WriteLane;
 mod sqlite_startup;
 mod generation_files;
 pub use generation_files::retirement::{RetainedDatabase, RetainedDatabaseReport, RetireDatabaseRequest, RetiredDatabase};
@@ -539,6 +541,18 @@ impl Store {
         match &self.backend {
             Backend::Sqlite(p) => p.close().await,
             Backend::Postgres(p) => p.close().await,
+        }
+    }
+
+    /// Shutdown step for `MW_SQLITE_WRITER=group`: wait until the SQLite
+    /// group-commit writer has answered every job submitted so far, at most
+    /// until `deadline`. New jobs are still admitted (the last flushes of the
+    /// shutdown sequence use it). `true` without a writer (PostgreSQL, `gate`,
+    /// `off`).
+    pub async fn drain_sqlite_writer(&self, deadline: tokio::time::Instant) -> bool {
+        match &self.backend {
+            Backend::Sqlite(live) => live.drain_writer(deadline).await,
+            Backend::Postgres(_) => true,
         }
     }
 

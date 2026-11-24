@@ -1622,14 +1622,28 @@ impl Store {
     ) -> Result<Vec<(ProtectionOutcome, Option<StoredProtection>)>, StoreError> {
         if !self.uses_sqlite() || requests.len() > 64 { return Err(corrupt()); }
         let marks = self.writer_marks().await;
-        self.sqlite_batch(requests, marks).await
+        self.sqlite_batch(requests, marks, crate::WriteLane::Priority).await
     }
     /// `request_protection_sqlite_batch_with_state` for a write-behind
     /// participant, which joined when it was created.
+    ///
+    /// The group runs on the priority lane of the SQLite group writer
+    /// (`MW_SQLITE_WRITER=group`): a write-through of a transition must not wait
+    /// behind queued ordinary writes. The timer flush of ordinary observations
+    /// uses [`Store::request_protection_sqlite_batch_in`] with the normal lane.
     pub async fn request_protection_sqlite_batch_as(
         &self, writer: &ProtectionParticipant, requests: &[ProtectionObservation<'_>],
     ) -> Result<Vec<(ProtectionOutcome, Option<StoredProtection>)>, StoreError> {
-        self.sqlite_batch(requests, !writer.acknowledged()).await
+        self.request_protection_sqlite_batch_in(writer, requests, crate::WriteLane::Priority).await
+    }
+    /// `request_protection_sqlite_batch_as` on a chosen lane of the SQLite
+    /// group writer. Without the writer (`gate`, `off`) the lane changes
+    /// nothing: the group is its own transaction, as before.
+    pub async fn request_protection_sqlite_batch_in(
+        &self, writer: &ProtectionParticipant, requests: &[ProtectionObservation<'_>],
+        lane: crate::WriteLane,
+    ) -> Result<Vec<(ProtectionOutcome, Option<StoredProtection>)>, StoreError> {
+        self.sqlite_batch(requests, !writer.acknowledged(), lane).await
     }
 
     /// When every subject of the group has a row, the group is applied set-based:
@@ -1640,7 +1654,7 @@ impl Store {
     /// lock and capacity check. Decisions, rows and audit events are the same
     /// either way.
     async fn sqlite_batch(
-        &self, requests: &[ProtectionObservation<'_>], marks: bool,
+        &self, requests: &[ProtectionObservation<'_>], marks: bool, lane: crate::WriteLane,
     ) -> Result<Vec<(ProtectionOutcome, Option<StoredProtection>)>, StoreError> {
         if !self.uses_sqlite() || requests.len() > 64 { return Err(corrupt()); }
         let keyer = self.request_protection_keyer();
@@ -1650,30 +1664,32 @@ impl Store {
         if prepared.iter().all(Option::is_none) {
             return Ok(requests.iter().map(|_| (empty_protection_outcome(), None)).collect());
         }
-        let mut tx = self.backend.begin().await?;
-        if marks {
-            bump_writers_marker(&mut tx).await?;
-        }
-        let outcomes = match set_based_batch(&mut tx, requests, &prepared).await? {
-            Some(outcomes) => outcomes,
-            None => {
-                let mut outcomes = Vec::with_capacity(requests.len());
-                for (request, prepared) in requests.iter().zip(prepared) {
-                    outcomes.push(match prepared {
-                        Some(prepared) => {
-                            let (outcome, stored) = self.apply_request_protection_with_state(&mut tx,
-                                request.kind, request.policy, request.now, request.signal,
-                                request.source, prepared).await?;
-                            (outcome, Some(stored))
-                        }
-                        None => (empty_protection_outcome(), None),
-                    });
-                }
-                outcomes
+        // One write job: a savepoint in the group writer's batch with
+        // MW_SQLITE_WRITER=group, otherwise its own transaction, as before.
+        crate::backend::write_job!(self.backend, lane, |tx| async {
+            if marks {
+                bump_writers_marker(tx).await?;
             }
-        };
-        tx.commit().await?;
-        Ok(outcomes)
+            let outcomes = match set_based_batch(tx, requests, &prepared).await? {
+                Some(outcomes) => outcomes,
+                None => {
+                    let mut outcomes = Vec::with_capacity(requests.len());
+                    for (request, prepared) in requests.iter().zip(prepared.iter().cloned()) {
+                        outcomes.push(match prepared {
+                            Some(prepared) => {
+                                let (outcome, stored) = self.apply_request_protection_with_state(tx,
+                                    request.kind, request.policy, request.now, request.signal,
+                                    request.source, prepared).await?;
+                                (outcome, Some(stored))
+                            }
+                            None => (empty_protection_outcome(), None),
+                        });
+                    }
+                    outcomes
+                }
+            };
+            Ok::<_, StoreError>(outcomes)
+        })
     }
 
     /// Validate one observation without any storage access. `None` means the

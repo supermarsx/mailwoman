@@ -1702,25 +1702,27 @@ impl Store {
         }
         let ids: Vec<String> = desired.keys().map(|id| (*id).to_string()).collect();
 
-        let mut tx = self.backend.begin().await?;
+        // One write job (a savepoint in the group writer's batch with
+        // MW_SQLITE_WRITER=group, otherwise its own transaction, as before).
+        crate::backend::write_job!(self.backend, crate::backend::WriteLane::Normal, |tx| async {
         // PostgreSQL follows the same account -> mailbox -> message lock order
         // as source-CAS moves/deletes. Discovery is only a lock plan: recheck it
         // after locking, before using any flags to calculate unread deltas.
         let planned = if self.backend.dialect() == Dialect::Postgres {
             let rows = q("SELECT stable_id,account_id,mailbox_id FROM messages WHERE stable_id IN (SELECT value FROM json_array_elements_text(?1::json))")
-                .bind(id_list_json(&ids)).fetch_all_tx(&mut tx).await?;
+                .bind(id_list_json(&ids)).fetch_all_tx(tx).await?;
             let locations: std::collections::BTreeMap<String, (String, String)> = rows.iter()
                 .map(|r| (r.get_string("stable_id"), (r.get_string("account_id"), r.get_string("mailbox_id"))))
                 .collect();
             let accounts: std::collections::BTreeSet<&str> = locations.values().map(|(a, _)| a.as_str()).collect();
             for account in accounts {
-                crate::background_maintenance::lock_body_account(&mut tx, account).await?;
-                crate::header_envelope::lock_parent(&mut tx, account).await?;
+                crate::background_maintenance::lock_body_account(tx, account).await?;
+                crate::header_envelope::lock_parent(tx, account).await?;
             }
             let mailboxes: std::collections::BTreeSet<(&str, &str)> = locations.values().map(|(a, m)| (a.as_str(), m.as_str())).collect();
             for (account, mailbox) in mailboxes {
                 q("SELECT id FROM mailboxes WHERE account_id=?1 AND id=?2 FOR UPDATE")
-                    .bind(account).bind(mailbox).fetch_all_tx(&mut tx).await?;
+                    .bind(account).bind(mailbox).fetch_all_tx(tx).await?;
             }
             Some(locations)
         } else { None };
@@ -1739,7 +1741,7 @@ impl Store {
         };
         let rows = q(sql)
             .bind(id_list_json(&ids))
-            .fetch_all_tx(&mut tx)
+            .fetch_all_tx(tx)
             .await?;
 
         if let Some(planned) = planned {
@@ -1747,7 +1749,6 @@ impl Store {
                 .map(|r| (r.get_string("stable_id"), (r.get_string("account_id"), r.get_string("mailbox_id"))))
                 .collect();
             if current != planned {
-                tx.rollback().await?;
                 return Err(StoreError::SourceChanged);
             }
         }
@@ -1769,7 +1770,6 @@ impl Store {
             present.insert(stable_id);
         }
         if present.is_empty() {
-            tx.commit().await?;
             return Ok(updates.iter().map(|_| false).collect());
         }
 
@@ -1803,7 +1803,7 @@ impl Store {
                  WHERE messages.stable_id = j.id"
             }
         };
-        q(sql).bind(payload).execute_tx(&mut tx).await?;
+        q(sql).bind(payload).execute_tx(tx).await?;
 
         // (3) one counter statement per mailbox that actually changed. The floor
         // is a `CASE` rather than `MAX`/`GREATEST`, which are not the same
@@ -1817,15 +1817,15 @@ impl Store {
                  WHERE id = ?1")
             .bind(&mailbox_id)
             .bind(d)
-            .execute_tx(&mut tx)
+            .execute_tx(tx)
             .await?;
         }
 
-        tx.commit().await?;
-        Ok(updates
+        Ok::<_, StoreError>(updates
             .iter()
             .map(|(id, _)| present.contains(id.as_str()))
             .collect())
+        })
     }
 
     /// Assign a message to a thread.

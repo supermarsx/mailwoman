@@ -1168,6 +1168,14 @@ pub(crate) async fn append_changes(
     insert: crate::backend::Sql,
 ) -> Result<Vec<Row>, StoreError> {
     match backend.dialect() {
+        // MW_SQLITE_WRITER=group: the append is one job of the group writer, so
+        // it shares a commit with other writes. The writer runs jobs one after
+        // another, so `MAX(state) + 1` still sees every earlier append.
+        Dialect::Sqlite if backend.groups_writes() => {
+            crate::backend::write_job!(backend, crate::backend::WriteLane::Normal, |tx| async {
+                Ok::<_, StoreError>(insert.clone().fetch_all_tx(tx).await?)
+            })
+        }
         Dialect::Sqlite => Ok(insert.fetch_all(backend).await?),
         Dialect::Postgres => {
             let mut tx = backend.begin().await?;

@@ -31,7 +31,8 @@
 //! `PRAGMA`) are not gated and keep waiting in the busy handler, as before;
 //! that costs only the wait, never correctness, because `busy_timeout` stays.
 //!
-//! Switch: `MW_SQLITE_WRITER` = `gate` (default; also when empty) or `off`, read once per process
+//! Switch: `MW_SQLITE_WRITER` = `gate` (default; also when empty), `group` (the gate plus the
+//! group-commit writer of `sqlite_writer`) or `off`, read once per process
 //! when the first managed SQLite database opens. PostgreSQL and unmanaged
 //! (in-memory, private, test) SQLite pools never use the gate.
 //!
@@ -64,6 +65,9 @@ pub enum Mode {
     Gate,
     /// No gate: in-process writers wait in SQLite's busy handler.
     Off,
+    /// The gate, plus the group-commit writer (`sqlite_writer`) for the write
+    /// paths converted to it.
+    Group,
 }
 impl Mode {
     /// The switch value.
@@ -71,12 +75,13 @@ impl Mode {
         match self {
             Mode::Gate => "gate",
             Mode::Off => "off",
+            Mode::Group => "group",
         }
     }
 }
 
 /// The text reported for an invalid `MW_SQLITE_WRITER` value.
-pub const INVALID_MODE: &str = "MW_SQLITE_WRITER must be gate or off";
+pub const INVALID_MODE: &str = "MW_SQLITE_WRITER must be gate, group or off";
 
 /// Parse a `MW_SQLITE_WRITER` value. Unset or empty means the default (`gate`),
 /// as for the t34 switches; any other value is refused.
@@ -85,6 +90,7 @@ pub fn parse_mode(raw: Option<&str>) -> Result<Mode, String> {
         None | Some("") => Ok(Mode::Gate),
         Some(value) if value.eq_ignore_ascii_case("gate") => Ok(Mode::Gate),
         Some(value) if value.eq_ignore_ascii_case("off") => Ok(Mode::Off),
+        Some(value) if value.eq_ignore_ascii_case("group") => Ok(Mode::Group),
         Some(_) => Err(INVALID_MODE.into()),
     }
 }

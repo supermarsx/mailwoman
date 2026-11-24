@@ -79,7 +79,66 @@ impl Backend {
         timer.success();
         Ok(transaction)
     }
+
+    /// Whether write jobs on this backend share batch transactions
+    /// (`MW_SQLITE_WRITER=group` on SQLite). Call sites whose ordinary form is a
+    /// single autocommit statement keep that form when this is false.
+    pub(crate) fn groups_writes(&self) -> bool {
+        matches!(self, Backend::Sqlite(live) if live.group_writer().is_some())
+    }
+
+    /// A lease for one write job; see [`write_job!`], which is how call sites
+    /// use it. With the group writer (and `solo` false) the job runs as a
+    /// savepoint inside a shared batch; otherwise it is exactly an ordinary
+    /// [`Backend::begin`] transaction, committed or rolled back by
+    /// [`WriteLease::finish`]. PostgreSQL always takes the ordinary path.
+    #[track_caller]
+    pub(crate) fn write_lease(
+        &self,
+        lane: WriteLane,
+        solo: bool,
+    ) -> impl std::future::Future<Output = Result<WriteLease, sqlx::Error>> + '_ {
+        let at = std::panic::Location::caller();
+        async move {
+            match self {
+                Backend::Sqlite(live) if live.group_writer().is_some() && !solo => {
+                    live.write_lease(lane, false, at).await
+                }
+                _ => Ok(WriteLease::solo(self.begin_at(at).await?)),
+            }
+        }
+    }
 }
+
+pub(crate) use crate::sqlite_live::sqlite_writer::{Finished, Lane as WriteLane, WriteLease};
+
+/// Run one write job: `write_job!(backend, lane, |tx| async { … })`.
+///
+/// The body gets `tx: &mut Tx` and returns `Result<T, E>` (`E:
+/// From<sqlx::Error>`); the macro evaluates to that result once it is final:
+/// for `Ok`, after the commit that contains the job. Early `return`s inside
+/// the `async` block end the job, not the enclosing function. The body must
+/// not commit or roll back itself, and must be re-runnable (SQL only): when a
+/// shared batch fails as a whole, the macro runs the body again in a
+/// transaction of its own. The lease's `?` converts into the enclosing
+/// function's error type.
+macro_rules! write_job {
+    ($backend:expr, $lane:expr, |$tx:ident| $body:expr) => {{
+        let mut solo = false;
+        loop {
+            let mut lease = $backend.write_lease($lane, solo).await?;
+            let outcome = {
+                let $tx: &mut $crate::backend::Tx = lease.tx();
+                $body.await
+            };
+            match lease.finish(outcome).await {
+                $crate::backend::Finished::Done(result) => break result,
+                $crate::backend::Finished::Rerun => solo = true,
+            }
+        }
+    }};
+}
+pub(crate) use write_job;
 
 // ── parameters ──────────────────────────────────────────────────────────────
 
@@ -216,6 +275,7 @@ impl IntoArg for Option<&[u8]> {
 
 /// A pending query authored in the SQLite `?n` style. Terminal methods dispatch
 /// on the [`Backend`] (or [`Tx`]), rewriting placeholders for Postgres.
+#[derive(Clone)]
 pub(crate) struct Sql {
     sql: &'static str,
     args: Vec<Arg>,

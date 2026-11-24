@@ -81,7 +81,10 @@ async fn grouped_admissions_use_one_writer_transaction_instead_of_eight() {
     let (result,grouped)=crate::pool_telemetry::measure_queries(store.request_protection_sqlite_batch(&[r;8])).await;
     assert_eq!(result.unwrap().len(),8);
     let (_,serial)=crate::pool_telemetry::measure_queries(async {for _ in 0..8 {store.request_protection_with_source(r.kind,r.value,r.policy,r.now,r.signal,r.source).await.unwrap();}}).await;
-    assert_eq!(grouped.other.calls,1);assert_eq!(serial.other.calls,8);
+    // MW_SQLITE_WRITER=group (t50hp-e19): the group is a savepoint in the writer's
+    // batch, whose BEGIN runs on the writer task, outside this measurement.
+    let begins=u64::from(!store.backend.groups_writes());
+    assert_eq!(grouped.other.calls,begins);assert_eq!(serial.other.calls,8);
     // Set-based (t50hp-e8): one SELECT of the rows and one UPDATE for the group,
     // against a lock UPDATE, a SELECT and an UPDATE per observation.
     assert_eq!((grouped.read.calls,grouped.write.calls),(1,1),"{grouped:?}");
@@ -115,7 +118,7 @@ async fn set_based_group_of_64_over_many_subjects_is_two_statements_and_equals_t
     let transitions=inventory(&grouped).await.1.len() as u64;
     assert!(transitions>0,"transitions must be exercised");
     // Rows: one SELECT and one UPDATE; each transition adds its audit statements.
-    assert_eq!(sql.other.calls,1,"{sql:?}");
+    assert_eq!(sql.other.calls,u64::from(!grouped.backend.groups_writes()),"{sql:?}");
     assert!(sql.read.calls<=1+transitions,"{sql:?}");
     assert!(sql.write.calls<=1+5*transitions,"{sql:?}");
     // Every committed revision is the one the outcome reports.

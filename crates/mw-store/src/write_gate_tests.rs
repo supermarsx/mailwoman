@@ -80,7 +80,8 @@ fn mode_parse_defaults_to_gate_and_refuses_unknown_values() {
     assert_eq!(parse_mode(Some(" OFF ")), Ok(Mode::Off));
     assert_eq!(parse_mode(Some("")), Ok(Mode::Gate));
     assert_eq!(parse_mode(Some("  ")), Ok(Mode::Gate));
-    assert_eq!(parse_mode(Some("group")), Err(INVALID_MODE.to_string()));
+    assert_eq!(parse_mode(Some("group")), Ok(Mode::Group));
+    assert_eq!(parse_mode(Some(" Group ")), Ok(Mode::Group));
     assert_eq!(parse_mode(Some("on")), Err(INVALID_MODE.to_string()));
 }
 
@@ -531,10 +532,11 @@ async fn managed_file_databases_get_a_gate_and_report_it() {
     .unwrap();
     let Backend::Sqlite(live) = &store.backend else { unreachable!() };
     let expected = configured_mode().unwrap();
-    assert_eq!(live.write_gate().is_some(), expected == Mode::Gate);
+    assert_eq!(live.write_gate().is_some(), expected != Mode::Off);
+    assert_eq!(live.group_writer().is_some(), expected == Mode::Group);
     let before = live.write_gate().map(|gate| gate.stats().granted);
     let (_, request) = crate::pool_telemetry::measure_queries(store.set_setting("gate-probe", "1")).await;
-    if expected == Mode::Gate {
+    if expected != Mode::Off {
         assert!(live.write_gate().unwrap().stats().granted > before.unwrap());
         // The process snapshot (the pool diagnostics' "operations") reports
         // the gate; a per-request snapshot never does.
@@ -544,7 +546,7 @@ async fn managed_file_databases_get_a_gate_and_report_it() {
     }
     let request = serde_json::to_value(request).unwrap();
     assert!(request.get("writeGate").is_none(), "{request}");
-    assert_eq!(expected.as_str(), if expected == Mode::Gate { "gate" } else { "off" });
+    assert_eq!(expected.as_str(), match expected { Mode::Gate => "gate", Mode::Group => "group", Mode::Off => "off" });
     store.close().await;
 
     // In-memory stores never have a gate (unless the test-only override is on).
