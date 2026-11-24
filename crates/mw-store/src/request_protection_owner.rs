@@ -257,7 +257,14 @@ pub enum Ownership {
 
 #[derive(Debug)]
 enum Kind {
-    File { paths: Paths, database: PathBuf, file: File, token: String, seen_joins: Option<u64> },
+    File {
+        paths: Paths,
+        database: PathBuf,
+        file: File,
+        token: String,
+        /// Joins seen by this participant's previous check; one check at a time.
+        seen_joins: std::sync::Mutex<Option<u64>>,
+    },
     Private,
     Shared,
 }
@@ -319,7 +326,10 @@ impl ProtectionParticipant {
                 }
             }
         }
-        Ok(Self { kind: Kind::File { paths, database, file, token, seen_joins: Some(mine) }, acknowledged })
+        Ok(Self {
+            kind: Kind::File { paths, database, file, token, seen_joins: std::sync::Mutex::new(Some(mine)) },
+            acknowledged,
+        })
     }
 
     /// Caller holds the admission lock and a shared lock on `file`: release it,
@@ -348,17 +358,18 @@ impl ProtectionParticipant {
 
     /// One ownership check (see module docs) for an owner whose trust window is
     /// `window`. No SQL; a few file system calls.
-    pub fn check(&mut self, window: Duration) -> Checked {
+    pub fn check(&self, window: Duration) -> Checked {
         let started = std::time::Instant::now();
         let ownership = self.check_at(window);
         Checked { ownership, started }
     }
-    fn check_at(&mut self, window: Duration) -> Ownership {
-        let (paths, database, file, token, seen_joins) = match &mut self.kind {
+    fn check_at(&self, window: Duration) -> Ownership {
+        let (paths, database, file, token, seen_joins) = match &self.kind {
             Kind::Private => return Ownership::Alone { changed: false },
             Kind::Shared => return Ownership::Shared,
             Kind::File { paths, database, file, token, seen_joins } => (paths, database, file, token, seen_joins),
         };
+        let mut seen_joins = seen_joins.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let admission = match Admission::try_take(paths) {
             Ok(Some(admission)) => admission,
             Ok(None) => return Ownership::Busy,
@@ -417,7 +428,7 @@ mod tests {
     #[tokio::test]
     async fn a_lone_participant_owns_and_a_second_one_ends_ownership() {
         let dir = tempfile::tempdir().unwrap();
-        let mut first = ProtectionParticipant::join(&location(&dir)).await.unwrap();
+        let first = ProtectionParticipant::join(&location(&dir)).await.unwrap();
         assert_eq!(first.check(W).ownership, Ownership::Alone { changed: false });
         assert_eq!(first.check(W).ownership, Ownership::Alone { changed: false });
         // A second participant joins: the owner has acknowledged nothing yet, so
@@ -430,7 +441,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(150)).await;
         assert!(!joining.is_finished(), "the joiner waits for the owner's acknowledgement");
         assert_eq!(first.check(W).ownership, Ownership::Shared);
-        let mut second = joining.await.unwrap();
+        let second = joining.await.unwrap();
         assert!(started.elapsed() < join_wait(W));
         assert!(second.acknowledged());
         assert_eq!(second.check(W).ownership, Ownership::Shared);
@@ -443,7 +454,7 @@ mod tests {
     #[tokio::test]
     async fn a_writer_that_joined_and_left_between_two_checks_is_reported() {
         let dir = tempfile::tempdir().unwrap();
-        let mut first = ProtectionParticipant::join(&location(&dir)).await.unwrap();
+        let first = ProtectionParticipant::join(&location(&dir)).await.unwrap();
         // No check yet, so no owner is recorded and the next joiner does not wait.
         let transient = ProtectionParticipant::join(&location(&dir)).await.unwrap();
         drop(transient);
@@ -458,11 +469,11 @@ mod tests {
     #[tokio::test]
     async fn a_joiner_that_finds_itself_alone_does_not_wait_for_a_departed_owner() {
         let dir = tempfile::tempdir().unwrap();
-        let mut owner = ProtectionParticipant::join(&location(&dir)).await.unwrap();
+        let owner = ProtectionParticipant::join(&location(&dir)).await.unwrap();
         assert_eq!(owner.check(W).ownership, Ownership::Alone { changed: false });
         drop(owner); // exits without clearing the owner flag
         let started = std::time::Instant::now();
-        let mut next = ProtectionParticipant::join(&location(&dir)).await.unwrap();
+        let next = ProtectionParticipant::join(&location(&dir)).await.unwrap();
         assert!(started.elapsed() < Duration::from_secs(2));
         assert_eq!(next.check(W).ownership, Ownership::Alone { changed: false });
     }
@@ -470,13 +481,13 @@ mod tests {
     #[tokio::test]
     async fn a_replaced_lock_file_is_reported_lost() {
         let dir = tempfile::tempdir().unwrap();
-        let mut owner = ProtectionParticipant::join(&location(&dir)).await.unwrap();
+        let owner = ProtectionParticipant::join(&location(&dir)).await.unwrap();
         assert_eq!(owner.check(W).ownership, Ownership::Alone { changed: false });
         let lock = Paths::new(&std::fs::canonicalize(dir.path().join("witness.db")).unwrap()).lock;
         if std::fs::remove_file(&lock).is_ok() && std::fs::write(&lock, b"").is_ok() {
             assert_eq!(owner.check(W).ownership, Ownership::Lost);
             // A new participant on the new file is alone and owns.
-            let mut next = ProtectionParticipant::join(&location(&dir)).await.unwrap();
+            let next = ProtectionParticipant::join(&location(&dir)).await.unwrap();
             assert!(matches!(next.check(W).ownership, Ownership::Alone { .. }));
         } else {
             eprintln!("[witness] a held lock file cannot be replaced on this platform");
@@ -485,9 +496,9 @@ mod tests {
 
     #[tokio::test]
     async fn private_and_shared_locations() {
-        let mut private = ProtectionParticipant::join(&Location::Private).await.unwrap();
+        let private = ProtectionParticipant::join(&Location::Private).await.unwrap();
         assert_eq!(private.check(W).ownership, Ownership::Alone { changed: false });
-        let mut shared = ProtectionParticipant::join(&Location::Shared).await.unwrap();
+        let shared = ProtectionParticipant::join(&Location::Shared).await.unwrap();
         assert_eq!(shared.check(W).ownership, Ownership::Shared);
         assert!(!shared.can_own() && private.can_own());
     }
@@ -506,7 +517,7 @@ mod tests {
     #[tokio::test]
     async fn a_hard_linked_database_is_never_owned() {
         let dir = tempfile::tempdir().unwrap();
-        let mut owner = ProtectionParticipant::join(&location(&dir)).await.unwrap();
+        let owner = ProtectionParticipant::join(&location(&dir)).await.unwrap();
         assert_eq!(owner.check(W).ownership, Ownership::Alone { changed: false });
         std::fs::hard_link(dir.path().join("witness.db"), dir.path().join("second-name.db")).unwrap();
         assert_eq!(owner.check(W).ownership, Ownership::Shared, "another name could use another witness");
@@ -522,7 +533,7 @@ mod tests {
     #[tokio::test]
     async fn a_joiner_that_is_not_acknowledged_in_time_is_marked_unacknowledged() {
         let dir = tempfile::tempdir().unwrap();
-        let mut owner = ProtectionParticipant::join(&location(&dir)).await.unwrap();
+        let owner = ProtectionParticipant::join(&location(&dir)).await.unwrap();
         // A short window: the joiner waits window + 2 s, then gives up.
         let window = Duration::from_millis(100);
         assert!(matches!(owner.check(window).ownership, Ownership::Alone { .. }));

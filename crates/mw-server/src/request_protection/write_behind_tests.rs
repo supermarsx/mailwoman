@@ -1309,3 +1309,32 @@ async fn a_killed_process_loses_no_answered_block_and_at_most_two_intervals() {
     assert!(stored <= last + 1, "nothing counted that was not made");
     assert!(last.saturating_sub(stored) <= recent, "lost {} > made in the last two intervals {recent}", last - stored);
 }
+
+/// The ownership check runs on its own timer and does not wait for the flush
+/// lock: a flush held for many ownership windows (a long drain, a blocked
+/// writer) does not let ownership lapse. Before this, the check ran after the
+/// flush in the same loop and took the flush lock, so a slow flush lapsed
+/// ownership and the next check marked every cached subject for re-reading.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_slow_flush_does_not_lapse_ownership() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&file_store_path(&dir), ServerKey::generate()).await.unwrap();
+    let accounting = WriteBehind::start(store.clone(), config(50, 4096));
+    settle_ownership(&accounting, true).await;
+    let mut p = policy();
+    p.rate_limit = 1000;
+    accounting.record("account", "slow", &p, 1000, None, NONE).await;
+    let gained = accounting.status().ownership_gained;
+    let held = accounting.flushing.lock().await; // a flush that does not finish
+    for _ in 0..10 {
+        tokio::time::sleep(Duration::from_millis(60)).await; // > one 100 ms window in total
+        assert!(accounting.status().owned, "{:?}", accounting.status());
+    }
+    drop(held);
+    let status = accounting.status();
+    assert_eq!((status.ownership_gained, status.ownership_lost), (gained, 0), "{status:?}");
+    // Still answered from memory.
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    let (_, sql) = measure_queries(accounting.record("account", "slow", &p, 1000, None, NONE)).await;
+    assert_eq!(statements(&sql), (0, 0, 0), "{sql:?}");
+}

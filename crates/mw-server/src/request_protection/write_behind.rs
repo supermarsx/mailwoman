@@ -346,9 +346,12 @@ pub(crate) struct WriteBehind {
     /// Global observation order; the batch contract applies observations in this order.
     queue: Mutex<VecDeque<Arc<Pending>>>,
     next_seq: AtomicU64,
-    /// One flusher at a time, so committed order is queue order. Holds this
-    /// instance's witness participant (joined on first use).
-    flushing: tokio::sync::Mutex<Option<ProtectionParticipant>>,
+    /// One flusher at a time, so committed order is queue order.
+    flushing: tokio::sync::Mutex<()>,
+    /// This instance's witness participant (joined on first use), shared by the
+    /// flusher and the ownership checker, which never waits for a flush.
+    participant: Mutex<Option<Arc<ProtectionParticipant>>>,
+    joining: tokio::sync::Mutex<()>,
     /// Whether the ownership rule may be used at all.
     ownership: bool,
     /// Milliseconds since `epoch` until which ownership holds; 0 = not owned.
@@ -376,7 +379,9 @@ impl WriteBehind {
             shards: (0..SHARDS).map(|_| Mutex::new(HashMap::new())).collect(),
             queue: Mutex::new(VecDeque::new()),
             next_seq: AtomicU64::new(1),
-            flushing: tokio::sync::Mutex::new(None),
+            flushing: tokio::sync::Mutex::new(()),
+            participant: Mutex::new(None),
+            joining: tokio::sync::Mutex::new(()),
             ownership: true,
             owned_until_ms: AtomicU64::new(0),
             epoch: Instant::now(),
@@ -398,20 +403,32 @@ impl WriteBehind {
         *lock(&ACTIVE) = Some(weak.clone());
         let wake = accounting.wake.clone();
         let every = accounting.flush_every;
-        tokio::spawn(async move {
-            if let Some(accounting) = weak.upgrade() {
-                accounting.check_ownership().await;
+        tokio::spawn({
+            let weak = weak.clone();
+            async move {
+                loop {
+                    tokio::select! {
+                        () = tokio::time::sleep(every) => {}
+                        () = wake.notified() => {}
+                    }
+                    let Some(accounting) = weak.upgrade() else { break };
+                    if accounting.flush_pending().await.is_err() {
+                        super::warning();
+                    }
+                }
             }
+        });
+        // Ownership is checked on its own timer, twice per flush interval
+        // (four times per ownership window), so a slow or blocked flush (write
+        // gate, storage failure, a long drain) never lets ownership lapse; a
+        // lapse would mark every cached subject for re-reading.
+        let check_every = every / 2;
+        tokio::spawn(async move {
             loop {
-                tokio::select! {
-                    () = tokio::time::sleep(every) => {}
-                    () = wake.notified() => {}
-                }
                 let Some(accounting) = weak.upgrade() else { break };
-                if accounting.flush_pending().await.is_err() {
-                    super::warning();
-                }
                 accounting.check_ownership().await;
+                drop(accounting);
+                tokio::time::sleep(check_every).await;
             }
         });
         accounting
@@ -456,27 +473,29 @@ impl WriteBehind {
             }
         }
     }
-    /// The participant held in the `flushing` slot, joining on first use.
-    async fn participant<'a>(
-        &self,
-        slot: &'a mut Option<ProtectionParticipant>,
-    ) -> Result<&'a ProtectionParticipant, StoreError> {
-        if slot.is_none() {
-            *slot = Some(self.store.request_protection_participant().await?);
+    /// This instance's participant, joining on first use.
+    async fn participant(&self) -> Result<Arc<ProtectionParticipant>, StoreError> {
+        if let Some(participant) = lock(&self.participant).clone() {
+            return Ok(participant);
         }
-        Ok(slot.as_ref().expect("participant joined"))
+        let _joining = self.joining.lock().await;
+        if let Some(participant) = lock(&self.participant).clone() {
+            return Ok(participant);
+        }
+        let participant = Arc::new(self.store.request_protection_participant().await?);
+        *lock(&self.participant) = Some(participant.clone());
+        Ok(participant)
     }
-    /// One ownership check (each flush tick). No SQL.
+    /// One ownership check (its own timer, independent of flushing): file
+    /// system calls and one indexed read of the writers marker.
     pub(crate) async fn check_ownership(&self) {
-        let mut slot = self.flushing.lock().await;
         if !self.ownership {
             return;
         }
-        if self.participant(&mut slot).await.is_err() {
+        let Ok(participant) = self.participant().await else {
             self.lose_ownership();
             return;
-        }
-        let participant = slot.as_mut().expect("participant joined");
+        };
         let checked = participant.check(self.window);
         match checked.ownership {
             Ownership::Alone { changed } => {
@@ -520,7 +539,10 @@ impl WriteBehind {
             Ownership::Lost => {
                 self.lose_ownership();
                 // Join again (new lock handle) before the next write.
-                *slot = None;
+                let mut slot = lock(&self.participant);
+                if slot.as_ref().is_some_and(|current| Arc::ptr_eq(current, &participant)) {
+                    *slot = None;
+                }
             }
         }
     }
@@ -744,24 +766,20 @@ impl WriteBehind {
 
     /// Commit every observation up to and including `target`, in queue order.
     async fn drain(&self, target: u64) -> Result<(), StoreError> {
-        let mut slot = self.flushing.lock().await;
-        self.drain_locked(&mut slot, target).await
+        let _flushing = self.flushing.lock().await;
+        self.drain_locked(target).await
     }
     /// `drain` for a caller that already holds `flushing`.
-    async fn drain_locked(
-        &self,
-        slot: &mut Option<ProtectionParticipant>,
-        target: u64,
-    ) -> Result<(), StoreError> {
+    async fn drain_locked(&self, target: u64) -> Result<(), StoreError> {
         loop {
             let front = lock(&self.queue).front().map(|pending| pending.seq);
             match front {
                 Some(seq) if seq <= target => {
-                    let participant = match self.participant(slot).await {
+                    let participant = match self.participant().await {
                         Ok(participant) => participant,
                         Err(error) => return Err(self.degrade(error)),
                     };
-                    self.flush_batch(participant).await?
+                    self.flush_batch(&participant).await?
                 }
                 _ => return Ok(()),
             }
@@ -896,13 +914,13 @@ impl WriteBehind {
     /// expected revision, then restart the cached subject from an absent row.
     pub(crate) async fn clear(&self, key: &str, expected: &str, now: i64) -> Result<bool, StoreError> {
         // Hold the flusher out until the cached subject matches the cleared row.
-        let mut slot = self.flushing.lock().await;
+        let _flushing = self.flushing.lock().await;
         let last = lock(&self.queue).back().map(|pending| pending.seq);
         if let Some(last) = last {
-            self.drain_locked(&mut slot, last).await?;
+            self.drain_locked(last).await?;
         }
-        let participant = self.participant(&mut slot).await?;
-        let cleared = self.store.clear_request_protection_as(participant, key, expected, now).await?;
+        let participant = self.participant().await?;
+        let cleared = self.store.clear_request_protection_as(&participant, key, expected, now).await?;
         let mut entries = lock(self.shard(key));
         if cleared && let Some(entry) = entries.get_mut(key) {
             if entry.pending.is_empty() {
