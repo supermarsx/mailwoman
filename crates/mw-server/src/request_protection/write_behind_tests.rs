@@ -1114,3 +1114,198 @@ async fn review_r1_witness_status_is_reported() {
         assert!(snapshot["writerJoins"][field].is_u64(), "{field}: {snapshot}");
     }
 }
+
+// Real OS processes: the test binary runs itself as a child with one of the
+// roles below (MW_E8_CHILD_ROLE), on a database named by MW_E8_CHILD_DB.
+
+const CHILD_TEST: &str = "request_protection::write_behind::tests::wb_child_process";
+
+fn child(role: &str, db: &str, key: &ServerKey) -> std::process::Child {
+    std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", CHILD_TEST, "--nocapture", "--test-threads=1"])
+        .env("MW_E8_CHILD_ROLE", role)
+        .env("MW_E8_CHILD_DB", db)
+        .env("MW_E8_CHILD_KEY", key.to_hex())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap()
+}
+
+/// Child entry point; a no-op unless started by `child`.
+#[test]
+fn wb_child_process() {
+    let Ok(role) = std::env::var("MW_E8_CHILD_ROLE") else { return };
+    let db = std::env::var("MW_E8_CHILD_DB").unwrap();
+    let key = ServerKey::from_hex(&std::env::var("MW_E8_CHILD_KEY").unwrap()).unwrap();
+    let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+    runtime.block_on(async move {
+        use std::io::Write;
+        let say = |line: String| {
+            let mut out = std::io::stdout().lock();
+            let _ = writeln!(out, "E8CHILD {line}");
+            let _ = out.flush();
+        };
+        let store = Store::open(&db, key).await.unwrap();
+        match role.as_str() {
+            "bound" => {
+                let accounting = WriteBehind::start(store, config(100, 4096));
+                let mut p = policy();
+                p.rate_limit = 60;
+                p.rate_window_secs = 3600;
+                tokio::time::sleep(Duration::from_millis(400)).await;
+                say("READY".into());
+                let started = Instant::now();
+                let (mut made, mut admitted, mut owned) = (0u64, 0u64, false);
+                while started.elapsed() < Duration::from_millis(1500) {
+                    let answer = accounting.record("account", "shared", &p, 1000, None, NONE).await;
+                    made += 1;
+                    admitted += u64::from(!answer.decision.enforced && !answer.storage_failed);
+                    owned |= accounting.status().owned;
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+                say(format!("DONE made={made} admitted={admitted} owned={owned}"));
+            }
+            "kill" => {
+                let accounting = WriteBehind::start(store, config(200, 65536));
+                let mut p = policy();
+                p.rate_limit = 1_000_000;
+                let mut made = 0u64;
+                loop {
+                    accounting.record("account", "killed", &p, 1000, None, NONE).await;
+                    made += 1;
+                    say(format!("MADE {made}"));
+                    if made % 40 == 0 {
+                        let ip = format!("probe-path:198.51.100.{}", made / 40);
+                        let hit = accounting.record("client", &ip, &p, 1000, Some(Signal::ProbePath), NONE).await;
+                        if hit.decision.enforced && !hit.storage_failed {
+                            say(format!("BLOCK {ip}"));
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_millis(3)).await;
+                }
+            }
+            other => panic!("unknown role {other}"),
+        }
+    });
+}
+
+/// Two real OS processes on one database: neither owns, and over-admission
+/// stays within (processes - 1) x rate x 2 intervals.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_os_processes_never_own_and_stay_within_the_bound() {
+    use std::io::BufRead;
+    let dir = tempfile::tempdir().unwrap();
+    let path = file_store_path(&dir);
+    let key = ServerKey::generate();
+    let store = Store::open(&path, key.clone()).await.unwrap();
+    let accounting = WriteBehind::start(store.clone(), config(100, 4096));
+    let mut p = policy();
+    p.rate_limit = 60;
+    p.rate_window_secs = 3600;
+    // Create the row before either process charges it.
+    store.request_protection("account", "shared", &p, 1000, None).await.unwrap();
+    let mut process = child("bound", &path, &key);
+    let stdout = process.stdout.take().unwrap();
+    let (lines, receiver) = std::sync::mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        for line in std::io::BufReader::new(stdout).lines().map_while(Result::ok) {
+            // libtest may print its own text before ours on the same line.
+            if let Some(line) = line.find("E8CHILD ").map(|at| &line[at + 8..]) {
+                let _ = lines.send(line.to_owned());
+            }
+        }
+    });
+    let ready = tokio::task::spawn_blocking({
+        let receiver = std::sync::Arc::new(std::sync::Mutex::new(receiver));
+        move || {
+            let receiver = receiver.lock().unwrap();
+            let ready = receiver.recv_timeout(Duration::from_secs(60)).unwrap();
+            assert_eq!(ready, "READY");
+            receiver.recv_timeout(Duration::from_secs(60)).unwrap()
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let started = Instant::now();
+    let (mut made, mut admitted, mut owned) = (0u64, 1u64, false);
+    while started.elapsed() < Duration::from_millis(1500) {
+        let answer = accounting.record("account", "shared", &p, 1000, None, NONE).await;
+        made += 1;
+        admitted += u64::from(!answer.decision.enforced && !answer.storage_failed);
+        owned |= accounting.status().owned;
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let done = ready.await.unwrap();
+    assert!(process.wait().unwrap().success());
+    let field = |name: &str| -> String {
+        done.split_whitespace().find_map(|part| part.strip_prefix(&format!("{name}=")).map(str::to_owned)).unwrap()
+    };
+    let (child_made, child_admitted): (u64, u64) = (field("made").parse().unwrap(), field("admitted").parse().unwrap());
+    assert_eq!(field("owned"), "false", "the child never owned");
+    assert!(!owned, "the parent never owned");
+    let total = admitted + child_admitted;
+    let rate = (made.max(child_made) as f64) / 1.5;
+    let bound = (rate * 2.0 * 0.1).ceil() as u64 + 1;
+    eprintln!("[write_behind] two OS processes: admitted={total} limit=60 rate/process={rate:.0}/s bound=+{bound}");
+    assert!(total >= 60 && total <= 60 + bound, "admitted {total}, bound 60 + {bound}");
+}
+
+/// A real kill (TerminateProcess / SIGKILL) of a child mid-interval: every
+/// block it answered is in the database, and the ordinary observations lost
+/// are at most what it made in the last two intervals.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_killed_process_loses_no_answered_block_and_at_most_two_intervals() {
+    use std::io::BufRead;
+    let dir = tempfile::tempdir().unwrap();
+    let path = file_store_path(&dir);
+    let key = ServerKey::generate();
+    Store::open(&path, key.clone()).await.unwrap().close().await;
+    let mut process = child("kill", &path, &key);
+    let stdout = process.stdout.take().unwrap();
+    let (lines, receiver) = std::sync::mpsc::channel::<(Instant, String)>();
+    std::thread::spawn(move || {
+        for line in std::io::BufReader::new(stdout).lines().map_while(Result::ok) {
+            // libtest may print its own text before ours on the same line.
+            if let Some(line) = line.find("E8CHILD ").map(|at| &line[at + 8..]) {
+                let _ = lines.send((Instant::now(), line.to_owned()));
+            }
+        }
+    });
+    let (mut blocks, mut made) = (Vec::new(), Vec::new());
+    let deadline = Instant::now() + Duration::from_secs(120);
+    while blocks.len() < 4 && Instant::now() < deadline {
+        let (at, line) = receiver.recv_timeout(Duration::from_secs(60)).unwrap();
+        if let Some(ip) = line.strip_prefix("BLOCK ") {
+            blocks.push(ip.to_owned());
+        } else if let Some(n) = line.strip_prefix("MADE ") {
+            made.push((at, n.parse::<u64>().unwrap()));
+        }
+    }
+    assert_eq!(blocks.len(), 4);
+    // Mid-interval: some ordinary observations after the last block.
+    tokio::time::sleep(Duration::from_millis(130)).await;
+    process.kill().unwrap(); // by this child's handle
+    let killed = Instant::now();
+    process.wait().unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await; // the reader forwards the last lines
+    while let Ok((at, line)) = receiver.try_recv() {
+        if let Some(n) = line.strip_prefix("MADE ") {
+            made.push((at, n.parse::<u64>().unwrap()));
+        } else if let Some(ip) = line.strip_prefix("BLOCK ") {
+            blocks.push(ip.to_owned());
+        }
+    }
+    let store = Store::open(&path, key).await.unwrap();
+    let events = store.request_protection_events(1000, None, 250).await.unwrap();
+    for ip in &blocks {
+        let subject = store.request_protection_subject("client", ip).unwrap();
+        assert!(events.iter().any(|event| event.subject_key == subject && event.reason == "probe-path"), "{ip} answered but missing");
+    }
+    let last = made.last().unwrap().1;
+    let stored = u64::from(rate_count(&store, "account", "killed", 1000).await.unwrap());
+    let window = Duration::from_millis(2 * 200 + 150);
+    let recent = made.iter().filter(|(at, _)| killed.duration_since(*at) <= window).count() as u64;
+    eprintln!("[write_behind] kill: made>={last} stored={stored} lost<={} recent={recent} blocks={}", last.saturating_sub(stored), blocks.len());
+    assert!(stored <= last + 1, "nothing counted that was not made");
+    assert!(last.saturating_sub(stored) <= recent, "lost {} > made in the last two intervals {recent}", last - stored);
+}
