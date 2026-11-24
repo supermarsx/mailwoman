@@ -775,6 +775,26 @@ fn worker_stack_bytes() -> usize {
         2 * 1024 * 1024
     }
 }
+// t60: large-mailbox profile bounds (a few accounts with many messages each).
+const LARGE_MAILBOX_PRINCIPALS: [usize; 2] = [1, 4];
+const LARGE_MAILBOX_MESSAGES: [u32; 2] = [10_000, 100_000];
+fn large_mailbox_profile(raw: Option<&str>) -> std::result::Result<bool, String> {
+    match raw {
+        None | Some("default") => Ok(false),
+        Some("large-mailbox") => Ok(true),
+        Some(_) => Err("MW_NATIVE_LOAD_PROFILE must be default or large-mailbox".into()),
+    }
+}
+
+#[test]
+fn large_mailbox_profile_is_explicit_and_keeps_default_bounds() {
+    assert!(!large_mailbox_profile(None).unwrap());
+    assert!(!large_mailbox_profile(Some("default")).unwrap());
+    assert!(large_mailbox_profile(Some("large-mailbox")).unwrap());
+    for raw in ["", "large", "Large-mailbox", " large-mailbox"] { assert!(large_mailbox_profile(Some(raw)).is_err()); }
+    assert!(LARGE_MAILBOX_PRINCIPALS.iter().all(|count| *count as u64 * 100_000 <= 400_000));
+}
+
 fn fixture_index_timing(raw: Option<&str>) -> std::result::Result<bool, String> {
     match raw {
         None | Some("0") => Ok(false),
@@ -905,14 +925,23 @@ async fn run(workers: usize) {
         "choose baseline or representative workload"
     );
     let representative = workload == "representative";
+    // t60: separate large-mailbox profile with its own bounds; the default
+    // profile keeps 2..100 messages per user and the 500,000 total below.
+    let large_mailbox = large_mailbox_profile(std::env::var("MW_NATIVE_LOAD_PROFILE").ok().as_deref())
+        .expect("valid native load profile");
     let messages: u32 = std::env::var("MW_NATIVE_LOAD_MESSAGES")
         .unwrap_or_else(|_| if representative { "50" } else { "2" }.into())
         .parse()
         .unwrap();
-    assert!(
-        (2..=100).contains(&messages) && (representative || messages == 2),
-        "representative messages must be2..100; baseline stays2"
-    );
+    if large_mailbox {
+        assert!(representative, "the large-mailbox profile requires the representative workload");
+        assert!(LARGE_MAILBOX_MESSAGES.contains(&messages), "large-mailbox messages must be 10000 or 100000");
+    } else {
+        assert!(
+            (2..=100).contains(&messages) && (representative || messages == 2),
+            "representative messages must be2..100; baseline stays2"
+        );
+    }
     let policy_mode = std::env::var("MW_NATIVE_LOAD_POLICY").unwrap_or_else(|_| "defaults".into());
     let security_profile = native_enforced_policy::Profile::from_environment(std::env::var("MW_NATIVE_LOAD_SECURITY_PROFILE")).expect("strict native security profile");
     assert!(
@@ -927,14 +956,19 @@ async fn run(workers: usize) {
         .unwrap_or_else(|_| "100".into())
         .parse()
         .unwrap();
-    assert!(
-        [1, 100, 1000, 10000].contains(&count),
-        "choose representative bounded profile 1, 100, 1000 or 10000"
-    );
-    assert!(
-        count as u64 * messages as u64 <= 500000,
-        "representative seeded messages capped at500000"
-    );
+    if large_mailbox {
+        assert!(LARGE_MAILBOX_PRINCIPALS.contains(&count), "large-mailbox principals must be 1 or 4");
+        assert!(count as u64 * messages as u64 <= 400000, "large-mailbox seeded messages capped at 400000");
+    } else {
+        assert!(
+            [1, 100, 1000, 10000].contains(&count),
+            "choose representative bounded profile 1, 100, 1000 or 10000"
+        );
+        assert!(
+            count as u64 * messages as u64 <= 500000,
+            "representative seeded messages capped at500000"
+        );
+    }
     if let Some(options)=prepared_options {assert!(options.max_accounts>=count&&options.max_entries>=count,"configure prepared mail capacity explicitly for the whole selected principal working set");}
     let deadline: u64 = std::env::var("MW_LOAD_FIXTURE_DEADLINE_SECONDS")
         .unwrap_or_else(|_| "90".into())
@@ -1369,6 +1403,7 @@ async fn run(workers: usize) {
     data["preparedMailExperiment"] = prepared_experiment;
     data["linkedLoginPolicyProbe"] = linked_login_policy_probe;
     data["workloadProfile"] = json!({"kind":workload,"messagesPerPrincipal":messages,"seededMessages":count as u64*messages as u64,"seedSeconds":seed_seconds,"transport":if representative {"deterministic-read-flag-move"} else {"read-only"},"sendsMeasured":false,"upstreamNetworkMeasured":false});
+    data["workloadProfile"]["profile"] = json!(if large_mailbox { "large-mailbox" } else { "default" });
     if representative {
         data["workloadProfile"]["bodySampleBytes"] = json!(body_sample_bytes);
         data["workloadProfile"]["attachmentSampleBytes"] = json!(attachment_sample_bytes);
