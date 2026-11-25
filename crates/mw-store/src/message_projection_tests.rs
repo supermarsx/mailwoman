@@ -1117,7 +1117,7 @@ async fn oracle(s: &Store, query: &ProjectionQuery<'_>) -> Vec<String> {
         let flags = r.get_string("flags_json");
         let kws = projected_keywords(&flags);
         let has = |k: &str| match k {
-            "$seen" => projected_seen(&flags),
+            "$seen" => kws.contains("$seen"),
             "$flagged" => kws.contains("$flagged"),
             k => kws.contains(k),
         };
@@ -1139,10 +1139,19 @@ async fn oracle(s: &Store, query: &ProjectionQuery<'_>) -> Vec<String> {
         let size = r.get_i64("size");
         let ok = r.get_string("account_id") == query.account_id
             && in_scope
-            && query.seen.is_none_or(|v| v == projected_seen(&flags))
+            && query.seen.is_none_or(|v| {
+                if v {
+                    kws.contains("$seen")
+                } else {
+                    !projected_seen(&flags) && !kws.contains("$seen")
+                }
+            })
             && query.flagged.is_none_or(|v| v == kws.contains("$flagged"))
             && query.keywords.iter().all(|k| has(k))
-            && !query.not_keywords.iter().any(|k| has(k))
+            && !query.not_keywords.iter().any(|k| {
+                // notKeyword $seen = unread: also not read by the counter rule.
+                has(k) || (k == "$seen" && projected_seen(&flags))
+            })
             && query.pinned.is_none_or(|p| p == (r.get_i64("pinned") != 0))
             && (!query.follow_up
                 || ((r.get_opt_string("follow_up_at").is_some()

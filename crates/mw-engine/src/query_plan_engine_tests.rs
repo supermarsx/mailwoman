@@ -369,7 +369,7 @@ async fn missing_or_broken_projection_refuses_sqlite() {
         .execute(&pool)
         .await
         .unwrap();
-    metadata_routes_refuse(&w, "sqlite keyword table dropped", false).await;
+    metadata_routes_refuse(&w, "sqlite keyword table dropped", true).await;
     let (store, pool) = sqlite_file("state").await;
     let w = World::new(store, 12).await;
     sqlx::query("DROP TABLE message_state")
@@ -397,7 +397,7 @@ async fn missing_or_broken_projection_refuses_postgres() {
     let w = World::new(store, 12).await;
     pg.exec("ALTER TABLE message_keyword RENAME TO message_keyword_gone")
         .await;
-    metadata_routes_refuse(&w, "postgres keyword table renamed", false).await;
+    metadata_routes_refuse(&w, "postgres keyword table renamed", true).await;
     pg.drop().await;
     let Some((store, pg)) = private_pg("staterenamed").await else {
         return;
@@ -855,4 +855,36 @@ async fn metadata_subtrees_are_bounded_per_query() {
     let bound = (read.max(unread) + 2 + 2 * 2 + 1) as u64;
     assert!(used <= bound, "budget exceeded: {used} > {bound}");
     eprintln!("t49pg-e5b F2 budget case: answered {}, {used} ids read", r.is_some());
+}
+
+/// t49pg-e5b F5: a message whose flags hold the keyword `$seen` (IMAP keyword,
+/// Sieve, rules write `{"Keyword":"$seen"}`, not the system flag) is read in
+/// Email/get, so every query route must treat it as read too.
+#[tokio::test]
+async fn keyword_seen_is_read_on_every_route() {
+    let w = World::new(Store::open_in_memory(ServerKey::generate()).await.unwrap(), 12).await;
+    let acct = &w.a;
+    let target = w.rows(acct).await.into_iter().find(|r| !r.keywords.contains("$seen")).expect("an unread message").id;
+    set_flags_sql_only(&w, &target, vec![Flag::Keyword("$seen".into())]).await;
+    let got = w
+        .send(&acct.id, json!([["Email/get", {"accountId": acct.id, "ids": [target], "properties": ["keywords", "mailboxIds"]}, "g"]]))
+        .await;
+    assert_eq!(got["methodResponses"][0][1]["list"][0]["keywords"]["$seen"], json!(true), "{got}");
+    let mailbox = w.rows(acct).await.into_iter().find(|r| r.id == target).unwrap().mailbox;
+    for (filter, read) in [
+        (json!({"notKeyword": "$seen"}), false),
+        (json!({"hasKeyword": "$seen"}), true),
+        (json!({"text": "is:unread"}), false),
+        (json!({"text": "is:read"}), true),
+        (json!({"inMailbox": mailbox, "notKeyword": "$seen"}), false),
+        (json!({"text": "is:unread OR zzz"}), false),
+    ] {
+        let ids = id_set(&query(&w, acct, filter.clone(), false).await);
+        assert_eq!(ids.contains(&target), read, "{filter}: Email/get shows $seen, the query must agree");
+    }
+    // The unread count's limit-1 id never names it.
+    let r = w
+        .send(&acct.id, json!([["Email/query", {"accountId": acct.id, "filter": {"inMailbox": mailbox, "notKeyword": "$seen"}, "limit": 1, "calculateTotal": true}, "u"]]))
+        .await;
+    assert_ne!(r["methodResponses"][0][1]["ids"][0], json!(target), "{r}");
 }

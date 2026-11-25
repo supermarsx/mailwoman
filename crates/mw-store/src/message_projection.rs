@@ -106,6 +106,9 @@ pub enum ProjectionSort {
 pub struct ProjectionQuery<'a> {
     pub account_id: &'a str,
     pub mailboxes: MailboxScope<'a>,
+    /// Read (`Some(true)`) or unread: the JMAP keyword `$seen` as Email/get
+    /// shows it (the Seen flag or a `$seen` keyword). Unread also requires the
+    /// counter rule's `seen=0` (equal for every value mw-engine writes).
     pub seen: Option<bool>,
     pub flagged: Option<bool>,
     /// All of these keywords (hasKeyword).
@@ -394,9 +397,16 @@ fn build(
         _ => b.sql.push_str(&format!("s.account_id={account}")),
     }
     // Literals, never parameters: the partial indexes need them.
+    // `$seen` is what Email/get shows: the message's JMAP keywords hold it,
+    // from the Seen flag or a `$seen` keyword (t49pg-e5b F5). Unread keeps the
+    // `seen=0` literal for the partial index and excludes a `$seen` keyword.
     match n.seen {
-        Some(false) => b.sql.push_str(" AND s.seen=0"),
-        Some(true) => b.sql.push_str(" AND s.seen=1"),
+        Some(false) => b.sql.push_str(
+            " AND s.seen=0 AND NOT EXISTS(SELECT 1 FROM message_keyword ks WHERE ks.stable_id=s.stable_id AND ks.keyword='$seen')",
+        ),
+        Some(true) => b.sql.push_str(
+            " AND EXISTS(SELECT 1 FROM message_keyword ks WHERE ks.stable_id=s.stable_id AND ks.keyword='$seen')",
+        ),
         None => {}
     }
     match n.flagged {
@@ -730,6 +740,7 @@ impl Store {
             "SELECT m.id, m.account_id, m.name, m.role, m.uidvalidity, m.uidnext, m.highestmodseq, m.total, m.unread, m.parent_id,
                     CAST(CASE WHEN z.account_id IS NULL THEN 0 WHEN z.enabled=0 THEN 0 ELSE 1 END AS BIGINT) AS zero_access,
                     (SELECT s.stable_id FROM message_state s WHERE s.mailbox_id=m.id AND s.seen=0
+                      AND NOT EXISTS(SELECT 1 FROM message_keyword ks WHERE ks.stable_id=s.stable_id AND ks.keyword='$seen')
                       ORDER BY s.internaldate DESC NULLS LAST, s.uid DESC, s.stable_id LIMIT 1) AS first_unread
              FROM mailboxes m LEFT JOIN zeroaccess_accounts z ON z.account_id = m.account_id
              WHERE m.id = ?1",
