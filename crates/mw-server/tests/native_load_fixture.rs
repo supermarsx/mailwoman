@@ -799,7 +799,7 @@ fn native_multi_principal_http_load_fixture() {
 /// process). It was 32; 128 lets the fixture use a 56-CPU or larger cpuset.
 const FIXTURE_WORKERS_MAX: usize = 128;
 /// MW_LOAD_FIXTURE_WORKERS: unset means 4; otherwise 1..=FIXTURE_WORKERS_MAX.
-fn fixture_workers(value: Option<&str>) -> Result<usize, String> {
+fn fixture_workers(value: Option<&str>) -> std::result::Result<usize, String> {
     match value {
         None => Ok(4),
         Some(text) => match text.trim().parse::<usize>() {
