@@ -157,7 +157,8 @@ async fn ws_delivers_state_change_to_authenticated_client() {
     // Simulate the engine broadcasting a change.
     assert_eq!(push.send(a_change()), 1, "one WS subscriber is connected");
 
-    // The next non-ping frame is the RFC 8887 StateChange.
+    // The next StateChange that carries mail state is the broadcast one; the
+    // stream also sends account-scoped state (Settings, WebVersion) of its own.
     let frame = loop {
         let msg = tokio::time::timeout(Duration::from_secs(5), ws.next())
             .await
@@ -165,7 +166,13 @@ async fn ws_delivers_state_change_to_authenticated_client() {
             .expect("stream open")
             .expect("no ws error");
         match msg {
-            Message::Text(t) => break t.to_string(),
+            Message::Text(t) => {
+                let text = t.to_string();
+                let parsed: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+                if parsed["changed"][mw_mock_jmap::ACCOUNT_ID].get("Email").is_some() {
+                    break text;
+                }
+            }
             Message::Ping(_) | Message::Pong(_) => continue,
             other => panic!("unexpected frame: {other:?}"),
         }

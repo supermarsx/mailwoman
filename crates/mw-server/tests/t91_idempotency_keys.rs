@@ -141,6 +141,13 @@ async fn sign_in(base: &str, user: &str, pass: &str) -> reqwest::Client {
         "x-mailwoman-storage-authority",
         login["storageAuthority"].as_str().unwrap().parse().unwrap(),
     );
+    // The browser sends the storage authority together with the account it
+    // names (the mailbox target fence refuses one without the other, 409).
+    let me = json_of(bare.get(format!("{base}/api/me")).send().await.unwrap(), 200).await;
+    headers.insert(
+        "x-mailwoman-account",
+        me["accountId"].as_str().unwrap().parse().unwrap(),
+    );
     reqwest::Client::builder()
         .no_proxy()
         .cookie_provider(jar)
