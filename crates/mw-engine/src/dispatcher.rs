@@ -358,7 +358,7 @@ impl Engine {
                 ChangeOp::Updated,
             )
             .await?;
-            self.search().reload().ok();
+            // Snooze lives in SQL only; the search index has nothing to reload.
             self.broadcast_state(&d.account_id).await;
         }
         Ok(())

@@ -225,8 +225,7 @@ impl Engine {
                             .filter(|f| !delivery_flags.contains(f))
                             .cloned()
                             .collect();
-                        let mut ticket = self.reserve_index_publication(account_id, 1).await?;
-                        ticket.track_metadata_ids(vec![stable_id.into()])?;
+                        // Flags live in SQL only (t50hp-e32 slice 1).
                         if let Some(reference) = self.imap_ref_for(stable_id).await? {
                             rt.backend.store_flags(&[reference], &add, &remove).await?;
                         }
@@ -239,12 +238,7 @@ impl Engine {
                                 "Sieve flag source changed before update".into(),
                             ));
                         }
-                        let publication = ticket.submit(
-                            vec![stable_id.into()],
-                            crate::index_publication::PublicationMode::Metadata,
-                        )?;
                         self.invalidate_message_cache(stable_id).await;
-                        publication.await?;
                     }
                     if dest.id == mailbox_id {
                         continue;
@@ -285,8 +279,7 @@ impl Engine {
                     let add: Vec<_> = next.iter().filter(|f| !old.contains(f)).cloned().collect();
                     let remove: Vec<_> =
                         old.iter().filter(|f| !next.contains(f)).cloned().collect();
-                    let mut ticket = self.reserve_index_publication(account_id, 1).await?;
-                    ticket.track_metadata_ids(vec![stable_id.into()])?;
+                    // Flags live in SQL only (t50hp-e32 slice 1).
                     if let Some(reference) = self.imap_ref_for(stable_id).await? {
                         rt.backend.store_flags(&[reference], &add, &remove).await?;
                     }
@@ -299,12 +292,7 @@ impl Engine {
                             "Sieve flag source changed before update".into(),
                         ));
                     }
-                    let publication = ticket.submit(
-                        vec![stable_id.into()],
-                        crate::index_publication::PublicationMode::Metadata,
-                    )?;
                     self.invalidate_message_cache(stable_id).await;
-                    publication.await?;
                 }
                 Action::Redirect { address, copy } => {
                     // Recheck the resolved runtime policy, including hot revocation.

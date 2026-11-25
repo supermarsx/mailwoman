@@ -179,7 +179,7 @@ impl Fixture {
         let update: Map<String, Value> = self.ids.iter().map(|id| (id.clone(), patch.clone())).collect();
         json!({ "update": update })
     }
-    /// `$flagged` messages as the index-backed Email/query counts them.
+    /// `$flagged` messages as Email/query counts them (from SQL since t50hp-e31/e32).
     async fn flagged_in_index(&self) -> u64 {
         let query = self
             .engine
@@ -262,11 +262,13 @@ async fn a_destroy_of_max_objects_ids_is_applied_in_full() {
 async fn updates_and_destroys_split_at_the_configured_batch_size() {
     let options = crate::PublicationOptions { max_batch_documents: 5, ..Default::default() };
     let f = fixture(23, Some(options)).await;
+    // Moves: the updates that publish to the index (flags do not since t50hp-e32).
+    let to_archive = json!({ "mailboxIds": { f.archive.clone(): true } });
     let mut update: Map<String, Value> = Map::new();
     for id in &f.ids[..17] {
-        update.insert(id.clone(), json!({ "keywords/$flagged": true }));
+        update.insert(id.clone(), to_archive.clone());
     }
-    update.insert("missing-id".into(), json!({ "keywords/$flagged": true }));
+    update.insert("missing-id".into(), to_archive.clone());
     let response = f.set(json!({ "update": update, "destroy": f.ids[17..] })).await;
     assert!(response.get("type").is_none(), "{response}");
     assert_eq!(response["updated"].as_object().unwrap().len(), 17, "{response}");
@@ -274,9 +276,12 @@ async fn updates_and_destroys_split_at_the_configured_batch_size() {
     assert!(response["notUpdated"].get("missing-id").is_some(), "{response}");
     assert_eq!(response["notUpdated"].as_object().unwrap().len(), 1, "{response}");
     assert_eq!(response["destroyed"].as_array().unwrap().len(), 6, "{response}");
-    assert_eq!(f.flagged().await, 17);
+    assert_eq!(f.engine.store().list_message_ids(&f.archive, 10_000, 0).await.unwrap().len(), 17);
     // Every chunk reached the index, not only the first.
-    assert_eq!(f.flagged_in_index().await, 17);
+    for id in &f.ids[..17] {
+        let doc = f.engine.search().fetch_doc(id).unwrap().unwrap_or_else(|| panic!("{id} left the index"));
+        assert_eq!(doc.mailbox_id, f.archive, "{id}: its chunk was not published");
+    }
 }
 
 /// An index that refuses admission fails each id with a SetError; nothing is
@@ -286,7 +291,8 @@ async fn an_index_admission_refusal_is_a_per_id_set_error_and_writes_nothing() {
     let options = crate::PublicationOptions { max_batch_documents: 4, ..Default::default() };
     let f = fixture(10, Some(options)).await;
     assert!(f.engine.drain_index_publication().await);
-    let response = f.set(f.update_all(json!({ "keywords/$flagged": true }))).await;
+    // A move publishes to the index (a flag write does not since t50hp-e32).
+    let response = f.set(f.update_all(json!({ "mailboxIds": { f.archive.clone(): true } }))).await;
     assert!(response.get("type").is_none(), "method-level error: {response}");
     let not_updated = response["notUpdated"].as_object().unwrap();
     assert_eq!(not_updated.len(), f.ids.len(), "{response}");
@@ -296,5 +302,10 @@ async fn an_index_admission_refusal_is_a_per_id_set_error_and_writes_nothing() {
         "{response}"
     );
     assert_eq!(response["updated"].as_object().unwrap().len(), 0);
-    assert_eq!(f.flagged().await, 0, "a refused id was written");
+    assert!(f.engine.store().list_message_ids(&f.archive, 10_000, 0).await.unwrap().is_empty(), "a refused id was moved");
+    assert_eq!(f.remote.next_uid.load(Ordering::SeqCst), 0, "a refused id reached the server");
+    // The same closed admission refuses no flag write: it never publishes.
+    let response = f.set(f.update_all(json!({ "keywords/$flagged": true }))).await;
+    assert_all_updated(&response, &f.ids);
+    assert_eq!(f.flagged().await, f.ids.len());
 }

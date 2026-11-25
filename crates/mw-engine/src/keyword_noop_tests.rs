@@ -324,7 +324,10 @@ async fn unchanged_metadata_preserves_state_and_index_while_combined_changes_sti
         "metadata retains the existing message-row revision semantics"
     );
     assert_eq!(configured.1, original.1 + 1);
-    assert_eq!(configured.2, original.2 + 1);
+    assert_eq!(
+        configured.2, original.2,
+        "pin/snooze/follow-up are SQL-only (t50hp-e32): no index commit"
+    );
     assert_eq!(configured.3, 0);
     for patch in [
         json!({"pinned":true,"snoozedUntil":snooze,"followUpAt":follow}),
@@ -414,6 +417,17 @@ async fn unchanged_metadata_preserves_state_and_index_while_combined_changes_sti
             .await
             .unwrap(),
         before.1 + 1
+    );
+    // The move is the write that still publishes to the index.
+    assert!(mw_search::commit_count() > before.2);
+    assert_eq!(
+        f.engine
+            .search()
+            .fetch_doc(&f.id)
+            .unwrap()
+            .unwrap()
+            .mailbox_id,
+        f.archive
     );
     assert_eq!(f.remote.flags.load(Ordering::SeqCst), 1);
     assert_eq!(f.remote.moves.load(Ordering::SeqCst), 1);

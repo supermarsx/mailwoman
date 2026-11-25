@@ -182,8 +182,7 @@ impl Engine {
         if flags.contains(&kw) {
             return Ok(());
         }
-        let mut ticket = self.reserve_index_publication(&msg.account_id, 1).await?;
-        ticket.track_metadata_ids(vec![stable_id.into()])?;
+        // Flags live in SQL only (t50hp-e32 slice 1): no index publication.
         // Mirror upstream where addressable (best-effort).
         if let Some(mref) = self.imap_ref_for(stable_id).await?
             && let Err(e) = rt
@@ -204,11 +203,6 @@ impl Engine {
                 "keyword source changed before update".into(),
             ));
         }
-        let publication = ticket.submit(
-            vec![stable_id.into()],
-            crate::index_publication::PublicationMode::Metadata,
-        )?;
-        publication.await?;
         Ok(())
     }
 }

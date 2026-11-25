@@ -958,14 +958,11 @@ impl Engine {
                     let cached = self.store.get_message(&sid).await?;
                     self.require_runtime_generation(account_id, rt)?;
                     if !cached_flags_match(&cached.flags_json, flags) {
-                        let mut ticket=self.reserve_index_publication(account_id,1).await?;
-                        ticket.track_metadata_ids(vec![sid.clone()])?;
+                        // Flags live in SQL only (t50hp-e32 slice 1): no index publication.
                         if !self.store.set_flags_if_current(&cached, &next_flags).await? {
                             return Err(EngineError::Protocol("sync flag source changed before update".into()));
                         }
-                        let publication=ticket.submit(vec![sid.clone()],crate::index_publication::PublicationMode::Metadata);
                         self.invalidate_message_cache(&sid).await;
-                        match publication{Ok(waiter)=>{if let Err(error)=waiter.await{tracing::warn!("sync flag index publication deferred: {error}");}},Err(error)=>tracing::warn!("sync flag index handoff deferred: {error}")}
                         self.record_change(account_id, ChangeType::Email, &sid, ChangeOp::Updated)
                             .await?;
                         self.record_change(

@@ -2428,8 +2428,13 @@ impl Engine {
             let chunk_size = self.index_publication_status().max_batch_documents.max(1);
             let mut known_mailboxes: HashMap<String, bool> = HashMap::new();
             for chunk in update_ids.chunks(chunk_size) {
+                // Only moves still publish to the search index (t50hp-e32 slice 1):
+                // keywords, pin, snooze and follow-up live in SQL (0125 projection),
+                // which every metadata query reads, so a flag-only update reserves,
+                // submits and waits for nothing.
                 let chunk_publication_ids: Vec<String> = chunk.iter().filter(|id| !destroys.contains(*id)
-                    && rows.get(*id).is_some_and(|row| row.account_id == account_id)).cloned().collect();
+                    && rows.get(*id).is_some_and(|row| row.account_id == account_id
+                        && move_target(&updates[id.as_str()], &row.mailbox_id).is_some())).cloned().collect();
                 let mut publication = None;
                 if !chunk_publication_ids.is_empty() {
                     let refused = match self.reserve_index_publication(account_id, chunk_publication_ids.len()).await {
@@ -2440,26 +2445,26 @@ impl Engine {
                         Err(error) => Some(error),
                     };
                     if let Some(error) = refused {
-                        // The chunk's other ids are the ones this call destroys
-                        // or that are not this account's: they keep those errors.
-                        for id in chunk {
-                            let refusal = if chunk_publication_ids.contains(id) {
-                                publication_refusal(&error)
-                            } else if destroys.contains(id) {
-                                json!({"type": "willDestroy", "description": "this call also destroys the Email"})
-                            } else {
-                                set_error(&EngineError::Store(mw_store::StoreError::NotFound))
-                            };
-                            not_updated.insert(id.clone(), refusal);
+                        // Only the chunk's moves need the index; they fail with the
+                        // refusal and nothing is written for them. The other ids of
+                        // the chunk (flags, pin, snooze, follow-up) go on.
+                        for id in &chunk_publication_ids {
+                            not_updated.insert(id.clone(), publication_refusal(&error));
                         }
-                        continue;
                     }
                 }
-                let failed_before = not_updated.len();
+                let refused_moves: std::collections::HashSet<&String> = if publication.is_none() {
+                    chunk_publication_ids.iter().collect()
+                } else {
+                    std::collections::HashSet::new()
+                };
                 let mut chunk_patches: Vec<IndexPatch> = Vec::new();
                 let mut pending_flags: Vec<(String, String)> = Vec::new();
                 for id in chunk {
                     let patch = &updates[id];
+                    if refused_moves.contains(id) {
+                        continue;
+                    }
                     // RFC 8620 §5.3: an id this same call destroys is not updated.
                     if destroys.contains(id) {
                         not_updated.insert(
@@ -2587,7 +2592,7 @@ impl Engine {
                 // successes remain updated if index repair fails. Only a successful
                 // owner receipt proves query visibility; diagnostics expose any debt.
                 if let Some(mut ticket) = publication {
-                    if chunk_patches.is_empty() && not_updated.len() == failed_before {
+                    if !chunk_patches.iter().any(|patch| patch.moved) {
                         // A successful no-op neither repairs unrelated legacy content
                         // nor publishes a document merely to attach a new witness.
                         let _ = ticket.track_metadata_ids(Vec::new());
@@ -4655,8 +4660,15 @@ impl Engine {
         check_mailbox_patch(patch, &msg.mailbox_id)
             .map_err(|e| EngineError::Protocol(e.to_string()))?;
         if msg.account_id != account_id { return Err(EngineError::Store(mw_store::StoreError::NotFound)); }
-        let mut publication = self.reserve_index_publication(account_id, 1).await?;
-        publication.track_metadata_ids(vec![email_id.to_string()])?;
+        // Only a move publishes to the search index (t50hp-e32 slice 1).
+        let mut publication = match move_target(patch, &msg.mailbox_id) {
+            Some(_) => {
+                let mut ticket = self.reserve_index_publication(account_id, 1).await?;
+                ticket.track_metadata_ids(vec![email_id.to_string()])?;
+                Some(ticket)
+            }
+            None => None,
+        };
         let (source_mailbox, uid, local) = (msg.mailbox_id.clone(), msg.uid, msg.uidvalidity == 0);
         let dest = match move_target(patch, &msg.mailbox_id) {
             Some(id) => Some(
@@ -4713,7 +4725,9 @@ impl Engine {
                 recorded = true;
             }
         }
-        publication.submit(vec![email_id.to_string()], crate::index_publication::PublicationMode::Metadata)?.await?;
+        if let Some(publication) = publication.take() {
+            publication.submit(vec![email_id.to_string()], crate::index_publication::PublicationMode::Metadata)?.await?;
+        }
         if !recorded {
             self.record_change(account_id, ChangeType::Email, email_id, ChangeOp::Updated)
                 .await?;

@@ -7,6 +7,20 @@ use std::collections::BTreeSet;
 
 const SQLITE_MIGRATION: &str = include_str!("../../migrations/0116_index_publication_journal.sql");
 const PG_MIGRATION: &str = include_str!("../../migrations_pg/0116_index_publication_journal.sql");
+// t50hp-e32 slice 1: 0126 redefines the messages trigger without flags_json and
+// drops the message_meta triggers (keywords, pin, snooze, follow-up are SQL-only).
+const SQLITE_MB: &str = include_str!("../../migrations/0126_flags_leave_index_journal.sql");
+const PG_MB: &str = include_str!("../../migrations_pg/0126_flags_leave_index_journal.sql");
+
+/// The column list the installed triggers compare for `table`: messages from
+/// 0126, message_meta none (0126 dropped its triggers), the lease from 0116.
+fn effective_columns(postgres: bool, table: &str) -> BTreeSet<String> {
+    match table {
+        "messages" => journaled_columns(if postgres { PG_MB } else { SQLITE_MB }, table),
+        "message_meta" => BTreeSet::new(),
+        _ => journaled_columns(if postgres { PG_MIGRATION } else { SQLITE_MIGRATION }, table),
+    }
+}
 
 // ── fixture ──────────────────────────────────────────────────────────────────
 
@@ -184,10 +198,6 @@ async fn raw_column_updates(store: &Store) {
         ),
         ("size", "UPDATE messages SET size=size+1 WHERE stable_id=?1"),
         (
-            "flags_json",
-            "UPDATE messages SET flags_json='[\"\\\\Seen\"]' WHERE stable_id=?1",
-        ),
-        (
             "envelope_json",
             "UPDATE messages SET envelope_json=NULL WHERE stable_id=?1",
         ),
@@ -250,7 +260,18 @@ async fn raw_column_updates(store: &Store) {
     assert!(keys(&rows).contains(&key(&a, "raw-new-id")), "{rows:?}");
     covered.insert("stable_id");
     let covered: BTreeSet<String> = covered.into_iter().map(str::to_owned).collect();
-    assert_eq!(covered, journaled_columns(SQLITE_MIGRATION, "messages"));
+    assert_eq!(covered, effective_columns(false, "messages"));
+
+    // A flag change journals nothing (0126: flags are read from SQL only).
+    let rows = appended(store, async {
+        q("UPDATE messages SET flags_json='[\"Seen\"]' WHERE stable_id=?1")
+            .bind(id.as_str())
+            .execute(&store.backend)
+            .await
+            .unwrap();
+    })
+    .await;
+    assert!(rows.is_empty(), "flags_json: {rows:?}");
 
     // cache_revision is advanced by 0105 on every UPDATE; alone it journals nothing.
     let rows = appended(store, async {
@@ -263,7 +284,7 @@ async fn raw_column_updates(store: &Store) {
     .await;
     assert!(rows.is_empty(), "{rows:?}");
 
-    // message_meta: each column alone.
+    // message_meta journals nothing (0126): pin, snooze and follow-up are SQL-only.
     let rows = appended(store, async {
         q("INSERT INTO message_meta(stable_id,pinned) VALUES(?1,0)")
             .bind(id.as_str())
@@ -272,10 +293,7 @@ async fn raw_column_updates(store: &Store) {
             .unwrap();
     })
     .await;
-    assert_eq!(
-        rows,
-        vec![(a.clone(), id.clone(), IndexJournalMode::Metadata)]
-    );
+    assert!(rows.is_empty(), "{rows:?}");
     for sql in [
         "UPDATE message_meta SET pinned=1 WHERE stable_id=?1",
         "UPDATE message_meta SET snoozed_until='2030-01-01T00:00:00Z' WHERE stable_id=?1",
@@ -290,11 +308,7 @@ async fn raw_column_updates(store: &Store) {
                 .unwrap();
         })
         .await;
-        assert_eq!(
-            rows,
-            vec![(a.clone(), id.clone(), IndexJournalMode::Metadata)],
-            "{sql}"
-        );
+        assert!(rows.is_empty(), "{sql}: {rows:?}");
     }
     bare(store, &a, &inbox, "meta-old", 502).await;
     bare(store, &a, &inbox, "meta-new", 503).await;
@@ -309,10 +323,7 @@ async fn raw_column_updates(store: &Store) {
             .unwrap();
     })
     .await;
-    assert_eq!(
-        keys(&rows),
-        BTreeSet::from([key(&a, "meta-old"), key(&a, "meta-new")])
-    );
+    assert!(rows.is_empty(), "{rows:?}");
 
     // Body content: 0110 advances content_revision on the Message.
     bare(store, &a, &inbox, "body-late", 504).await;
@@ -432,8 +443,9 @@ async fn api_write_paths(store: &Store) {
             .unwrap();
     })
     .await;
-    assert_eq!(keys(&rows), BTreeSet::from([key(&a, &id)]));
-    // Hot path cost: one metadata row per flag change, no duplicate from 0105.
+    // A re-ingest that changes only the flags journals nothing since 0126.
+    assert!(rows.is_empty(), "{rows:?}");
+    // Hot path cost: a flag change journals nothing (0126: SQL-only metadata).
     let rows = appended(store, async {
         store
             .set_flags_batch(&[(id.clone(), "[\"\\\\Flagged\"]".into())])
@@ -441,19 +453,13 @@ async fn api_write_paths(store: &Store) {
             .unwrap();
     })
     .await;
-    assert_eq!(
-        rows,
-        vec![(a.clone(), id.clone(), IndexJournalMode::Metadata)]
-    );
+    assert!(rows.is_empty(), "{rows:?}");
     let current = store.get_message(&id).await.unwrap();
     let rows = appended(store, async {
         assert!(store.set_flags_if_current(&current, "[]").await.unwrap());
     })
     .await;
-    assert_eq!(
-        rows,
-        vec![(a.clone(), id.clone(), IndexJournalMode::Metadata)]
-    );
+    assert!(rows.is_empty(), "{rows:?}");
     let rows = appended(store, async {
         store.set_thread(&id, "api-thread").await.unwrap()
     })
@@ -503,13 +509,8 @@ async fn api_write_paths(store: &Store) {
             .unwrap();
     })
     .await;
-    assert_eq!(
-        rows,
-        vec![
-            (a.clone(), id.clone(), IndexJournalMode::Metadata),
-            (a.clone(), id.clone(), IndexJournalMode::Metadata)
-        ]
-    );
+    // Pin and follow-up journal nothing since 0126.
+    assert!(rows.is_empty(), "{rows:?}");
     let current = store.get_message(&id).await.unwrap();
     let rows = appended(store, async {
         assert!(store.delete_message_if_current(&current).await.unwrap());
@@ -779,6 +780,7 @@ fn journaled_columns(migration: &str, table: &str) -> BTreeSet<String> {
             .collect();
         let body = &migration[migration
             .find(&format!("CREATE FUNCTION {name}()"))
+            .or_else(|| migration.find(&format!("CREATE OR REPLACE FUNCTION {name}()")))
             .unwrap()..];
         let body = &body[body.find("IF NOT (").unwrap()..];
         body[..body.find(") THEN").unwrap()].to_owned()
@@ -806,7 +808,12 @@ fn set(values: &[&str]) -> BTreeSet<String> {
 #[tokio::test]
 async fn index_journal_trigger_columns_cover_the_index_source_reader() {
     // Exempt columns and why they are safe to leave out of the UPDATE condition.
-    let exempt_messages = set(&["cache_revision"]); // 0105 bumps it after every UPDATE
+    // 0105 bumps cache_revision after every UPDATE; flags_json is read from SQL by
+    // every metadata query (0125 projection) and is only a display value in the
+    // index since 0126.
+    let exempt_messages = set(&["cache_revision", "flags_json"]);
+    // message_meta (pin, snooze, follow-up) is SQL-only since 0126: every column exempt.
+    let exempt_meta = set(&["stable_id", "pinned", "snoozed_until", "follow_up_at"]);
     let exempt_lease = set(&["last_used_at"]); // renewal timestamp, never read by the reader
     // Account-scope relations (accounts a, zeroaccess_accounts z, account_restriction ar)
     // are not per-message state; they are reported as a gap, not journaled here.
@@ -838,9 +845,9 @@ async fn index_journal_trigger_columns_cover_the_index_source_reader() {
             columns.push((table.to_owned(), row.get_string("name")));
         }
     }
-    let journaled_m = journaled_columns(SQLITE_MIGRATION, "messages");
-    let journaled_mm = journaled_columns(SQLITE_MIGRATION, "message_meta");
-    let journaled_l = journaled_columns(SQLITE_MIGRATION, "message_body_cache_lease");
+    let journaled_m = effective_columns(false, "messages");
+    let journaled_mm = effective_columns(false, "message_meta");
+    let journaled_l = effective_columns(false, "message_body_cache_lease");
 
     let mut reader_tables = BTreeSet::new();
     for dialect in [Dialect::Sqlite, Dialect::Postgres] {
@@ -883,7 +890,7 @@ async fn index_journal_trigger_columns_cover_the_index_source_reader() {
                 "reader reads messages columns not journaled: {missing:?}"
             );
             assert!(
-                read_mm.is_subset(&journaled_mm),
+                read_mm.difference(&journaled_mm).all(|c| exempt_meta.contains(c)),
                 "meta: {read_mm:?} vs {journaled_mm:?}"
             );
             let missing: Vec<_> = read_l
@@ -918,7 +925,9 @@ async fn index_journal_trigger_columns_cover_the_index_source_reader() {
     let mut all_m = journaled_m.clone();
     all_m.extend(exempt_messages.iter().cloned());
     assert_eq!(live_columns("messages", &columns), all_m);
-    assert_eq!(live_columns("message_meta", &columns), journaled_mm);
+    let mut all_mm = journaled_mm.clone();
+    all_mm.extend(exempt_meta.iter().cloned());
+    assert_eq!(live_columns("message_meta", &columns), all_mm);
     let mut all_l = journaled_l.clone();
     all_l.extend(exempt_lease.iter().cloned());
     assert_eq!(live_columns("message_body_cache_lease", &columns), all_l);
@@ -959,15 +968,15 @@ async fn index_journal_trigger_columns_cover_the_index_source_reader() {
             .iter()
             .map(|r| r.get_string("name"))
             .collect();
-    assert_eq!(installed.len(), 9, "{installed:?}");
+    assert_eq!(installed.len(), 6, "{installed:?}");
 }
 
 #[test]
 fn index_journal_postgres_triggers_compare_the_same_columns() {
     for table in ["messages", "message_meta", "message_body_cache_lease"] {
         assert_eq!(
-            journaled_columns(SQLITE_MIGRATION, table),
-            journaled_columns(PG_MIGRATION, table),
+            effective_columns(false, table),
+            effective_columns(true, table),
             "{table}"
         );
     }
