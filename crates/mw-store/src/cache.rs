@@ -923,7 +923,7 @@ impl Store {
         self.upsert_body(m, raw, true).await
     }
 
-    async fn prepare_message_body(&self, m: &MessageUpsert<'_>, raw: &[u8]) -> Result<(Option<String>, Option<Vec<u8>>), StoreError> {
+    pub(crate) async fn prepare_message_body(&self, m: &MessageUpsert<'_>, raw: &[u8]) -> Result<(Option<String>, Option<Vec<u8>>), StoreError> {
         let blob_ref=self.body_reference(m.account_id,raw);
         // A header/full-sync replay must not refill an intentionally expired
         // immutable body and immediately expire it again. Changed content or
@@ -936,7 +936,7 @@ impl Store {
         Ok((Some(blob_ref), sealed))
     }
 
-    async fn upsert_prepared_body_tx(&self, m: &MessageUpsert<'_>, raw: &[u8], prepared: (Option<String>, Option<Vec<u8>>), record_changes: bool, tx: &mut crate::backend::Tx) -> Result<MessageIngestOutcome, StoreError> {
+    pub(crate) async fn upsert_prepared_body_tx(&self, m: &MessageUpsert<'_>, raw: &[u8], prepared: (Option<String>, Option<Vec<u8>>), record_changes: bool, tx: &mut crate::backend::Tx) -> Result<MessageIngestOutcome, StoreError> {
         let (blob_ref, sealed) = prepared;
         if let Some(blob_ref) = blob_ref {
             self.put_body_tx(m.account_id, &blob_ref, raw, sealed, false, tx).await?;

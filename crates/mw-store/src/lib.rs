@@ -108,6 +108,8 @@ pub use domain_config::{
     DomainAccount, DomainConfigRow, DomainMutation, DomainSigninState, SessionAuthority,
 };
 mod sieve_scripts;
+mod upstream_outbox;
+pub use upstream_outbox::{ClaimOutcome, ClaimedIntent, Confirmation, Confirmed, DraftDeleted, DraftIngested, FlagsWritten, IntentOrigin, IntentState, IntentTally, OutboxHead, OutboxIntent, OutboxWrite, Relocated, Reverted, ServerCoords, UpstreamNotice, DEFAULT_BACKLOG_CAP as UPSTREAM_DEFAULT_BACKLOG_CAP, FIELD_APPEND as UPSTREAM_FIELD_APPEND, FIELD_EXPUNGE_COPY as UPSTREAM_FIELD_EXPUNGE_COPY, FIELD_LOCATION as UPSTREAM_FIELD_LOCATION, MAX_BACKLOG_CAP as UPSTREAM_MAX_BACKLOG_CAP, MIN_BACKLOG_CAP as UPSTREAM_MIN_BACKLOG_CAP, SHADOW_GONE as UPSTREAM_SHADOW_GONE, flag_field as upstream_flag_field, flag_of_field as upstream_flag_of_field};
 pub use sieve_scripts::{SieveReplaceResult, SieveScriptRow};
 mod account_query;
 mod cache;

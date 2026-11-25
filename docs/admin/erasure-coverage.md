@@ -341,6 +341,9 @@ index of a restored install.
 | `threads` | `account_id=id` | deleted | - | - |
 | `totp_secrets` | `account_id=id` | deleted | `security` (marker: present, not exported) | - |
 | `uploaded_blobs` | `account_id=id` | deleted | `records` | - |
+| `upstream_notice` | `account_id=id` | deleted | `mailstate` | - |
+| `upstream_outbox` | `account_id=id` | deleted | `mailstate` | - |
+| `upstream_outbox_head` | `account_id=id` | deleted | - | - |
 | `usage_counter` | `address=id` | deleted | `usage` | - |
 | `usage_storage` | `address=id` | deleted | `usage` | - |
 | `user_activity` | `account_id=id` | deleted | `usage` | - |

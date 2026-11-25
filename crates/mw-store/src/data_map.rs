@@ -510,6 +510,15 @@ pub const RULES: &[Rule] = &[
     // delete trigger removes each row with its message; these remove anything left.
     Rule { last: true, ..del!("message_state", "account_id", Bind::Account) },
     Rule { last: true, ..del!("message_keyword", "account_id", Bind::Account) },
+    //0135: the upstream outbox has no account FK (0113 convention). Pending intents
+    // are dropped, not applied: nothing is sent to the mail server for an erased account.
+    Rule { last: true, ..del!("upstream_outbox", "account_id", Bind::Account, export: rows!("mailstate",
+        "SELECT stable_id,field,want,state,first_at,origin FROM upstream_outbox WHERE account_id=?1",
+        "stableId:s,field:s,want:s,state:s,firstAt:s,origin:s")) },
+    Rule { last: true, ..del!("upstream_outbox_head", "account_id", Bind::Account) },
+    Rule { last: true, ..del!("upstream_notice", "account_id", Bind::Account, export: rows!("mailstate",
+        "SELECT id,at,stable_id,op,reason,seen_at FROM upstream_notice WHERE account_id=?1",
+        "id:s,at:s,stableId:s,op:s,reason:s,seenAt:s")) },
     keep!("index_publication_journal_control", "one global journal switch row; no person data"),
     Rule {
         table: "sessions",

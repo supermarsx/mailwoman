@@ -67,6 +67,8 @@ async fn seed(pool: &SqlitePool, table: &str, set: &[(&str, &str)], tag: &str) -
 /// Values a CHECK constraint needs that the generic dummy values do not meet.
 const HINTS: &[(&str, &str, &str)] = &[
     ("accounts", "kind", "imap"),
+    ("upstream_outbox", "state", "pending"),
+    ("upstream_outbox", "origin", "user"),
     ("signin_event", "result", "success"),
     ("account_draft", "operation_state", "claimed"),
     ("focused_sender", "tab", "focused"),

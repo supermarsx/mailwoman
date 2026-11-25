@@ -1051,6 +1051,82 @@ const TABLES: &[TableSpec] = &[
             ]
         },
     },
+    // 0135 (t62-n6a): the upstream outbox holds acknowledged user changes not yet
+    // applied to the mail server (as `submissions` holds accepted sends), so it is
+    // copied. A row in flight arrives `pending` (flags, copy expunges: both
+    // idempotent) or `unresolved` (moves, APPENDs: their outcome is unknown, so
+    // recovery runs before anything is resent), never with a claim token.
+    TableSpec {
+        name: "upstream_outbox_head",
+        select: "SELECT account_id, next_seq, backlog, upstream_gen, paused, paused_at FROM upstream_outbox_head",
+        insert: "INSERT INTO upstream_outbox_head (account_id, next_seq, backlog, upstream_gen, paused, paused_at) VALUES (?1,?2,?3,?4,?5,?6)",
+        map: |r| {
+            vec![
+                t(r, "account_id"),
+                i(r, "next_seq"),
+                i(r, "backlog"),
+                i(r, "upstream_gen"),
+                ot(r, "paused"),
+                ot(r, "paused_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "upstream_outbox",
+        // `claim` is read but never written: a claim token belongs to the source
+        // process's applier. See the map for the state of rows in flight.
+        select: "SELECT account_id, stable_id, field, seq, first_at, updated_at, want, sent, base, shadow, base_mailbox_id, base_uidvalidity, base_uid, state, claim, attempts, next_at, error_class, error_detail, origin, upstream_gen FROM upstream_outbox",
+        insert: "INSERT INTO upstream_outbox (account_id, stable_id, field, seq, first_at, updated_at, want, sent, base, shadow, base_mailbox_id, base_uidvalidity, base_uid, state, claim, attempts, next_at, error_class, error_detail, origin, upstream_gen) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,NULL,?15,?16,?17,?18,?19,?20)",
+        map: |r| {
+            let field = r.get_string("field");
+            let state = r.get_string("state");
+            let recover = field == "location" || field == "append";
+            let (state, sent) = match state.as_str() {
+                "inflight" if recover => ("unresolved".to_string(), r.get_opt_string("sent")),
+                "inflight" => ("pending".to_string(), None),
+                _ => (state, r.get_opt_string("sent")),
+            };
+            vec![
+                t(r, "account_id"),
+                t(r, "stable_id"),
+                field.into_arg(),
+                i(r, "seq"),
+                t(r, "first_at"),
+                t(r, "updated_at"),
+                ot(r, "want"),
+                sent.into_arg(),
+                ot(r, "base"),
+                ot(r, "shadow"),
+                ot(r, "base_mailbox_id"),
+                oi(r, "base_uidvalidity"),
+                oi(r, "base_uid"),
+                state.into_arg(),
+                i(r, "attempts"),
+                ot(r, "next_at"),
+                ot(r, "error_class"),
+                ob(r, "error_detail"),
+                t(r, "origin"),
+                i(r, "upstream_gen"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "upstream_notice",
+        select: "SELECT id, account_id, at, stable_id, op, reason, count, seen_at FROM upstream_notice",
+        insert: "INSERT INTO upstream_notice (id, account_id, at, stable_id, op, reason, count, seen_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "account_id"),
+                t(r, "at"),
+                ot(r, "stable_id"),
+                t(r, "op"),
+                t(r, "reason"),
+                i(r, "count"),
+                ot(r, "seen_at"),
+            ]
+        },
+    },
     TableSpec {
         name: "identities",
         // 0020 (26.17): `signature_name` copied alongside the 0003 columns.
