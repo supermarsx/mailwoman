@@ -1,6 +1,6 @@
 //! Authenticated encryption for data at rest (XChaCha20-Poly1305).
 
-use chacha20poly1305::aead::{Aead, KeyInit, Payload};
+use chacha20poly1305::aead::{Aead, AeadInPlace, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use rand::RngCore;
 
@@ -78,6 +78,22 @@ impl ServerKey {
         let cipher = XChaCha20Poly1305::new(&self.0.into());
         let nonce = XNonce::from_slice(nonce_bytes);
         cipher.decrypt(nonce, ct).map_err(|_| SealError::Decrypt)
+    }
+
+    /// [`ServerKey::open`] for sealed bytes the caller owns (t55): decrypted in
+    /// place, so a body read holds one buffer instead of the sealed copy plus a
+    /// plaintext copy. Same format and same errors as [`ServerKey::open`].
+    pub fn open_owned(&self, mut sealed: Vec<u8>) -> Result<Vec<u8>, SealError> {
+        if sealed.len() < NONCE_LEN {
+            return Err(SealError::Truncated);
+        }
+        let mut nonce = [0u8; NONCE_LEN];
+        nonce.copy_from_slice(&sealed[..NONCE_LEN]);
+        sealed.drain(..NONCE_LEN);
+        XChaCha20Poly1305::new(&self.0.into())
+            .decrypt_in_place(XNonce::from_slice(&nonce), b"", &mut sealed)
+            .map_err(|_| SealError::Decrypt)?;
+        Ok(sealed)
     }
 
     /// Versioned encryption bound to an exact purpose and ordered authority fields.
@@ -229,13 +245,13 @@ impl ServerKey {
     /// earlier one-shot [`ServerKey::seal`] form. A one-shot object that happens to
     /// begin with the streamed magic fails authentication as a stream and is then
     /// opened as one-shot, so the magic cannot misread an older object.
-    pub(crate) fn open_upload(&self, sealed: &[u8]) -> Result<Vec<u8>, SealError> {
+    pub(crate) fn open_upload(&self, sealed: Vec<u8>) -> Result<Vec<u8>, SealError> {
         if sealed.starts_with(STREAM_MAGIC)
-            && let Ok(plain) = self.open_stream(sealed)
+            && let Ok(plain) = self.open_stream(&sealed)
         {
             return Ok(plain);
         }
-        self.open(sealed)
+        self.open_owned(sealed)
     }
 
     fn open_stream(&self, sealed: &[u8]) -> Result<Vec<u8>, SealError> {
@@ -264,6 +280,35 @@ impl ServerKey {
             rest = tail;
             counter = counter.checked_add(1).ok_or(SealError::Decrypt)?;
         }
+    }
+}
+
+#[cfg(test)]
+mod open_owned_tests {
+    use super::*;
+
+    /// t55: opening owned sealed bytes decrypts in place: the plaintext is the
+    /// same as `open`'s, and no second buffer of the body's size is made (the
+    /// result reuses the sealed buffer's allocation).
+    #[test]
+    fn open_owned_matches_open_and_reuses_the_buffer() {
+        let key = ServerKey::generate();
+        for len in [0usize, 1, 4096, 3 * 1024 * 1024] {
+            let plain: Vec<u8> = (0..len).map(|i| (i % 253) as u8).collect();
+            let sealed = key.seal(&plain).unwrap();
+            assert_eq!(key.open(&sealed).unwrap(), plain);
+            let start = sealed.as_ptr() as usize;
+            let end = start + sealed.capacity();
+            let opened = key.open_owned(sealed).unwrap();
+            assert_eq!(opened, plain, "{len}");
+            let at = opened.as_ptr() as usize;
+            assert!(len == 0 || (start..end).contains(&at), "{len}: a new buffer was allocated");
+        }
+        let mut tampered = key.seal(b"body").unwrap();
+        let last = tampered.len() - 1;
+        tampered[last] ^= 1;
+        assert!(key.open_owned(tampered).is_err());
+        assert!(matches!(key.open_owned(vec![0; 3]), Err(SealError::Truncated)));
     }
 }
 

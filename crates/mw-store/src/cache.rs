@@ -2090,7 +2090,8 @@ impl Store {
             .fetch_optional(&self.backend)
             .await?;
         match row {
-            Some(r) => Ok(Some(self.key.open(&r.get_blob("sealed_bytes"))?)),
+            // Decrypted in place: one buffer per body read, not two (t55).
+            Some(r) => Ok(Some(self.key.open_owned(r.get_blob("sealed_bytes"))?)),
             None => Ok(None),
         }
     }
@@ -2110,7 +2111,7 @@ impl Store {
             .bind(account_id).bind(blob_ref).bind(sealed_limit).fetch_optional(&self.backend).await?;
         match row {
             Some(row) => {
-                let bytes = self.key.open(&row.get_blob("sealed_bytes"))?;
+                let bytes = self.key.open_owned(row.get_blob("sealed_bytes"))?;
                 Ok((bytes.len() <= limit).then_some(bytes))
             }
             None => Ok(None),

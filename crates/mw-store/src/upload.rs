@@ -650,7 +650,7 @@ impl Store {
                     }
                     all.extend_from_slice(&part);
                 }
-                ReadMode::Whole(Some(self.key.open(&all)?))
+                ReadMode::Whole(Some(self.key.open_owned(all)?))
             }
         };
         Ok(Some(UploadReader { mode, pending: None }))
@@ -707,7 +707,7 @@ impl Store {
             Some(s) => s,
             None => return Ok(None),
         };
-        let bytes = self.key.open_upload(&sealed)?;
+        let bytes = self.key.open_upload(sealed)?;
         if bytes.len() > maximum || i64::try_from(bytes.len()).ok() != Some(r.get_i64("size")) {
             return Ok(None);
         }
@@ -1005,27 +1005,27 @@ mod tests {
             object.extend_from_slice(c);
         }
         object.extend_from_slice(&sealer.seal_chunk(b"tail", true).unwrap());
-        let plain = key.open_upload(&object).unwrap();
+        let plain = key.open_upload(object.clone()).unwrap();
         assert_eq!(plain.len(), 3 * seal::STREAM_CHUNK + 4);
         let head = 4 + 19;
         let full = seal::STREAM_CHUNK + 16;
         let mut flipped = object.clone();
         flipped[head + 10] ^= 1;
-        assert!(key.open_upload(&flipped).is_err(), "changed byte");
-        assert!(key.open_upload(&object[..head + 3 * full]).is_err(), "dropped last chunk");
+        assert!(key.open_upload(flipped).is_err(), "changed byte");
+        assert!(key.open_upload(object[..head + 3 * full].to_vec()).is_err(), "dropped last chunk");
         let mut swapped = object[..head].to_vec();
         swapped.extend_from_slice(&chunks[1]);
         swapped.extend_from_slice(&chunks[0]);
         swapped.extend_from_slice(&object[head + 2 * full..]);
-        assert!(key.open_upload(&swapped).is_err(), "reordered chunks");
+        assert!(key.open_upload(swapped).is_err(), "reordered chunks");
         let mut extended = object.clone();
         extended.extend_from_slice(&chunks[0]);
-        assert!(key.open_upload(&extended).is_err(), "extra chunk");
+        assert!(key.open_upload(extended).is_err(), "extra chunk");
         let one_shot = key.seal(b"stored before t55").unwrap();
-        assert_eq!(key.open_upload(&one_shot).unwrap(), b"stored before t55");
+        assert_eq!(key.open_upload(one_shot).unwrap(), b"stored before t55");
         let mut lookalike = b"MWU2".to_vec();
         lookalike.extend_from_slice(&key.seal(b"x").unwrap()[4..]);
-        assert!(key.open_upload(&lookalike).is_err(), "neither form: refused");
+        assert!(key.open_upload(lookalike).is_err(), "neither form: refused");
     }
 
     /// t55: a spool is written and read back one chunk at a time, with no row,

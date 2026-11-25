@@ -1472,7 +1472,11 @@ impl Engine {
                 let Ok(idx) = pid.parse::<u32>() else {
                     return Ok(None);
                 };
-                let Some(part) = mw_mime::part_blob(&raw, idx) else {
+                let part = mw_mime::part_blob(&raw, idx);
+                // The raw message is not needed once the part is decoded; it is
+                // released before the body-use write below awaits (t55).
+                drop(raw);
+                let Some(part) = part else {
                     return Ok(None);
                 };
                 let filename = part
