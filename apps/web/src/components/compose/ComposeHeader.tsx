@@ -36,8 +36,9 @@ export function ComposeHeader(props: ComposeHeaderProps): JSX.Element {
   const [attentionOn, setAttentionOn] = createSignal(false);
   const [peek, setPeek] = createSignal(false);
   const [autoFolded, setAutoFolded] = createSignal(false);
+  const [manualOpen,setManualOpen]=createSignal<boolean|null>(null);
   const collapsible = (): boolean => props.collapsible?.() ?? true;
-  let corner: HTMLButtonElement | undefined;
+  let toggleButton: HTMLButtonElement | undefined;
   let foldTimer: ReturnType<typeof setTimeout> | undefined;
   onCleanup(() => clearTimeout(foldTimer));
   let body: HTMLDivElement | undefined;
@@ -47,11 +48,12 @@ export function ComposeHeader(props: ComposeHeaderProps): JSX.Element {
   createEffect(on(props.attention, (n) => {
     if (n === 0) return;
     setAttentionOn(true);
+    setManualOpen(null);
     setAutoFolded(false);
     clearTimeout(timer);
     timer = setTimeout(() => setAttentionOn(false), 4000);
   }, { defer: true }));
-  const open = createMemo(() => !collapsible() || headerOpen({
+  const open = createMemo(() => !collapsible() || (manualOpen() ?? headerOpen({
     mode: props.mode(),
     remembered: remembered(),
     focusWithin: focusWithin(),
@@ -59,7 +61,7 @@ export function ComposeHeader(props: ComposeHeaderProps): JSX.Element {
     empty: props.empty(),
     peek: peek(),
     autoFolded: autoFolded(),
-  }));
+  })));
   // The body (an editor surface outside the header) holding focus starts the auto-fold clock; focus coming
   // back into the header, a change that makes the header incomplete, or a toggle stops it.
   const [bodyFocused, setBodyFocused] = createSignal(false);
@@ -77,12 +79,16 @@ export function ComposeHeader(props: ComposeHeaderProps): JSX.Element {
     const seconds = props.autoCollapseSeconds?.() ?? 0;
     if (!collapsible() || seconds <= 0 || !bodyFocused() || focusWithin() || attentionOn() || !(props.valid?.() ?? false) || autoFolded()) return;
     if (!open()) return;
-    foldTimer = setTimeout(() => setAutoFolded(true), seconds * 1000);
+    foldTimer = setTimeout(() => {setManualOpen(null);setAutoFolded(true);}, seconds * 1000);
   });
   function toggle(): void {
     if (!collapsible()) return;
     clearTimeout(foldTimer);
     const next = !open();
+    if(!next&&body?.contains(document.activeElement))toggleButton?.focus();
+    setManualOpen(next);
+    setFocusWithin(false);
+    setAttentionOn(false);clearTimeout(timer);
     setAutoFolded(false);
     if (props.mode() === 'auto') {
       setPeek(next);
@@ -98,7 +104,6 @@ export function ComposeHeader(props: ComposeHeaderProps): JSX.Element {
     if (section && !section.closest('.compose')?.contains(document.activeElement) && document.activeElement !== document.body) return;
     event.preventDefault();
     // Focus leaves the fields first, otherwise focus-within would hold the header open.
-    if (open() && body?.contains(document.activeElement)) corner?.focus();
     toggle();
   }
   if (typeof document !== 'undefined') {
@@ -118,11 +123,13 @@ export function ComposeHeader(props: ComposeHeaderProps): JSX.Element {
       <div class="compose-head__bar">
         <Show when={collapsible()}>
         <button
+          ref={toggleButton}
           type="button"
           class="compose-head__toggle"
           data-testid="compose-header-toggle"
           aria-expanded={open() ? 'true' : 'false'}
           aria-controls={bodyId}
+          aria-keyshortcuts="Alt+H"
           aria-label={open() ? t('mail-header-collapse') : t('mail-header-expand', { summary: props.summary() })}
           onClick={toggle}
         >
@@ -131,22 +138,6 @@ export function ComposeHeader(props: ComposeHeaderProps): JSX.Element {
         </button>
         </Show>
         {props.extras}
-        <Show when={collapsible()}>
-          <button
-            ref={corner}
-            type="button"
-            class="compose-head__corner"
-            data-testid="compose-header-corner"
-            aria-expanded={open() ? 'true' : 'false'}
-            aria-controls={bodyId}
-            aria-keyshortcuts="Alt+H"
-            aria-label={open() ? t('mail-header-collapse') : t('mail-header-expand-short')}
-            data-tooltip={open() ? t('mail-header-collapse') : t('mail-header-expand-short')}
-            onClick={toggle}
-          >
-            <span class="compose-head__chev"><Icon name="chevronDown" /></span>
-          </button>
-        </Show>
       </div>
       <div class="compose-head__wrap" data-open={open() ? 'true' : 'false'}>
       <div class="compose-head__clip">
@@ -156,7 +147,7 @@ export function ComposeHeader(props: ComposeHeaderProps): JSX.Element {
         class="compose-head__body"
         data-testid="compose-header-body"
         hidden={!open()}
-        onFocusIn={() => setFocusWithin(true)}
+        onFocusIn={() => {setManualOpen(null);setFocusWithin(true);}}
         onFocusOut={(event) => {
           const next = event.relatedTarget;
           // Focus moving to a suggestion list or the contact card portalled elsewhere still counts as inside.
@@ -164,6 +155,7 @@ export function ComposeHeader(props: ComposeHeaderProps): JSX.Element {
           setFocusWithin(false);
           // The peek ends when focus leaves, so `auto` folds again once the user is writing.
           setPeek(false);
+          if(props.mode()==='auto')setManualOpen(null);
         }}
       >
         {props.children}

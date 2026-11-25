@@ -52,4 +52,5 @@ function Harness(){
 }
 if(new URLSearchParams(location.search).has('login'))void import('./loginPolicyHarness.tsx');
 else if(new URLSearchParams(location.search).has('settings'))void import('./settingsPolishHarness.tsx');
+else if(new URLSearchParams(location.search).has('selection'))void import('./selectionHarness.tsx');
 else render(()=><Harness/>,document.getElementById('root')!);

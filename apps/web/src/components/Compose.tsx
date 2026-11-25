@@ -14,7 +14,8 @@ import {ResponseTemplates} from './compose/ResponseTemplates.tsx';
 import {assignedSignature,signatureVariants} from './compose/signatureVariants.ts';
 import {SignatureGroup,type SignatureMenuGroup} from './compose/SignatureGroup.tsx';
 import {createSignatureController} from './compose/signatureControl.ts';
-import {applySignatureHtml,applySignaturePlain,stripSignatureMarker} from './compose/signatureRegion.ts';
+import {applySignatureHtml,applySignaturePlain,stripSignatureMarker,removeSignatureHtml,removeSignaturePlain,locate} from './compose/signatureRegion.ts';
+import {inertBody,htmlToText} from './compose/richtext.ts';
 import {SignatureManager} from './compose/SignatureManager.tsx';
 import {registerLiveReplyDraft} from './compose/liveReplyDrafts.ts';
 import {htmlMessageDocument, stripEditorMarkers} from './compose/htmlMessage.ts';
@@ -100,6 +101,7 @@ import {
 import { SendOptions } from './compose/SendOptions.tsx';
 import {
   embedSignatureImages,
+  embeddedImageSources,
   inlineAttachments,
   inlineRefusal,
   newCid,
@@ -733,7 +735,7 @@ export function Compose(props: {
     const focus=focusedRecipient();
     return invalidRecipients((['to','cc','bcc'] as const).map(field=>field===focus?fieldValue(field).replace(/[^,;]*$/u,''):fieldValue(field)));
   });
-  const subjectAlert=()=>policyOf('emptySubject')!=='allow'&&subject().trim()===''&&body().trim()!=='';
+  const subjectAlert=()=>policyOf('emptySubject')!=='allow'&&subject().trim()===''&&hasAuthoredBody();
   const [dismissedExternal,setDismissedExternal]=createSignal<string[]>([]);
   const externalHidden=()=>outside().every(address=>dismissedExternal().includes(address));
   let subjectInput:HTMLInputElement|undefined;
@@ -820,6 +822,17 @@ export function Compose(props: {
     applyFormat(mode);
   }
   function applyFormat(mode:BodyMode):void {
+    if(richMode()&&mode==='plain'){
+      const applied=signatureController.applied();
+      if(applied){
+        const root=inertBody(bodyHtml()),region=locate(root,applied.sig.text);
+        if(region){
+          const delimiter=root.ownerDocument.createElement('p');delimiter.textContent='-- ';
+          region.nodes[0]!.parentNode!.insertBefore(delimiter,region.nodes[0]!);
+          setBody(htmlToText(root.innerHTML).replace(/(^|\n)--[ \t]*\n+/g,'$1-- \n'));
+        }
+      }
+    }
     if(!richMode() && mode!=='plain')setBodyHtml(plainToHtml(body()));
     if(mode!=='rich'&&ribbonTab()==='table')setRibbonTab('format');
     if(sourceMode()!==(mode==='html'))setEditorApi(null);
@@ -850,11 +863,15 @@ export function Compose(props: {
    *  the picker already put it in the body, and never on an encrypted or signed
    *  send — there the body is ciphertext or a clear-signed block, and anything
    *  appended after it would sit outside the encryption or break the signature. */
-  const autoSignature = createMemo<ComposeSignature | null>(() => {
-    const id=customFrom()?null:identity()??app.identities().find(item=>item.email.trim().toLowerCase()===app.me()?.username?.trim().toLowerCase())??null;
+  const signatureIdentity=createMemo(()=>customFrom()?null:identity()??app.identities().find(item=>item.email.trim().toLowerCase()===app.me()?.username?.trim().toLowerCase())??null);
+  const assignedBodySignature = createMemo<ComposeSignature | null>(() => {
+    const id=signatureIdentity();
     if (id === null) return null;
-    const sig=assignedSignature(id,replyContext());
-    if (sig === null || insertedSignatures().has(sig.id)||insertedSignatures().has(id.id)) return null;
+    return assignedSignature(id,replyContext());
+  });
+  const autoSignature = createMemo<ComposeSignature | null>(() => {
+    const sig=assignedBodySignature();
+    if (sig === null || insertedSignatures().has(sig.id)||insertedSignatures().has(sig.identityId??sig.id)||insertedSignatures().has(identityId())) return null;
     const cs = cryptoState();
     if (cs !== null && (cs.encrypt || cs.sign)) return null;
     return sig;
@@ -885,6 +902,7 @@ export function Compose(props: {
         const {normalizeHtmlSource} = await import('./compose/htmlSource.ts');
         // Embedded images become inline images of this draft (t49), sent as `cid:` parts.
         const html = await embedSignatureImages(sig.html, uploadInline);
+        if(embeddedImageSources(html).length)throw new Error('Signature image upload failed');
         return (await normalizeHtmlSource(html,ownedCids())).html;
     }
     return plainToHtml(sig.text);
@@ -893,7 +911,7 @@ export function Compose(props: {
   async function signaturePlain(sig: ComposeSignature): Promise<string> {
     if(sig.plainText?.trim())return sig.plainText;
     if (sig.html) {
-      try { return (await import('./compose/richtext.ts')).htmlToText(sig.html); } catch { /* Plain fallback remains inert. */ }
+      try { return htmlToText(sig.html); } catch { /* Plain fallback remains inert. */ }
     }
     return sig.text;
   }
@@ -902,14 +920,14 @@ export function Compose(props: {
   let signatureReturnTo:HTMLElement|null=null;
   const signatureGroups=createMemo<SignatureMenuGroup[]>(()=>app.identities().map(id=>({identityId:id.id,name:id.name||id.email,current:id.id===identityId(),items:signatures().filter(sig=>sig.identityId===id.id).map(sig=>({sig,isDefault:assignedSignature(id,replyContext())?.id===sig.id}))})));
   const signatureController=createSignatureController({
-    captureAuthority:()=>{const key=sendingSelection();return ()=>ownsDraft()&&sendingSelection()===key;},
+    captureAuthority:()=>{const key=sendingSelection(),rich=richMode();return ()=>ownsDraft()&&sendingSelection()===key&&richMode()===rich;},
     richMode,bodyHtml,body,
     setHtml:html=>{
       if(!ownsDraft())throw new Error('Draft authority changed');
       const api=editorApi();
       if(api?.replaceHtml)api.replaceHtml(html);else if(api)api.setHtml(html);else setBodyHtml(html);
     },
-    setPlain:text=>{if(!ownsDraft())throw new Error('Draft authority changed');setBody(text);},
+    setPlain:text=>{if(!ownsDraft())throw new Error('Draft authority changed');setBody(text);setBodyHtml(plainToHtml(text));},
     insertAtCursor:(html,text)=>insertBlock(html,text),
     renderHtml:async sig=>{
       const html=await signatureBlock(sig);
@@ -919,13 +937,43 @@ export function Compose(props: {
     },
     renderPlain:signaturePlain,variants:signatures,
     defaultFor:id=>{if(customFrom())return null;const item=app.identities().find(value=>value.id===id);return item?assignedSignature(item,replyContext()):null;},
-    identityId,quoteAnchor:()=>imageOffer?.anchor??(initial&&initial.mode!='new'?initial.bodyText.trim().split('\n')[0]:undefined),quoteKind:()=>imageOffer?.kind,
+    identityId:()=>signatureIdentity()?.id??identityId(),quoteAnchor:()=>imageOffer?.anchor??(initial&&initial.mode!='new'?initial.bodyText.trim().split('\n')[0]:undefined),quoteKind:()=>imageOffer?.kind,
     defaultPosition:()=>settings()['mail.signaturePosition']?.value==='end'?'end':'above-quote',
     positionLocked:()=>settings()['mail.signaturePosition']?.locked===true,
     markInserted:sig=>setInsertedSignatures(prev=>new Set(prev).add(sig.id).add(sig.identityId??sig.id).add(identityId())),
     markRemoved:id=>setInsertedSignatures(prev=>new Set(prev).add(id).add(identityId())),
   });
-  createEffect(on(identityId,(next,previous)=>{if(previous)void signatureController.identityChanged(previous,next).catch(()=>setError(t('mail-compose-html-failed')));},{defer:true}));
+  let previousSignatureIdentity=signatureIdentity()?.id??'';
+  createEffect(on(()=>signatureIdentity()?.id??'',next=>{
+    const previous=previousSignatureIdentity;previousSignatureIdentity=next;
+    if(previous&&previous!==next)void signatureController.identityChanged(previous,next).catch(()=>setError(t('mail-compose-html-failed')));
+  }));
+
+  function hasAuthoredBody():boolean {
+    const applied=signatureController.applied();if(!applied||applied.edited)return body().trim()!=='';
+    if(!richMode())return removeSignaturePlain(body(),imageOffer?.anchor).trim()!=='';
+    const remainder=inertBody(removeSignatureHtml(bodyHtml(),applied.sig.text));
+    return (remainder.textContent??'').trim()!==''||remainder.querySelector('img,table,hr,video,audio')!==null;
+  }
+
+  function clearMessageBody():void {
+    if(busy()||signatureController.busy()||!ownsDraft())return;
+    const previous={text:body(),html:bodyHtml(),signatures:new Set(insertedSignatures())},owner=sendingSelection();
+    const sig=assignedBodySignature();
+    setInsertedSignatures(values=>new Set(values).add(identityId()).add(sig?.id??identityId()));
+    const replace=(html:string,text:string):void=>{
+      const api=editorApi();
+      if(richMode()&&api){if(api.replaceHtml)api.replaceHtml(html);else api.setHtml(html);}
+      setBodyHtml(html);setBody(text);
+    };
+    replace('','');
+    toast.info(t('mail-compose-body-cleared'),{action:{label:t('mail-undo-action'),run:()=>{
+      if(!ownsDraft()||sendingSelection()!==owner)return;
+      if(body().trim()!==''||/<(?:img|table|hr|video|audio)\b/i.test(bodyHtml())){toast.warning(t('mail-compose-body-clear-undo-changed'));return;}
+      replace(previous.html,previous.text);setInsertedSignatures(previous.signatures);
+    }}});
+    editorApi()?.focus?.();if(!richMode())plainArea?.focus();
+  }
 
   /** Resume a locally auto-saved draft (W9) into this composer. */
   function resumeDraft(d: StoredDraft): void {
@@ -1212,13 +1260,27 @@ export function Compose(props: {
     onCleanup(registerDraftPreview(owner,draftId,currentDraftSnapshot));
   });
   let resumedWorkspaceDraft=false;
+  const [signatureDraftReady,setSignatureDraftReady]=createSignal(false);
   createEffect(()=>{
     const account=app.accountId(),owner=composerAuthority();
     if(resumedWorkspaceDraft||!account||!owner||owner.id!==account||!preferenceAccountIsCurrent(owner))return;
     resumedWorkspaceDraft=true;
     const saved=props.resumeDraftId?listDrafts(account,localDraftAuthority()).find(draft=>draft.id===props.resumeDraftId):undefined;
     if(saved)resumeDraft(saved);
+    setSignatureDraftReady(true);
     props.onDraftIdChange?.(draftId);
+  });
+  let automaticSignatureAttempt='';
+  // The assigned signature is real, editable message content before Send.
+  createEffect(()=>{
+    const sig=assignedBodySignature(),applied=signatureController.applied(),api=editorApi();
+    if(!signatureDraftReady()||!sig||!ownsDraft()||busy()||signatureController.busy()||(richMode()&&!api))return;
+    if(richMode()&&sig.html&&embeddedImageSources(sig.html).length&&uploadUrl()===null)return;
+    if(insertedSignatures().has(sig.id)||insertedSignatures().has(sig.identityId??sig.id)||insertedSignatures().has(identityId()))return;
+    if(applied){setInsertedSignatures(previous=>new Set(previous).add(sig.id).add(sig.identityId??sig.id).add(identityId()));return;}
+    const owner=sendingSelection(),key=JSON.stringify([owner,sig,richMode()]);if(automaticSignatureAttempt===key)return;automaticSignatureAttempt=key;
+    const rich=richMode();
+    void signatureController.apply(sig).catch(()=>{if(ownsDraft()&&sendingSelection()===owner&&richMode()===rich&&assignedBodySignature()?.id===sig.id)setError(t('mail-compose-html-failed'));});
   });
   createEffect(()=>{const value=subject();if(ownsDraft()&&draftAccount)props.onSubjectChange?.(value);});
   createEffect(() => {
@@ -1235,6 +1297,8 @@ export function Compose(props: {
   });
   function currentDraftSnapshot():StoredDraft|null {
     const account=app.accountId();if(!account||sent||!ownsDraft())return null;
+    // An untouched assigned signature does not create an otherwise empty draft.
+    if(!to().trim()&&!cc().trim()&&!bcc().trim()&&!subject().trim()&&!attachments().length&&!hasAuthoredBody()&&!remoteRevision()&&!listDrafts(account,localDraftAuthority()).some(row=>row.id===draftId))return null;
     return {
       id: draftId,
       accountId: account,
@@ -1907,7 +1971,7 @@ export function Compose(props: {
     ?['format','insert','layout',...(sourceMode()||editorContext().table?['table' as const]:[]),...(!sourceMode()&&editorContext().image?['picture' as const]:[]),'security','delivery']
     :['format','insert','layout','security','delivery'];
   createEffect(()=>{if(!visibleTabs().includes(ribbonTab() as never))setRibbonTab('format');});
-  const noRecipients=()=>to().trim()===''&&cc().trim()===''&&bcc().trim()===''&&(attempted()||subject().trim()!==''||body().trim()!=='');
+  const noRecipients=()=>to().trim()===''&&cc().trim()===''&&bcc().trim()===''&&(attempted()||subject().trim()!==''||hasAuthoredBody());
   const lacksAttachment=createMemo(()=>policyOf('missingAttachment')!=='allow'&&attachments().length===0&&inlineImages().length===0&&!attachPublicKey()&&mentionsAttachment(body()));
   const severityOf=(id:CheckId):'danger'|'warning'=>policyOf(id)==='deny'?'danger':'warning';
   /** Open the header (when folded) so a field in it can take focus. */
@@ -2229,6 +2293,7 @@ export function Compose(props: {
                 <RibbonItem><button type="button" class="btn btn--ghost" data-testid="compose-show-cc-bcc" aria-pressed={ccBccOpen()} onClick={()=>setCcBccOpen(!ccBccOpen())}><Icon name="users"/><span class="compose-rib__text">{t('mail-compose-show-cc-bcc')}</span></button></RibbonItem>
                 <RibbonItem><button type="button" class="btn btn--ghost" aria-pressed={showFrom()} onClick={()=>setFromVisibleOverride(!showFrom())}><Icon name="mail"/><span class="compose-rib__text">{t('mail-compose-from')}</span></button></RibbonItem>
               </RibbonGroup>
+              <RibbonGroup label={t('mail-compose-group-editing')} icon="delete" priority={60} testId="compose-group-clear"><RibbonItem><button type="button" class="btn btn--ghost" data-testid="compose-clear-body" disabled={busy()||signatureController.busy()||!ownsDraft()} onClick={clearMessageBody}><Icon name="delete"/><span class="compose-rib__text">{t('mail-compose-clear-body')}</span></button></RibbonItem></RibbonGroup>
               <Show when={featureOn('compose.rich_text')}><BodyModeGroup label={t('mail-compose-ribbon-message-type')} value={()=>!richMode()?'plain':sourceMode()?'html':'rich'} onChange={changeFormat}/></Show>
             </>},
             {id:'insert',before:()=><><Show when={centralizedCommands()&&noticesEnabled()&&noticeTemplates().length>0}><RibbonGroup label={t('notices-title')} icon="file" priority={20}><RibbonItem><RibbonPopover label={t('notices-title')} icon="file" buttonClass="btn btn--ghost"><NoticeOptions ribbon/></RibbonPopover></RibbonItem></RibbonGroup></Show>
@@ -2515,14 +2580,6 @@ export function Compose(props: {
           </Show>
         </div>
 
-        {/* Shown exactly when the send will append it (see `autoSignature`). */}
-        <Show when={autoSignature()}>
-          {(sig) => (
-            <p class="compose__signature" data-testid="compose-auto-signature">
-              — {isolate(sig().text)}
-            </p>
-          )}
-        </Show>
 
 
 

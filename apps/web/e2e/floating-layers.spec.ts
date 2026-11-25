@@ -19,6 +19,22 @@ test.describe('floating controls above native dialogs and popovers',()=>{
   await expect(element).toBeVisible();
   await expect.poll(()=>element.evaluate(node=>{const rect=node.getBoundingClientRect();return node.contains(node.ownerDocument.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2));})).toBe(true);
  }
+ test('Shift selection includes unloaded messages after scrolling the anchor out of sight',async({page})=>{
+  await page.route('**/api/**',route=>route.fulfill({json:route.request().url().includes('/settings')?{settings:{}}:{}}));
+  await page.goto(origin+'?selection');
+  const list=page.getByRole('region',{name:'Messages',exact:true});await expect(list).toHaveAttribute('aria-busy','false');
+  await list.evaluate(node=>{(node as HTMLElement).style.height='600px';(node as HTMLElement).style.width='700px';});
+  const first=page.locator('[data-email-id="message-1"]');await expect(first).toBeVisible();await first.click({modifiers:['Control']});
+  const scroll=page.locator('.list__scroll');
+  const jump=async(position:number)=>{const height=await page.evaluate(()=>(globalThis as unknown as {selectionHarness:{rowHeight:()=>number}}).selectionHarness.rowHeight());await scroll.evaluate((node,top)=>{node.scrollTop=top;node.dispatchEvent(new Event('scroll'));},height*position);};
+  const selected=()=>page.evaluate(()=>(globalThis as unknown as {selectionHarness:{selected:()=>string[]}}).selectionHarness.selected().sort());
+  await jump(300);const end=page.locator('[data-email-id="message-305"]');await expect(end).toBeVisible();await expect(first).toHaveCount(0);
+  await end.click({modifiers:['Shift']});await expect.poll(selected).toEqual(Array.from({length:305},(_,index)=>`message-${index+1}`).sort());
+  await page.locator('[data-email-id="message-302"]').click({modifiers:['Shift']});await expect.poll(selected).toEqual(Array.from({length:302},(_,index)=>`message-${index+1}`).sort());
+  await jump(0);await expect(first).toBeVisible();await page.locator('[data-email-id="message-4"]').click({modifiers:['Shift']});
+  await expect.poll(selected).toEqual(['message-1','message-2','message-3','message-4']);
+  await expect(page.getByTestId('bulk-count')).toHaveText('4 selected');
+ });
  test('notifications stay on one line, expand with pointer and keyboard, and dismiss the whole queue',async({page,browserName})=>{
   for(const width of [1280,390]){
    await page.setViewportSize({width,height:900});await page.goto(origin+'?settings');

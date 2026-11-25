@@ -33,6 +33,13 @@ export interface Located {
   nodes: ChildNode[];
 }
 
+/** Native sanitization scopes the message inside a transparent body wrapper. */
+function contentRoot(root:HTMLElement):HTMLElement {
+  const content=Array.from(root.childNodes).filter(node=>node.nodeType===1?(node as Element).tagName!=='STYLE':(node.textContent??'').trim()!=='');
+  const only=content.length===1?content[0]:undefined;
+  return only?.nodeType===1&&(only as Element).classList.contains('mw-email-body')?contentRoot(only as HTMLElement):root;
+}
+
 /** The top-level node that starts a quote: the block whose text starts with `anchor`. */
 function quoteStart(nodes: ChildNode[], anchor: string | undefined): number {
   const wanted = anchor === undefined ? '' : squash(anchor);
@@ -45,6 +52,7 @@ function quoteStart(nodes: ChildNode[], anchor: string | undefined): number {
  * `text` is given) the shortest run of top-level blocks with exactly that text.
  */
 export function locate(root: HTMLElement, text?: string): Located | null {
+  root=contentRoot(root);
   const marked = Array.from(root.childNodes).find((node) => node.nodeType === 1 && (node as Element).hasAttribute(SIGNATURE_ATTR));
   if (marked) return { id: (marked as Element).getAttribute(SIGNATURE_ATTR), nodes: [marked] };
   const wanted = text === undefined ? '' : squash(text);
@@ -104,6 +112,7 @@ export function removeSignatureHtml(body: string, knownText?: string): string {
  */
 export function applySignatureHtml(body: string, signatureHtml: string, id: string, opts: PlaceOptions): string {
   const root = inertBody(body);
+  const target=contentRoot(root);
   const block = inertBody(wrapSignature(signatureHtml, id)).firstChild as ChildNode;
   const found = locate(root, opts.knownText);
   if (found) {
@@ -112,12 +121,12 @@ export function applySignatureHtml(body: string, signatureHtml: string, id: stri
     for (const node of found.nodes) node.remove();
     return root.innerHTML;
   }
-  const nodes = Array.from(root.childNodes);
+  const nodes = Array.from(target.childNodes);
   const at = opts.position === 'above-quote' ? quoteStart(nodes, opts.quoteAnchor) : -1;
   if (at >= 0) {
     // Keep the empty paragraph that precedes a quote (the answer spacer) above the signature.
-    root.insertBefore(root.ownerDocument.importNode(block, true), nodes[at]!);
-  } else root.appendChild(root.ownerDocument.importNode(block, true));
+    target.insertBefore(root.ownerDocument.importNode(block, true), nodes[at]!);
+  } else target.appendChild(root.ownerDocument.importNode(block, true));
   return root.innerHTML;
 }
 

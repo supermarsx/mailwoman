@@ -115,12 +115,14 @@ function makeServer(folders: Record<string, Email[]>, opts: ServerOptions = {}) 
       position?: number;
       limit?: number;
       calculateTotal?: boolean;
+      anchor?: string;
+      anchorOffset?: number;
     };
     const key = args.filter?.inMailbox ?? 'search';
-    const position = args.position ?? 0;
+    const all = folders[key] ?? [];
+    const position = args.anchor===undefined?args.position??0:Math.max(0,all.findIndex(message=>message.id===args.anchor)+(args.anchorOffset??0));
     const limit = args.limit ?? 0;
     const calculateTotal = args.calculateTotal === true;
-    const all = folders[key] ?? [];
     const page = opts.repeatFirstPage === true ? all.slice(0, limit) : all.slice(position, position + limit);
     const response: JmapResponse = {
       methodResponses: [
@@ -213,6 +215,28 @@ describe('paging — reaching past the first page', () => {
       await mail.loadMore({position:9950,limit:100});expect(mail.hasMore()).toBe(false);
       await mail.loadMore({position:0,limit:100});
       expect(mail.loadedRange()).toEqual({start:0,end:50});expect(mail.messages()[0]?.id).toBe('inbox-1');expect(mail.hasMore()).toBe(true);
+    });
+  });
+  it('resolves every intervening message across unloaded pages without moving the viewport',async()=>{
+    const server=makeServer({inbox:corpus('inbox',500)});
+    await withServer(server,async mail=>{
+      mail.setSelection(['inbox-2']);await mail.loadMore({position:300});
+      const headers=await mail.resolveSelectionRange('inbox-2','inbox-321',new AbortController().signal);
+      expect(headers.map(message=>message.id)).toEqual(corpus('inbox',321).slice(1).map(message=>message.id));
+      mail.setSelection(headers.map(message=>message.id),headers);
+      expect(mail.loadedRange()).toEqual({start:300,end:350});
+      expect(mail.listMessages()).toHaveLength(50);expect(mail.actionTargets()).toHaveLength(320);
+      const backwards=await mail.resolveSelectionRange('inbox-321','inbox-2',new AbortController().signal);
+      expect(backwards.map(message=>message.id)).toEqual(headers.map(message=>message.id));
+    });
+  });
+  it('does not apply a range when the query changes while its headers load',async()=>{
+    const server=makeServer({inbox:corpus('inbox',200)}),original=server.client.jmap;
+    await withServer(server,async mail=>{
+      server.client.jmap=vi.fn<Client['jmap']>(async(request,options)=>{const response=await original(request,options);if(request.methodCalls.some(call=>call[0]==='Email/get')){const query=response.methodResponses.find(call=>call[0]==='Email/query');if(query)query[1]['queryState']='changed';}return response;});
+      // jmapCall reads the client dynamically, including responses with a changed query state.
+      await expect(mail.resolveSelectionRange('inbox-1','inbox-150',new AbortController().signal)).rejects.toThrow('Message range changed');
+      expect(mail.selectedIds().size).toBe(0);expect(mail.messages()).toHaveLength(50);
     });
   });
   it('retains off-window selections for bulk actions without shifting the visible range',async()=>{

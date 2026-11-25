@@ -238,6 +238,7 @@ export function Settings(props: SettingsProps): JSX.Element {
   return (
     <SettingsNavigationContext.Provider value={navigation}><div
       class={props.embedded ? workspace.root : "compose__backdrop"}
+      data-settings-workspace={props.embedded?'':undefined}
       role={props.embedded ? "region" : "dialog"}
       aria-modal={props.embedded ? undefined : "true"}
       aria-label={t('settings-title')}
@@ -255,7 +256,7 @@ export function Settings(props: SettingsProps): JSX.Element {
 
         <div class={props.embedded ? workspace.body : workspace.legacy}>
           <Show when={props.embedded}><SettingsNav current={()=>navigation.route().section} query={sectionQuery} onQueryChange={setSectionQuery} supported={()=>true} onSelect={section=>void navigation.navigate({section})} onOpenCard={(section,card,row)=>{void navigation.navigate({section,card,...(row?{row}:{})}).then(opened=>{if(opened)setSectionQuery('');});}}/></Show>
-          <div class={workspace.content} ref={settingsContent}>
+          <div class={workspace.content} ref={settingsContent} data-settings-scroll="">
           <Show when={props.embedded}><Breadcrumbs class={workspace.crumb} testId="settings-breadcrumb" label={t('settings-breadcrumb')} loadingLabel={t('settings-crumb-loading')} items={settingsCrumbs(navigation.route()).map(c=>c.route?{label:c.label,onNavigate:()=>void navigation.navigate(c.route!)}:{label:c.label})}/></Show>
           <Show when={app.linkedMailboxId?.()&&!supportedSection(navigation.route().section)}><SettingsCard id="linked-settings-account-scope" title={t('linked-settings-primary-title')} description={t('linked-settings-primary-help')}><button type="button" class="btn" onClick={()=>void openPrimarySettings()}>{t('linked-settings-primary-open')}</button></SettingsCard></Show>
           <RetainedSettingsSection name="appearance" active={visible('appearance')} accountBound={false}>{()=> <div class={workspace.appearance}>

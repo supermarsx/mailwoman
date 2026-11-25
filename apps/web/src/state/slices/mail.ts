@@ -352,7 +352,9 @@ export interface MailSlice {
   /** The selected messages, limited to those still in the list. */
   selectedIds: Accessor<ReadonlySet<Id>>;
   /** Replace the selection. */
-  setSelection(ids: Iterable<Id>): void;
+  setSelection(ids: Iterable<Id>, headers?: readonly Email[]): void;
+  /** Resolve an inclusive range in the current query without moving its visible window. */
+  resolveSelectionRange(from: Id, to: Id, signal: AbortSignal): Promise<readonly Email[]>;
   /** Add `ids` to the selection, or remove them when all are already in it. */
   toggleSelection(ids: readonly Id[]): void;
   /** Select every message the list shows (`listMessages`). */
@@ -1094,8 +1096,17 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   let selectionRevision=0;
   createEffect(()=>{const owner=preferenceAccount(),topic=selectionTopic(),revision=++selectionRevision;if(!owner?.storageAuthority)return;void readSharedView(topic).then(value=>{if(selectionRevision===revision&&preferenceAccountIsCurrent(owner)&&topic===selectionTopic()&&Array.isArray(value)&&value.length<=10000&&value.every(id=>typeof id==='string'))setSelectionRaw(new Set(value));});});
   function shareSelection():void{selectionRevision++;void publishSharedView(selectionTopic(),[...selection()]);}
-  function setSelection(ids: Iterable<Id>): void {
-    setSelectionRaw(new Set(ids));shareSelection();
+  function setSelection(ids: Iterable<Id>,headers:readonly Email[]=[]): void {
+    const selected=new Set(ids);
+    batch(()=>{
+      if(headers.length){
+        // Selected headers remain available to bulk actions, outside the visible page.
+        if(windowIds()===null)setWindowIds(new Set(windowMessages().map(message=>message.id)));
+        const held=new Set(messages().map(message=>message.id));
+        setMessages([...messages(),...headers.filter(message=>selected.has(message.id)&&!held.has(message.id))]);
+      }
+      setSelectionRaw(selected);
+    });shareSelection();
   }
   function toggleSelection(ids: readonly Id[]): void {
     if (listLoading()) return;
@@ -1938,6 +1949,37 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       if(filter)call[1]['filter']={operator:'AND',conditions:[...(call[1]['filter']?[call[1]['filter']]:[]),filter]};
     }
     return request;
+  }
+
+  async function resolveSelectionRange(from:Id,to:Id,signal:AbortSignal):Promise<readonly Email[]> {
+    const acct=accountId(),source=pageSource(),authority=captureMailAuthority();
+    const scope=()=>JSON.stringify([pageSource(),folderViewValue('sort',selectedMailboxId()??undefined),folderViewValue('group',selectedMailboxId()??undefined),folderViewFilter(selectedMailboxId()??undefined),settings()['time.displayZone']?.value,inboxTab(),focusedInboxShown()]);
+    const captured=scope();
+    const check=()=>{if(signal.aborted||!authority()||scope()!==captured)throw new DOMException('Selection superseded','AbortError');};
+    check();if(acct===null||source===null)throw new Error('No active message query');
+    const template=pageRequest(acct,source,0,pageSize(),false);
+    const anchored=async(id:Id):Promise<EmailQueryResponse>=>{
+      const request=structuredClone(template);request.methodCalls=request.methodCalls.filter(call=>call[0]==='Email/query');
+      const args=request.methodCalls[0]![1];delete args['position'];Object.assign(args,{anchor:id,anchorOffset:0,limit:1});
+      const result=responseFor<EmailQueryResponse>(await jmapCall(request,{signal}),'q');check();
+      if(result.accountId!==acct||result.ids.length!==1||result.ids[0]!==id||!Number.isSafeInteger(result.position)||result.position<0||typeof result.queryState!=='string')throw new Error('Range endpoint changed');
+      return result;
+    };
+    const [first,last]=await Promise.all([anchored(from),anchored(to)]);check();
+    if(first.queryState!==last.queryState)throw new Error('Message order changed');
+    const start=Math.min(first.position,last.position),end=Math.max(first.position,last.position),headers:Email[]=[],seen=new Set<Id>();
+    for(let position=start;position<=end;){
+      check();const request=structuredClone(template),limit=Math.min(pageSize(),end-position+1);
+      Object.assign(request.methodCalls.find(call=>call[0]==='Email/query')![1],{position,limit});
+      const response=await jmapCall(request,{signal});check();
+      const query=responseFor<EmailQueryResponse>(response,'q'),page=responseFor<EmailGetResponse>(response,'g');
+      if(query.accountId!==acct||page.accountId!==acct||query.queryState!==first.queryState||query.position!==position||query.ids.length===0||query.ids.length>limit||page.notFound?.length)throw new Error('Message range changed');
+      const byId=new Map(page.list.map(message=>[message.id,message]));
+      for(const id of query.ids){const message=byId.get(id);if(!message||seen.has(id))throw new Error('Incomplete message range');seen.add(id);headers.push(message);}
+      position+=query.ids.length;
+    }
+    if(headers[0]?.id!==(first.position<=last.position?from:to)||headers.at(-1)?.id!==(first.position<=last.position?to:from))throw new Error('Range endpoints moved');
+    return headers.filter(message=>(!message.snoozedUntil||new Date(message.snoozedUntil).getTime()<=Date.now())&&(!focusedInboxShown()||classify(message)===inboxTab()));
   }
 
   /** The query total a list response reported, or `null` when it reported none. */
@@ -2958,6 +3000,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
 
     selectedIds,
     setSelection,
+    resolveSelectionRange,
     toggleSelection,
     selectAllInView,
     clearSelection,

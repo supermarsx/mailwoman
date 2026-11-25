@@ -6,7 +6,7 @@ import {htmlMessageDocument} from './compose/htmlMessage.ts';
 import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {initSync} from '../wasm/mw-sanitize/mw_sanitize.js';
-import { saveDraft, listDrafts } from './compose/drafts-store.ts';
+import { saveDraft, listDrafts,clearDrafts } from './compose/drafts-store.ts';
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@solidjs/testing-library';
 import { createRoot, Suspense } from 'solid-js';
@@ -114,7 +114,7 @@ const IDENTITIES: Identity[] = [
 ];
 
 describe('Compose', () => {
-  beforeEach(async () => { localStorage.clear(); await allowSendChecks(); });
+  beforeEach(async () => { localStorage.clear();clearDrafts(); await allowSendChecks(); });
   afterEach(() => clearSettings());
 
   /**
@@ -722,7 +722,7 @@ describe('Compose', () => {
   // ── The send payload, whole ─────────────────────────────────────────────────
 
   /** A composer over a client whose calls the test can read back. */
-  async function composeWithClient(opts: Parameters<typeof makeClient>[0] = {}) {
+  async function composeWithClient(opts: Parameters<typeof makeClient>[0] = {},format:'rich'|'html'='rich') {
     const client = makeClient(opts);
     const app = createOwnedAppState(client);
     await app.login({ username: 'me@example.org', password: 'p' });
@@ -732,7 +732,7 @@ describe('Compose', () => {
         <Compose onClose={onClose} />
       </AppContext.Provider>
     ));
-    await structuredComposeEditor();
+    if(format==='html')await chooseComposeFormat('html');else await structuredComposeEditor();
     return { client, app, onClose };
   }
 
@@ -804,7 +804,9 @@ describe('Compose', () => {
     await chooseComposeFormat('plain');
     fireEvent.input(screen.getByLabelText('To'), { target: { value: to } });
     fireEvent.input(screen.getByLabelText('Subject'), { target: { value: 'Hi' } });
-    fireEvent.input(screen.getByLabelText('Body'), { target: { value: body } });
+    const field=screen.getByLabelText('Body') as HTMLTextAreaElement;
+    const signature=field.value.match(/(?:^|\n)-- \n[\s\S]*$/)?.[0]?.trimStart();
+    fireEvent.input(field, { target: { value: signature?`${body}\n\n${signature}`:body } });
   }
 
   /** The one compose+submit request the client was handed. */
@@ -988,23 +990,24 @@ describe('Compose', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     const body=(sentBody(client) as {body:{value:string}}).body.value;
-    expect(body).toContain('<p>hi</p>');expect(body.match(/Regards/g)).toHaveLength(1);
+    expect(body).toMatch(/<p>hi(?:<br>|<\/p>)/);expect(body.match(/Regards/g)).toHaveLength(1);
     expect(body).not.toMatch(/<script|javascript:|position:fixed|https:\/\/t.example/);
   });
 
   for(const how of ['auto','picker'] as const)it(`preserves native HTML signature layout through ${how} insertion and sending`,async()=>{
     const signature:Identity={...IDENTITIES[0]!,id:'native',signatureFormat:'html',signatureText:'Native brand',signatureHtml:'<style>.brand td{padding:18px;font-family:Georgia}</style><table class="brand" width="480" cellpadding="12"><tr><td><font face="Georgia" size="4">Native brand</font></td></tr></table>'};
-    const {client,app,onClose}=await composeWithClient({identities:[signature]});await app.loadIdentities();
+    const {client,app,onClose}=await composeWithClient({identities:[signature]},'html');await app.loadIdentities();
     fireEvent.click(screen.getByRole('button',{name:'From'}));{const chip=screen.queryByTestId('compose-from-chip');if(chip)fireEvent.click(chip);}fireEvent.change(await screen.findByLabelText('From'),{target:{value:'native'}});
-    await fillPlain('Existing message');await chooseComposeFormat('rich');await structuredComposeEditor();
+    fireEvent.input(screen.getByLabelText('To'),{target:{value:'you@example.org'}});
+    fireEvent.input(screen.getByLabelText('Subject'),{target:{value:'Hi'}});
+    await chooseComposeFormat('html');
     if(how==='picker'){
       fireEvent.click(screen.getByRole('tab',{name:'Insert'}));fireEvent.click(await screen.findByTestId('signature-menu'));fireEvent.click(await screen.findByTestId('signature-choice-native'));
-      const frame=await screen.findByTitle('Visual editor') as HTMLIFrameElement;
-      const view=frame.contentWindow as (Window&{CSSStyleSheet:typeof CSSStyleSheet})|null;
-      if(view&&!view.CSSStyleSheet.prototype.replaceSync)Object.defineProperty(view.CSSStyleSheet.prototype,'replaceSync',{value:()=>{},configurable:true});
-      frame.contentDocument!.documentElement.setAttribute('data-mw-native-document','true');fireEvent.load(frame);
-      await waitFor(()=>expect(frame.contentDocument?.querySelector('table')?.getAttribute('width')).toBe('480'));
     }
+    const frame=await screen.findByTitle('Visual editor') as HTMLIFrameElement;
+    await waitFor(()=>expect(frame.contentDocument?.querySelector('table')?.getAttribute('width')).toBe('480'));
+    const editor=frame.contentDocument!.getElementById('mw-native-editor')!;
+    editor.insertAdjacentHTML('afterbegin','<p>Existing message</p>');fireEvent.input(editor);
     fireEvent.click(screen.getByRole('button',{name:'Send'}));await waitFor(()=>expect(onClose).toHaveBeenCalledOnce());
     const value=(sentBody(client) as {body:{value:string}}).body.value;
     expect(value).toContain('Existing message');expect(value.match(/Native brand/g)).toHaveLength(1);expect(value).toContain('width="480"');expect(value).toContain('cellpadding="12"');expect(value).toContain('class="brand"');expect(value).toContain('face="Georgia"');expect(value).toMatch(/padding:\s*18px/);
@@ -1015,8 +1018,8 @@ describe('Compose', () => {
     await app.loadIdentities();
     fireEvent.click(screen.getByRole('button', {name:'From'}));{const chip=screen.queryByTestId('compose-from-chip');if(chip)fireEvent.click(chip);}
     fireEvent.change(await screen.findByLabelText('From'), { target: { value: 'id1' } });
-    expect(await screen.findByTestId('compose-auto-signature')).toHaveTextContent('Sent from Mailwoman');
     await fillPlain('hi');
+    await waitFor(()=>expect((screen.getByLabelText('Body') as HTMLTextAreaElement).value).toContain('Sent from Mailwoman'));
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(sentBody(client)).toEqual({ body: { value: 'hi\n\n-- \nSent from Mailwoman' } });
@@ -1029,9 +1032,9 @@ describe('Compose', () => {
     const chip=screen.queryByTestId('compose-from-chip');if(chip)fireEvent.click(chip);
     fireEvent.change(await screen.findByLabelText('From'),{target:{value:'id1'}});
     await fillPlain('hi');
-    expect(screen.getByTestId('compose-auto-signature')).toHaveTextContent('Sent from Mailwoman');
+    expect((screen.getByLabelText('Body') as HTMLTextAreaElement).value).toContain('Sent from Mailwoman');
     fireEvent.click(screen.getByRole('tab',{name:'Insert'}));
-    expect(await screen.findByTestId('signature-primary')).toHaveAttribute('aria-pressed','false');
+    expect(await screen.findByTestId('signature-primary')).toHaveAttribute('aria-pressed','true');
     fireEvent.click(screen.getByTestId('signature-menu'));
     const none=await screen.findByTestId('signature-none');expect(none).toBeEnabled();fireEvent.click(none);
     await waitFor(()=>expect(screen.queryByTestId('compose-auto-signature')).toBeNull());
@@ -1048,7 +1051,7 @@ describe('Compose', () => {
     const chip=screen.queryByTestId('compose-from-chip');if(chip)fireEvent.click(chip);
     fireEvent.change(await screen.findByLabelText('From'),{target:{value:'id1'}});
     await fillPlain('hi');
-    expect(screen.getByTestId('compose-auto-signature')).toHaveTextContent('Sent from Mailwoman');
+    expect((screen.getByLabelText('Body') as HTMLTextAreaElement).value).toContain('Sent from Mailwoman');
     fireEvent.click(screen.getByRole('tab',{name:'Insert'}));fireEvent.click(await screen.findByTestId('signature-menu'));
     fireEvent.click(await screen.findByTestId('signature-choice-id2'));
     await waitFor(()=>expect((screen.getByLabelText('Body') as HTMLTextAreaElement).value).toContain('Work signature'));
@@ -1063,8 +1066,7 @@ describe('Compose', () => {
     fireEvent.click(screen.getByRole('button', {name:'From'}));{const chip=screen.queryByTestId('compose-from-chip');if(chip)fireEvent.click(chip);}
     fireEvent.change(await screen.findByLabelText('From'), { target: { value: 'id1' } });
     await fillPlain('hi');
-    // Precondition: the send would append it.
-    expect(screen.getByTestId('compose-auto-signature')).toBeInTheDocument();
+    expect((screen.getByLabelText('Body') as HTMLTextAreaElement).value).toContain('Sent from Mailwoman');
     fireEvent.click(screen.getByRole('tab', {name:'Insert'}));
     const picker = await screen.findByTestId('compose-signature');
     fireEvent.click(within(picker).getByTestId('signature-menu'));
@@ -1078,16 +1080,16 @@ describe('Compose', () => {
     });
   });
 
-  it('appends no signature to a signed send', async () => {
+  it('keeps the editable signature inside the body when signing is enabled', async () => {
     const { app } = await composeWithClient({ identities: IDENTITIES });
     await app.loadIdentities();
     fireEvent.click(screen.getByRole('button', {name:'From'}));{const chip=screen.queryByTestId('compose-from-chip');if(chip)fireEvent.click(chip);}
     fireEvent.change(await screen.findByLabelText('From'), { target: { value: 'id1' } });
     fireEvent.input(screen.getByLabelText('To'), { target: { value: 'you@example.org' } });
-    // Precondition: unsigned, the signature would be appended.
-    expect(await screen.findByTestId('compose-auto-signature')).toBeInTheDocument();
+    await chooseComposeFormat('plain');
+    await waitFor(()=>expect((screen.getByLabelText('Body') as HTMLTextAreaElement).value).toContain('Sent from Mailwoman'));
     fireEvent.click(await screen.findByTestId('sign-toggle'));
-    await waitFor(() => expect(screen.queryByTestId('compose-auto-signature')).toBeNull());
+    expect((screen.getByLabelText('Body') as HTMLTextAreaElement).value).toContain('Sent from Mailwoman');
   });
 
   // ── W9 / W10 / W12: drawers + signature picker ───────────────────────────────
@@ -1391,7 +1393,8 @@ describe('Compose', () => {
           fireEvent.click(screen.getByRole('button', { name: 'From' }));
           { const chip = screen.queryByTestId('compose-from-chip'); if (chip) fireEvent.click(chip); }
           fireEvent.change(await screen.findByLabelText('From'), { target: { value: 'id4' } });
-          expect(await screen.findByTestId('compose-auto-signature')).toBeInTheDocument();
+          const frame=await screen.findByTitle('Visual editor') as HTMLIFrameElement;
+          await waitFor(()=>expect(frame.contentDocument?.querySelector('img')).not.toBeNull());
         }
         fillAndSend();
         await waitFor(() => expect(app.pendingUndo()?.actionLabel).toBe('Undo'));

@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type MockedFunction } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
-import { MessageList } from './MessageList.tsx';
+import { MessageList,messageRowHeight } from './MessageList.tsx';
 import { makeClient, mkEmail } from './appHarness.tsx';
 import { createAppState, type AppState } from '../state/store.ts';
 import { AppContext } from '../state/context.ts';
 import { getKeymap } from '../keymap/index.ts';
 import { DEFAULT_PREFS, savePrefs } from '../screens/Settings/prefs.ts';
 import type { Client } from '../api/client.ts';
-import type { Email, JmapRequest } from '../api/jmap-types.ts';
+import type { Email, JmapRequest,JmapResponse } from '../api/jmap-types.ts';
 import * as barCss from './selectionBar.css.ts';
 
 // Selection and the bulk bar in the message list (t28-e16). The harness answers
@@ -18,15 +18,32 @@ const EMAILS: Email[] = ['a', 'b', 'c', 'd', 'e'].map((id) => mkEmail(id, { subj
 
 async function setup(emails: Email[] = EMAILS): Promise<{ app: AppState; jmap: MockedFunction<Client['jmap']> }> {
   const client = makeClient({ emails });
-  const app = createAppState(client);
-  render(() => (
+  let app!:AppState;
+  render(() => {app=createAppState(client);return (
     <AppContext.Provider value={app}>
       <MessageList />
     </AppContext.Provider>
-  ));
+  );});
   await app.login({ username: 'me@example.org', password: 'p' });
   await waitFor(() => expect(app.messages().length).toBe(emails.length));
   return { app, jmap: vi.mocked(client.jmap) };
+}
+
+async function setupPaged(){
+ const emails=Array.from({length:400},(_,index)=>mkEmail(`e${index}`,{subject:`Message ${index}`}));
+ const client=makeClient({emails}),fallback=client.jmap;
+ client.jmap=vi.fn<Client['jmap']>(async(request,options):Promise<JmapResponse>=>{
+  const query=request.methodCalls.find(call=>call[0]==='Email/query');if(!query)return fallback(request,options);
+  const args=query[1],position=typeof args['anchor']==='string'?emails.findIndex(message=>message.id===args['anchor']):Number(args['position']??0);
+  const page=emails.slice(position,position+Number(args['limit']??50));
+  return {sessionState:'s',methodResponses:[['Email/query',{accountId:'acct1',queryState:'stable',position,total:emails.length,ids:page.map(message=>message.id)},'q'],['Email/get',{accountId:'acct1',state:'s',list:page,notFound:[]},'g']]};
+ });
+ let app!:AppState;render(()=>{app=createAppState(client);return <AppContext.Provider value={app}><MessageList/></AppContext.Provider>;});
+ await app.login({username:'me@example.org',password:'p'});
+ const scroll=document.querySelector<HTMLElement>('.list__scroll')!,height=messageRowHeight(app.density(),false);
+ const jump=async(position:number)=>{await app.loadMore({position});scroll.scrollTop=position*height;fireEvent.scroll(scroll);};
+ const item=(index:number)=>document.querySelector(`[data-email-id="e${index}"]`)!;
+ return {app,emails,jump,item};
 }
 
 const row = (subject: string): HTMLElement =>
@@ -42,6 +59,35 @@ afterEach(() => {
 });
 
 describe('MessageList selection', () => {
+  it('extends and shrinks a continuous Shift range after its anchor leaves the loaded window',async()=>{
+    const {app,emails,jump}=await setupPaged();
+    fireEvent.click(document.querySelector('[data-email-id="e1"]')!,{ctrlKey:true});
+    await jump(200);
+    await waitFor(()=>expect(document.querySelector('[data-email-id="e205"]')).not.toBeNull());
+    fireEvent.click(document.querySelector('[data-email-id="e205"]')!,{shiftKey:true});
+    await waitFor(()=>expect([...app.selectedIds()].sort()).toEqual(emails.slice(1,206).map(message=>message.id).sort()));
+    expect(app.loadedRange()).toEqual({start:200,end:250});expect(app.actionTargets()).toHaveLength(205);
+    fireEvent.click(document.querySelector('[data-email-id="e202"]')!,{shiftKey:true});
+    await waitFor(()=>expect([...app.selectedIds()].sort()).toEqual(emails.slice(1,203).map(message=>message.id).sort()));
+    await jump(0);
+    fireEvent.click(document.querySelector('[data-email-id="e4"]')!,{shiftKey:true});
+    expect([...app.selectedIds()].sort()).toEqual(emails.slice(1,5).map(message=>message.id).sort());
+  });
+  it('does not resurrect a pending off-window range after the selection is cleared',async()=>{
+    const {app,emails,jump,item}=await setupPaged();fireEvent.click(item(1),{ctrlKey:true});await jump(200);
+    let complete!:(headers:readonly Email[])=>void;let signal!:AbortSignal;
+    vi.spyOn(app,'resolveSelectionRange').mockImplementation((_from,_to,pending)=>{signal=pending;return new Promise(resolve=>{complete=resolve;});});
+    fireEvent.click(item(205),{shiftKey:true});expect(signal.aborted).toBe(false);
+    fireEvent.click(screen.getByRole('button',{name:'Clear selection'}));expect(signal.aborted).toBe(true);
+    complete(emails.slice(1,206));await Promise.resolve();await Promise.resolve();
+    expect(app.selectedIds().size).toBe(0);expect(app.actionTargets()).toEqual([]);
+  });
+  it('keeps the same anchor message when new rows are inserted before it',async()=>{
+    const {app,emails,item}=await setupPaged();fireEvent.click(item(1),{ctrlKey:true});
+    emails.unshift(mkEmail('inserted',{subject:'New arrival'}));await app.refreshCurrentMailbox();
+    fireEvent.click(item(4),{shiftKey:true});
+    expect([...app.selectedIds()].sort()).toEqual(['e1','e2','e3','e4']);
+  });
   it('keeps separate picks while extending and shrinking a range',async()=>{
     await setup();
     fireEvent.click(row('Subject e'),{ctrlKey:true});fireEvent.click(row('Subject a'),{ctrlKey:true});fireEvent.click(row('Subject d'),{shiftKey:true});

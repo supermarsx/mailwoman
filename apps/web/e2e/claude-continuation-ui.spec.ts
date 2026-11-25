@@ -93,7 +93,7 @@ test('composer header folds and ribbon mode toggle works from the corner',async(
   const compose=composeSurface(page);await expect(compose).toBeVisible();
   await compose.getByLabel('To',{exact:true}).fill('person@example.org');
   await compose.getByLabel('Subject',{exact:true}).fill('Header smoke');
-  const header=compose.getByTestId('compose-header-corner');await expect(header).toBeVisible();
+  const header=compose.getByTestId('compose-header-toggle');await expect(header).toBeVisible();
   await expect(header).toHaveAttribute('aria-expanded','true');await header.click();
   await expect(header).toHaveAttribute('aria-expanded','false');await header.click();
   await expect(header).toHaveAttribute('aria-expanded','true');

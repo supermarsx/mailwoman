@@ -514,10 +514,18 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   // Expanded conversation keys (W2). Toggling re-derives the visual rows.
   const [expanded, setExpanded] = createSignal<ReadonlySet<string>>(new Set());
   // Where a Shift+click or Shift+Arrow range starts: the row last clicked or
-  // toggled (a visual-row index), or `null` before any.
-  const [anchor, setAnchor] = createSignal<number | null>(null);
+  // toggled. Identity survives virtual unmounts, page replacements and inserted rows.
+  interface SelectionAnchor {rowId:string;emailId:Id}
+  const selectionAnchor=(row:ThreadVisualRow):SelectionAnchor=>({rowId:rowId(row),emailId:row.email.id});
+  const [anchor, setAnchor] = createSignal<SelectionAnchor | null>(null);
   let rangeAdded:Id[]=[];
-  createEffect(on(()=>JSON.stringify([orderScope(),app.searchActive(),app.search?.(),order.value(),order.group(),app.loadedRange().start]),()=>{setAnchor(null);rangeAdded=[];}));
+  let rangeController:AbortController|undefined;
+  const [rangePending,setRangePending]=createSignal(false);
+  const rangeToast=createBackgroundLoadToast({id:`mail-selection:${Math.random().toString(36).slice(2)}`,testId:'mail-selection-loading'});
+  function cancelPendingRange():void{rangeController?.abort();rangeController=undefined;setRangePending(false);rangeToast.cancel();}
+  createEffect(on(()=>JSON.stringify([orderScope(),app.searchActive(),app.search?.(),order.value(),order.group(),messageTimeZone(),app.inboxTab(),app.focusedInboxShown()]),()=>{cancelPendingRange();setAnchor(null);rangeAdded=[];}));
+  createEffect(on(app.selectedIds,()=>{if(rangeController)cancelPendingRange();},{defer:true}));
+  onCleanup(cancelPendingRange);
 
   const tableMode=()=>folderViewValue('style')==='table';
   const rowHeight = (): number => messageRowHeight(app.density(),tableMode(),messagePreviewLines(app.selectedMailboxId()??undefined));
@@ -570,12 +578,25 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
     return idsOf(row).every((id) => sel.has(id));
   }
   /** Replace the previous Shift range while preserving independently picked rows. */
-  function selectRange(from: number, to: number): void {
+  function selectRange(from: SelectionAnchor, to: number): void {
     const all = rows();
-    const lo = Math.max(0, Math.min(from, to));
-    const hi = Math.min(all.length - 1, Math.max(from, to));
+    const start=all.findIndex(row=>rowId(row)===from.rowId),target=all[to];
+    if(!target)return;
+    const previousRange=new Set(rangeAdded);
+    const base=new Set([...app.selectedIds()].filter(id=>!previousRange.has(id)));
+    if(start<0){
+      const controller=new AbortController();rangeController=controller;setRangePending(true);rangeToast.start(t('mail-selecting-range'));
+      void app.resolveSelectionRange(from.emailId,target.email.id,controller.signal).then(headers=>{
+        if(rangeController!==controller||controller.signal.aborted)return;
+        const visible=visibleRows(headers),ids=visible.map(message=>message.id);
+        rangeAdded=ids.filter(id=>!base.has(id));rangeController=undefined;setRangePending(false);rangeToast.finish();
+        app.setSelection([...base,...ids],visible);
+      }).catch(()=>{if(rangeController===controller){rangeController=undefined;setRangePending(false);rangeToast.finish(t('mail-select-range-failed'));}});
+      return;
+    }
+    const lo = Math.max(0, Math.min(start, to));
+    const hi = Math.min(all.length - 1, Math.max(start, to));
     const ids = all.slice(lo, hi + 1).flatMap(idsOf);
-    const base=new Set([...app.selectedIds()].filter(id=>!rangeAdded.includes(id)));
     rangeAdded=ids.filter(id=>!base.has(id));
     app.setSelection([...base,...ids]);
   }
@@ -583,14 +604,15 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   const openTab = (id: Id): void => { if (props.onOpenMessageTab) props.onOpenMessageTab(id); else open(id); };
   function onRowClick(e: MouseEvent, index: number, row: ThreadVisualRow): void {
     if (app.listLoading()) return;
+    cancelPendingRange();
     setCursor(index);
     const action = classifyRowClick(e, { modifierSelection: modifierSelectionEnabled(), selecting: selecting() });
     if (action === 'range') {
-      if(anchor()===null)setAnchor(index);
-      selectRange(anchor() ?? index, index);
+      if(anchor()===null)setAnchor(selectionAnchor(row));
+      selectRange(anchor()!, index);
       return;
     }
-    setAnchor(index);
+    setAnchor(selectionAnchor(row));
     rangeAdded=[];
     if (action === 'toggle') {
       app.toggleSelection(idsOf(row));
@@ -902,9 +924,11 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
 
   /** Shift+Arrow: move the cursor and select from the anchor to it. */
   function extendTo(to: number): void {
+    cancelPendingRange();
     const count = rows().length;
     const next = Math.max(0, Math.min(count - 1, to));
-    const from = anchor() ?? cursor();
+    const row=rows()[cursor()];if(!row)return;
+    const from = anchor() ?? selectionAnchor(row);
     if (anchor() === null) setAnchor(from);
     moveCursor(next);
     selectRange(from, next);
@@ -941,11 +965,11 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
     else if (e.key === ' ' && onRow && !mod) {
       const row = rows()[cursor()];
       if (row === undefined) return;
-      setAnchor(cursor());
+      cancelPendingRange();setAnchor(selectionAnchor(row));
       rangeAdded=[];
       app.toggleSelection(idsOf(row));
-    } else if ((e.key === 'a' || e.key === 'A') && mod && onRow && modifierSelectionEnabled()) {rangeAdded=[];app.selectAllInView();}
-    else if (e.key === 'Escape' && app.selectedIds().size > 0) {rangeAdded=[];app.clearSelection();}
+    } else if ((e.key === 'a' || e.key === 'A') && mod && onRow && modifierSelectionEnabled()) {cancelPendingRange();rangeAdded=[];app.selectAllInView();}
+    else if (e.key === 'Escape' && (app.selectedIds().size > 0||rangePending())) {cancelPendingRange();rangeAdded=[];app.clearSelection();}
     else return;
     e.preventDefault();
   }
@@ -1042,7 +1066,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
       if(event.key==='Escape'&&!event.defaultPrevented&&selecting()&&app.selectedIds().size===0){
         event.preventDefault();event.stopPropagation();setSelecting(false);setAnchor(null);
       }
-    }} onContextMenu={backgroundContext} data-list-style={tableMode()?'table':'cards'} data-view-highlight={folderViewValue('highlight')} style={folderViewStyle(app.density())} aria-label={t('mail-list-label')} aria-busy={app.listLoading() || app.loadingMore() || showSkeleton()}>
+    }} onContextMenu={backgroundContext} data-list-style={tableMode()?'table':'cards'} data-view-highlight={folderViewValue('highlight')} style={folderViewStyle(app.density())} aria-label={t('mail-list-label')} aria-busy={app.listLoading() || app.loadingMore() || rangePending() || showSkeleton()}>
       <ListToolbar order={order} scope={orderScope} hideOrderControl={props.hideOrderControl===true} goToTop={mailFeature('showGoToTop')&&rows().length>0?goToTop:undefined} hideSelectionToggle={props.hideSelectionToggle===true} hideReadingPane={props.hideReadingPane===true} selecting={selecting()} toggleSelection={()=>setSelecting(value=>!value)}/>
       <Show when={tableMode()}><div class={viewCss.headerViewport}><div class={viewCss.headers} style={{transform:`translateX(${-scrollLeft()}px)`,'grid-template-columns':folderViewValue('columns').map(c=>`${folderColumnWidth(c)}px`).join(' ')}}><For each={folderViewValue('columns')}>{column=><span>{t(`props-view-column-${column}`)}</span>}</For></div></div><div class={viewCss.tableOptions}><select aria-label={t('mail-list-order')} value={order.value()} disabled={order.locked()||order.saving()} onChange={event=>{const select=event.currentTarget,value=select.value;if(isMessageListOrder(value))void order.set(value).then(()=>{if(select.isConnected)select.value=order.value();});}}><For each={MESSAGE_LIST_ORDERS}>{order=><option value={order}>{t(`mail-list-order-${order}`)}</option>}</For></select></div></Show>
       <OfflineQueueNotice />
@@ -1154,7 +1178,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
       </Show>
       {/* The floating selection bar (t58): over the list, after it in tab order.
           It never takes focus itself; Esc/F6 in it come back to the cursor row. */}
-      <MailSelectionBar selecting={selecting()} onCompose={props.onCompose} onClear={()=>{app.clearSelection();setSelecting(false);}} returnFocus={()=>moveCursor(cursor())}/>
+      <MailSelectionBar selecting={selecting()} onCompose={props.onCompose} onClear={()=>{cancelPendingRange();app.clearSelection();setSelecting(false);}} returnFocus={()=>moveCursor(cursor())}/>
       {contextMenu.menu()}
       {orderContext.menu()}
     </section>

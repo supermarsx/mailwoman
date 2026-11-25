@@ -58,13 +58,15 @@
 .compose-head__body[hidden] { display:none; }
 /* Rows are spaced by the body's flex gap (--mw-head-row-gap, set by the density class in
    composeHeader.css.ts), never by per-row margins, so no later margin rule can collapse them. */
-.compose-head__body { display:flex; flex-direction:column; row-gap:var(--mw-head-row-gap,.5rem); padding-block:var(--mw-head-row-gap,.5rem); }
+.compose-head__body { display:flex; flex-direction:column; row-gap:var(--mw-head-row-gap,.25rem); padding-block:var(--mw-head-row-gap,.25rem); }
 .compose .compose-head__body .field { margin-block:0; }
 .compose .compose-head__body .compose__to, .compose .compose-head__body .compose__subject, .compose .compose-head__body .compose__from-row { display:grid; grid-template-columns:4.25rem minmax(0,1fr) auto; align-items:center; column-gap:.5rem; row-gap:0; margin-block:0; inline-size:auto; min-block-size:var(--mw-head-row-min,2.5rem); }
 .compose .compose-head__body .compose__subject { grid-template-columns:4.25rem minmax(0,1fr); margin-block-start:calc(var(--mw-head-subject-gap,.75rem) - var(--mw-head-row-gap,.5rem)); }
 .compose-head__body .compose__to > span:first-child, .compose-head__body .compose__subject > span, .compose-head__body .compose__from-row > span { font-size:.75rem; color:var(--text-dim); margin:0; }
-.compose-head__body .compose__to input:not([type=checkbox]):not([type=radio]), .compose-head__body .compose__subject input:not([type=checkbox]):not([type=radio]) { min-block-size:var(--mw-head-row-min,2.5rem); padding:.15rem .5rem; box-sizing:border-box; }
-.compose .compose-head__body .compose-rf__box { min-block-size:var(--mw-head-row-min,2.5rem); row-gap:.25rem; }
+.compose .compose-head__body .compose__to input:not(.compose-rf__input):not([type=checkbox]):not([type=radio]), .compose .compose-head__body .compose__subject input:not([type=checkbox]):not([type=radio]) { min-block-size:var(--mw-head-row-min,1.75rem); padding:.1rem .4rem; box-sizing:border-box; font-size:.8125rem; line-height:1.35; }
+.compose .compose-head__body .compose-rf__box { min-block-size:var(--mw-head-row-min,1.75rem); padding-block:.125rem; row-gap:.125rem; }
+.compose .compose-head__body .compose__to .compose-rf__box .compose-rf__input { min-block-size:1.25rem; padding-block:0; font-size:.8125rem; line-height:1.35; }
+.compose-head__body :is(.compose-rf__chip,.compose-rf__chip-main,.compose-rf__chip-remove) { min-block-size:1.25rem; }
 .compose-head__body .compose__from select { min-block-size:var(--mw-head-row-min,2.5rem); padding:.1rem .4rem; }
 @media (max-width:600px) {
   .compose .compose-head__body .compose__to, .compose .compose-head__body .compose__subject, .compose .compose-head__body .compose__from-row { grid-template-columns:3.25rem minmax(0,1fr) auto; column-gap:.35rem; }
@@ -74,11 +76,6 @@
 
 /* The header's corner toggle (top-right) and the height transition: the fields sit in a grid row that
    animates between 0fr and 1fr, so the editor below only moves by the height difference. */
-.compose-head__corner { display:inline-flex; align-items:center; justify-content:center; flex:none; margin-inline-start:auto; inline-size:1.5rem; block-size:1.5rem; padding:0; border:0; background:none; color:var(--text-dim); cursor:pointer; }
-.compose-head__corner:hover { color:var(--text); background:color-mix(in srgb,var(--accent) 10%,transparent); }
-.compose-head__corner:focus-visible { outline:var(--focus-ring-width,2px) solid var(--focus,var(--signal)); outline-offset:1px; }
-.compose-head__corner .compose-head__chev { transform:rotate(180deg); }
-.compose-head[data-collapsed] .compose-head__corner .compose-head__chev { transform:none; }
 .compose-head__wrap { display:grid; grid-template-rows:1fr; transition:grid-template-rows .16s ease; }
 .compose-head__wrap[data-open=false] { grid-template-rows:0fr; }
 .compose-head__clip { min-block-size:0; overflow:hidden; }
@@ -86,3 +83,7 @@
 .compose-head__body[hidden] { display:flex; visibility:hidden; }
 @media (prefers-reduced-motion:reduce) { .compose-head__wrap { transition:none; } }
 :root[data-reduced-motion] .compose-head__wrap { transition:none; }
+@media (pointer:coarse) {
+ .compose .compose-head { --mw-head-row-min:2.75rem; }
+ .compose-head__body :is(.compose-rf__chip,.compose-rf__chip-main,.compose-rf__chip-remove) { min-block-size:2.25rem; }
+}

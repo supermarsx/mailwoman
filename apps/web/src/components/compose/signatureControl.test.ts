@@ -34,6 +34,12 @@ describe('managed signature control',()=>{
   await h.controller.apply(first);expect(h.html().indexOf('Alice')).toBeLessThan(h.html().indexOf('Original message'));
   await h.controller.reposition('end');expect(h.html().indexOf('Alice')).toBeGreaterThan(h.html().indexOf('Sender'));h.dispose();
  });
+ it('finds and replaces a native sanitized signature inside its scoped body wrapper',async()=>{
+  const h=setup(true);h.setHtml('<div class="mw-email-body"><p>Answer</p><div><p>Alice</p></div><p>Original message</p><blockquote>Sender</blockquote></div>');
+  expect(h.controller.applied()?.sig.id).toBe('a');
+  await h.controller.identityChanged('a','b');expect(h.html()).toContain('Alice at Work');expect(h.html()).not.toMatch(/>Alice</);
+  h.controller.remove();expect(h.html()).toContain('Answer');expect(h.html()).toContain('Sender');expect(h.html()).not.toContain('Alice at Work');h.dispose();
+ });
  it('replaces an unedited previous identity default on From change',async()=>{
   const h=setup();await h.controller.apply(first);await h.controller.identityChanged('a','b');expect(h.body()).toContain('Alice at Work');h.dispose();
  });

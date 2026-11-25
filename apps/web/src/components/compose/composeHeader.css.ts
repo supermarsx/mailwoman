@@ -5,7 +5,7 @@
 // header is not pinned open (auto / collapsed modes) and stays tighter, but
 // rows still never touch.
 
-import { createVar, style } from '@vanilla-extract/css';
+import { createVar, style,globalStyle } from '@vanilla-extract/css';
 import { linkColor } from '../../theme/accentLink.ts';
 import { vars } from '../../theme/contract.css.ts';
 
@@ -15,19 +15,22 @@ export const headRowMin = createVar();
 
 export const densityComfortable = style({
   vars: {
-    [headRowGap]: vars.space[2],
-    [headSubjectGap]: vars.space[3],
-    [headRowMin]: '2.5rem',
+    [headRowGap]: vars.space[1],
+    [headSubjectGap]: vars.space[1],
+    [headRowMin]: '1.75rem',
   },
 });
 
 export const densityCompact = style({
   vars: {
     [headRowGap]: vars.space[1],
-    [headSubjectGap]: vars.space[2],
-    [headRowMin]: '2rem',
+    [headSubjectGap]: vars.space[1],
+    [headRowMin]: '1.5rem',
   },
 });
+
+// The plain stylesheet consumes stable aliases for these generated variables.
+globalStyle(`${densityComfortable}, ${densityCompact}`,{vars:{'--mw-head-row-gap':headRowGap,'--mw-head-subject-gap':headSubjectGap,'--mw-head-row-min':headRowMin}});
 
 export const ccbccGroup = style({
   display: 'inline-flex',

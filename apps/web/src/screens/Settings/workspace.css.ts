@@ -1,6 +1,8 @@
 import { globalStyle, style } from '@vanilla-extract/css';
 import { vars } from '../../theme/contract.css.ts';
-export const root=style({containerType:'inline-size',containerName:'settings-workspace',height:'100%',minHeight:0,overflow:'hidden'});
+export const root=style({containerType:'inline-size',containerName:'settings-workspace',display:'flex',flexDirection:'column',flex:'1 1 0',height:'100%',minWidth:0,minHeight:0,overflow:'hidden'});
+// Settings owns its navigation/content scrollports, including in detached windows.
+globalStyle('.workspace-pane:has([data-settings-workspace]), .detached-workspace__content:has([data-settings-workspace])',{display:'flex',flexDirection:'column',overflow:'hidden'});
 export const panel=style({maxWidth:'none',maxHeight:'none',height:'100%',padding:vars.space[4],border:0,boxShadow:'none',overflow:'hidden',gap:vars.space[4],'@container':{'settings-workspace (max-width: 760px)':{padding:vars.space[2],gap:vars.space[2]}}});
 export const body=style({display:'grid',gridTemplateColumns:'minmax(9rem,12rem) minmax(0,1fr)',gap:vars.space[5],minHeight:0,flex:1,overflow:'hidden','@container':{'settings-workspace (max-width: 760px)':{gridTemplateColumns:'minmax(0,1fr)',gridTemplateRows:'auto minmax(0,1fr)',gap:vars.space[2]}}});
 export const legacy=style({display:'contents'});

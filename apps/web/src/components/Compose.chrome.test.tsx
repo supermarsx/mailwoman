@@ -11,6 +11,7 @@ import { clearSettings, loadSettings } from '../api/settings.ts';
 import type { Client } from '../api/client.ts';
 import type { JmapRequest, JmapResponse, JmapSession } from '../api/jmap-types.ts';
 import { chooseComposeFormat } from './compose/nativeHtmlTestHarness.ts';
+import {allToasts} from './toast/toast.ts';
 
 const SESSION: JmapSession = {
   capabilities: {},
@@ -65,6 +66,15 @@ const typeBody = (text: string) => fireEvent.input(screen.getByLabelText('Body')
 afterEach(() => { clearSettings(); localStorage.clear(); });
 
 describe('Compose status bar', () => {
+  it('clears the complete body with one ribbon button and can restore it',async()=>{
+    await configure(POLICIES());await mount();
+    fireEvent.input(screen.getByRole('combobox',{name:'To'}),{target:{value:'to@example.org'}});
+    fireEvent.input(screen.getByLabelText('Subject'),{target:{value:'Keep subject'}});typeBody('Message, signature and quote');
+    fireEvent.click(screen.getByTestId('compose-clear-body'));expect(screen.getByLabelText('Body')).toHaveValue('');
+    expect(screen.getByLabelText('Subject')).toHaveValue('Keep subject');
+    await allToasts().find(item=>item.message==='Message body cleared')!.action!.run();
+    expect(screen.getByLabelText('Body')).toHaveValue('Message, signature and quote');
+  });
   it('is the last row of the composer, always present, and the only live status region for notices', async () => {
     await configure(POLICIES());
     const { bar } = await mount();

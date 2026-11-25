@@ -61,6 +61,16 @@ describe('ComposeHeader', () => {
     const { toggle } = mount('collapsed', true);
     expect(toggle()).toHaveAttribute('aria-expanded', 'true');
   });
+  it('has one working toggle and can explicitly fold an empty header',()=>{
+    const {toggle,body}=mount('expanded',true);
+    expect(screen.getAllByRole('button',{name:'Collapse message header'})).toHaveLength(1);
+    fireEvent.click(toggle());expect(body()).toHaveAttribute('hidden');
+    fireEvent.click(toggle());expect(body()).not.toHaveAttribute('hidden');
+  });
+  it('lets a manual collapse dismiss an attention-opened header',()=>{
+    const {toggle,body,setAttention}=mount('collapsed');setAttention(1);expect(body()).not.toHaveAttribute('hidden');
+    fireEvent.click(toggle());expect(body()).toHaveAttribute('hidden');
+  });
 
   it('auto mode folds, and a click peeks without remembering', () => {
     const { toggle } = mount('auto');
@@ -87,9 +97,8 @@ describe('ComposeHeader density and Cc/Bcc toggle styling', () => {
   it('defines distinct densities on space tokens that never reach zero', () => {
     expect(densityComfortable).not.toBe(densityCompact);
     const src = readFileSync(resolve(__dirname, 'composeHeader.css.ts'), 'utf8');
-    expect(src).toMatch(/\[headRowGap\]: vars\.space\[2\]/);
     expect(src).toMatch(/\[headRowGap\]: vars\.space\[1\]/);
-    expect(src).toMatch(/\[headSubjectGap\]: vars\.space\[3\]/);
+    expect(src).toMatch(/\[headSubjectGap\]: vars\.space\[1\]/);
     const css = readFileSync(resolve(__dirname, 'compose-chrome.css'), 'utf8');
     expect(css).toMatch(/\.compose-head__body \{[^}]*row-gap:var\(--mw-head-row-gap/);
     expect(css).not.toMatch(/margin-block:\.1rem/);
