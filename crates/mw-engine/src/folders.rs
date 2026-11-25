@@ -1113,22 +1113,24 @@ impl Engine {
             return items.iter().map(|message| (message.stable_id.clone(), SERVER_FAIL_TEXT.to_string())).collect();
         }
         let mut gone: Vec<String> = Vec::new();
-        let mut mailboxes: HashSet<&str> = HashSet::new();
         let mut failed = Vec::new();
-        for message in items {
-            let id=&message.stable_id;
-            let mailbox_id=&message.mailbox_id;
-            match self.store().delete_message_if_current(message).await {
-                Ok(true) => {
-                    self.invalidate_message_cache(id).await;
-                    gone.push(id.clone());
-                    mailboxes.insert(mailbox_id);
+        // W11: every deletion and its Email (and Mailbox) change rows commit in
+        // one transaction.
+        match self.store().delete_messages_if_current_recorded(account_id, items, touch_mailboxes).await {
+            Ok(deleted) => {
+                for (message, done) in items.iter().zip(deleted) {
+                    let id = &message.stable_id;
+                    if done {
+                        self.invalidate_message_cache(id).await;
+                        gone.push(id.clone());
+                    } else {
+                        failed.push((id.clone(), "the message changed while the mail server processed removal; refresh and retry".into()));
+                    }
                 }
-                Ok(false)=>failed.push((id.clone(),"the message changed while the mail server processed removal; refresh and retry".into())),
-                Err(e) => {
-                    tracing::warn!("removing message {id} from the cache failed: {e}");
-                    failed.push((id.clone(), SERVER_FAIL_TEXT.to_string()));
-                }
+            }
+            Err(e) => {
+                tracing::warn!("removing messages from the cache failed: {e}");
+                return items.iter().map(|message| (message.stable_id.clone(), SERVER_FAIL_TEXT.to_string())).collect();
             }
         }
         if gone.is_empty() {
@@ -1140,34 +1142,7 @@ impl Engine {
             Ok(waiter) => { if let Err(e) = waiter.await { tracing::warn!("removing destroyed messages from the search index failed: {e}"); } }
             Err(e) => tracing::warn!("handing off destroyed messages to the search index failed: {e}"),
         }
-        if let Err(e) = self
-            .store()
-            .record_changes(
-                account_id,
-                ChangeType::Email.as_str(),
-                &gone,
-                ChangeOp::Destroyed.as_str(),
-            )
-            .await
-        {
-            tracing::warn!("recording the Email destroys failed: {e}");
-        }
         self.emit_event(crate::change::EventKind::MessageDeleted, account_id, &gone);
-        if touch_mailboxes {
-            for mailbox_id in mailboxes {
-                if let Err(e) = self
-                    .record_change(
-                        account_id,
-                        ChangeType::Mailbox,
-                        mailbox_id,
-                        ChangeOp::Updated,
-                    )
-                    .await
-                {
-                    tracing::warn!("recording the Mailbox count change failed: {e}");
-                }
-            }
-        }
         failed
     }
 }
