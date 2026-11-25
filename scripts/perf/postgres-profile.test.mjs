@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { postgresProfile, postgresArgs, parseBytes, memoryShares, colocatedProfile, appConnections, BACKEND_MIB } from './postgres-profile.mjs';
+import { postgresProfile, postgresArgs, parseBytes, memoryShares, colocatedProfile, appConnections, BACKEND_MIB, DEPLOY_SAFE_SETTINGS, alterSystemSql } from './postgres-profile.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -63,12 +63,7 @@ test('memory shares never give a component more than the host has', () => {
   }
 });
 
-test('only the benchmark profile loads diagnosis extensions', () => {
-  const base = postgresProfile({ cpus: 4, memoryBytes: 8 * GiB });
-  const bench = postgresProfile({ cpus: 4, memoryBytes: 8 * GiB, profile: 'benchmark' });
-  assert.equal(base.shared_preload_libraries, undefined);
-  assert.equal(bench.shared_preload_libraries, 'pg_stat_statements');
-  assert.equal(bench.track_io_timing, 'on');
+test('arguments are rendered as -c pairs', () => {
   assert.deepEqual(postgresArgs({ jit: 'off' }), ['-c', 'jit=off']);
 });
 
@@ -83,19 +78,27 @@ test('inputs are validated', () => {
 
 const bash = (script) => execFileSync('bash', ['-c', `source scripts/deploy-stack.sh; ${script}`], { cwd: root, encoding: 'utf8' });
 
-test('deploy.sh full stack renders the colocated profile and the same shares', () => {
-  // Keys the stack leaves at PostgreSQL's defaults (durability, wal_level,
-  // huge_pages, wal_buffers, checkpoint_completion_target, naptime).
-  const notRendered = new Set(['fsync', 'full_page_writes', 'synchronous_commit', 'wal_level', 'huge_pages', 'wal_buffers', 'autovacuum_naptime', 'checkpoint_completion_target']);
-  for (const [hostMiB, cpus, appCpus] of [[1024, 1, 1], [2048, 2, 2], [4096, 2, 2], [16384, 8, 4], [65536, 16, 4], [262144, 64, 64]]) {
+test('deploy.sh full stack renders stock PostgreSQL plus the safe settings, and the same shares', () => {
+  for (const hostMiB of [1024, 2048, 4096, 16384, 65536, 262144]) {
     for (const [stack, caddy] of [['full', 0], ['full', 1], ['single', 0]]) {
       const m = memoryShares({ hostMiB, stack, caddy: caddy === 1 });
       assert.equal(bash(`stack_memory_shares ${hostMiB} ${stack} ${caddy}`).trim(), `${m.app} ${m.postgres} ${m.valkey} ${m.reserve} ${m.caddy}`);
     }
-    const pg = memoryShares({ hostMiB }).postgres;
-    const lines = bash(`stack_postgres_settings ${pg} ${hostMiB} ${cpus} ${appCpus}`).split(/\s+/).filter(Boolean);
-    const rendered = Object.fromEntries(lines.map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)]));
-    const expected = Object.fromEntries(Object.entries(colocatedProfile({ pgMiB: pg, hostMiB, cpus, appCpus })).filter(([k]) => !notRendered.has(k)));
-    assert.deepEqual(rendered, expected, `${hostMiB} MiB, ${cpus} CPUs`);
   }
+  const lines = bash('stack_postgres_settings').split(/\s+/).filter(Boolean);
+  const rendered = Object.fromEntries(lines.map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)]));
+  assert.deepEqual(rendered, DEPLOY_SAFE_SETTINGS);
+  for (const key of Object.keys(rendered)) {
+    assert.ok(!/buffers|work_mem|wal|checkpoint|cost|jit|connections|cache|fsync|commit|parallel|autovacuum_(vacuum|analyze|max)/.test(key) || key === 'log_checkpoints', `${key} would change the query path or durability`);
+  }
+});
+
+test('the benchmark profile carries diagnostics only when asked', () => {
+  const plain = postgresProfile({ cpus: 4, memoryBytes: 4 * GiB, profile: 'benchmark' });
+  assert.equal(plain.shared_preload_libraries, undefined);
+  assert.equal(plain.track_io_timing, undefined);
+  const diag = postgresProfile({ cpus: 4, memoryBytes: 4 * GiB, profile: 'benchmark', diagnostics: true });
+  assert.equal(diag.shared_preload_libraries, 'pg_stat_statements');
+  assert.equal(diag.track_io_timing, 'on');
+  assert.deepEqual(alterSystemSql({ jit: 'off' }), ["ALTER SYSTEM SET jit = 'off';"]);
 });

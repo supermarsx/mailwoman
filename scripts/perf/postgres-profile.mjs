@@ -6,13 +6,21 @@
 // - 'dedicated': PostgreSQL has the machine (or container limit) to itself.
 // - 'colocated': PostgreSQL shares the machine with Mailwoman (deploy.sh full
 //   stack); smaller memory shares.
-// - 'benchmark': the dedicated formulas plus diagnosis settings
-//   (pg_stat_statements, track_io_timing). Used by PostgreSQL benchmark legs;
-//   every report must name it. It never turns durability off: fsync,
+// - 'benchmark': the dedicated formulas, for PostgreSQL benchmark legs; every
+//   report must name it. Diagnosis settings (pg_stat_statements,
+//   track_io_timing, track_wal_io_timing) are added only with
+//   `diagnostics: true` / `--diagnostics`: they cost per statement, and a
+//   request-level run (t62-r2, 4 CPUs / 4 GiB) measured the profile with them
+//   slower than stock. No profile turns durability off: fsync,
 //   full_page_writes and synchronous_commit stay on.
 //
-// CLI: node scripts/perf/postgres-profile.mjs --cpus 4 --memory 8GiB [--profile benchmark]
-// prints one `-c name=value` argument pair per line for `postgres`.
+// None of these profiles is a default anywhere: deploy.sh starts PostgreSQL
+// with stock settings plus DEPLOY_SAFE_SETTINGS (no effect on the query path)
+// until a request-level A/B shows a profile is not slower than stock.
+//
+// CLI: node scripts/perf/postgres-profile.mjs --cpus 4 --memory 8GiB [--profile benchmark] [--diagnostics] [--sql]
+// prints one `-c name=value` argument pair per line for `postgres`, or with
+// --sql one ALTER SYSTEM statement per line (then restart PostgreSQL).
 
 const KiB = 1024, MiB = 1024 * KiB, GiB = 1024 * MiB;
 const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
@@ -104,12 +112,18 @@ export function colocatedProfile({ pgMiB, hostMiB, cpus, appCpus = cpus }) {
 }
 
 /// The settings for a server with `cpus` CPUs and `memoryBytes` of memory.
-export function postgresProfile({ cpus, memoryBytes, profile = 'dedicated', appCpus = Math.min(cpus, 4) }) {
+export function postgresProfile({ cpus, memoryBytes, profile = 'dedicated', appCpus = Math.min(cpus, 4), diagnostics = false }) {
   if (!PROFILES.includes(profile)) throw new Error(`unknown profile ${profile}`);
   if (!Number.isInteger(cpus) || cpus < 1) throw new Error('cpus must be a positive integer');
   if (!Number.isFinite(memoryBytes) || memoryBytes < 512 * MiB) throw new Error('memory must be at least 512 MiB');
-  const colocated = profile === 'colocated';
-  const sharedBuffers = clamp(memoryBytes * (colocated ? 0.15 : 0.25), 128 * MiB, 32 * GiB);
+  if (profile === 'colocated') {
+    // memoryBytes is the whole host here; PostgreSQL gets its share of it.
+    const hostMiB = Math.floor(memoryBytes / MiB);
+    const settings = colocatedProfile({ pgMiB: memoryShares({ hostMiB }).postgres, hostMiB, cpus, appCpus });
+    return diagnostics ? { ...settings, ...DIAGNOSTICS } : settings;
+  }
+  const colocated = false;
+  const sharedBuffers = clamp(memoryBytes * 0.25, 128 * MiB, 32 * GiB);
   const maxConnections = clamp(10 * cpus, 100, 400);
   const settings = {
     // Memory
@@ -158,16 +172,33 @@ export function postgresProfile({ cpus, memoryBytes, profile = 'dedicated', appC
     log_autovacuum_min_duration: '10s',
     log_temp_files: '16MB',
   };
-  if (profile === 'benchmark') {
-    Object.assign(settings, {
-      shared_preload_libraries: 'pg_stat_statements',
-      'pg_stat_statements.max': '5000',
-      'pg_stat_statements.track': 'top',
-      track_io_timing: 'on',
-      track_wal_io_timing: 'on',
-    });
-  }
+  if (diagnostics) Object.assign(settings, DIAGNOSTICS);
   return settings;
+}
+
+/// Diagnosis settings, opt-in (`diagnostics: true`). shared_preload_libraries
+/// needs a restart; pg_stat_statements.* exist only once it is loaded.
+export const DIAGNOSTICS = {
+  shared_preload_libraries: 'pg_stat_statements',
+  'pg_stat_statements.max': '5000',
+  'pg_stat_statements.track': 'top',
+  track_io_timing: 'on',
+  track_wal_io_timing: 'on',
+};
+
+/// What deploy.sh's full stack passes to PostgreSQL by default: stock settings
+/// plus these, none of which changes how a query is planned or executed (a
+/// timeout for sessions left idle inside a transaction, and log lines). Kept
+/// equal to stack_postgres_settings in scripts/deploy-stack.sh by a test.
+export const DEPLOY_SAFE_SETTINGS = {
+  idle_in_transaction_session_timeout: '10min',
+  log_lock_waits: 'on',
+  log_checkpoints: 'on',
+  log_autovacuum_min_duration: '10s',
+};
+
+export function alterSystemSql(settings) {
+  return Object.entries(settings).map(([name, value]) => `ALTER SYSTEM SET ${name} = '${value}';`);
 }
 
 export function postgresArgs(settings) {
@@ -182,11 +213,16 @@ if (process.argv[1]?.endsWith('postgres-profile.mjs')) {
       cpus: Number(value('--cpus')),
       memoryBytes: parseBytes(value('--memory')),
       profile: value('--profile') || 'dedicated',
+      diagnostics: args.includes('--diagnostics'),
     });
-    const pairs = postgresArgs(settings);
-    for (let i = 0; i < pairs.length; i += 2) console.log(`${pairs[i]} ${pairs[i + 1]}`);
+    if (args.includes('--sql')) {
+      for (const line of alterSystemSql(settings)) console.log(line);
+    } else {
+      const pairs = postgresArgs(settings);
+      for (let i = 0; i < pairs.length; i += 2) console.log(`${pairs[i]} ${pairs[i + 1]}`);
+    }
   } else if (args.length) {
-    console.error('usage: postgres-profile.mjs --cpus N --memory 8GiB [--profile dedicated|colocated|benchmark]');
+    console.error('usage: postgres-profile.mjs --cpus N --memory 8GiB [--profile dedicated|colocated|benchmark] [--diagnostics] [--sql]');
     process.exitCode = 2;
   }
 }

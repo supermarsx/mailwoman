@@ -34,10 +34,23 @@ Three profiles:
 |---|---|---|
 | dedicated | PostgreSQL alone on its machine or container limit | `shared_buffers` 25% of M, `effective_cache_size` 75% |
 | colocated | PostgreSQL beside Mailwoman on one host (`deploy.sh` full stack) | from PostgreSQL's own share of the host and the connections the app opens (see [Small hosts](#small-hosts-and-the-colocated-profile)), not from the whole host |
-| benchmark | dedicated + diagnosis (`pg_stat_statements`, `track_io_timing`); for measurement runs, and every report must say it was used | as dedicated |
+| benchmark | dedicated, for measurement runs; every report must say it was used. Diagnosis (`pg_stat_statements`, `track_io_timing`) only with `--diagnostics` | as dedicated |
 
 No profile turns `fsync`, `full_page_writes` or `synchronous_commit` off, and
 none sets `commit_delay`.
+
+**None of the profiles is a default.** A request-level run on 4 CPUs / 4 GiB
+(t62-r2, same binary) measured the benchmark profile, then still with
+`pg_stat_statements` and `track_io_timing`, slower than stock: identity 767
+against 967 requests/s, the goal mix 143.9 against 154.4 requests/s with a
+higher p99. My own measurements were database-level only (pgbench, flag
+updates: throughput within the noise, WAL 5–42% lower), and no request-level
+A/B of the dedicated or colocated profile without diagnostics exists yet. Until
+one shows a profile is not slower than stock, `deploy.sh` starts PostgreSQL
+with stock settings plus four settings that do not touch the query path (see
+[What `deploy.sh` sets](#what-deploy-sh-sets)), and the profiles are opt-in:
+`node scripts/perf/postgres-profile.mjs --cpus N --memory M --profile P --sql`
+prints `ALTER SYSTEM` statements to apply, followed by a restart.
 
 ## Key values for a 16-CPU, 64 GiB dedicated server
 
@@ -95,7 +108,8 @@ if each takes its part of the whole host, together they overcommit it.
   when it lowers it and leaves `MEMORY_LIMIT` in `deploy.env` unchanged.
   Without the full stack the app gets everything but the reserve and Caddy.
 
-PostgreSQL's settings are then computed from its share `P` and from the
+With the colocated profile (opt-in, above), PostgreSQL's settings are computed
+from its share `P` and from the
 connections the app opens, `A` = pool (4 per app CPU, 4–64) + 8 dedicated
 connections (authority mirror, maintenance pools):
 
@@ -132,9 +146,11 @@ in brackets the app's share without the full stack):
 235 MiB share by 15 MiB; the one-node case fits. There the app's share with the
 full stack (437 MiB) is close to what a server for one user uses (about 380 MiB,
 an estimate, not measured for one user); such a host is better served by the
-single-container SQLite stack (768 MiB for the app). Earlier profiles gave this
-host `shared_buffers` 153 MB and `max_connections` 100, sized from the whole
-host: up to 0.5–1 GiB for PostgreSQL alone.
+single-container SQLite stack (768 MiB for the app). The previous colocated
+profile gave this host `shared_buffers` 153 MB and `max_connections` 100, sized
+from the whole host: up to 0.5–1 GiB for PostgreSQL alone. Stock PostgreSQL
+(the `deploy.sh` default) uses `shared_buffers` 128 MB plus about 12 MB per
+connection the app opens: about 270 MB on this host, near its 235 MiB share.
 
 ## Connections and pools
 
@@ -281,23 +297,29 @@ for each of these cases. It never refuses to start.
 
 ## What `deploy.sh` sets
 
-This is the default; there is nothing to enable. The full stack
-(`STACK=full`) starts PostgreSQL with every setting of the colocated profile
-except the durability settings, `wal_level`, `huge_pages`, `wal_buffers`,
-`checkpoint_completion_target` and `autovacuum_naptime` (which keep their
-defaults). The values are computed each time the stack is rendered from
-PostgreSQL's share of the host, the host's CPU count and the app's CPU limit
-(`stack_postgres_settings` in `scripts/deploy-stack.sh`; a test keeps it equal
-to `scripts/perf/postgres-profile.mjs`). Valkey's `maxmemory` and the app's
-memory limit come from the same shares; see the worked table in
-[Small hosts](#small-hosts-and-the-colocated-profile). Re-running a deploy
-after resizing the host recomputes them and restarts the services with them.
+The full stack (`STACK=full`) starts PostgreSQL with its stock settings plus
+`idle_in_transaction_session_timeout` 10 min, `log_lock_waits` on,
+`log_checkpoints` on and `log_autovacuum_min_duration` 10 s
+(`stack_postgres_settings` in `scripts/deploy-stack.sh`, kept equal to
+`DEPLOY_SAFE_SETTINGS` in `scripts/perf/postgres-profile.mjs` by a test). None
+of these changes how a query is planned or executed; durability settings keep
+their defaults. The sized profiles are opt-in (see the note under the profile
+table) until a request-level A/B shows them not slower than stock.
 
-On every host it also sets `wal_compression` lz4, `checkpoint_timeout` 15 min,
-`max_wal_size` 1 GB below 8 GiB of host memory and 4 GB from 8 GiB (disk the
-WAL may use), `jit` off, `default_toast_compression` lz4, the autovacuum
-settings above, `idle_in_transaction_session_timeout` 10 min and the log
-settings above.
+What `deploy.sh` does size from the host is the app's memory limit and Valkey's
+`maxmemory`, from the shares in [Small hosts](#small-hosts-and-the-colocated-profile):
+on hosts below 4 GiB Valkey gets less than its former fixed 256 MB (64 MB on
+1 GiB, 128 MB on 2 GiB), and the app's limit is lowered from 4g to its share
+when that is smaller. Re-running a deploy after resizing the host recomputes
+both.
+
+To apply a profile to a `deploy.sh` full stack: run
+`node scripts/perf/postgres-profile.mjs --cpus N --memory M --profile colocated --sql`
+on the host, pipe the statements to
+`docker compose exec -T postgres psql -U mailwoman -d mailwoman` in the
+deployment directory, and restart the `postgres` service. The settings live in
+the database volume (`postgresql.auto.conf`) and survive redeploys;
+`ALTER SYSTEM RESET ALL` and a restart return to the default.
 
 The Helm chart does not start PostgreSQL (its default database is SQLite);
 configure the server you point `MW_DB_PATH` at with this page, or start it
