@@ -1869,14 +1869,6 @@ impl Engine {
     async fn email_get_inner(&self, account_id:&str,args:&Value,prepared_source:Option<&mw_store::mail_data_publication::MailDataFence>)->Value {
         let prepared_only=prepared_source.is_some();
         if args.get("mailwomanBodyUse").is_some_and(|value|!value.is_boolean()){return json!({"type":"invalidArguments"});}
-        // RFC 8621 §4.2 `maxBodyValueBytes` (UnsignedInt, 0 = no client limit).
-        let client_max = match args.get("maxBodyValueBytes") {
-            None | Some(Value::Null) => 0,
-            Some(value) => match value.as_u64() {
-                Some(n) => n,
-                None => return json!({"type":"invalidArguments","arguments":["maxBodyValueBytes"]}),
-            },
-        };
         let empty = Vec::new();
         let requested: Vec<&str> = args
             .get("ids")
@@ -1946,7 +1938,6 @@ impl Engine {
             mentions: args.get("properties").and_then(Value::as_array)
                 .is_none_or(|named| named.iter().any(|property| property == "mailwomanMentions")),
             headers: wanted_header_properties(args),
-            body_value_max: effective_body_value_max(client_max),
         };
         let EmailAssembly { emails: mut assembled, list_projections, index_allowed, auth_sources, posture } = match self.build_emails(account_id, &requested, fill).await {
             Ok(v) => v,
@@ -2149,7 +2140,6 @@ impl Engine {
         };
 
         let mut built: Vec<Option<Value>> = Vec::with_capacity(unique.len());
-        let mut body_budget = RESPONSE_BODY_VALUE_BYTES;
         for ((id, msg), (envelope, meta)) in unique
             .iter()
             .zip(msgs)
@@ -2167,9 +2157,6 @@ impl Engine {
                 .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
                 .filter(Value::is_object)
                 .unwrap_or_else(|| json!({}));
-            // Bodies are cut here, per row, so a 5,000-id request never holds
-            // every full body in its response (t55).
-            truncate_body_values(&mut email, fill.body_value_max, &mut body_budget);
             if fill.prepared_only && (fill.raw_derived
                 || crate::attachment_metadata::needs_repair(&email)
                 || !email.as_object().is_some_and(|stored|stored.contains_key("messageId"))
@@ -6701,91 +6688,6 @@ struct EmailFill {
     focus: bool,
     /// Add indexed mention addresses only for explicit/default-all projection.
     mentions: bool,
-    /// Longest `bodyValues` value returned ([`effective_body_value_max`]).
-    body_value_max: usize,
-}
-
-/// The longest body value one `Email/get` returns: the client's
-/// `maxBodyValueBytes` when it sets one, never more than
-/// [`SERVER_MAX_BODY_VALUE_BYTES`] (t55).
-const SERVER_MAX_BODY_VALUE_BYTES: usize = 8 * 1024 * 1024;
-/// The most body-value bytes one `Email/get` response carries in total; past it
-/// further values are truncated (flagged), so 5,000 ids cannot return 5,000
-/// full bodies (t55).
-const RESPONSE_BODY_VALUE_BYTES: usize = 32 * 1024 * 1024;
-
-#[cfg(test)]
-mod body_value_limit_tests {
-    use super::*;
-
-    #[test]
-    fn the_client_limit_applies_below_the_server_maximum() {
-        assert_eq!(effective_body_value_max(0), SERVER_MAX_BODY_VALUE_BYTES);
-        assert_eq!(effective_body_value_max(100), 100);
-        assert_eq!(effective_body_value_max(u64::MAX), SERVER_MAX_BODY_VALUE_BYTES);
-    }
-
-    /// RFC 8621 §4.2: cut at a UTF-8 boundary, flag `isTruncated`; untouched
-    /// values keep their flag; the response budget truncates later values.
-    #[test]
-    fn values_are_cut_at_a_character_boundary_and_flagged() {
-        let mut email = json!({"bodyValues": {
-            "1": {"value": "héllo wörld", "isEncodingProblem": false, "isTruncated": false},
-            "2": {"value": "ok", "isEncodingProblem": false, "isTruncated": false}
-        }});
-        let mut budget = usize::MAX;
-        truncate_body_values(&mut email, 2, &mut budget);
-        assert_eq!(email["bodyValues"]["1"]["value"], "h", "the two-byte é is not split");
-        assert_eq!(email["bodyValues"]["1"]["isTruncated"], true);
-        assert_eq!(email["bodyValues"]["2"]["value"], "ok");
-        assert_eq!(email["bodyValues"]["2"]["isTruncated"], false);
-
-        let mut budget = 10;
-        let mut first = json!({"bodyValues": {"1": {"value": "0123456789ab"}}});
-        let mut second = json!({"bodyValues": {"1": {"value": "more"}}});
-        truncate_body_values(&mut first, 1000, &mut budget);
-        truncate_body_values(&mut second, 1000, &mut budget);
-        assert_eq!(first["bodyValues"]["1"]["value"], "0123456789");
-        assert_eq!(second["bodyValues"]["1"]["value"], "", "the response budget is spent");
-        assert_eq!(second["bodyValues"]["1"]["isTruncated"], true);
-        let mut none = json!({"subject": "no bodies"});
-        truncate_body_values(&mut none, 1, &mut budget);
-        assert_eq!(none, json!({"subject": "no bodies"}));
-    }
-}
-
-fn effective_body_value_max(client_max: u64) -> usize {
-    match usize::try_from(client_max) {
-        Ok(0) | Err(_) => SERVER_MAX_BODY_VALUE_BYTES,
-        Ok(n) => n.min(SERVER_MAX_BODY_VALUE_BYTES),
-    }
-}
-
-/// Truncate each `bodyValues` value to `max` bytes and to what is left of the
-/// response's `budget`, at a UTF-8 boundary, setting `isTruncated` (RFC 8621
-/// §4.2). Values within both are untouched.
-fn truncate_body_values(email: &mut Value, max: usize, budget: &mut usize) {
-    let Some(values) = email.get_mut("bodyValues").and_then(Value::as_object_mut) else {
-        return;
-    };
-    for value in values.values_mut() {
-        let Some(text) = value.get("value").and_then(Value::as_str) else {
-            continue;
-        };
-        let allowed = max.min(*budget);
-        if text.len() <= allowed {
-            *budget -= text.len();
-            continue;
-        }
-        let mut cut = allowed;
-        while !text.is_char_boundary(cut) {
-            cut -= 1;
-        }
-        let kept = text[..cut].to_string();
-        *budget -= kept.len();
-        value["value"] = Value::String(kept);
-        value["isTruncated"] = Value::Bool(true);
-    }
 }
 
 /// The sender a message is submitted under: the first address of its `From`,
