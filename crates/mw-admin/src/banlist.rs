@@ -112,19 +112,62 @@ pub enum LoginVerdict {
 /// occurred anywhere, and per-source tracking did not exist. Typing the key means
 /// a caller with no address cannot invent one: it has to say so (see
 /// [`crate::Admin::record_login_failure`], which takes `Option<IpAddr>`).
+///
+/// Bounded (t63): at most [`MAX_SOURCES`] sources are tracked and each keeps at
+/// most `max_failures` timestamps (the verdict needs no more). A new source at
+/// the cap first drops sources whose failures all left the window; if still
+/// full, it drops the sources with the FEWEST failures in the window (ties: the
+/// oldest last failure) — so a flood of one-attempt addresses can only push
+/// out other low-count sources, never one that is close to a ban.
 pub struct LoginMonitor {
     max_failures: u32,
     window: Duration,
+    max_sources: usize,
     state: Mutex<HashMap<IpAddr, Vec<DateTime<Utc>>>>,
+    /// When sources with no failure left in the window were last dropped.
+    swept: Mutex<Option<DateTime<Utc>>>,
 }
+
+/// Most sources the login monitor tracks at once.
+pub const MAX_SOURCES: usize = 65_536;
 
 impl LoginMonitor {
     /// `max_failures` within `window` triggers a ban recommendation.
     pub fn new(max_failures: u32, window: Duration) -> Self {
+        Self::bounded(max_failures, window, MAX_SOURCES)
+    }
+
+    /// As [`Self::new`] with an explicit source cap (tests, embedders).
+    pub fn bounded(max_failures: u32, window: Duration, max_sources: usize) -> Self {
         Self {
             max_failures,
             window,
+            max_sources: max_sources.max(1),
             state: Mutex::new(HashMap::new()),
+            swept: Mutex::new(None),
+        }
+    }
+
+    /// Sources currently tracked (diagnostics).
+    pub fn tracked_sources(&self) -> usize {
+        self.state.lock().map(|state| state.len()).unwrap_or(0)
+    }
+
+    /// Make room for one new source at the cap (see the type docs).
+    fn make_room(&self, state: &mut HashMap<IpAddr, Vec<DateTime<Utc>>>, cutoff: DateTime<Utc>) {
+        state.retain(|_, hits| hits.iter().any(|t| *t >= cutoff));
+        if state.len() < self.max_sources {
+            return;
+        }
+        // Drop the lowest-count eighth in one pass, so this scan runs at most
+        // once per max_sources / 8 new sources.
+        let mut ranked: Vec<(usize, DateTime<Utc>, IpAddr)> = state
+            .iter()
+            .map(|(ip, hits)| (hits.len(), hits.last().copied().unwrap_or(cutoff), *ip))
+            .collect();
+        ranked.sort_unstable();
+        for (_, _, ip) in ranked.into_iter().take((self.max_sources / 8).max(1)) {
+            state.remove(&ip);
         }
     }
 
@@ -141,9 +184,29 @@ impl LoginMonitor {
         let window = chrono::Duration::from_std(self.window).unwrap_or(chrono::Duration::zero());
         let cutoff = now - window;
         let mut state = self.state.lock().expect("login monitor poisoned");
-        let hits = state.entry(ip.to_canonical()).or_default();
+        let key = ip.to_canonical();
+        if !state.contains_key(&key) {
+            // Expiry sweep, at most once per window: drops sources whose
+            // failures all left it (they decide nothing any more).
+            let mut swept = self.swept.lock().expect("login monitor poisoned");
+            if swept.is_none_or(|at| at < cutoff) {
+                state.retain(|_, hits| hits.iter().any(|t| *t >= cutoff));
+                *swept = Some(now);
+            }
+            drop(swept);
+            if state.len() >= self.max_sources {
+                self.make_room(&mut state, cutoff);
+            }
+        }
+        let hits = state.entry(key).or_default();
         hits.retain(|t| *t >= cutoff);
         hits.push(now);
+        // The verdict needs at most max_failures timestamps: keep the newest.
+        let keep = self.max_failures.max(1) as usize;
+        if hits.len() > keep {
+            let excess = hits.len() - keep;
+            hits.drain(..excess);
+        }
         let failures = hits.len() as u32;
         if failures >= self.max_failures {
             LoginVerdict::Ban { failures }
@@ -184,6 +247,33 @@ mod tests {
     fn ipv6_host_is_captured() {
         let line = fail2ban_line(Utc::now(), "bob", ip("2001:db8::1"));
         assert_eq!(parse_host(&line).as_deref(), Some("2001:db8::1"));
+    }
+
+    /// t63 (2): a flood of distinct one-attempt sources stays within the cap
+    /// and never evicts a source that is close to a ban; repeated failures from
+    /// one source keep at most max_failures timestamps.
+    #[test]
+    fn monitor_is_bounded_and_keeps_the_most_failing_sources() {
+        let mon = LoginMonitor::bounded(5, Duration::from_secs(900), 64);
+        let now = Utc::now();
+        let attacker = ip("198.51.100.9");
+        for _ in 0..4 {
+            mon.record_failure(attacker, now);
+        }
+        for n in 0..10_000u32 {
+            let source = IpAddr::from(std::net::Ipv6Addr::from(0x2001_0db8_0000_0000_0000_0000_0000_0000u128 + u128::from(n)));
+            mon.record_failure(source, now);
+            assert!(mon.tracked_sources() <= 64);
+        }
+        assert_eq!(mon.record_failure(attacker, now), LoginVerdict::Ban { failures: 5 }, "kept through the flood");
+        for _ in 0..10_000 {
+            mon.record_failure(attacker, now);
+        }
+        assert_eq!(mon.state.lock().unwrap()[&attacker].len(), 5, "timestamps per source are bounded");
+        // Expired sources go first.
+        let later = now + chrono::Duration::seconds(901);
+        mon.record_failure(ip("192.0.2.1"), later);
+        assert!(mon.tracked_sources() <= 2, "everything older than the window was dropped");
     }
 
     #[test]
