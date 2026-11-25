@@ -452,9 +452,15 @@ fn lock() -> std::sync::MutexGuard<'static, Detector> {
     detector().lock().unwrap_or_else(|p| p.into_inner())
 }
 
-pub(crate) async fn load(store: &mw_store::Store) -> Option<Persisted> {
-    let raw = store.get_setting(STORE_KEY).await.ok().flatten()?;
-    serde_json::from_str::<Persisted>(&raw).ok()?.sane()
+/// The stored baseline: `Err` when the store could not be read, `Ok(None)`
+/// when none is stored or it is unusable (a fresh detector then starts).
+pub(crate) async fn load(
+    store: &mw_store::Store,
+) -> Result<Option<Persisted>, mw_store::StoreError> {
+    let Some(raw) = store.get_setting(STORE_KEY).await? else {
+        return Ok(None);
+    };
+    Ok(serde_json::from_str::<Persisted>(&raw).ok().and_then(Persisted::sane))
 }
 pub(crate) async fn save(store: &mw_store::Store, p: &Persisted) {
     if let Ok(json) = serde_json::to_string(p)
@@ -465,14 +471,27 @@ pub(crate) async fn save(store: &mw_store::Store, p: &Persisted) {
 }
 
 static LOADED: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
-async fn ensure_loaded(store: &mw_store::Store) {
-    LOADED
-        .get_or_init(|| async {
-            if let Some(p) = load(store).await {
-                *lock() = Detector::new(Some(p));
+/// Load the stored baseline once. `false` while the store cannot be read: the
+/// cell stays unset and a later event retries (t55). It used to count a store
+/// error as loaded, so the detector started from no baseline (no enforcement
+/// for the whole warm-up) and its first save overwrote the learned baseline.
+async fn ensure_loaded(store: &mw_store::Store) -> bool {
+    ensure_loaded_in(&LOADED, store).await
+}
+async fn ensure_loaded_in(cell: &tokio::sync::OnceCell<()>, store: &mw_store::Store) -> bool {
+    cell.get_or_try_init(|| async {
+            match load(store).await {
+                Ok(Some(p)) => *lock() = Detector::new(Some(p)),
+                Ok(None) => {}
+                Err(error) => {
+                    tracing::warn!("sign-in spike baseline not read; retried on the next sign-in: {error}");
+                    return Err(());
+                }
             }
+            Ok(())
         })
-        .await;
+        .await
+        .is_ok()
 }
 
 pub(crate) async fn config(state: &AppState) -> Config {
@@ -514,7 +533,11 @@ pub(crate) async fn observe(state: &AppState, event: &SigninEvent) {
         return;
     };
     let cfg = config(state).await;
-    ensure_loaded(&state.store).await;
+    // Until the stored baseline is read, nothing is recorded or saved: a save
+    // would replace the stored baseline with an empty one.
+    if !ensure_loaded(&state.store).await {
+        return;
+    }
     let now = chrono::Utc::now().timestamp();
     if event.result == "success" {
         lock().record_success(now, &cfg);
@@ -556,7 +579,7 @@ async fn persist_if_dirty(state: &AppState) {
 
 pub(crate) async fn status(state: &AppState) -> serde_json::Value {
     let cfg = config(state).await;
-    ensure_loaded(&state.store).await;
+    let _ = ensure_loaded(&state.store).await;
     lock().status(&cfg, chrono::Utc::now().timestamp())
 }
 
@@ -738,14 +761,33 @@ mod tests {
         let store = mw_store::Store::open_in_memory(mw_store::ServerKey::generate())
             .await
             .unwrap();
-        assert!(load(&store).await.is_none());
+        assert!(load(&store).await.unwrap().is_none());
         let c = cfg();
         let mut d = Detector::new(None);
         learn(&mut d, &c, T0, 20, 5);
         d.record_success(T0 + 100_000, &c);
         save(&store, d.persisted()).await;
-        let back = load(&store).await.unwrap();
+        let back = load(&store).await.unwrap().unwrap();
         assert_eq!(back.observed_buckets, d.persisted().observed_buckets);
+    }
+
+    /// t55: a store that cannot be read is not "no baseline": the load is not
+    /// marked done, and a later call (store readable again) loads the baseline.
+    #[tokio::test]
+    async fn an_unreadable_store_leaves_the_baseline_unloaded_for_a_retry() {
+        let broken = mw_store::Store::open_in_memory(mw_store::ServerKey::generate())
+            .await
+            .unwrap();
+        broken.close().await;
+        assert!(load(&broken).await.is_err(), "a store error is not an empty baseline");
+        let cell = tokio::sync::OnceCell::new();
+        assert!(!ensure_loaded_in(&cell, &broken).await);
+        assert!(!cell.initialized(), "a failed load must stay retryable");
+        let store = mw_store::Store::open_in_memory(mw_store::ServerKey::generate())
+            .await
+            .unwrap();
+        assert!(ensure_loaded_in(&cell, &store).await);
+        assert!(cell.initialized());
     }
 
     #[test]
