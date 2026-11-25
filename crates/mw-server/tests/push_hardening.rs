@@ -342,3 +342,55 @@ async fn idle_timeout_expires_the_session() {
     let remaining: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions").fetch_one(&pool).await.unwrap();
     assert_eq!(remaining, 0);
 }
+
+/// t63 (4): /jmap/ws reads only control frames. A small RFC 8887 text frame is
+/// ignored and the stream keeps delivering; a client message above the 4 KiB
+/// limit ends the socket instead of being buffered (tungstenite's default
+/// allowed 64 MiB).
+#[tokio::test]
+async fn ws_client_messages_are_bounded() {
+    use tokio_tungstenite::tungstenite::Message;
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    use tokio_tungstenite::tungstenite::http::header::COOKIE;
+    use futures_util::SinkExt;
+
+    let mock = spawn_mock().await;
+    let (server, addr, push) = spawn_server(HardeningConfig::default()).await;
+    let c = client();
+    let cookie = login_session_cookie(&c, &server, &mock).await;
+    let connect = || {
+        let mut req = format!("ws://{addr}/jmap/ws").into_client_request().unwrap();
+        req.headers_mut().insert(COOKIE, cookie.parse().unwrap());
+        tokio_tungstenite::connect_async(req)
+    };
+    // A legitimate small client message: ignored, the stream keeps working.
+    let (mut ws, _) = connect().await.unwrap();
+    let enable = json!({"@type":"WebSocketPushEnable","dataTypes":["Email","Mailbox","Thread","EmailSubmission"],"pushState":"x".repeat(200)});
+    ws.send(Message::Text(enable.to_string().into())).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(push.send(a_change()), 1, "still subscribed after a small client message");
+    let delivered = loop {
+        match tokio::time::timeout(Duration::from_secs(5), ws.next()).await.expect("a frame").expect("open").expect("no error") {
+            Message::Text(t) => break t.to_string(),
+            Message::Ping(_) | Message::Pong(_) => continue,
+            other => panic!("unexpected frame: {other:?}"),
+        }
+    };
+    assert!(delivered.contains("StateChange"));
+    drop(ws);
+
+    // A message above the limit ends the socket.
+    let (mut ws, _) = connect().await.unwrap();
+    let _ = ws.send(Message::Text("x".repeat(64 * 1024).into())).await;
+    let ended = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match ws.next().await {
+                None | Some(Err(_)) | Some(Ok(Message::Close(_))) => break true,
+                Some(Ok(_)) => continue,
+            }
+        }
+    })
+    .await
+    .expect("the server ends the socket");
+    assert!(ended);
+}

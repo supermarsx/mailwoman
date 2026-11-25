@@ -1215,8 +1215,23 @@ fn negotiated_upgrade(
     guard: StreamGuard,
 ) -> Response {
     ws.protocols([JMAP_SUBPROTOCOL])
+        // t63: explicit limits instead of tungstenite's defaults (64 MiB message,
+        // 16 MiB frame, unbounded write buffer). The loop reads nothing but
+        // control frames (ping/pong/close, <= 125 bytes); a text frame such as
+        // an RFC 8887 WebSocketPushEnable (a few hundred bytes) is read and
+        // ignored. A larger message ends the socket (`recv` error -> break).
+        .max_message_size(PUSH_WS_MAX_MESSAGE)
+        .max_frame_size(PUSH_WS_MAX_MESSAGE)
+        // The write buffer grows past its 128 KiB default only while writes
+        // fail; past this bound a send errors, which ends the loop.
+        .max_write_buffer_size(PUSH_WS_MAX_WRITE_BUFFER)
         .on_upgrade(move |socket| ws_loop(socket, changes, heartbeat, guard))
 }
+
+/// Largest client message on /jmap/ws (see `negotiated_upgrade`).
+pub(crate) const PUSH_WS_MAX_MESSAGE: usize = 4 * 1024;
+/// Most bytes queued for one slow client before the socket is closed.
+pub(crate) const PUSH_WS_MAX_WRITE_BUFFER: usize = 1024 * 1024;
 
 /// Pump the stream's changes to the socket, answer nothing but pings/closes from
 /// the client, and keep alive every `heartbeat`. Exits cleanly on any I/O error,
