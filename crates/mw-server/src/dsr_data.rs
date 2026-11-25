@@ -367,6 +367,17 @@ pub(crate) struct ZipWriter {
     central: Vec<u8>,
     count: u16,
     time: (u16, u16),
+    /// The entry being streamed ([`ZipWriter::begin_entry`]), if any.
+    open: Option<OpenEntry>,
+}
+
+/// A streamed entry: its sizes and CRC are known only at its end, so its local
+/// header sets general-purpose bit 3 and a data descriptor follows the data.
+struct OpenEntry {
+    name: Vec<u8>,
+    header_offset: u64,
+    crc: flate2::Crc,
+    size: u64,
 }
 
 impl ZipWriter {
@@ -376,7 +387,76 @@ impl ZipWriter {
             central: Vec::new(),
             count: 0,
             time: dos(ts),
+            open: None,
         }
+    }
+
+    /// Start a streamed entry (t55): the local header, without sizes. Send its
+    /// data with [`ZipWriter::entry_data`] and close it with
+    /// [`ZipWriter::end_entry`]; nothing of the data is kept here.
+    pub(crate) fn begin_entry(&mut self, name: &str) -> Vec<u8> {
+        debug_assert!(self.open.is_none(), "one streamed entry at a time");
+        let name_b = name.as_bytes();
+        let (t, d) = self.time;
+        let mut out = Vec::with_capacity(30 + name_b.len());
+        out.extend_from_slice(&0x0403_4b50u32.to_le_bytes());
+        out.extend_from_slice(&20u16.to_le_bytes());
+        out.extend_from_slice(&0x0808u16.to_le_bytes()); // UTF-8 names + data descriptor
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(&t.to_le_bytes());
+        out.extend_from_slice(&d.to_le_bytes());
+        out.extend_from_slice(&[0u8; 12]); // CRC and sizes follow the data
+        out.extend_from_slice(&(name_b.len() as u16).to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(name_b);
+        self.open = Some(OpenEntry {
+            name: name_b.to_vec(),
+            header_offset: self.offset,
+            crc: flate2::Crc::new(),
+            size: 0,
+        });
+        self.offset += out.len() as u64;
+        out
+    }
+
+    /// Account for `data`, sent next as part of the streamed entry.
+    pub(crate) fn entry_data(&mut self, data: &[u8]) {
+        let open = self.open.as_mut().expect("a streamed entry is open");
+        open.crc.update(data);
+        open.size += data.len() as u64;
+        self.offset += data.len() as u64;
+    }
+
+    /// Close the streamed entry: its data descriptor (send it next). Records
+    /// its central-directory entry.
+    pub(crate) fn end_entry(&mut self) -> Vec<u8> {
+        let open = self.open.take().expect("a streamed entry is open");
+        let crc = open.crc.sum();
+        let size = open.size as u32;
+        let mut out = Vec::with_capacity(16);
+        out.extend_from_slice(&0x0807_4b50u32.to_le_bytes());
+        out.extend_from_slice(&crc.to_le_bytes());
+        out.extend_from_slice(&size.to_le_bytes());
+        out.extend_from_slice(&size.to_le_bytes());
+        let (t, d) = self.time;
+        let c = &mut self.central;
+        c.extend_from_slice(&0x0201_4b50u32.to_le_bytes());
+        c.extend_from_slice(&20u16.to_le_bytes());
+        c.extend_from_slice(&20u16.to_le_bytes());
+        c.extend_from_slice(&0x0808u16.to_le_bytes());
+        c.extend_from_slice(&0u16.to_le_bytes());
+        c.extend_from_slice(&t.to_le_bytes());
+        c.extend_from_slice(&d.to_le_bytes());
+        c.extend_from_slice(&crc.to_le_bytes());
+        c.extend_from_slice(&size.to_le_bytes());
+        c.extend_from_slice(&size.to_le_bytes());
+        c.extend_from_slice(&(open.name.len() as u16).to_le_bytes());
+        c.extend_from_slice(&[0u8; 12]);
+        c.extend_from_slice(&(open.header_offset as u32).to_le_bytes());
+        c.extend_from_slice(&open.name);
+        self.offset += out.len() as u64;
+        self.count = self.count.saturating_add(1);
+        out
     }
 
     /// The bytes to send for one file: its local header followed by the data.

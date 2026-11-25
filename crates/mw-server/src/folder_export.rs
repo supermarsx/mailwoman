@@ -365,7 +365,36 @@ struct Current {
     offset: i64,
     exhausted: bool,
     index: u32,
-    mbox: Vec<u8>,
+    /// The folder's `.mbox` entry is open in the archive (mbox format).
+    mbox_open: bool,
+}
+
+/// The `.mbox` entry name of a folder part.
+fn mbox_entry_name(top: &str, dir: &str) -> String {
+    if dir.is_empty() {
+        format!("{top}.mbox")
+    } else {
+        let leaf = dir.rsplit('/').next().unwrap_or("folder");
+        format!("{dir}/{leaf}.mbox")
+    }
+}
+
+/// The bytes to send for one message of a folder's `.mbox` entry: the entry's
+/// header first when it is not open yet, then the message in mbox form (t55).
+/// Only this one message is held; the folder used to accumulate in one buffer
+/// and be copied again into the entry (twice the folder size in memory).
+/// `None` when the message cannot be written as mbox (it is skipped).
+fn mbox_chunk(zip: &mut ZipWriter, open: &mut bool, name: &str, raw: Vec<u8>) -> Option<Vec<u8>> {
+    let entry = mw_export::export_one(&mw_export::RawEmail::new(raw), mw_export::Format::Mbox).ok()?;
+    let mut chunk = if *open { Vec::new() } else { zip.begin_entry(name) };
+    *open = true;
+    zip.entry_data(&entry);
+    if chunk.is_empty() {
+        chunk = entry;
+    } else {
+        chunk.extend_from_slice(&entry);
+    }
+    Some(chunk)
 }
 
 struct StreamState {
@@ -407,7 +436,7 @@ fn stream(st: StreamState) -> impl futures_util::Stream<Item = Chunk> {
                     offset: 0,
                     exhausted: false,
                     index: 0,
-                    mbox: Vec::new(),
+                    mbox_open: false,
                 });
                 continue;
             };
@@ -436,11 +465,11 @@ fn stream(st: StreamState) -> impl futures_util::Stream<Item = Chunk> {
                 }
                 cur.index += 1;
                 if st.mbox {
-                    match mw_export::export_one(&mw_export::RawEmail::new(raw), mw_export::Format::Mbox) {
-                        Ok(entry) => cur.mbox.extend_from_slice(&entry),
-                        Err(_) => continue,
+                    let name = mbox_entry_name(&st.top, &cur.part.dir);
+                    match mbox_chunk(&mut st.zip, &mut cur.mbox_open, &name, raw) {
+                        Some(chunk) => return Some((Ok(axum::body::Bytes::from(chunk)), st)),
+                        None => continue,
                     }
-                    continue;
                 }
                 let name = format!("{dir}/{:06}.eml", cur.index);
                 let chunk = st.zip.entry(&name, &raw);
@@ -461,20 +490,10 @@ fn stream(st: StreamState) -> impl futures_util::Stream<Item = Chunk> {
                 }
                 continue;
             }
-            // The folder is done: an mbox archive writes its one entry now.
+            // The folder is done: close its streamed mbox entry.
             let finished = st.current.take().expect("current folder");
-            if st.mbox && !finished.mbox.is_empty() {
-                let leaf = if finished.part.dir.is_empty() {
-                    st.top.clone()
-                } else {
-                    finished.part.dir.rsplit('/').next().unwrap_or("folder").to_string()
-                };
-                let name = if finished.part.dir.is_empty() {
-                    format!("{leaf}.mbox")
-                } else {
-                    format!("{}/{}.mbox", finished.part.dir, leaf)
-                };
-                let chunk = st.zip.entry(&name, &finished.mbox);
+            if finished.mbox_open {
+                let chunk = st.zip.end_entry();
                 return Some((Ok(axum::body::Bytes::from(chunk)), st));
             }
         }
@@ -549,6 +568,99 @@ mod tests {
             over_cap(Totals { folders: 1, messages: ZIP_ENTRY_CEILING + 1, bytes: 1 }, &policy),
             Some("exportTooManyMessages")
         );
+    }
+
+    /// Check a whole archive against its central directory: every entry's
+    /// data has the CRC and size recorded there. Returns (name, data) pairs.
+    fn read_zip(zip: &[u8]) -> Vec<(String, Vec<u8>)> {
+        let u16_at = |i: usize| u16::from_le_bytes([zip[i], zip[i + 1]]) as usize;
+        let u32_at = |i: usize| u32::from_le_bytes(zip[i..i + 4].try_into().unwrap()) as usize;
+        let end = zip.len() - 22;
+        assert_eq!(u32_at(end), 0x0605_4b50);
+        let (count, mut at) = (u16_at(end + 10), u32_at(end + 16));
+        let mut out = Vec::new();
+        for _ in 0..count {
+            assert_eq!(u32_at(at), 0x0201_4b50);
+            let (crc, size, name_len, local) = (u32_at(at + 16), u32_at(at + 24), u16_at(at + 28), u32_at(at + 42));
+            let name = String::from_utf8(zip[at + 46..at + 46 + name_len].to_vec()).unwrap();
+            assert_eq!(u32_at(local), 0x0403_4b50);
+            let data_at = local + 30 + u16_at(local + 26) + u16_at(local + 28);
+            let data = zip[data_at..data_at + size].to_vec();
+            let mut c = flate2::Crc::new();
+            c.update(&data);
+            assert_eq!(c.sum() as usize, crc, "{name}: CRC");
+            out.push((name, data));
+            at += 46 + name_len + u16_at(at + 30) + u16_at(at + 32);
+        }
+        out
+    }
+
+    fn message(i: usize, body_bytes: usize) -> Vec<u8> {
+        format!(
+            "From: a@example.org\r\nTo: b@example.org\r\nSubject: m{i}\r\nMessage-ID: <m{i}@example.org>\r\nDate: Mon, 1 Jan 2024 00:00:00 +0000\r\n\r\n{}\r\n",
+            "x".repeat(body_bytes)
+        )
+        .into_bytes()
+    }
+
+    /// t55: a folder's mbox entry is streamed one message at a time. The
+    /// largest chunk ever handed to the response is one message, however big
+    /// the folder (it used to be the whole folder, built twice), and the
+    /// archive is valid with the same mbox content as before.
+    #[test]
+    fn an_mbox_folder_is_streamed_one_message_at_a_time() {
+        const MESSAGES: usize = 200;
+        const BODY: usize = 32 * 1024;
+        let mut zip = ZipWriter::new(0);
+        let mut sent = Vec::new();
+        let mut largest = 0usize;
+        let mut expected = Vec::new();
+        for (dir, folder) in [("", 0), ("Sub", 1)] {
+            let name = mbox_entry_name("Top", dir);
+            let mut open = false;
+            for i in 0..MESSAGES {
+                let raw = message(folder * MESSAGES + i, BODY);
+                expected.push((
+                    name.clone(),
+                    mw_export::export_one(&mw_export::RawEmail::new(raw.clone()), mw_export::Format::Mbox).unwrap(),
+                ));
+                let chunk = mbox_chunk(&mut zip, &mut open, &name, raw).unwrap();
+                largest = largest.max(chunk.len());
+                sent.extend_from_slice(&chunk);
+            }
+            sent.extend_from_slice(&zip.end_entry());
+        }
+        sent.extend_from_slice(&zip.finish());
+        assert!(sent.len() > 2 * MESSAGES * BODY, "the folders are large: {}", sent.len());
+        assert!(largest < BODY + 1024, "a chunk held more than one message: {largest} bytes");
+        let entries = read_zip(&sent);
+        assert_eq!(
+            entries.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(),
+            vec!["Top.mbox", "Sub/Sub.mbox"]
+        );
+        for (name, data) in &entries {
+            let want: Vec<u8> = expected.iter().filter(|(n, _)| n == name).flat_map(|(_, e)| e.clone()).collect();
+            assert_eq!(data, &want, "{name}");
+        }
+    }
+
+    /// Streamed and whole entries mix in one valid archive.
+    #[test]
+    fn streamed_and_whole_entries_share_one_valid_archive() {
+        let mut zip = ZipWriter::new(0);
+        let mut sent = zip.entry("a.eml", b"first");
+        sent.extend_from_slice(&zip.begin_entry("b.mbox"));
+        for part in [&b"one "[..], b"two"] {
+            zip.entry_data(part);
+            sent.extend_from_slice(part);
+        }
+        sent.extend_from_slice(&zip.end_entry());
+        sent.extend_from_slice(&zip.entry("c.eml", b""));
+        sent.extend_from_slice(&zip.finish());
+        let entries = read_zip(&sent);
+        assert_eq!(entries[0], ("a.eml".into(), b"first".to_vec()));
+        assert_eq!(entries[1], ("b.mbox".into(), b"one two".to_vec()));
+        assert_eq!(entries[2], ("c.eml".into(), Vec::new()));
     }
 
     #[test]
