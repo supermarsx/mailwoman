@@ -78,6 +78,31 @@ pub trait UploadBackend: Send + Sync {
 
     /// Remove the object. A missing object is not an error (idempotent).
     async fn delete(&self, account_key: &str, storage_key: &str) -> Result<(), UploadError>;
+
+    /// Write a sealed object given in parts, pulled from `parts` until it
+    /// returns `None` (t55). An error from `parts` aborts the write and leaves no
+    /// object. The default collects the parts and calls [`UploadBackend::put`];
+    /// a backend that can write incrementally (as [`FsUploadBackend`] does)
+    /// overrides it so memory stays at one part.
+    async fn put_parts(
+        &self,
+        account_key: &str,
+        storage_key: &str,
+        parts: &mut (dyn PartSource + Send),
+    ) -> Result<(), UploadError> {
+        let mut all = Vec::new();
+        while let Some(part) = parts.next_part().await? {
+            all.extend_from_slice(&part);
+        }
+        self.put(account_key, storage_key, all).await
+    }
+}
+
+/// The parts of an object being written by [`UploadBackend::put_parts`].
+#[async_trait]
+pub trait PartSource {
+    /// The next part, or `None` when the object is complete.
+    async fn next_part(&mut self) -> Result<Option<Vec<u8>>, UploadError>;
 }
 
 /// True iff `s` is a non-empty, bounded, pure lowercase-hex token — the only shape a
@@ -178,6 +203,37 @@ impl UploadBackend for FsUploadBackend {
             Err(e) => Err(UploadError::Io(e.to_string())),
         }
     }
+
+    async fn put_parts(
+        &self,
+        account_key: &str,
+        storage_key: &str,
+        parts: &mut (dyn PartSource + Send),
+    ) -> Result<(), UploadError> {
+        use std::io::Write;
+        let path = self.object_path(account_key, storage_key)?;
+        let dir = path
+            .parent()
+            .expect("a validated object path always has a parent under root");
+        std::fs::create_dir_all(dir).map_err(|e| UploadError::Io(e.to_string()))?;
+        // Same temp-then-rename as `put`; an aborted write removes the temp file.
+        let tmp = dir.join(format!("{storage_key}.tmp"));
+        let written = async {
+            let mut file = std::fs::File::create(&tmp).map_err(|e| UploadError::Io(e.to_string()))?;
+            while let Some(part) = parts.next_part().await? {
+                file.write_all(&part).map_err(|e| UploadError::Io(e.to_string()))?;
+            }
+            file.sync_all().map_err(|e| UploadError::Io(e.to_string()))
+        }
+        .await;
+        match written.and_then(|()| std::fs::rename(&tmp, &path).map_err(|e| UploadError::Io(e.to_string()))) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                let _ = std::fs::remove_file(&tmp);
+                Err(e)
+            }
+        }
+    }
 }
 
 /// The fail-closed default backend used by a store that has not had a real backend
@@ -198,6 +254,88 @@ impl UploadBackend for FailClosedBackend {
     }
     async fn delete(&self, _: &str, _: &str) -> Result<(), UploadError> {
         Err(UploadError::NotConfigured)
+    }
+}
+
+/// What [`Store::put_upload_stream`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StreamedUpload {
+    /// Sealed and stored: the minted `U`+64-hex blob id and the plaintext size.
+    Stored { blob_id: String, size: u64 },
+    /// The body went past the cap; nothing was stored.
+    TooLarge,
+    /// The body could not be read (the client went away); nothing was stored.
+    BodyFailed,
+}
+
+enum Refused {
+    TooLarge,
+    Body,
+}
+
+/// Pulls the request body, seals it chunk by chunk, and hands the sealed parts
+/// to the backend: the header first, then one part per [`seal::STREAM_CHUNK`].
+struct BodyParts<'a, S> {
+    body: &'a mut S,
+    sealer: seal::StreamSealer,
+    header: Option<Vec<u8>>,
+    buf: Vec<u8>,
+    total: u64,
+    cap: u64,
+    done: bool,
+    refused: Option<Refused>,
+}
+
+#[async_trait]
+impl<S, T, E> PartSource for BodyParts<'_, S>
+where
+    S: futures_util::Stream<Item = Result<T, E>> + Unpin + Send,
+    T: AsRef<[u8]> + Send,
+    E: std::fmt::Display + Send,
+{
+    async fn next_part(&mut self) -> Result<Option<Vec<u8>>, UploadError> {
+        use futures_util::StreamExt;
+        if let Some(header) = self.header.take() {
+            return Ok(Some(header));
+        }
+        loop {
+            if self.done {
+                return Ok(None);
+            }
+            if self.buf.len() >= seal::STREAM_CHUNK {
+                let rest = self.buf.split_off(seal::STREAM_CHUNK);
+                let chunk = std::mem::replace(&mut self.buf, rest);
+                return self
+                    .sealer
+                    .seal_chunk(&chunk, false)
+                    .map(Some)
+                    .map_err(|e| UploadError::Io(e.to_string()));
+            }
+            match self.body.next().await {
+                Some(Ok(data)) => {
+                    let data = data.as_ref();
+                    self.total += data.len() as u64;
+                    if self.total > self.cap {
+                        self.refused = Some(Refused::TooLarge);
+                        return Err(UploadError::Io("upload exceeds the size limit".into()));
+                    }
+                    self.buf.extend_from_slice(data);
+                }
+                Some(Err(e)) => {
+                    self.refused = Some(Refused::Body);
+                    return Err(UploadError::Io(format!("upload body: {e}")));
+                }
+                None => {
+                    self.done = true;
+                    let last = std::mem::take(&mut self.buf);
+                    return self
+                        .sealer
+                        .seal_chunk(&last, true)
+                        .map(Some)
+                        .map_err(|e| UploadError::Io(e.to_string()));
+                }
+            }
+        }
     }
 }
 
@@ -255,6 +393,66 @@ impl Store {
         Ok(blob_id)
     }
 
+    /// Seal and store an upload read from `body`, one chunk at a time (t55): the
+    /// plaintext is sealed in [`seal::STREAM_CHUNK`] pieces and written as it
+    /// arrives, so memory is one chunk rather than the whole upload plus a whole
+    /// sealed copy. More than `cap` bytes stops the read and stores nothing
+    /// ([`StreamedUpload::TooLarge`]); the caller still owns `body` and may drain
+    /// it. A body read error stores nothing either ([`StreamedUpload::BodyFailed`]).
+    pub async fn put_upload_stream<S, T, E>(
+        &self,
+        account_id: &str,
+        content_type: &str,
+        body: &mut S,
+        cap: u64,
+    ) -> Result<StreamedUpload, StoreError>
+    where
+        S: futures_util::Stream<Item = Result<T, E>> + Unpin + Send,
+        T: AsRef<[u8]> + Send,
+        E: std::fmt::Display + Send,
+    {
+        let storage_key = seal::random_token();
+        let blob_id = format!("U{storage_key}");
+        let account_key = account_dir_token(account_id);
+        let (sealer, header) = self.key.stream_sealer();
+        let mut source = BodyParts {
+            body,
+            sealer,
+            header: Some(header),
+            buf: Vec::with_capacity(seal::STREAM_CHUNK),
+            total: 0,
+            cap,
+            done: false,
+            refused: None,
+        };
+        let written = self.uploads.put_parts(&account_key, &storage_key, &mut source).await;
+        let (total, refused) = (source.total, source.refused.take());
+        match (written, refused) {
+            (_, Some(Refused::TooLarge)) => return Ok(StreamedUpload::TooLarge),
+            (_, Some(Refused::Body)) => return Ok(StreamedUpload::BodyFailed),
+            (Err(e), None) => return Err(e.into()),
+            (Ok(()), None) => {}
+        }
+        let now = Utc::now().to_rfc3339();
+        let inserted = q("INSERT INTO uploaded_blobs
+                 (blob_id, account_id, content_type, size, storage_key, backend_kind, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")
+        .bind(&blob_id)
+        .bind(account_id)
+        .bind(content_type)
+        .bind(i64::try_from(total).unwrap_or(i64::MAX))
+        .bind(&storage_key)
+        .bind(self.uploads.kind())
+        .bind(&now)
+        .execute(&self.backend)
+        .await;
+        if let Err(e) = inserted {
+            let _ = self.uploads.delete(&account_key, &storage_key).await;
+            return Err(e.into());
+        }
+        Ok(StreamedUpload::Stored { blob_id, size: total })
+    }
+
     /// Resolve an upload for `account_id`, unsealing the object bytes. Account-scoped:
     /// a `blob_id` owned by a different account (or an unknown id) resolves to `None`,
     /// so one account can never read another's upload.
@@ -306,7 +504,7 @@ impl Store {
             Some(s) => s,
             None => return Ok(None),
         };
-        let bytes = self.key.open(&sealed)?;
+        let bytes = self.key.open_upload(&sealed)?;
         if bytes.len() > maximum || i64::try_from(bytes.len()).ok() != Some(r.get_i64("size")) {
             return Ok(None);
         }
@@ -486,6 +684,145 @@ mod tests {
             .await
             .unwrap()
             .with_upload_backend(Arc::new(FsUploadBackend::new(root.to_path_buf())))
+    }
+
+    /// A backend that records the largest part it was handed while writing.
+    #[derive(Default)]
+    struct Recording {
+        objects: std::sync::Mutex<std::collections::HashMap<String, Vec<u8>>>,
+        largest_part: std::sync::atomic::AtomicUsize,
+    }
+    #[async_trait]
+    impl UploadBackend for Recording {
+        fn kind(&self) -> &'static str {
+            "recording"
+        }
+        async fn put(&self, _: &str, key: &str, sealed: Vec<u8>) -> Result<(), UploadError> {
+            self.objects.lock().unwrap().insert(key.into(), sealed);
+            Ok(())
+        }
+        async fn get(&self, _: &str, key: &str) -> Result<Option<Vec<u8>>, UploadError> {
+            Ok(self.objects.lock().unwrap().get(key).cloned())
+        }
+        async fn delete(&self, _: &str, key: &str) -> Result<(), UploadError> {
+            self.objects.lock().unwrap().remove(key);
+            Ok(())
+        }
+        async fn put_parts(
+            &self,
+            _: &str,
+            key: &str,
+            parts: &mut (dyn PartSource + Send),
+        ) -> Result<(), UploadError> {
+            let mut all = Vec::new();
+            while let Some(part) = parts.next_part().await? {
+                self.largest_part.fetch_max(part.len(), std::sync::atomic::Ordering::SeqCst);
+                all.extend_from_slice(&part);
+            }
+            self.objects.lock().unwrap().insert(key.into(), all);
+            Ok(())
+        }
+    }
+
+    fn pieces(total: usize, piece: usize) -> (Vec<u8>, Vec<Result<Vec<u8>, String>>) {
+        let data: Vec<u8> = (0..total).map(|i| (i % 251) as u8).collect();
+        let parts = data.chunks(piece).map(|c| Ok(c.to_vec())).collect();
+        (data, parts)
+    }
+
+    /// t55: an upload is sealed and written one chunk at a time and reads back
+    /// whole; the largest part handed to the backend is one sealed chunk.
+    #[tokio::test]
+    async fn a_streamed_upload_is_sealed_in_chunks_and_reads_back() {
+        let backend = Arc::new(Recording::default());
+        let store = Store::open_in_memory(ServerKey::generate())
+            .await
+            .unwrap()
+            .with_upload_backend(backend.clone());
+        for total in [0usize, 1, seal::STREAM_CHUNK, seal::STREAM_CHUNK + 1, 5 * 1024 * 1024 + 123] {
+            let (data, parts) = pieces(total, 7 * 1024);
+            let mut body = futures_util::stream::iter(parts);
+            let outcome = store
+                .put_upload_stream("acct-a", "application/pdf", &mut body, 50_000_000)
+                .await
+                .unwrap();
+            let StreamedUpload::Stored { blob_id, size } = outcome else { panic!("{total}: {outcome:?}") };
+            assert_eq!(size as usize, total);
+            let got = store.get_upload("acct-a", &blob_id).await.unwrap().unwrap();
+            assert_eq!(got.bytes, data, "{total} bytes round trip");
+            assert_eq!(got.content_type, "application/pdf");
+            assert!(store.get_upload("acct-b", &blob_id).await.unwrap().is_none(), "account-scoped");
+        }
+        let largest = backend.largest_part.load(std::sync::atomic::Ordering::SeqCst);
+        assert!(largest <= seal::STREAM_CHUNK + 16, "a part held more than one chunk: {largest}");
+    }
+
+    #[tokio::test]
+    async fn a_streamed_upload_over_the_cap_stores_nothing() {
+        let root = temp_root("stream-cap");
+        let store = fs_store(&root).await;
+        let (_, parts) = pieces(300 * 1024, 64 * 1024);
+        let mut body = futures_util::stream::iter(parts);
+        let outcome = store
+            .put_upload_stream("acct-a", "text/plain", &mut body, 200 * 1024)
+            .await
+            .unwrap();
+        assert_eq!(outcome, StreamedUpload::TooLarge);
+        let left: Vec<_> = walk(&root);
+        assert!(left.is_empty(), "no object or temp file left: {left:?}");
+        let mut failing = futures_util::stream::iter(vec![Ok(vec![1u8; 10]), Err("reset".to_string())]);
+        let outcome = store
+            .put_upload_stream("acct-a", "text/plain", &mut failing, 200 * 1024)
+            .await
+            .unwrap();
+        assert_eq!(outcome, StreamedUpload::BodyFailed);
+        assert!(walk(&root).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn walk(dir: &Path) -> Vec<PathBuf> {
+        let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+        entries
+            .flatten()
+            .flat_map(|e| if e.path().is_dir() { walk(&e.path()) } else { vec![e.path()] })
+            .collect()
+    }
+
+    /// A streamed object is authenticated as a whole: a changed byte, a dropped
+    /// last chunk, swapped chunks or an extra chunk all fail to open; an
+    /// object stored before (one-shot seal) still opens.
+    #[test]
+    fn a_tampered_streamed_object_fails_to_open_and_old_objects_still_open() {
+        let key = ServerKey::generate();
+        let (mut sealer, mut object) = key.stream_sealer();
+        let chunks: Vec<Vec<u8>> = (0..3)
+            .map(|i| sealer.seal_chunk(&vec![i as u8; seal::STREAM_CHUNK], false).unwrap())
+            .collect();
+        for c in &chunks {
+            object.extend_from_slice(c);
+        }
+        object.extend_from_slice(&sealer.seal_chunk(b"tail", true).unwrap());
+        let plain = key.open_upload(&object).unwrap();
+        assert_eq!(plain.len(), 3 * seal::STREAM_CHUNK + 4);
+        let head = 4 + 19;
+        let full = seal::STREAM_CHUNK + 16;
+        let mut flipped = object.clone();
+        flipped[head + 10] ^= 1;
+        assert!(key.open_upload(&flipped).is_err(), "changed byte");
+        assert!(key.open_upload(&object[..head + 3 * full]).is_err(), "dropped last chunk");
+        let mut swapped = object[..head].to_vec();
+        swapped.extend_from_slice(&chunks[1]);
+        swapped.extend_from_slice(&chunks[0]);
+        swapped.extend_from_slice(&object[head + 2 * full..]);
+        assert!(key.open_upload(&swapped).is_err(), "reordered chunks");
+        let mut extended = object.clone();
+        extended.extend_from_slice(&chunks[0]);
+        assert!(key.open_upload(&extended).is_err(), "extra chunk");
+        let one_shot = key.seal(b"stored before t55").unwrap();
+        assert_eq!(key.open_upload(&one_shot).unwrap(), b"stored before t55");
+        let mut lookalike = b"MWU2".to_vec();
+        lookalike.extend_from_slice(&key.seal(b"x").unwrap()[4..]);
+        assert!(key.open_upload(&lookalike).is_err(), "neither form: refused");
     }
 
     #[tokio::test]

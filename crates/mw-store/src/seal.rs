@@ -132,6 +132,103 @@ impl ServerKey {
     }
 }
 
+/// Plaintext bytes per chunk of a streamed seal ([`StreamSealer`]).
+pub(crate) const STREAM_CHUNK: usize = 64 * 1024;
+/// Magic of a streamed seal; also its associated data.
+const STREAM_MAGIC: &[u8; 4] = b"MWU2";
+/// Random part of each chunk nonce: nonce = prefix(19) || counter(4, BE) || last(1).
+const STREAM_PREFIX: usize = NONCE_LEN - 5;
+const TAG_LEN: usize = 16;
+
+/// Seals a byte stream in chunks of [`STREAM_CHUNK`] (t55): each chunk is its own
+/// XChaCha20-Poly1305 message, its nonce carrying the chunk number and a final
+/// flag, so a reordered, dropped, truncated or extended stream fails to open.
+/// Only one chunk is held at a time, so an upload no longer needs its whole
+/// plaintext plus a whole sealed copy in memory.
+pub(crate) struct StreamSealer {
+    cipher: XChaCha20Poly1305,
+    prefix: [u8; STREAM_PREFIX],
+    counter: u32,
+}
+
+fn stream_nonce(prefix: &[u8; STREAM_PREFIX], counter: u32, last: bool) -> [u8; NONCE_LEN] {
+    let mut nonce = [0u8; NONCE_LEN];
+    nonce[..STREAM_PREFIX].copy_from_slice(prefix);
+    nonce[STREAM_PREFIX..STREAM_PREFIX + 4].copy_from_slice(&counter.to_be_bytes());
+    nonce[NONCE_LEN - 1] = u8::from(last);
+    nonce
+}
+
+impl StreamSealer {
+    /// Seal the next chunk; `last` marks the final one (it may be empty).
+    pub(crate) fn seal_chunk(&mut self, plaintext: &[u8], last: bool) -> Result<Vec<u8>, SealError> {
+        let nonce = stream_nonce(&self.prefix, self.counter, last);
+        self.counter = self.counter.checked_add(1).ok_or(SealError::Decrypt)?;
+        self.cipher
+            .encrypt(XNonce::from_slice(&nonce), Payload { msg: plaintext, aad: STREAM_MAGIC })
+            .map_err(|_| SealError::Decrypt)
+    }
+}
+
+impl ServerKey {
+    /// Start a streamed seal: the sealer and the header to write first.
+    pub(crate) fn stream_sealer(&self) -> (StreamSealer, Vec<u8>) {
+        let mut prefix = [0u8; STREAM_PREFIX];
+        rand::thread_rng().fill_bytes(&mut prefix);
+        let mut header = STREAM_MAGIC.to_vec();
+        header.extend_from_slice(&prefix);
+        (
+            StreamSealer {
+                cipher: XChaCha20Poly1305::new(&self.0.into()),
+                prefix,
+                counter: 0,
+            },
+            header,
+        )
+    }
+
+    /// Open a stored upload object: a streamed seal ([`StreamSealer`]) or the
+    /// earlier one-shot [`ServerKey::seal`] form. A one-shot object that happens to
+    /// begin with the streamed magic fails authentication as a stream and is then
+    /// opened as one-shot, so the magic cannot misread an older object.
+    pub(crate) fn open_upload(&self, sealed: &[u8]) -> Result<Vec<u8>, SealError> {
+        if sealed.starts_with(STREAM_MAGIC)
+            && let Ok(plain) = self.open_stream(sealed)
+        {
+            return Ok(plain);
+        }
+        self.open(sealed)
+    }
+
+    fn open_stream(&self, sealed: &[u8]) -> Result<Vec<u8>, SealError> {
+        let head = STREAM_MAGIC.len() + STREAM_PREFIX;
+        if sealed.len() < head + TAG_LEN {
+            return Err(SealError::Truncated);
+        }
+        let mut prefix = [0u8; STREAM_PREFIX];
+        prefix.copy_from_slice(&sealed[STREAM_MAGIC.len()..head]);
+        let cipher = XChaCha20Poly1305::new(&self.0.into());
+        let full = STREAM_CHUNK + TAG_LEN;
+        let mut rest = &sealed[head..];
+        let mut out = Vec::with_capacity(rest.len());
+        let mut counter = 0u32;
+        loop {
+            let last = rest.len() <= full;
+            let (chunk, tail) = rest.split_at(if last { rest.len() } else { full });
+            let nonce = stream_nonce(&prefix, counter, last);
+            let plain = cipher
+                .decrypt(XNonce::from_slice(&nonce), Payload { msg: chunk, aad: STREAM_MAGIC })
+                .map_err(|_| SealError::Decrypt)?;
+            out.extend_from_slice(&plain);
+            if last {
+                return Ok(out);
+            }
+            rest = tail;
+            counter = counter.checked_add(1).ok_or(SealError::Decrypt)?;
+        }
+    }
+}
+
 fn bound_context(purpose: &str, authority: &[&str]) -> Vec<u8> {
     let mut output = b"mailwoman-bound-secret-v1".to_vec();
     for field in std::iter::once(purpose).chain(authority.iter().copied()) {

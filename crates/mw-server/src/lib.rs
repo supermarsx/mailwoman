@@ -4515,6 +4515,43 @@ async fn jmap_upload(
     } else {
         MAX_UPLOAD_BYTES
     };
+    // Engine mode seals the body while it is read (t55): one chunk in memory,
+    // not the whole upload plus a sealed copy. The script-only path (small,
+    // checked as UTF-8 first) and proxy mode (forwarded upstream) still read it.
+    if !scripts_only
+        && let Some(engine) = &state.engine
+    {
+        let mut stream = body.into_data_stream();
+        return match engine
+            .store()
+            .put_upload_stream(&account_id, &content_type, &mut stream, cap as u64)
+            .await
+        {
+            Ok(mw_store::StreamedUpload::Stored { blob_id, size }) => (
+                StatusCode::OK,
+                Json(json!({
+                    "accountId": account_id,
+                    "blobId": blob_id,
+                    "type": content_type,
+                    "size": size,
+                })),
+            )
+                .into_response(),
+            Ok(mw_store::StreamedUpload::TooLarge) => {
+                drain_refused_body(stream, 0, DRAIN_BUDGET_BYTES).await;
+                upload_too_large()
+            }
+            Ok(mw_store::StreamedUpload::BodyFailed) => upload_too_large(),
+            Err(e) => {
+                tracing::warn!("upload store failed: {e}");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": "upload storage failed" })),
+                )
+                    .into_response()
+            }
+        };
+    }
     let bytes = match read_body_capped(body, cap).await {
         Ok(b) => b,
         Err(()) => return upload_too_large(),
