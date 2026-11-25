@@ -407,22 +407,11 @@ impl MetaConj {
                 }
                 true
             }
-            Clause::DateRange { after, before } => {
-                if !positive {
-                    return false;
-                }
-                if after.is_none() && before.is_none() {
-                    // The index compiles this to an empty query.
-                    self.nothing = true;
-                }
-                if let Some(a) = after {
-                    self.after = Some(self.after.map_or(*a, |x| x.max(*a)));
-                }
-                if let Some(b) = before {
-                    self.before = Some(self.before.map_or(*b, |x| x.min(*b)));
-                }
-                true
-            }
+            // Dates stay with the index (t49pg-e5b F3): its date is the
+            // internaldate or, for a row stored without one, the Date header;
+            // the projection only has internaldate (NULL there). R1 is
+            // therefore never taken with a date condition.
+            Clause::DateRange { .. } => false,
             Clause::SizeRange { larger, smaller } => {
                 if !positive {
                     return false;

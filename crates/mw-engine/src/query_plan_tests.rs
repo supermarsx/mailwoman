@@ -72,9 +72,11 @@ fn every_filter_field_has_its_route() {
             "R1",
         ),
         (
+            // Dates stay with the index (t49pg-e5b F3): never R1.
             json!({"notKeyword": "$seen", "after": "2026-01-01T00:00:00Z", "maxSize": 9}),
-            "R1",
+            "R3",
         ),
+        (json!({"notKeyword": "$seen", "maxSize": 9}), "R1"),
         (
             json!({"hasKeyword": "$seen", "notKeyword": "$seen"}),
             "nothing",
@@ -304,24 +306,24 @@ fn conjunctions_fold_and_refuse_what_they_cannot_express() {
     ] {
         assert!(MetaConj::default().try_absorb(&e(t)).is_none(), "{t}");
     }
-    // An empty date or size range matches nothing in the index; also in SQL.
+    // Dates are never absorbed (t49pg-e5b F3: the index dates a row stored
+    // without internaldate by its Date header; the projection cannot).
+    for t in ["after:100", "before:900", "after:100 is:unread"] {
+        assert!(MetaConj::default().try_absorb(&e(t)).is_none(), "{t}");
+    }
+    // An empty size range matches nothing in the index; also in SQL.
     let c = MetaConj::default()
-        .try_absorb(&Expr::Clause(Clause::DateRange {
-            after: None,
-            before: None,
+        .try_absorb(&Expr::Clause(Clause::SizeRange {
+            larger: None,
+            smaller: None,
         }))
         .unwrap();
     assert!(c.nothing);
-    // Ranges tighten.
+    // Size ranges tighten.
     let c = MetaConj::default()
-        .try_absorb(&e(
-            "after:100 after:50 before:900 before:1000 larger:5 larger:7 smaller:20",
-        ))
+        .try_absorb(&e("larger:5 larger:7 smaller:20 smaller:30"))
         .unwrap();
-    assert_eq!(
-        (c.after, c.before, c.larger, c.smaller),
-        (Some(100), Some(900), Some(7), Some(20))
-    );
+    assert_eq!((c.larger, c.smaller), (Some(7), Some(20)));
 }
 
 /// Nested metadata under OR / NOT becomes one SQL node per maximal
@@ -390,11 +392,7 @@ fn nested_metadata_is_rewritten_into_sql_nodes() {
     };
     let top = top.expect("top");
     assert_eq!(top.keywords, vec!["work".to_owned()]);
-    assert_eq!(
-        top.after,
-        Some(1_767_225_600),
-        "the date narrows the SQL side too"
-    );
+    assert_eq!(top.after, None, "dates stay with the index");
     assert_eq!(nodes.len(), 3, "the text AND is flattened: {nodes:?}");
     // assemble replaces metadata nodes in walk order.
     let mut metas = Vec::new();

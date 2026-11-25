@@ -54,9 +54,10 @@ use std::sync::atomic::{AtomicU32, Ordering};
 /// Accepted differences between the query paths (see the module note). The
 /// comparison below tolerates neither; they are listed so a reviewer can see
 /// that the test was written knowing them.
-pub(crate) const ACCEPTED_DIFFERENCES: [&str; 2] = [
+pub(crate) const ACCEPTED_DIFFERENCES: [&str; 3] = [
     "SQL-only route: exact total above MAX_HITS where the index withholds it",
     "Focus: top 20 within the SQL scanned set",
+    "a row with no internaldate but a Date header (written before ingest fell back to the Date header) sorts last on an SQL-ordered answer (R1, folder list, unread-count id), by its Date header in the index",
 ];
 
 #[derive(Default)]
@@ -187,7 +188,9 @@ fn content(n: u32) -> Content {
         body,
         filename: (n % 5 == 2).then(|| format!("report{}.pdf", n % 3)),
         calendar_end: (n % 9 == 4).then(|| BASE + i64::from(n) * 86_400),
-        sent_at: BASE - 3_600 * i64::from((n * 37) % 50),
+        // Undated mail (n % 11 == 5): no internaldate and no Date header, as a
+        // POP3 server can deliver it; both sides date it epoch 0.
+        sent_at: if n % 11 == 5 { 0 } else { BASE - 3_600 * i64::from((n * 37) % 50) },
         has_attachment: false,
     }
 }
@@ -197,11 +200,16 @@ fn raw_message(n: u32, tag: &str, c: &Content) -> String {
     if let Some(cc) = &c.cc {
         head.push_str(&format!("Cc: {cc}\r\n"));
     }
-    let date = chrono::DateTime::from_timestamp(c.sent_at, 0)
-        .expect("date")
-        .to_rfc2822();
+    let date = if c.sent_at == 0 {
+        String::new()
+    } else {
+        let d = chrono::DateTime::from_timestamp(c.sent_at, 0)
+            .expect("date")
+            .to_rfc2822();
+        format!("Date: {d}\r\n")
+    };
     head.push_str(&format!(
-        "Subject: {}\r\nDate: {date}\r\nMessage-ID: <d{n}.{tag}@fixture.invalid>\r\nMIME-Version: 1.0\r\n",
+        "Subject: {}\r\n{date}Message-ID: <d{n}.{tag}@fixture.invalid>\r\nMIME-Version: 1.0\r\n",
         c.subject
     ));
     if c.filename.is_none() && c.calendar_end.is_none() {
@@ -462,7 +470,9 @@ impl World {
             raw: raw_message(n, acct.tag, &c).into_bytes(),
             flags,
             // Two messages per hour: equal-second ties on the date sort.
-            internaldate: Some(rfc3339(BASE + i64::from(n / 2) * 3_600)),
+            // Some mail has no internaldate (as POP3 delivers it, t49pg-e5b
+            // F3): the index dates it by its Date header.
+            internaldate: (n % 11 != 5).then(|| rfc3339(BASE + i64::from(n / 2) * 3_600)),
         };
         let id = self
             .engine
@@ -534,21 +544,21 @@ impl World {
                     keywords.insert(mw_search::KW_FOLLOWUP_ACTIVE.to_owned());
                 }
                 keywords.extend(sticky.get(&m.stable_id).into_iter().flatten().cloned());
-                let date = m
+                let parsed = m
                     .internaldate
                     .as_deref()
                     .and_then(|d| chrono::DateTime::parse_from_rfc3339(d).ok())
-                    .map(|d| d.timestamp())
-                    .unwrap_or(0);
+                    .map(|d| d.timestamp());
+                let c = content.get(&m.stable_id).cloned().expect("generated content");
+                // The index's date: internaldate, else the Date header.
+                let date = parsed.unwrap_or(c.sent_at);
                 out.push(Row {
-                    c: content
-                        .get(&m.stable_id)
-                        .cloned()
-                        .expect("generated content"),
+                    c,
                     id: m.stable_id,
                     mailbox: m.mailbox_id,
                     keywords,
                     pinned: meta.pinned,
+                    undated: parsed.is_none(),
                     date,
                     size: m.size,
                 });
@@ -655,6 +665,8 @@ pub(crate) struct Row {
     pub(crate) pinned: bool,
     pub(crate) date: i64,
     pub(crate) size: u64,
+    /// No internaldate (the index dates it by its Date header).
+    pub(crate) undated: bool,
     c: Content,
 }
 
@@ -886,9 +898,12 @@ enum Key {
     T(String),
 }
 
-fn sort_key(r: &Row, s: &mw_search::Sort) -> Key {
+/// `sql_order`: the answer was ordered by SQL (internaldate NULLS LAST), where
+/// undated mail sorts last (accepted difference 3).
+fn sort_key(r: &Row, s: &mw_search::Sort, sql_order: bool) -> Key {
     use mw_search::SortField as F;
     match s.field {
+        F::ReceivedAt if sql_order && r.undated => Key::N(i64::MIN),
         F::ReceivedAt => Key::N(r.date),
         F::SentAt => Key::N(r.c.sent_at),
         F::Size => Key::N(r.size as i64),
@@ -1162,6 +1177,7 @@ fn expected(
     rows: &[Row],
     filter: &str,
     sort: &SortSpec,
+    sql_order: bool,
 ) -> (Vec<(String, Key)>, bool) {
     let owned: Vec<String> = acct.folders.iter().map(|(_, id)| id.clone()).collect();
     let mut f = EmailFilter::parse_saved_json(filter).expect("matrix filter parses");
@@ -1197,7 +1213,7 @@ fn expected(
             .collect()
     };
     let cmp_one = |a: &Row, b: &Row, s: &mw_search::Sort| {
-        let o = sort_key(a, s).cmp(&sort_key(b, s));
+        let o = sort_key(a, s, sql_order).cmp(&sort_key(b, s, sql_order));
         if s.ascending { o } else { o.reverse() }
     };
     hits.sort_by(|a, b| {
@@ -1217,7 +1233,7 @@ fn expected(
                 if compound {
                     Key::T(r.id.clone())
                 } else {
-                    sort_key(r, &primary)
+                    sort_key(r, &primary, sql_order)
                 },
             )
         })
@@ -1289,7 +1305,7 @@ pub(crate) async fn check_path(
     tolerate_unsupported: bool,
 ) -> Option<Value> {
     let filter = fill(template, w, acct);
-    let (want, _compound) = expected(w, acct, rows, &filter, sort);
+    let (want, _compound) = expected(w, acct, rows, &filter, sort, false);
     let mut args = json!({"accountId": acct.id, "filter": serde_json::from_str::<Value>(&filter).unwrap(), "position": win.position, "calculateTotal": win.total});
     if !sort.json.is_null() {
         args["sort"] = sort.json.clone();
@@ -1319,10 +1335,27 @@ pub(crate) async fn check_path(
         "{context}: as {} filter {filter} sort {} window {win:?}",
         acct.tag, sort.json
     );
+    let taken_before = crate::query_plan::TAKEN.with(|t| t.borrow().len());
+    let shortcut_before = w.engine.unread_count_shortcut_status().taken_limit1;
     crate::query_plan::LEGACY.with(|l| l.set(legacy));
     let r = w.send(&acct.id, json!([["Email/query", args, "q"]])).await;
     crate::query_plan::LEGACY.with(|l| l.set(false));
     let resp = r["methodResponses"][0].clone();
+    // Was the answer ordered by SQL? The planner's R1, the unread count's
+    // limit-1 id (planner only), or the plain folder / account listing.
+    let sql_route = crate::query_plan::TAKEN.with(|t| t.borrow()[taken_before..].contains(&crate::query_plan::Taken::Sql));
+    let shortcut = !legacy && w.engine.unread_count_shortcut_status().taken_limit1 > shortcut_before;
+    let default_sort = sort.json.is_null() || sort.json == json!([{"property": "receivedAt", "isAscending": false}]);
+    let plain_listing = default_sort
+        && serde_json::from_str::<serde_json::Map<String, Value>>(&filter)
+            .unwrap()
+            .iter()
+            .all(|(k, v)| k == "semantic" || (k == "inMailbox" && acct.folders.iter().any(|(_, id)| v == id)));
+    let want = if sql_route || shortcut || plain_listing {
+        expected(w, acct, rows, &filter, sort, true).0
+    } else {
+        want
+    };
     if tolerate_unsupported && resp[1]["type"] == json!("unsupportedFilter") {
         assert!(!legacy, "{what}: the old path has no cap: {resp}");
         return None;
@@ -1467,7 +1500,7 @@ pub(crate) async fn differential(store: Store, messages: u32, rounds: u32, ops: 
         .chain(text_forms().into_iter().map(text_filter))
     {
         let filter = fill(&template, &w, &w.a);
-        let (hits, _) = expected(&w, &w.a, &rows, &filter, &sorts()[0]);
+        let (hits, _) = expected(&w, &w.a, &rows, &filter, &sorts()[0], false);
         let unconstrained = ["{}", r#"{"semantic":true}"#].contains(&template.as_str());
         let empty_by_design = template.contains("{FOREIGN}")
             || template.contains("is:unread is:read")

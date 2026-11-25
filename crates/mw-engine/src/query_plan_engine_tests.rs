@@ -888,3 +888,35 @@ async fn keyword_seen_is_read_on_every_route() {
         .await;
     assert_ne!(r["methodResponses"][0][1]["ids"][0], json!(target), "{r}");
 }
+
+/// t49pg-e5b F3: a row with no internaldate but a Date header (stored before
+/// ingest fell back to the Date header) is dated by that header in the index.
+/// A date condition next to metadata must use the index's date, not epoch 0.
+#[tokio::test]
+async fn date_conditions_use_the_index_date_for_rows_without_internaldate() {
+    let (store, pool) = sqlite_file("undated").await;
+    let w = World::new(store, 24).await;
+    let acct = &w.a;
+    let dated: Vec<String> = w.rows(acct).await.into_iter().filter(|r| !r.undated).map(|r| r.id).take(6).collect();
+    for id in &dated {
+        sqlx::query("UPDATE messages SET internaldate=NULL WHERE stable_id=?1").bind(id).execute(&pool).await.unwrap();
+    }
+    // The index document a row stored without internaldate gets: built from
+    // the current source, dated by the Date header.
+    w.engine
+        .publish_current_index(&acct.id, dated.clone(), crate::index_publication::PublicationMode::Rebuild)
+        .await
+        .unwrap();
+    let rows = w.rows(acct).await;
+    assert_eq!(rows.iter().filter(|r| dated.contains(&r.id) && r.undated && r.date > 0).count(), dated.len());
+    for template in [
+        r#"{"notKeyword":"$seen","after":"2026-06-01T00:00:00Z"}"#,
+        r#"{"hasKeyword":"$seen","after":"2026-06-01T00:00:00Z"}"#,
+        r#"{"hasKeyword":"$seen","before":"2026-06-01T00:00:00Z"}"#,
+        r#"{"notKeyword":"$seen","before":"2026-07-01T10:00:00Z","inMailbox":"{INBOX}"}"#,
+        r#"{"text":"after:1782000000 tag:work"}"#,
+        r#"{"text":"(is:unread after:1782000000) OR from:s3"}"#,
+    ] {
+        check_path(&w, acct, &rows, template, &plain_sort(), WINDOWS[0], "F3 undated", false, false).await.unwrap();
+    }
+}
