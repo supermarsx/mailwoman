@@ -71,7 +71,7 @@ fn every_mode_on_sqlite_is_accepted_and_reported() {
 }
 
 #[test]
-fn postgres_refuses_journal_and_disables_the_other_two_with_a_warning() {
+fn postgres_refuses_journal_keeps_the_guard_inert_and_uses_write_behind() {
     let journal = validate(PG, true, &[("MW_INDEX_PUBLICATION_ACK", "journal")]).unwrap_err();
     assert!(journal.contains("MW_INDEX_PUBLICATION_ACK=journal is SQLite-only"), "{journal}");
     // Proxy mode builds no engine: the index variables are inert, not refused.
@@ -90,13 +90,13 @@ fn postgres_refuses_journal_and_disables_the_other_two_with_a_warning() {
     .unwrap();
     // Live on PostgreSQL since t49pg: no warning, and the line says what it needs.
     assert!(modes.guard_live && modes.postgres);
-    assert_eq!(modes.accounting_effective, write_behind::AccountingMode::Synchronous);
-    assert_eq!(modes.warnings.len(), 1, "{:?}", modes.warnings);
-    assert!(modes.warnings[0].contains("SQLite-only"), "{:?}", modes.warnings);
+    // Write-behind accounting runs on PostgreSQL too (t50hp-e8): no warning.
+    assert_eq!(modes.accounting_effective, write_behind::AccountingMode::WriteBehind);
+    assert!(modes.warnings.is_empty(), "{:?}", modes.warnings);
     let line = modes.summary();
     assert!(!line.contains("inert"), "{line}");
     assert!(line.contains("guard snapshot bounded (1000 ms; PostgreSQL: multi-process-safe within the bound, one extra database connection per process)"), "{line}");
-    assert!(modes.summary().ends_with("request-protection accounting synchronous"));
+    assert!(line.contains("request-protection accounting write-behind"), "{line}");
 }
 
 #[test]

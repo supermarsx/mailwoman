@@ -267,6 +267,6 @@ async fn a_database_name_without_a_file_is_located_by_its_parent_and_joins() {
     #[cfg(not(windows))] assert_eq!(located.file_name().unwrap(),"Retired.db");
     // A participant there joins and owns (no hard-link question without a file).
     let owner=ProtectionParticipant::join(&owner::Location::File(located)).await.unwrap();
-    assert!(matches!(owner.check(std::time::Duration::from_millis(500)).ownership,Ownership::Alone{..}));
+    assert!(matches!(owner.check(std::time::Duration::from_millis(500)).await.ownership,Ownership::Alone{..}));
     assert!(canonical_database_path(std::path::Path::new("/no/such/dir/at/all/x.db")).is_none());
 }

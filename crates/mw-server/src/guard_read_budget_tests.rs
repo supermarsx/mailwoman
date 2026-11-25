@@ -475,10 +475,28 @@ fn measure_enforced(
     accounting: Option<crate::request_protection::write_behind::AccountingConfig>,
     enforced: bool,
 ) -> Warm {
+    measure_enforced_on(None, accounting, enforced)
+}
+
+/// `measure_enforced` on PostgreSQL (`Some(label)`: a fresh database on MW_TEST_PG).
+fn measure_enforced_on(
+    postgres: Option<&'static str>,
+    accounting: Option<crate::request_protection::write_behind::AccountingConfig>,
+    enforced: bool,
+) -> Warm {
     let (sender, receiver) = std::sync::mpsc::channel();
     run_fixture(move || async move {
         crate::request_protection::write_behind::TEST_CONFIG.with(|cell| cell.set(accounting));
-        let fixture = Fixture::new(sqlite_db(), "sqlite-enforced").await;
+        let fixture = match postgres {
+            None => Fixture::new(sqlite_db(), "sqlite-enforced").await,
+            Some(label) => {
+                let url = crate::request_protection::write_behind::tests::fresh_pg_database(label).await.expect("MW_TEST_PG");
+                let fixture = Fixture::new(url, "postgres-enforced").await;
+                // Past the witness grace period, so a lone write-behind owner owns.
+                tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+                fixture
+            }
+        };
         if enforced {
             for (key, value) in ENFORCED {
                 put_policy(&fixture.writer, key, json!(value)).await;
@@ -566,3 +584,48 @@ fn postgres_authentication_unit_decisions() {
         authentication_unit_decisions(&fixture).await;
     });
 }
+
+/// t50hp-e8 on PostgreSQL: the enforced profile's warm request with write-behind
+/// accounting carries no accounting write and no BEGIN; the synchronous run is
+/// today's cost and must not grow (mode OFF: no regression).
+#[test]
+fn postgres_write_behind_warm_request_has_no_protection_statements() {
+    use crate::request_protection::write_behind::{AccountingConfig, AccountingMode};
+    if std::env::var("MW_TEST_PG").ok().filter(|url| !url.is_empty()).is_none() {
+        eprintln!("[guard_read_budget] MW_TEST_PG unset: Postgres leg not run");
+        return;
+    }
+    let write_behind = AccountingConfig {
+        mode: AccountingMode::WriteBehind,
+        flush_every: std::time::Duration::from_millis(250),
+        max_pending: 4096,
+    };
+    let off = measure_enforced_on(Some("off"), None, false);
+    let synchronous = measure_enforced_on(Some("sync"), None, true);
+    let deferred = measure_enforced_on(Some("wb"), Some(write_behind), true);
+    for (route, off, synchronous, deferred, today) in [
+        ("GET /api/me", off.0, synchronous.0, deferred.0, POSTGRES_ENFORCED_SYNCHRONOUS_ME),
+        ("POST /jmap/api Core/echo", off.1, synchronous.1, deferred.1, POSTGRES_ENFORCED_SYNCHRONOUS_ECHO),
+    ] {
+        eprintln!(
+            "{}",
+            json!({"kind":"t50hp-e8-protection-statements","backend":"postgres","route":route,
+                "off":{"reads":off.read.calls,"writes":off.write.calls,"other":off.other.calls},
+                "enforcedSynchronous":{"reads":synchronous.read.calls,"writes":synchronous.write.calls,"other":synchronous.other.calls},
+                "enforcedWriteBehind":{"reads":deferred.read.calls,"writes":deferred.write.calls,"other":deferred.other.calls}})
+        );
+        assert_eq!((deferred.write.calls, deferred.other.calls), (0, 0), "{route}: {deferred:?}");
+        assert!(deferred.read.calls <= off.read.calls, "{route}: {deferred:?} / {off:?}");
+        // Mode OFF (synchronous accounting) costs no more than before this change.
+        assert!(
+            synchronous.read.calls <= today.0 && synchronous.write.calls <= today.1 && synchronous.other.calls <= today.2,
+            "{route}: synchronous {synchronous:?} > today {today:?}"
+        );
+    }
+}
+/// Enforced profile, synchronous accounting, PostgreSQL, warm request:
+/// (reads, writes, other) on the pool. A ceiling: it may only go down. The
+/// synchronous path's only change in t50hp-e8 is the witness join, made once
+/// per process on its own connection (not a pool statement, not per request).
+const POSTGRES_ENFORCED_SYNCHRONOUS_ME: (u64, u64, u64) = (15, 4, 2);
+const POSTGRES_ENFORCED_SYNCHRONOUS_ECHO: (u64, u64, u64) = (17, 4, 2);

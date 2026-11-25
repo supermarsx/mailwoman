@@ -84,6 +84,17 @@ use std::time::{Duration, Instant};
 pub(crate) const MODE_VAR: &str = "MW_REQUEST_PROTECTION_ACCOUNTING";
 pub(crate) const FLUSH_VAR: &str = "MW_REQUEST_PROTECTION_FLUSH_MS";
 pub(crate) const MAX_PENDING_VAR: &str = "MW_REQUEST_PROTECTION_MAX_PENDING";
+pub(crate) const REREAD_VAR: &str = "MW_REQUEST_PROTECTION_REREAD_MS";
+/// Over-admission fraction stated for the multi-process bound: with N processes,
+/// a subject at its limit is over-admitted by at most (N - 1) x L x (F + S) / W
+/// (L limit, W window, F flush interval, S re-read interval). Start-up refuses
+/// F + S above `W_DEFAULT / BOUND_DIVISOR`; a policy window shorter than
+/// `BOUND_DIVISOR x (F + S)` is accounted synchronously while not owned.
+pub(crate) const BOUND_DIVISOR: u64 = 6;
+/// The default rate window (`security.protection.rateWindowSecs`).
+const DEFAULT_WINDOW: Duration = Duration::from_secs(60);
+/// S in milliseconds (0: equal to the flush interval), set once at start-up.
+static REREAD_MS: AtomicU64 = AtomicU64::new(0);
 /// The batch API's group limit.
 const BATCH: usize = 64;
 const SHARDS: usize = 64;
@@ -95,9 +106,10 @@ pub(crate) enum AccountingMode {
     WriteBehind,
 }
 impl AccountingMode {
-    /// `write-behind` builds on the SQLite-only batch API; PostgreSQL stays synchronous.
-    pub(crate) fn effective(self, sqlite: bool) -> Self {
-        if sqlite { self } else { Self::Synchronous }
+    /// Both backends support write-behind (PostgreSQL since t50hp-e8: advisory
+    /// lock witness, compare-and-set flush).
+    pub(crate) fn effective(self, _sqlite: bool) -> Self {
+        self
     }
 }
 /// Process-immutable accounting switches, read once at startup.
@@ -123,11 +135,21 @@ impl AccountingConfig {
             return Ok(config);
         }
         let read = |name| std::env::var(name).ok();
-        Self::parse(
+        let config = Self::parse(
             read(MODE_VAR).as_deref(),
             read(FLUSH_VAR).as_deref(),
             read(MAX_PENDING_VAR).as_deref(),
-        )
+        )?;
+        let reread = parse_reread(read(REREAD_VAR).as_deref(), config.flush_every)?;
+        REREAD_MS.store(u64::try_from(reread.as_millis()).unwrap_or(u64::MAX), Ordering::Relaxed);
+        Ok(config)
+    }
+    /// S, the re-read interval of an idle cached subject while not owned.
+    pub(crate) fn reread(&self) -> Duration {
+        match REREAD_MS.load(Ordering::Relaxed) {
+            0 => self.flush_every,
+            ms => Duration::from_millis(ms),
+        }
     }
     /// Unset or empty values take the default; anything else must be valid.
     pub(crate) fn parse(
@@ -184,6 +206,30 @@ thread_local! {
         const { std::cell::Cell::new(None) };
 }
 
+/// `MW_REQUEST_PROTECTION_REREAD_MS`: 50 to 5000, default the flush interval.
+/// Refused when F + S exceeds the stated bound (see [`BOUND_DIVISOR`]).
+pub(crate) fn parse_reread(raw: Option<&str>, flush_every: Duration) -> Result<Duration, String> {
+    let reread = match raw.map(str::trim).filter(|value| !value.is_empty()) {
+        None => flush_every,
+        Some(raw) => raw
+            .parse::<u64>()
+            .ok()
+            .filter(|ms| (50..=5000).contains(ms))
+            .map(Duration::from_millis)
+            .ok_or_else(|| format!("{REREAD_VAR}={raw:?} is invalid; use an integer from 50 to 5000"))?,
+    };
+    let limit = DEFAULT_WINDOW / u32::try_from(BOUND_DIVISOR).unwrap_or(1);
+    if flush_every + reread > limit {
+        return Err(format!(
+            "{FLUSH_VAR} + {REREAD_VAR} = {} ms exceeds {} ms: with two processes a subject could be admitted more than 1/{BOUND_DIVISOR} of its limit beyond it at the default {} s window",
+            (flush_every + reread).as_millis(),
+            limit.as_millis(),
+            DEFAULT_WINDOW.as_secs()
+        ));
+    }
+    Ok(reread)
+}
+
 /// The answer for one observation or probe read.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct Answer {
@@ -231,6 +277,8 @@ pub(crate) struct WriteBehindStatus {
     pub backpressure_writes: u64,
     /// Requests that waited for a drain at the hard cap (healthy storage).
     pub full_waits: u64,
+    /// The longest flush so far, in milliseconds (D in the multi-process bound).
+    pub flush_max_ms: u64,
 }
 #[derive(Default)]
 struct Counters {
@@ -249,6 +297,7 @@ struct Counters {
     unjoined_writes_seen: AtomicU64,
     backpressure_writes: AtomicU64,
     full_waits: AtomicU64,
+    flush_max_ms: AtomicU64,
 }
 fn bump(counter: &AtomicU64, by: u64) {
     counter.fetch_add(by, Ordering::Relaxed);
@@ -324,9 +373,9 @@ impl Entry {
     /// An entry with pending observations is the database plus those observations,
     /// which is the most current view this process has; it is never re-read. Without
     /// pending observations: valid while owned, else for one flush interval.
-    fn usable(&self, flush_every: Duration, owned: bool) -> bool {
+    fn usable(&self, reread: Duration, owned: bool) -> bool {
         !self.pending.is_empty()
-            || (!self.stale && (owned || self.synced_at.elapsed() < flush_every))
+            || (!self.stale && (owned || self.synced_at.elapsed() < reread))
     }
 }
 
@@ -364,6 +413,8 @@ pub(crate) struct WriteBehind {
     /// Subject keys without re-deriving the HMAC subkey per key.
     keyer: SubjectKeyer,
     flush_every: Duration,
+    /// S: an idle cached subject is re-read after this while not owned.
+    reread: Duration,
     max_pending: usize,
     shards: Vec<Mutex<HashMap<String, Entry>>>,
     /// Global observation order; the batch contract applies observations in this order.
@@ -411,6 +462,7 @@ impl WriteBehind {
             keyer: store.request_protection_keyer(),
             store,
             flush_every: config.flush_every,
+            reread: config.reread(),
             max_pending: config.max_pending,
             shards: (0..SHARDS).map(|_| Mutex::new(HashMap::new())).collect(),
             queue: Mutex::new(VecDeque::new()),
@@ -471,6 +523,14 @@ impl WriteBehind {
             }
         });
         accounting
+    }
+
+    /// A policy window shorter than `BOUND_DIVISOR x (F + S)`: rate window or
+    /// short adaptive window.
+    fn window_too_short(&self, policy: &Policy) -> bool {
+        let window = u64::from(policy.rate_window_secs.min(policy.short.seconds)).saturating_mul(1000);
+        let staleness = u64::try_from((self.flush_every + self.reread).as_millis()).unwrap_or(u64::MAX);
+        window < staleness.saturating_mul(BOUND_DIVISOR)
     }
 
     /// Test hook: never use the ownership rule.
@@ -537,7 +597,7 @@ impl WriteBehind {
             self.lose_ownership();
             return;
         };
-        let checked = participant.check(self.window);
+        let checked = participant.check(self.window).await;
         match checked.ownership {
             Ownership::Alone { changed } => {
                 // Writes made outside the witness carry the database marker.
@@ -611,7 +671,7 @@ impl WriteBehind {
         {
             let mut entries = lock(self.shard(key));
             if let Some(entry) = entries.get_mut(key)
-                && entry.usable(self.flush_every, self.owned())
+                && entry.usable(self.reread, self.owned())
             {
                 entry.last_used = Instant::now();
                 return Ok(f(entry));
@@ -655,7 +715,7 @@ impl WriteBehind {
         }
         let before = entries.len();
         let owned = self.owned();
-        entries.retain(|_, entry| entry.usable(self.flush_every, owned));
+        entries.retain(|_, entry| entry.usable(self.reread, owned));
         if entries.len() >= SHARD_CAPACITY {
             let mut idle: Vec<_> = entries
                 .iter()
@@ -711,6 +771,7 @@ impl WriteBehind {
         // a degraded store or a drain that does not make room drops.
         let mut attempts = 0;
         loop {
+        let owned = self.owned();
         let recorded = self
             .with_entry(&key, kind, now, |entry| {
                 let mut queue = lock(&self.queue);
@@ -746,10 +807,13 @@ impl WriteBehind {
                 queue.push_back(pending.clone());
                 // Typed rejection signals are written through: never deferred.
                 let typed = matches!(signal, Some(Signal::CredentialRejected | Signal::Malformed));
+                // Not owned: a window shorter than BOUND_DIVISOR x (F + S) is
+                // accounted synchronously, so the stated bound holds for it too.
+                let tight = !owned && self.window_too_short(policy);
                 Recorded::Queued {
                     pending,
                     decision: step.decision,
-                    through: step.transition || new_row || typed || full,
+                    through: step.transition || new_row || typed || full || tight,
                     transition: step.transition,
                     full,
                     queued: queue.len(),
@@ -871,7 +935,12 @@ impl WriteBehind {
         };
         // Normal lane, escalated to priority while a transition or an admin
         // clear waits for `flushing` (review G1).
-        self.drain(last, WriteLaneRequest::escalatable(&self.escalation)).await
+        let started = Instant::now();
+        let result = self.drain(last, WriteLaneRequest::escalatable(&self.escalation)).await;
+        // D in the multi-process bound: the longest flush so far.
+        let took = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        self.counters.flush_max_ms.fetch_max(took, Ordering::Relaxed);
+        result
     }
 
     /// Graceful shutdown: commit everything queued before `deadline`.
@@ -931,7 +1000,7 @@ impl WriteBehind {
         // The request's statement measurement follows the group into its task.
         let task = tokio::spawn(mw_store::pool_telemetry::in_current_measurement(async move {
             let observations: Vec<_> = group.iter().map(|pending| pending.observation()).collect();
-            store.request_protection_sqlite_batch_in(&participant, &observations, lane).await
+            store.request_protection_batch_in(&participant, &observations, lane).await
         }));
         let mut guard = OrphanGuard { owner: self, orphan: Some(Orphan { batch, epoch, task }) };
         let orphan = guard.orphan.as_mut().expect("orphan present");
@@ -1092,6 +1161,7 @@ impl WriteBehind {
             unjoined_writes_seen: counter(&self.counters.unjoined_writes_seen),
             backpressure_writes: counter(&self.counters.backpressure_writes),
             full_waits: counter(&self.counters.full_waits),
+            flush_max_ms: counter(&self.counters.flush_max_ms),
         }
     }
 }
@@ -1126,7 +1196,7 @@ pub fn fixture_snapshot() -> serde_json::Value {
 
 #[cfg(test)]
 #[path = "write_behind_tests.rs"]
-mod tests;
+pub(crate) mod tests;
 
 #[cfg(test)]
 #[path = "write_behind_writer_tests.rs"]

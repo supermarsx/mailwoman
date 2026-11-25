@@ -99,6 +99,8 @@ fn empty_protection_outcome() -> ProtectionOutcome {
 mod batch_tests;
 #[path = "request_protection_owner.rs"]
 mod owner;
+#[path = "request_protection_pg_owner.rs"]
+mod pg_owner;
 pub use owner::{Checked, Ownership, ProtectionParticipant, join_wait, ownership_window};
 
 /// The subject-key HMAC with its key schedule computed once
@@ -224,16 +226,17 @@ impl SubjectKeyer {
     }
 }
 
-/// Synchronous writers of one SQLite file in this process share one participant.
+/// Synchronous writers of one database in this process share one participant
+/// (re-joined when its PostgreSQL witness session dies).
 #[derive(Default)]
 struct Writer {
-    participant: tokio::sync::OnceCell<ProtectionParticipant>,
+    participant: std::sync::Mutex<Option<std::sync::Arc<ProtectionParticipant>>>,
     /// One join attempt at a time.
     joining: tokio::sync::Mutex<()>,
     /// After a failed join, writes are marked until this instant, then a join is tried again.
     retry_after: std::sync::Mutex<Option<std::time::Instant>>,
 }
-type Writers = std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, std::sync::Arc<Writer>>>;
+type Writers = std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<Writer>>>;
 static WRITERS: std::sync::LazyLock<Writers> = std::sync::LazyLock::new(Default::default);
 /// The witness location of a database path: the canonical path of the file;
 /// when no file exists at that name (a converted database whose legacy file
@@ -1425,7 +1428,15 @@ impl Store {
     }
     fn protection_location(&self) -> owner::Location {
         match &self.backend {
-            crate::backend::Backend::Postgres(_) => owner::Location::Shared,
+            crate::backend::Backend::Postgres(pool) => {
+                // Per installation: derived from the server key every process of
+                // the installation holds (with the database and schema in SQL).
+                let id: String = self.key.derive("mw-request-protection-witness-v1")[..16]
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect();
+                owner::Location::Postgres { pool: pool.clone(), id }
+            }
             crate::backend::Backend::Sqlite(live) => {
                 let path = live.logical_path();
                 let text = path.to_string_lossy();
@@ -1475,27 +1486,41 @@ impl Store {
     /// transaction: true unless this process holds an acknowledged participant
     /// for the file. A failed join is retried (once at once for a busy
     /// admission lock, then after a delay); while it fails, writes are marked,
-    /// never unseen. PostgreSQL and in-memory databases: never.
+    /// never unseen. In-memory databases: never. No statement on a request: the
+    /// join runs once per process (again after a lost PostgreSQL session).
     async fn writer_marks(&self) -> bool {
-        let path = match self.protection_location() {
+        let location = self.protection_location();
+        let registry_key = match &location {
             owner::Location::Shared | owner::Location::Private => return false,
             owner::Location::Unresolved => {
                 note_join_failure(&StoreError::Invalid("request protection witness: database path unresolved"), false);
                 return true;
             }
-            owner::Location::File(path) => path,
+            owner::Location::File(path) => format!("file:{}", path.display()),
+            owner::Location::Postgres { id, pool } => {
+                let options = pool.connect_options();
+                format!("pg:{id}:{}:{}:{:?}", options.get_host(), options.get_port(), options.get_database())
+            }
         };
         let writer = WRITERS
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .entry(path.clone())
+            .entry(registry_key)
             .or_default()
             .clone();
-        if let Some(participant) = writer.participant.get() {
+        let current = || {
+            let mut slot = writer.participant.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if slot.as_ref().is_some_and(|participant| !participant.alive()) {
+                // A dead PostgreSQL witness session: mark until joined again.
+                *slot = None;
+            }
+            slot.clone()
+        };
+        if let Some(participant) = current() {
             return !participant.acknowledged();
         }
         let _joining = writer.joining.lock().await;
-        if let Some(participant) = writer.participant.get() {
+        if let Some(participant) = current() {
             return !participant.acknowledged();
         }
         let waiting = writer
@@ -1506,7 +1531,6 @@ impl Store {
         if waiting {
             return true;
         }
-        let location = owner::Location::File(path);
         let mut attempt = ProtectionParticipant::join(&location).await;
         if attempt.as_ref().err().is_some_and(owner::transient) {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -1516,7 +1540,22 @@ impl Store {
             Ok(participant) => {
                 WITNESS.joins.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let marks = !participant.acknowledged();
-                let _ = writer.participant.set(participant);
+                let participant = std::sync::Arc::new(participant);
+                if matches!(location, owner::Location::Postgres { .. }) {
+                    // Liveness: a dead session is noticed within LIVENESS, and the
+                    // next write marks itself and joins again (see pg_owner GRACE).
+                    let weak = std::sync::Arc::downgrade(&participant);
+                    tokio::spawn(async move {
+                        loop {
+                            tokio::time::sleep(pg_owner::LIVENESS).await;
+                            let Some(participant) = weak.upgrade() else { break };
+                            if !participant.probe().await {
+                                break;
+                            }
+                        }
+                    });
+                }
+                *writer.participant.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(participant);
                 *writer.retry_after.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
                 marks
             }
@@ -1611,7 +1650,7 @@ impl Store {
     ) -> Result<ProtectionOutcome, StoreError> {
         let Some(prepared) = self.prepare_request_protection(kind, value, policy, now, signal, source)?
         else { return Ok(empty_protection_outcome()); };
-        let marks = self.uses_sqlite() && self.writer_marks().await;
+        let marks = self.writer_marks().await;
         let mut tx = self.backend.begin().await?;
         if marks {
             bump_writers_marker(&mut tx).await?;
@@ -1643,6 +1682,19 @@ impl Store {
         if !self.uses_sqlite() || requests.len() > 64 { return Err(corrupt()); }
         let marks = self.writer_marks().await;
         self.sqlite_batch(requests, marks, crate::WriteLane::Priority.into()).await
+    }
+    /// The write-behind flush for either backend (see `sqlite_batch` and
+    /// `pg_batch`), for a participant that joined when it was created. `lane`
+    /// applies to the SQLite group writer; PostgreSQL has no lanes.
+    pub async fn request_protection_batch_in(
+        &self, writer: &ProtectionParticipant, requests: &[ProtectionObservation<'_>],
+        lane: impl Into<crate::WriteLaneRequest>,
+    ) -> Result<Vec<(ProtectionOutcome, Option<StoredProtection>)>, StoreError> {
+        if self.uses_sqlite() {
+            self.sqlite_batch(requests, !writer.acknowledged(), lane.into()).await
+        } else {
+            self.pg_batch(requests, !writer.acknowledged()).await
+        }
     }
     /// `request_protection_sqlite_batch_with_state` for a write-behind
     /// participant, which joined when it was created.
@@ -1710,6 +1762,143 @@ impl Store {
             };
             Ok::<_, StoreError>(outcomes)
         })
+    }
+
+    /// PostgreSQL write-behind flush of a group of at most 64 observations.
+    ///
+    /// One SELECT of the group's rows (with their revisions), the ordinary
+    /// evaluator in input order in memory, and one autocommit
+    /// `UPDATE ... FROM json_to_recordset(...) WHERE revision = <read revision>
+    /// RETURNING subject_key`: one write statement and one commit per group, and
+    /// no row is overwritten that another process changed since the SELECT.
+    /// Subjects whose row changed are read and evaluated again (at most three
+    /// rounds), so every observation is applied exactly once to the latest row.
+    /// The per-observation transactional path (row lock, inventory lock and
+    /// capacity check, audit event in the same transaction) takes the
+    /// observations of a subject without a row, a group with a transition, a
+    /// writer that must bump the marker, and subjects still conflicting after
+    /// three rounds.
+    async fn pg_batch(
+        &self, requests: &[ProtectionObservation<'_>], marks: bool,
+    ) -> Result<Vec<(ProtectionOutcome, Option<StoredProtection>)>, StoreError> {
+        if requests.len() > 64 { return Err(corrupt()); }
+        let keyer = self.request_protection_keyer();
+        let prepared = requests.iter().map(|r| keyer.prepare(
+            r.kind, r.value, r.policy, r.now, r.signal, r.source,
+        )).collect::<Result<Vec<_>, _>>()?;
+        let mut outcomes: Vec<Option<(ProtectionOutcome, Option<StoredProtection>)>> =
+            prepared.iter().map(|p| p.is_none().then(|| (empty_protection_outcome(), None))).collect();
+        let mut todo: Vec<usize> = (0..requests.len()).filter(|i| prepared[*i].is_some()).collect();
+        if marks {
+            self.pg_batch_transactional(requests, &prepared, &todo, &mut outcomes, true).await?;
+            return Ok(outcomes.into_iter().map(|o| o.expect("every observation answered")).collect());
+        }
+        for _round in 0..3 {
+            if todo.is_empty() {
+                break;
+            }
+            let mut keys: Vec<&str> = todo.iter().map(|i| prepared[*i].as_ref().expect("prepared").key.as_str()).collect();
+            keys.sort_unstable();
+            keys.dedup();
+            let found = q("SELECT subject_key,subject_kind,state_json,expires_at,revision FROM request_protection_subject WHERE subject_key IN (SELECT value FROM json_array_elements_text(?1::json))")
+                .bind(serde_json::to_string(&keys).map_err(|_| corrupt())?)
+                .fetch_all(&self.backend)
+                .await?;
+            if found.len() != keys.len() {
+                break; // a subject without a row: transactional path below
+            }
+            let mut first_now: std::collections::HashMap<&str, i64> = Default::default();
+            for i in &todo {
+                first_now.entry(prepared[*i].as_ref().expect("prepared").key.as_str()).or_insert(requests[*i].now);
+            }
+            struct PgRow { kind: String, state: State, expires_at: i64, updated_at: i64, revision: String, outcomes: Vec<usize> }
+            let mut rows: std::collections::HashMap<String, PgRow> = Default::default();
+            for row in &found {
+                let key = row.get_string("subject_key");
+                let now = *first_now.get(key.as_str()).ok_or_else(corrupt)?;
+                let expires_at = row.get_i64("expires_at");
+                let state = if expires_at <= now { State::default() } else { load(&row.get_string("state_json"), now)? };
+                rows.insert(key, PgRow {
+                    kind: row.get_string("subject_kind"), state, expires_at, updated_at: 0,
+                    revision: row.get_string("revision"), outcomes: Vec::new(),
+                });
+            }
+            let mut round: Vec<(usize, ProtectionOutcome, StoredProtection)> = Vec::with_capacity(todo.len());
+            let mut transition = false;
+            for i in &todo {
+                let (request, prepared) = (&requests[*i], prepared[*i].as_ref().expect("prepared"));
+                let row = rows.get_mut(&prepared.key).ok_or_else(corrupt)?;
+                if row.kind != request.kind {
+                    return Err(corrupt());
+                }
+                let step = evaluate_protection(
+                    &mut row.state, &mut row.expires_at, prepared, request.policy, request.now,
+                    request.signal, request.source,
+                );
+                transition |= step.transition;
+                row.updated_at = request.now;
+                row.outcomes.push(round.len());
+                round.push((
+                    *i,
+                    ProtectionOutcome { subject_key: prepared.key.clone(), decision: step.decision, snapshot: row.state.snapshot(), revision: String::new() },
+                    StoredProtection { state: row.state.clone(), expires_at: row.expires_at, revision: String::new() },
+                ));
+            }
+            if transition {
+                break; // its audit event commits with it: transactional path below
+            }
+            let mut updates = Vec::with_capacity(rows.len());
+            let mut new_revisions: std::collections::HashMap<&str, String> = Default::default();
+            for (key, row) in &rows {
+                let json = serde_json::to_string(&row.state).map_err(|_| corrupt())?;
+                if json.len() > MAX_STATE_BYTES {
+                    return Err(corrupt());
+                }
+                let rev = revision();
+                updates.push(serde_json::json!({"k":key,"s":json,"u":row.updated_at,"e":row.expires_at,"r":rev,"o":row.revision}));
+                new_revisions.insert(key.as_str(), rev);
+            }
+            let written = q("UPDATE request_protection_subject AS t SET state_json=u.s,updated_at=u.u,expires_at=u.e,revision=u.r FROM json_to_recordset(?1::json) AS u(k text,s text,u bigint,e bigint,r text,o text) WHERE t.subject_key=u.k AND t.revision=u.o RETURNING t.subject_key")
+                .bind(serde_json::Value::Array(updates).to_string())
+                .fetch_all(&self.backend)
+                .await?;
+            let written: std::collections::HashSet<String> = written.iter().map(|row| row.get_string("subject_key")).collect();
+            for (i, mut outcome, mut stored) in round {
+                if written.contains(&outcome.subject_key) {
+                    let rev = new_revisions.get(outcome.subject_key.as_str()).cloned().unwrap_or_default();
+                    outcome.revision.clone_from(&rev);
+                    stored.revision = rev;
+                    outcomes[i] = Some((outcome, Some(stored)));
+                }
+            }
+            todo.retain(|i| outcomes[*i].is_none());
+        }
+        if !todo.is_empty() {
+            self.pg_batch_transactional(requests, &prepared, &todo, &mut outcomes, false).await?;
+        }
+        Ok(outcomes.into_iter().map(|o| o.expect("every observation answered")).collect())
+    }
+    /// The per-observation path for `indices`, in one transaction.
+    async fn pg_batch_transactional(
+        &self, requests: &[ProtectionObservation<'_>], prepared: &[Option<PreparedProtection>],
+        indices: &[usize], outcomes: &mut [Option<(ProtectionOutcome, Option<StoredProtection>)>], marks: bool,
+    ) -> Result<(), StoreError> {
+        let mut tx = self.backend.begin().await?;
+        if marks {
+            bump_writers_marker(&mut tx).await?;
+        }
+        let mut answered = Vec::with_capacity(indices.len());
+        for i in indices {
+            let (request, prepared) = (&requests[*i], prepared[*i].clone().expect("prepared"));
+            let (outcome, stored) = self.apply_request_protection_with_state(&mut tx,
+                request.kind, request.policy, request.now, request.signal, request.source, prepared).await?;
+            answered.push((*i, outcome, stored));
+        }
+        tx.commit().await?;
+        for (i, outcome, stored) in answered {
+            outcomes[i] = Some((outcome, Some(stored)));
+        }
+        Ok(())
     }
 
     /// Validate one observation without any storage access. `None` means the
@@ -1890,7 +2079,7 @@ impl Store {
         expected: &str,
         now: i64,
     ) -> Result<bool, StoreError> {
-        let marks = self.uses_sqlite() && self.writer_marks().await;
+        let marks = self.writer_marks().await;
         self.clear_unjoined(key, expected, now, marks).await
     }
     /// `clear_request_protection` for a write-behind participant.

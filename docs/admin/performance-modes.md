@@ -15,7 +15,7 @@ No throughput figures are published for these modes yet. Do not turn them on to 
 
 ## Before you start
 
-- **Single process on SQLite.** These modes are built for one server process that owns one SQLite file. On PostgreSQL the guard snapshot and write-behind accounting do nothing (the server logs a warning and keeps the default behaviour), and journal acknowledgement stops start-up.
+- **Single process on SQLite.** The guard snapshot and journal acknowledgement are built for one server process that owns one SQLite file. On PostgreSQL the guard snapshot does nothing (the server logs a warning and keeps the default behaviour), and journal acknowledgement stops start-up. Write-behind accounting works on both backends and with several processes (see its section for the bound).
 - **A restart applies a change.** All the variables are read once at start-up.
 - **Invalid values stop start-up.** Before it opens the database, the server checks every variable on this page. An unknown word or a number out of range stops it with `refusing to start: <VARIABLE>…` naming the variable.
 
@@ -64,20 +64,27 @@ PostgreSQL: refused at start-up (`MW_INDEX_PUBLICATION_ACK=journal is SQLite-onl
 
 ## Write-behind request-protection accounting
 
-`MW_REQUEST_PROTECTION_ACCOUNTING=write-behind` keeps request-protection counters (request rate and the adaptive anomaly windows) in memory and writes them to the database in batches every `MW_REQUEST_PROTECTION_FLUSH_MS` (default 250 ms, range 50 to 5000). Decisions are made from the in-memory state.
+`MW_REQUEST_PROTECTION_ACCOUNTING=write-behind` keeps request-protection counters (request rate and the adaptive anomaly windows) in memory and writes them to the database in batches every `MW_REQUEST_PROTECTION_FLUSH_MS` (F, default 250 ms, range 50 to 5000). Decisions are made from the in-memory state, with the same rules as the synchronous mode. It works on SQLite and on PostgreSQL.
 
-These are still written at once, before the request is answered: the first observation of a subject (so the subject-capacity limit is checked), and every change of decision (a throttle or block starting). A refused request is therefore refused durably.
+These are written at once, before the request is answered: the first observation of a subject (so the subject-capacity limit is checked), every change of decision (a throttle or block starting), every rejected-credential and malformed-request observation, and every observation made while the queue is full. A refused request is therefore refused durably.
 
-**The trade.**
+**One process (ownership).** While the server is the only process writing request-protection data to its database, a cached subject is used without reading the database again until its row expires. The server proves this with a witness checked twice per flush interval: lock files beside a SQLite database (`<db>.mw-request-protection.lock`, `-admission.lock`, `.state`), or session advisory locks on PostgreSQL, held on one dedicated connection per process (see the PostgreSQL deployment guide for the reserved keys). Any other process that writes request-protection data, in either accounting mode, joins the witness before its first write, and the owner stops using its cache first. Trust in one check lasts two flush intervals, counted from before the check. On PostgreSQL a process owns only on a primary (`pg_is_in_recovery()` is false), only on a session that keeps its identity (not through a transaction-mode connection pooler; the server logs one warning and does not own), and only 3 seconds after joining. A writer that cannot join marks its writes in the database; owners read the mark at every check and re-read every cached subject when it changes.
 
-- **Crash.** Observations still queued when the process stops abruptly are lost: at most one flush interval of ordinary (non-refusing) observations, and never more than `MW_REQUEST_PROTECTION_MAX_PENDING` (default 4096, range 64 to 65536). A subject can therefore get up to that many extra requests counted as never made.
-- **Full queue.** When the queue is full, the request is still decided from the cached state (an existing throttle or block still applies), but its observation is not recorded. If request protection is set to fail closed and enforcing, the request is answered with 503 instead.
-- **Several processes.** Each process decides from its own cache between flushes. N processes sharing one SQLite file can together admit up to about (N − 1) times a subject's limit within one flush interval beyond the limit. The default `synchronous` mode keeps exact counting across processes.
-- **Administrator views** of protection subjects commit queued observations before they read.
+**Several processes (the bound).** Without ownership, an idle cached subject is read again when it was last read more than `MW_REQUEST_PROTECTION_REREAD_MS` ago (S, default equal to F, range 50 to 5000); subjects with requests in flight are reconciled at every flush. On PostgreSQL a flush applies each process's observations with a compare-and-set on the row's revision, so no process's counts are lost. A process may still decide from counts that miss what the others admitted in the last F + S. With N processes, a subject at its limit L over a window W can be admitted at most
+
+    (N − 1) × L × (F + S) / W
+
+times beyond its limit (for a subject sending r requests per second to each process: (N − 1) × r × (F + S)). Example at the defaults (F = S = 250 ms, W = 60 s) with two processes: 600 anonymous requests per address are exceeded by at most 600 × 0.5 / 60 = 5 (0.83 %); 1,800 requests per account by at most 15. Start-up refuses F + S above 10 seconds, which keeps the excess per additional process at or below one sixth of the limit at the default window. While not owned, a subject whose policy window is shorter than six times F + S is accounted synchronously, so the same fraction holds for short windows too. Throttles and blocks are written at once, so a refusal decided by one process applies in the others within S.
+
+**Crash.** Observations still queued when the process stops abruptly are lost: about one flush interval of ordinary observations, never more than twice `MW_REQUEST_PROTECTION_MAX_PENDING` (default 4096, range 64 to 65536). No throttle or block that was answered to a client is lost.
+
+**Full queue.** At `MW_REQUEST_PROTECTION_MAX_PENDING` queued observations a request waits for its observation to be written. Only when storage keeps failing and twice that many are queued is an observation not recorded; the request is then answered by the configured storage-failure policy, as in the synchronous mode.
+
+**Failover (PostgreSQL).** A failover ends every witness session, so every process stops owning within one ownership window. Processes join the new primary and own again only after the join grace period; until then the several-processes bound applies.
+
+**Administrator views** of protection subjects commit queued observations before they read.
 
 **Shutdown.** On a graceful stop, after the HTTP server and WebSocket actions have stopped and after the search-index drain, the server commits the queued observations, waiting at most 5 seconds. Observations still queued after that are lost, as in a crash, and a warning is logged.
-
-PostgreSQL: the setting is ignored with a warning and accounting stays synchronous.
 
 ## SQLite group commit (`MW_SQLITE_WRITER=group`)
 

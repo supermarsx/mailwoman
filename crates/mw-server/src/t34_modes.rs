@@ -15,8 +15,8 @@
 //!   preconditions are checked once the store exists
 //!   ([`validate_guard_snapshot_store`], `guard_snapshot_startup.rs`) and a
 //!   failed one refuses to start.
-//! * PostgreSQL + `MW_REQUEST_PROTECTION_ACCOUNTING=write-behind`: accepted,
-//!   accounting stays synchronous. Logged as a warning.
+//! * PostgreSQL + `MW_REQUEST_PROTECTION_ACCOUNTING=write-behind`: accepted and
+//!   used (advisory-lock witness, compare-and-set flush; t50hp-e8).
 //! * Proxy mode: the index publication variables are not used (no engine).
 //! * A second process on the same SQLite file in journal mode is refused by
 //!   `engine_mode::build_engine` (the `.index-journal.lock` sidecar), which
@@ -53,7 +53,7 @@ pub struct Modes {
     /// `None` in proxy mode (no engine).
     pub(crate) index: Option<mw_engine::PublicationOptions>,
     pub(crate) accounting: write_behind::AccountingConfig,
-    /// The accounting mode actually used (`synchronous` on PostgreSQL).
+    /// The accounting mode actually used (both backends support write-behind).
     pub(crate) accounting_effective: write_behind::AccountingMode,
     /// Warnings for accepted but inert combinations.
     pub warnings: Vec<String>,

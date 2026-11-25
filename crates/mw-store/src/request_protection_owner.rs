@@ -117,20 +117,23 @@ pub(crate) enum Location {
     /// An in-memory SQLite database: private to its pool, so no other process
     /// can write it.
     Private,
-    /// PostgreSQL: no file witness; never owned.
+    /// No witness and never owned.
     Shared,
+    /// PostgreSQL: session advisory locks; `id` is derived from the server key
+    /// (see `request_protection_pg_owner.rs`).
+    Postgres { pool: sqlx::PgPool, id: String },
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct StateLine {
-    joins: u64,
-    acknowledged: u64,
-    owner: bool,
+pub(crate) struct StateLine {
+    pub(crate) joins: u64,
+    pub(crate) acknowledged: u64,
+    pub(crate) owner: bool,
     /// The owner's trust window in milliseconds (0: none recorded).
-    window_ms: u64,
+    pub(crate) window_ms: u64,
 }
 impl StateLine {
-    fn parse(raw: &str) -> Option<Self> {
+    pub(crate) fn parse(raw: &str) -> Option<Self> {
         let mut parts = raw.split_ascii_whitespace();
         let version = parts.next()?;
         if version != "v1" && version != "v2" {
@@ -146,10 +149,10 @@ impl StateLine {
         let window_ms = if version == "v2" { parts.next()?.parse().ok()? } else { 0 };
         parts.next().is_none().then_some(Self { joins, acknowledged, owner, window_ms })
     }
-    fn render(self) -> String {
+    pub(crate) fn render(self) -> String {
         format!("v2 {} {} {} {}\n", self.joins, self.acknowledged, u8::from(self.owner), self.window_ms)
     }
-    fn window(self) -> Duration {
+    pub(crate) fn window(self) -> Duration {
         if self.window_ms == 0 { LEGACY_WINDOW } else { Duration::from_millis(self.window_ms) }
     }
 }
@@ -267,6 +270,7 @@ enum Kind {
     },
     Private,
     Shared,
+    Postgres(super::pg_owner::PgWitness),
 }
 
 /// A writer of the request-protection tables (see module docs). Dropping it
@@ -287,6 +291,10 @@ impl ProtectionParticipant {
                 return Err(StoreError::Invalid("request protection witness: database path unresolved"));
             }
             Location::File(canonical) => (Paths::new(canonical), canonical.clone()),
+            Location::Postgres { pool, id } => {
+                let (witness, acknowledged) = super::pg_owner::PgWitness::join(pool, id).await?;
+                return Ok(Self { kind: Kind::Postgres(witness), acknowledged });
+            }
         };
         let admission = Admission::take(&paths).await?;
         let mut file = open_rw(&paths.lock)?;
@@ -357,8 +365,12 @@ impl ProtectionParticipant {
     }
 
     /// One ownership check (see module docs) for an owner whose trust window is
-    /// `window`. No SQL; a few file system calls.
-    pub fn check(&self, window: Duration) -> Checked {
+    /// `window`. SQLite: no SQL, a few file system calls. PostgreSQL: one short
+    /// transaction on the witness session.
+    pub async fn check(&self, window: Duration) -> Checked {
+        if let Kind::Postgres(witness) = &self.kind {
+            return witness.check(window).await;
+        }
         let started = std::time::Instant::now();
         let ownership = self.check_at(window);
         Checked { ownership, started }
@@ -366,7 +378,7 @@ impl ProtectionParticipant {
     fn check_at(&self, window: Duration) -> Ownership {
         let (paths, database, file, token, seen_joins) = match &self.kind {
             Kind::Private => return Ownership::Alone { changed: false },
-            Kind::Shared => return Ownership::Shared,
+            Kind::Shared | Kind::Postgres(_) => return Ownership::Shared,
             Kind::File { paths, database, file, token, seen_joins } => (paths, database, file, token, seen_joins),
         };
         let mut seen_joins = seen_joins.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -409,7 +421,25 @@ impl ProtectionParticipant {
 
     /// Whether ownership is possible at all (a SQLite file or a private database).
     pub fn can_own(&self) -> bool {
-        !matches!(self.kind, Kind::Shared)
+        match &self.kind {
+            Kind::Shared => false,
+            Kind::Postgres(witness) => witness.stable(),
+            _ => true,
+        }
+    }
+    /// The witness session still answers (PostgreSQL; always true otherwise).
+    pub fn alive(&self) -> bool {
+        match &self.kind {
+            Kind::Postgres(witness) => witness.alive(),
+            _ => true,
+        }
+    }
+    /// Probe the witness session now (PostgreSQL liveness; see `pg_owner`).
+    pub async fn probe(&self) -> bool {
+        match &self.kind {
+            Kind::Postgres(witness) => witness.probe().await,
+            _ => true,
+        }
     }
     /// See the `acknowledged` field.
     pub fn acknowledged(&self) -> bool {
@@ -434,8 +464,8 @@ mod tests {
     async fn a_lone_participant_owns_and_a_second_one_ends_ownership() {
         let dir = tempfile::tempdir().unwrap();
         let first = ProtectionParticipant::join(&location(&dir)).await.unwrap();
-        assert_eq!(first.check(W).ownership, Ownership::Alone { changed: false });
-        assert_eq!(first.check(W).ownership, Ownership::Alone { changed: false });
+        assert_eq!(first.check(W).await.ownership, Ownership::Alone { changed: false });
+        assert_eq!(first.check(W).await.ownership, Ownership::Alone { changed: false });
         // A second participant joins: the owner has acknowledged nothing yet, so
         // the joiner waits for the owner's next check.
         let started = std::time::Instant::now();
@@ -445,15 +475,15 @@ mod tests {
         });
         tokio::time::sleep(Duration::from_millis(150)).await;
         assert!(!joining.is_finished(), "the joiner waits for the owner's acknowledgement");
-        assert_eq!(first.check(W).ownership, Ownership::Shared);
+        assert_eq!(first.check(W).await.ownership, Ownership::Shared);
         let second = joining.await.unwrap();
         assert!(started.elapsed() < join_wait(W));
         assert!(second.acknowledged());
-        assert_eq!(second.check(W).ownership, Ownership::Shared);
+        assert_eq!(second.check(W).await.ownership, Ownership::Shared);
         drop(second);
         // Alone again. The join was already seen by the previous check, so the
         // caller (which stopped trusting its cache at `Shared`) is not told twice.
-        assert_eq!(first.check(W).ownership, Ownership::Alone { changed: false });
+        assert_eq!(first.check(W).await.ownership, Ownership::Alone { changed: false });
     }
 
     #[tokio::test]
@@ -463,37 +493,37 @@ mod tests {
         // No check yet, so no owner is recorded and the next joiner does not wait.
         let transient = ProtectionParticipant::join(&location(&dir)).await.unwrap();
         drop(transient);
-        assert_eq!(first.check(W).ownership, Ownership::Alone { changed: true });
-        assert_eq!(first.check(W).ownership, Ownership::Alone { changed: false });
+        assert_eq!(first.check(W).await.ownership, Ownership::Alone { changed: true });
+        assert_eq!(first.check(W).await.ownership, Ownership::Alone { changed: false });
         // An unreadable state line also counts as a change.
         std::fs::write(Paths::new(&std::fs::canonicalize(dir.path().join("witness.db")).unwrap()).state, b"garbage").unwrap();
-        assert_eq!(first.check(W).ownership, Ownership::Alone { changed: true });
-        assert_eq!(first.check(W).ownership, Ownership::Alone { changed: false });
+        assert_eq!(first.check(W).await.ownership, Ownership::Alone { changed: true });
+        assert_eq!(first.check(W).await.ownership, Ownership::Alone { changed: false });
     }
 
     #[tokio::test]
     async fn a_joiner_that_finds_itself_alone_does_not_wait_for_a_departed_owner() {
         let dir = tempfile::tempdir().unwrap();
         let owner = ProtectionParticipant::join(&location(&dir)).await.unwrap();
-        assert_eq!(owner.check(W).ownership, Ownership::Alone { changed: false });
+        assert_eq!(owner.check(W).await.ownership, Ownership::Alone { changed: false });
         drop(owner); // exits without clearing the owner flag
         let started = std::time::Instant::now();
         let next = ProtectionParticipant::join(&location(&dir)).await.unwrap();
         assert!(started.elapsed() < Duration::from_secs(2));
-        assert_eq!(next.check(W).ownership, Ownership::Alone { changed: false });
+        assert_eq!(next.check(W).await.ownership, Ownership::Alone { changed: false });
     }
 
     #[tokio::test]
     async fn a_replaced_lock_file_is_reported_lost() {
         let dir = tempfile::tempdir().unwrap();
         let owner = ProtectionParticipant::join(&location(&dir)).await.unwrap();
-        assert_eq!(owner.check(W).ownership, Ownership::Alone { changed: false });
+        assert_eq!(owner.check(W).await.ownership, Ownership::Alone { changed: false });
         let lock = Paths::new(&std::fs::canonicalize(dir.path().join("witness.db")).unwrap()).lock;
         if std::fs::remove_file(&lock).is_ok() && std::fs::write(&lock, b"").is_ok() {
-            assert_eq!(owner.check(W).ownership, Ownership::Lost);
+            assert_eq!(owner.check(W).await.ownership, Ownership::Lost);
             // A new participant on the new file is alone and owns.
             let next = ProtectionParticipant::join(&location(&dir)).await.unwrap();
-            assert!(matches!(next.check(W).ownership, Ownership::Alone { .. }));
+            assert!(matches!(next.check(W).await.ownership, Ownership::Alone { .. }));
         } else {
             eprintln!("[witness] a held lock file cannot be replaced on this platform");
         }
@@ -502,9 +532,9 @@ mod tests {
     #[tokio::test]
     async fn private_and_shared_locations() {
         let private = ProtectionParticipant::join(&Location::Private).await.unwrap();
-        assert_eq!(private.check(W).ownership, Ownership::Alone { changed: false });
+        assert_eq!(private.check(W).await.ownership, Ownership::Alone { changed: false });
         let shared = ProtectionParticipant::join(&Location::Shared).await.unwrap();
-        assert_eq!(shared.check(W).ownership, Ownership::Shared);
+        assert_eq!(shared.check(W).await.ownership, Ownership::Shared);
         assert!(!shared.can_own() && private.can_own());
     }
 
@@ -523,11 +553,11 @@ mod tests {
     async fn a_hard_linked_database_is_never_owned() {
         let dir = tempfile::tempdir().unwrap();
         let owner = ProtectionParticipant::join(&location(&dir)).await.unwrap();
-        assert_eq!(owner.check(W).ownership, Ownership::Alone { changed: false });
+        assert_eq!(owner.check(W).await.ownership, Ownership::Alone { changed: false });
         std::fs::hard_link(dir.path().join("witness.db"), dir.path().join("second-name.db")).unwrap();
-        assert_eq!(owner.check(W).ownership, Ownership::Shared, "another name could use another witness");
+        assert_eq!(owner.check(W).await.ownership, Ownership::Shared, "another name could use another witness");
         std::fs::remove_file(dir.path().join("second-name.db")).unwrap();
-        assert!(matches!(owner.check(W).ownership, Ownership::Alone { .. }));
+        assert!(matches!(owner.check(W).await.ownership, Ownership::Alone { .. }));
     }
 
     #[tokio::test]
@@ -541,13 +571,13 @@ mod tests {
         let owner = ProtectionParticipant::join(&location(&dir)).await.unwrap();
         // A short window: the joiner waits window + 2 s, then gives up.
         let window = Duration::from_millis(100);
-        assert!(matches!(owner.check(window).ownership, Ownership::Alone { .. }));
+        assert!(matches!(owner.check(window).await.ownership, Ownership::Alone { .. }));
         let started = std::time::Instant::now();
         let joiner = ProtectionParticipant::join(&location(&dir)).await.unwrap();
         let waited = started.elapsed();
         assert!(!joiner.acknowledged(), "the owner never checked");
         assert!(waited >= join_wait(window) && waited < join_wait(window) + Duration::from_secs(2), "{waited:?}");
-        assert_eq!(owner.check(window).ownership, Ownership::Shared);
+        assert_eq!(owner.check(window).await.ownership, Ownership::Shared);
     }
 
     #[test]

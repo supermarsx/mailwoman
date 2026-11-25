@@ -100,8 +100,8 @@ fn switches_default_to_synchronous_and_reject_invalid_values() {
 }
 
 #[tokio::test]
-async fn postgres_stays_synchronous_and_sqlite_enables_write_behind() {
-    assert_eq!(AccountingMode::WriteBehind.effective(false), AccountingMode::Synchronous);
+async fn both_backends_enable_write_behind() {
+    assert_eq!(AccountingMode::WriteBehind.effective(false), AccountingMode::WriteBehind);
     assert_eq!(AccountingMode::WriteBehind.effective(true), AccountingMode::WriteBehind);
     assert_eq!(AccountingMode::Synchronous.effective(true), AccountingMode::Synchronous);
     let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
@@ -854,6 +854,9 @@ async fn sign_in_failures() -> (Vec<u16>, Vec<(String, usize)>, Vec<Value>) {
         ("signin.retryCooldownSecs", json!(0)),
         ("security.protection.rateMode", json!("enforce")),
         ("security.protection.adaptiveMode", json!("enforce")),
+        // A fixed window that the 12 requests do not cross (a minute boundary
+        // between them reset the count in one run and not the other).
+        ("security.protection.rateWindowSecs", json!(3600)),
     ] {
         store.put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
             key: name.into(), global_value: Some(value.to_string()), allow_user_override: false,
@@ -1116,16 +1119,16 @@ async fn review_r1_witness_status_is_reported() {
 }
 
 // Real OS processes: the test binary runs itself as a child with one of the
-// roles below (MW_E8_CHILD_ROLE), on a database named by MW_E8_CHILD_DB.
+// roles below (WB_TEST_CHILD_ROLE), on a database named by WB_TEST_CHILD_DB.
 
 const CHILD_TEST: &str = "request_protection::write_behind::tests::wb_child_process";
 
 fn child(role: &str, db: &str, key: &ServerKey) -> std::process::Child {
     std::process::Command::new(std::env::current_exe().unwrap())
         .args(["--exact", CHILD_TEST, "--nocapture", "--test-threads=1"])
-        .env("MW_E8_CHILD_ROLE", role)
-        .env("MW_E8_CHILD_DB", db)
-        .env("MW_E8_CHILD_KEY", key.to_hex())
+        .env("WB_TEST_CHILD_ROLE", role)
+        .env("WB_TEST_CHILD_DB", db)
+        .env("WB_TEST_CHILD_KEY", key.to_hex())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .spawn()
@@ -1135,9 +1138,9 @@ fn child(role: &str, db: &str, key: &ServerKey) -> std::process::Child {
 /// Child entry point; a no-op unless started by `child`.
 #[test]
 fn wb_child_process() {
-    let Ok(role) = std::env::var("MW_E8_CHILD_ROLE") else { return };
-    let db = std::env::var("MW_E8_CHILD_DB").unwrap();
-    let key = ServerKey::from_hex(&std::env::var("MW_E8_CHILD_KEY").unwrap()).unwrap();
+    let Ok(role) = std::env::var("WB_TEST_CHILD_ROLE") else { return };
+    let db = std::env::var("WB_TEST_CHILD_DB").unwrap();
+    let key = ServerKey::from_hex(&std::env::var("WB_TEST_CHILD_KEY").unwrap()).unwrap();
     let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
     runtime.block_on(async move {
         use std::io::Write;
@@ -1402,4 +1405,183 @@ async fn concurrency_at_the_hard_cap_waits_and_drops_nothing() {
     assert_eq!(status.dropped, 0, "{status:?}");
     assert!(status.full_waits >= 1, "{status:?}");
     assert_eq!(rate_count(&store, "account", "crowd", 1000).await, Some(1 + 128 + 32));
+}
+
+// ---------------------------------------------------------------------------
+// t50hp-e8: write-behind accounting on PostgreSQL (MW_TEST_PG; one fresh
+// database per test, so the per-database witness keys never meet).
+// ---------------------------------------------------------------------------
+
+/// A fresh database on the `MW_TEST_PG` server; `None` when unset.
+pub(crate) async fn fresh_pg_database(label: &str) -> Option<String> {
+    use sqlx::Connection;
+    let url = std::env::var("MW_TEST_PG").ok().filter(|url| !url.is_empty())?;
+    let name = format!("e8_{label}_{}", uuid::Uuid::new_v4().simple());
+    let mut admin = sqlx::PgConnection::connect(&url).await.unwrap();
+    sqlx::query(&format!("CREATE DATABASE {name}")).execute(&mut admin).await.unwrap();
+    let (base, _) = url.rsplit_once('/').unwrap();
+    Some(format!("{base}/{name}"))
+}
+
+/// Ownership on PostgreSQL: a lone participant owns after the grace period; a
+/// second one (another process's witness session) ends it; a warm owned
+/// subject is answered with no SQL.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pg_lone_owner_answers_warm_requests_without_sql_and_a_second_participant_ends_ownership() {
+    let Some(url) = fresh_pg_database("owner").await else {
+        eprintln!("[write_behind] MW_TEST_PG unset: PostgreSQL leg not run");
+        return;
+    };
+    let key = ServerKey::generate();
+    let store = Store::open(&url, key.clone()).await.unwrap();
+    let accounting = WriteBehind::start(store.clone(), config(100, 4096));
+    settle_ownership_within(&accounting, true, Duration::from_secs(10)).await;
+    let mut p = policy();
+    p.rate_limit = 1000;
+    assert!(!accounting.record("account", "pg-warm", &p, 1000, None, NONE).await.decision.enforced);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let (answer, sql) = measure_queries(accounting.record("account", "pg-warm", &p, 1000, None, NONE)).await;
+    assert!(!answer.decision.enforced && !answer.storage_failed);
+    assert_eq!(statements(&sql), (0, 0, 0), "warm owned subject on PostgreSQL: no SQL ({sql:?})");
+    // Another process: its own Store (own pool) and accounting instance.
+    let other = Store::open(&url, key).await.unwrap();
+    let second = WriteBehind::start(other, config(100, 4096));
+    settle_ownership_within(&accounting, false, Duration::from_secs(10)).await;
+    tokio::time::sleep(Duration::from_secs(4)).await; // past the second one's grace
+    assert!(!accounting.status().owned && !second.status().owned);
+    drop(second);
+    settle_ownership_within(&accounting, true, Duration::from_secs(10)).await;
+}
+
+/// The witness session killed by the server (pg_terminate_backend): ownership
+/// ends no later than its deadline (one window after the last good check), the
+/// participant joins again on a new session and owns after the grace period.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pg_a_terminated_witness_session_ends_ownership_within_the_deadline() {
+    let Some(url) = fresh_pg_database("terminate").await else { return };
+    let store = Store::open(&url, ServerKey::generate()).await.unwrap();
+    let accounting = WriteBehind::start(store.clone(), config(100, 4096));
+    settle_ownership_within(&accounting, true, Duration::from_secs(10)).await;
+    let database = url.rsplit_once('/').unwrap().1.to_owned();
+    let terminated = {
+        use sqlx::{Connection, Row};
+        let admin_url = std::env::var("MW_TEST_PG").unwrap();
+        let mut admin = sqlx::PgConnection::connect(&admin_url).await.unwrap();
+        sqlx::query("SELECT count(pg_terminate_backend(pid)) AS n FROM pg_stat_activity WHERE datname=$1 AND application_name='mailwoman-protection-witness'")
+            .bind(&database).fetch_one(&mut admin).await.unwrap().get::<i64, _>("n")
+    };
+    assert!(terminated >= 1);
+    let killed = Instant::now();
+    // window = 2 x 100 ms: no trust after it, whatever the check sees.
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    assert!(!accounting.status().owned, "ownership must end within the deadline");
+    assert!(accounting.status().ownership_lost >= 1 || killed.elapsed() >= Duration::from_millis(200));
+    settle_ownership_within(&accounting, true, Duration::from_secs(15)).await;
+}
+
+/// Two processes on one PostgreSQL database: nobody owns; every observation of
+/// both is applied exactly once (compare-and-set merge), and over-admission
+/// stays within (N - 1) x r x (F + S).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pg_two_processes_merge_every_observation_and_stay_within_the_bound() {
+    let Some(url) = fresh_pg_database("two").await else { return };
+    let key = ServerKey::generate();
+    let limit = 60u32;
+    let mut p = policy();
+    p.rate_limit = limit;
+    p.rate_window_secs = 3600;
+    let stores = [Store::open(&url, key.clone()).await.unwrap(), Store::open(&url, key).await.unwrap()];
+    let processes: Vec<_> = stores.iter().map(|store| WriteBehind::start(store.clone(), config(100, 4096))).collect();
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    for process in &processes {
+        assert!(!process.status().owned);
+    }
+    let started = Instant::now();
+    let tasks: Vec<_> = processes.iter().map(|process| {
+        let (process, p) = (process.clone(), p.clone());
+        tokio::spawn(async move {
+            let (mut made, mut admitted) = (0u64, 0u64);
+            while started.elapsed() < Duration::from_millis(1500) {
+                let answer = process.record("account", "pg-shared", &p, 1000, None, NONE).await;
+                assert!(!answer.storage_failed);
+                made += 1;
+                admitted += u64::from(!answer.decision.enforced);
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            (made, admitted)
+        })
+    }).collect();
+    let mut results = Vec::new();
+    for task in tasks {
+        results.push(task.await.unwrap());
+    }
+    for process in &processes {
+        process.flush_pending().await.unwrap();
+    }
+    let made: u64 = results.iter().map(|(made, _)| made).sum();
+    let admitted: u64 = results.iter().map(|(_, admitted)| admitted).sum();
+    let rate = results.iter().map(|(made, _)| *made as f64 / 1.5).fold(0.0, f64::max);
+    // (N - 1) x r x (F + S + 2D): F = S = 100 ms, D the longest flush measured.
+    let flush = processes.iter().map(|process| process.status().flush_max_ms).max().unwrap_or(0);
+    let staleness = 0.2 + 2.0 * flush as f64 / 1000.0;
+    let bound = (rate * staleness).ceil() as u64 + 1;
+    eprintln!("[write_behind] postgres two processes: made={made} admitted={admitted} limit={limit} rate/process={rate:.0}/s flushMax={flush} ms bound=+{bound}");
+    assert!(admitted >= u64::from(limit) && admitted <= u64::from(limit) + bound, "admitted {admitted}, bound {limit} + {bound}");
+    // Every observation of both processes is applied exactly once (the counter
+    // is capped at the limit, so this part uses a limit nobody reaches).
+    p.rate_limit = 1_000_000;
+    let mut tasks = Vec::new();
+    for process in &processes {
+        let (process, p) = (process.clone(), p.clone());
+        tasks.push(tokio::spawn(async move {
+            for _ in 0..200 {
+                process.record("account", "pg-merge", &p, 1000, None, NONE).await;
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        }));
+    }
+    for task in tasks {
+        task.await.unwrap();
+    }
+    for process in &processes {
+        process.flush_pending().await.unwrap();
+    }
+    assert_eq!(rate_count(&stores[0], "account", "pg-merge", 1000).await, Some(400), "every observation applied once");
+}
+
+async fn settle_ownership_within(accounting: &WriteBehind, owned: bool, limit: Duration) {
+    let until = Instant::now() + limit;
+    while Instant::now() < until {
+        if accounting.status().owned == owned {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("ownership did not become {owned}: {:?}", accounting.status());
+}
+
+/// The stated bound: start-up refuses F + S above 1/6 of the default window;
+/// a window shorter than 6 x (F + S) is accounted synchronously while not owned.
+#[tokio::test]
+async fn the_stated_bound_refuses_long_intervals_and_writes_short_windows_through() {
+    assert_eq!(parse_reread(None, Duration::from_millis(250)).unwrap(), Duration::from_millis(250));
+    assert_eq!(parse_reread(Some("400"), Duration::from_millis(250)).unwrap(), Duration::from_millis(400));
+    assert!(parse_reread(Some("49"), Duration::from_millis(250)).is_err());
+    assert!(parse_reread(None, Duration::from_millis(5000)).is_ok(), "5 s + 5 s is 1/6 of 60 s");
+    let refused = parse_reread(Some("5000"), Duration::from_millis(5001)).unwrap_err();
+    assert!(refused.contains("1/6"), "{refused}");
+    let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+    let accounting = WriteBehind::new(store, config(250, 4096)).without_ownership();
+    let mut p = policy();
+    p.rate_limit = 1000;
+    p.rate_window_secs = 60;
+    assert!(!accounting.window_too_short(&p));
+    accounting.record("account", "wide", &p, 1000, None, NONE).await; // first row
+    let before = accounting.status().write_throughs;
+    accounting.record("account", "wide", &p, 1000, None, NONE).await;
+    assert_eq!(accounting.status().write_throughs, before, "queued");
+    p.rate_window_secs = 2; // 2 s < 6 x 500 ms
+    assert!(accounting.window_too_short(&p));
+    accounting.record("account", "wide", &p, 1000, None, NONE).await;
+    assert_eq!(accounting.status().write_throughs, before + 1, "written through");
 }

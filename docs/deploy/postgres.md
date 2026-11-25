@@ -218,3 +218,18 @@ discards its cached state and fetches the account again.
 - [Backups](backups.md)
 - [Scaling and multi-location boundaries](scaling.md)
 - [Shared cache (Redis/Valkey)](cache.md)
+
+## Advisory locks used by the server
+
+Advisory lock keys are `hashtextextended(<text>, <class>)`. Reserved classes:
+
+| Class | Lock | Text |
+|---|---|---|
+| 719304 | mail change log (transaction) | account id |
+| 719305 | PIM change log (transaction) | account id |
+| 719306 | crypto change log (transaction) | account id |
+| 719307 | request-protection witness, one session per server process (shared; momentarily exclusive during an ownership check) | `current_database():current_schema():<id derived from the server key>` |
+| 719308 | request-protection witness admission (transaction) | as 719307 |
+
+The witness text contains the database, the schema and a value derived from the installation's server key, so two installations in one cluster, or a test and a production schema in one database, never share a key. Each server process keeps one extra connection (`application_name` `mailwoman-protection-witness`) for the witness, outside its pool. Write-behind accounting does not own through a transaction-mode connection pooler; connect the server directly or through a session-mode pooler.
+
