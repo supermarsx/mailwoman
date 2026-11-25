@@ -1085,6 +1085,11 @@ mod n1_read_budgets {
         for (mode_label, mode) in [("off", snapcase::OFF), ("bounded", snapcase::LONG)] {
             if mode_label == "bounded" {
                 snapcase::started(&f, mode).await;
+                // The worker publishes the entry after the first bounded request.
+                for _ in 0..400 {
+                    if snapcase::send(&f, snapcase::mail(&f), mode).await.inputs.frames_ready == 1 { break; }
+                    tokio::time::sleep(Duration::from_millis(25)).await;
+                }
             }
             for (route, make) in &routes {
                 let (_, bounded, off) = BUDGETS.iter().find(|(name, ..)| name == route).copied().unwrap();
