@@ -628,6 +628,48 @@ impl Store {
         Ok(statement.fetch_all_scalar_string(&self.backend).await?)
     }
 
+    /// The owner of folder `mailbox_id` (`None`: no such folder) and, in the
+    /// same statement, the members of `ids` that are messages of `account_id`
+    /// in that folder, in no particular order (slice 2: a content search in a
+    /// folder checks the index's hits and the folder in one read).
+    pub async fn mailbox_owner_and_members(
+        &self,
+        mailbox_id: &str,
+        account_id: &str,
+        ids: &[String],
+    ) -> Result<(Option<String>, Vec<String>), StoreError> {
+        let list = match self.backend.dialect() {
+            Dialect::Sqlite => "(SELECT value FROM json_each(?3))",
+            Dialect::Postgres => "(SELECT value FROM json_array_elements_text(?3::json))",
+        };
+        static TEXTS: OnceLock<[&'static str; 2]> = OnceLock::new();
+        let texts = TEXTS.get_or_init(|| {
+            let text = |list: &str| -> &'static str {
+                Box::leak(
+                    format!(
+                        "SELECT 'm' AS k, b.account_id AS v FROM mailboxes b WHERE b.id=?1 UNION ALL SELECT 's' AS k, s.stable_id AS v FROM message_state s WHERE s.mailbox_id=?1 AND s.account_id=?2 AND s.stable_id IN {list}"
+                    )
+                    .into_boxed_str(),
+                )
+            };
+            [
+                text("(SELECT value FROM json_each(?3))"),
+                text("(SELECT value FROM json_array_elements_text(?3::json))"),
+            ]
+        });
+        let sql = if list.contains("json_each") { texts[0] } else { texts[1] };
+        let ids_json = serde_json::to_string(ids).unwrap_or_else(|_| "[]".to_owned());
+        let (mut owner, mut members) = (None, Vec::new());
+        for row in q(sql).bind(mailbox_id).bind(account_id).bind(ids_json).fetch_all(&self.backend).await? {
+            if row.get_string("k") == "m" {
+                owner = Some(row.get_string("v"));
+            } else {
+                members.push(row.get_string("v"));
+            }
+        }
+        Ok((owner, members))
+    }
+
     /// The index of `anchor` in the order of `query`, or `None` when the
     /// anchor does not match it; one statement that counts the matching rows
     /// before the anchor (t49pg-e5b F2: no id list is read).

@@ -1265,6 +1265,24 @@ async fn builders_contract(s: Store) {
         assert_eq!(first, s.projection_ids(&q, 1, 0).await.unwrap().into_iter().next(), "{mb}");
     }
     assert!(matches!(s.mailbox_with_zero_access_and_first_unread("no-such-folder").await, Err(StoreError::NotFound)));
+    // Slice 2: folder owner and the members of an id list in one statement.
+    for mb in w.boxes.iter().chain([&w.other_box]) {
+        let owner = s.get_mailbox(mb).await.unwrap().account_id;
+        let one = [mb.clone()];
+        let in_folder = s.projection_ids(&ProjectionQuery { mailboxes: MailboxScope::In(&one), ..ProjectionQuery::account(&owner) }, 1000, 0).await.unwrap();
+        let mut probe: Vec<String> = ids.clone();
+        probe.push("no-such-id".into());
+        let (got_owner, mut members) = s.mailbox_owner_and_members(mb, &owner, &probe).await.unwrap();
+        assert_eq!(got_owner.as_deref(), Some(owner.as_str()));
+        let mut want: Vec<String> = in_folder.into_iter().filter(|id| probe.contains(id)).collect();
+        members.sort();
+        want.sort();
+        assert_eq!(members, want, "{mb}");
+        // Another account asking about this folder: owner told, no members.
+        let (_, foreign) = s.mailbox_owner_and_members(mb, "another-account", &probe).await.unwrap();
+        assert!(foreign.is_empty());
+    }
+    assert_eq!(s.mailbox_owner_and_members("no-such-folder", &w.account, &ids).await.unwrap(), (None, Vec::new()));
     let one = std::slice::from_ref(&w.boxes[0]);
     let two = [w.boxes[0].clone(), w.boxes[1].clone(), w.other_box.clone()];
     let foreign = std::slice::from_ref(&w.other_box);
