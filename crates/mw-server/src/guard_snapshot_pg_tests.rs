@@ -462,7 +462,14 @@ async fn cross_process(url: String, case: &'static str) {
     let after = send(&f.b, f.me(), SHORT).await;
     assert_eq!(mirror.counters().expedites, expedites, "{case}: B was never expedited");
     assert_eq!(after.snap.reused, 0, "{case}: no fence reuse in B at commit + bound");
-    assert_eq!(after.snap.globals_reused, 0, "{case}: no global reuse in B at commit + bound");
+    // Global guard inputs (ban lists, guard settings) are keyed by the settings
+    // revision. Since 0123 a session or account change no longer bumps it, so
+    // reusing them after such a change is correct; only a change to the global
+    // state itself must stop that reuse. The session fence above is the
+    // revocation check.
+    if matches!(case, "policy" | "ban") {
+        assert_eq!(after.snap.globals_reused, 0, "{case}: no global reuse in B at commit + bound");
+    }
     match case {
         "sign-out" | "session-revoke" | "account-disable" => {
             assert_eq!(after.status, StatusCode::UNAUTHORIZED, "{case}: {}", after.body);
