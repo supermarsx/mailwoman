@@ -34,9 +34,11 @@ fn conj(f: impl FnOnce(&mut MetaConj)) -> MetaConj {
 fn every_filter_field_has_its_route() {
     let cases: Vec<(serde_json::Value, &str)> = vec![
         (json!({}), "R2"),
-        (json!({"inMailbox": "mb"}), "R2"),
-        (json!({"inMailboxes": ["mb"]}), "R2"),
-        (json!({"inMailboxOtherThan": ["mb"]}), "R2"),
+        (json!({"inMailbox": "mb"}), "R1"),
+        (json!({"inMailboxes": ["mb"]}), "R1"),
+        (json!({"inMailbox": "mb", "text": "alpha"}), "R3"),
+        (json!({"inMailboxes": ["a", "b"], "text": "alpha"}), "R3"),
+        (json!({"inMailboxOtherThan": ["mb"]}), "R1"),
         (json!({"text": "alpha"}), "R2"),
         (json!({"from": "a"}), "R2"),
         (json!({"to": "a"}), "R2"),
@@ -96,7 +98,8 @@ fn every_filter_field_has_its_route() {
         (json!({"text": "-is:followup"}), "R3"),
         (json!({"text": "is:unread OR is:flagged"}), "R3"),
         (json!({"text": "is:unread OR from:x"}), "R3"),
-        (json!({"text": "NOT in:mb"}), "R2"),
+        (json!({"text": "NOT in:mb"}), "R1"),
+        (json!({"text": "in:mb OR alpha"}), "R3"),
         (json!({"text": "in:mb is:unread"}), "R1"),
         (json!({"text": "list:x"}), "R3"),
         (json!({"text": "is:high-priority"}), "R3"),
@@ -218,7 +221,7 @@ fn every_clause_variant_has_its_class() {
         (Clause::Keyword("$priority-other".into()), Meta),
         (Clause::NotKeyword("$flagged".into()), Meta),
         (Clause::NotKeyword("$list:x".into()), Derived),
-        (Clause::Mailbox("mb".into()), Either),
+        (Clause::Mailbox("mb".into()), Meta),
         (Clause::HasAttachment(true), Content),
         (Clause::Pinned(true), Meta),
         (Clause::FollowUp, Meta),
@@ -436,12 +439,16 @@ fn single_conditions_have_a_complement() {
         c.meta_leaves = 1;
     });
     assert_eq!(act.complement().unwrap().follow_up_active, Some(true));
-    // Within the query's folder: the complement keeps the folder.
+    // Within the query's own folder scope: the complement keeps the folder.
     let in_folder = conj(|c| {
         c.keywords = vec!["a".into()];
         c.in_mailboxes = Some(vec!["m".into()]);
+        c.in_from_scope = true;
         c.meta_leaves = 1;
     });
+    // A folder of the subtree's own (nested in:M): no complement (slice 2).
+    let own_folder = MetaConj { in_from_scope: false, ..in_folder.clone() };
+    assert!(own_folder.complement().is_none());
     let complement = in_folder.complement().unwrap();
     assert_eq!(
         (

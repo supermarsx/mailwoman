@@ -346,9 +346,10 @@ async fn metadata_routes_refuse(w: &World, context: &str, unread_id_reads_it: bo
         let id = resp[1]["ids"][0].as_str().unwrap_or_else(|| panic!("{context}: {resp}"));
         assert!(w.rows(acct).await.iter().any(|r| r.id == id && r.mailbox == inbox && !r.keywords.contains("$seen")), "{context}: {resp}");
     }
-    // No metadata condition: the index answers as today.
+    // No metadata condition: since slice 2 the index's hits are confirmed as
+    // the account's in SQL, so this refuses too when SQL is broken.
     let resp = query(w, acct, json!({"text": "alpha"}), false).await;
-    assert_eq!(resp[0], json!("Email/query"), "{context}: {resp}");
+    assert!(is_error(&resp, "serverFail"), "{context}: {resp}");
 }
 
 #[tokio::test]
@@ -812,7 +813,10 @@ async fn nested_folder_complement_keeps_the_folder() {
         }
     }
     CAP.with(|c| c.set(COMBINE_CAP));
-    assert!(answered >= 4, "the complement branch must answer, not refuse: {answered}");
+    // Slice 2: a subtree with a folder of its own has no complement (the
+    // index's mailbox field is not read), so above the cap these refuse;
+    // what answers equals the oracle (checked above).
+    eprintln!("F1 forms answered under the lowered cap: {answered} of 6");
 }
 
 /// t49pg-e5b F2: one request must not materialise unbounded id sets. More
@@ -979,4 +983,132 @@ async fn stable_id_moved_across_accounts_stays_with_its_new_account() {
             }
         }
     }
+}
+
+/// Warm SQL statements per shape with a populated index (the hot-route
+/// fixture's index is empty, so content shapes there return no hit and skip
+/// the statements a hit costs). Old path (pre-planner) and now; each shape is
+/// held to master's count before slice 2 (t50hp-e31 log, measured on the
+/// same shapes): no regression.
+async fn statements_with_hits(store: Store, backend: &str) {
+    use crate::state::session_state_tests::{counted, db_threads};
+    let w = World::new(store, 30).await;
+    let threads = db_threads(w.engine.store()).await;
+    let acct = &w.a;
+    let inbox = acct.folder("INBOX").to_owned();
+    let q = |filter: Value, limit: u64| json!(["Email/query", {"accountId": acct.id, "filter": filter, "limit": limit, "position": 0, "calculateTotal": true}, "q"]);
+    let shapes: Vec<(&str, Vec<Value>, usize)> = vec![
+        ("list batch (query + get + unread count)", vec![
+            q(json!({"inMailbox": inbox}), 50),
+            json!(["Email/get", {"accountId": acct.id, "#ids": {"resultOf": "q", "name": "Email/query", "path": "/ids"}, "properties": ["id", "subject", "keywords"]}, "g"]),
+            json!(["Email/query", {"accountId": acct.id, "filter": {"inMailbox": inbox, "notKeyword": "$seen"}, "limit": 1, "calculateTotal": true}, "u"]),
+        ], usize::MAX),
+        ("unread in folder", vec![q(json!({"inMailbox": inbox, "notKeyword": "$seen"}), 50)], 3),
+        ("flagged account-wide", vec![q(json!({"hasKeyword": "$flagged"}), 50)], 2),
+        ("label in folder", vec![q(json!({"inMailbox": inbox, "hasKeyword": "work"}), 50)], 3),
+        ("text in folder", vec![q(json!({"inMailbox": inbox, "text": "alpha"}), 50)], 2),
+        ("text account-wide", vec![q(json!({"text": "alpha"}), 50)], 2),
+        ("unread + text in folder", vec![q(json!({"inMailbox": inbox, "notKeyword": "$seen", "text": "alpha"}), 50)], 3),
+        ("unread + text account-wide", vec![q(json!({"notKeyword": "$seen", "text": "alpha"}), 50)], 2),
+        ("single request: text in folder, limit 5", vec![q(json!({"inMailbox": inbox, "text": "alpha"}), 5)], 2),
+        ("is:unread OR from: in folder", vec![q(json!({"inMailbox": inbox, "text": "is:unread OR from:s3"}), 50)], 3),
+        // Master: 2. Slice 2 adds the SQL confirmation of the hits as the
+        // account's (no top-level SQL set; isolation), the one trade.
+        ("is:unread OR from: account-wide (+1: account confirmation)", vec![q(json!({"text": "is:unread OR from:s3"}), 50)], 3),
+    ];
+    for (name, calls, master) in shapes {
+        let mut counts = Vec::new();
+        for legacy in [true, false] {
+            LEGACY.with(|l| l.set(legacy));
+            for _ in 0..2 {
+                w.send(&acct.id, json!(calls.clone())).await;
+            }
+            let (resp, stmts) = counted(&threads, w.send(&acct.id, json!(calls.clone()))).await;
+            LEGACY.with(|l| l.set(false));
+            assert!(resp["methodResponses"].as_array().unwrap().iter().all(|r| r[0] != json!("error")), "{name}: {resp}");
+            counts.push(stmts.len());
+        }
+        eprintln!("t50hp-e31 S2 {backend} {name}: old path {} -> now {} (master before S2 {})", counts[0], counts[1], if master == usize::MAX { "list".into() } else { master.to_string() });
+        if master != usize::MAX {
+            assert!(counts[1] <= master, "{backend} {name}: {} > master {master}", counts[1]);
+        }
+    }
+}
+
+#[tokio::test]
+async fn statements_per_shape_with_hits_sqlite() {
+    statements_with_hits(Store::open_in_memory(ServerKey::generate()).await.unwrap(), "sqlite").await;
+}
+
+#[tokio::test]
+async fn statements_per_shape_with_hits_postgres() {
+    let Some(dsn) = mw_test_gate::pg_dsn() else {
+        mw_test_gate::skip("DATABASE_URL_PG and MW_E14_PG_DSN unset: statements per shape on PostgreSQL");
+        return;
+    };
+    statements_with_hits(Store::open(&dsn, ServerKey::generate()).await.unwrap(), "postgres").await;
+}
+
+fn all_filters() -> Vec<String> {
+    let mut filters: Vec<String> = singles().into_iter().map(str::to_owned).collect();
+    filters.extend(text_forms().into_iter().map(text_filter));
+    filters.extend(super::query_differential_tests::pairs());
+    filters
+}
+
+/// Slice 2: messages moved in SQL only (the index keeps their old folder):
+/// the old path follows the index, the planner follows SQL, on every route.
+#[tokio::test]
+async fn stale_index_folders_are_not_read() {
+    let w = World::new(Store::open_in_memory(ServerKey::generate()).await.unwrap(), 30).await;
+    let acct = &w.a;
+    let (inbox, archive, work) = (acct.folder("INBOX").to_owned(), acct.folder("Archive").to_owned(), acct.folder("Work").to_owned());
+    let rows = w.rows(acct).await;
+    let mut moved = 0u32;
+    for r in rows.iter().filter(|r| r.mailbox == inbox).take(4) {
+        let to = if moved % 2 == 0 { &archive } else { &work };
+        w.engine.store().relocate_message(&r.id, to, 700_000 + moved, 1).await.unwrap();
+        moved += 1;
+    }
+    let now = w.rows(acct).await;
+    let old = id_set(&query(&w, acct, json!({"inMailbox": inbox, "text": "alpha OR bravo OR charlie OR delta OR echo OR foxtrot"}), true).await);
+    let want = oracle_set(&now, |r| r.mailbox == inbox);
+    assert_ne!(old, want, "the index is not stale, the test proves nothing");
+    for f in all_filters() {
+        check_path(&w, acct, &now, &f, &plain_sort(), WINDOWS[0], "stale folders", false, false).await.unwrap();
+    }
+}
+
+/// Slice 2, the account scope (design part 13 risk 1): a row that moved to the
+/// other account while its index document still names the first account
+/// (no publication). Under every filter of the matrix, the first account
+/// never receives it and never counts it; the new owner gets it on every
+/// SQL-answered route.
+#[tokio::test]
+async fn a_stale_document_of_another_account_is_never_returned_or_counted() {
+    let (store, pool) = sqlite_file("stale-owner").await;
+    let w = World::new(store, 24).await;
+    let moved: Vec<String> = w.rows(&w.a).await.into_iter().map(|r| r.id).take(4).collect();
+    for (i, id) in moved.iter().enumerate() {
+        sqlx::query("UPDATE messages SET account_id=?1, mailbox_id=?2, uid=?4 WHERE stable_id=?3")
+            .bind(&w.b.id)
+            .bind(w.b.folder("INBOX"))
+            .bind(id)
+            .bind(800_000 + i as i64)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    let a_rows = w.rows(&w.a).await;
+    assert!(a_rows.iter().all(|r| !moved.contains(&r.id)));
+    let mut n = 0;
+    for f in all_filters() {
+        for win in [WINDOWS[0], WINDOWS[4]] {
+            // check_path asserts every id is the account's own and the total
+            // is the oracle's count of the account's own messages.
+            check_path(&w, &w.a, &a_rows, &f, &plain_sort(), win, "stale other-account document", false, false).await.unwrap();
+            n += 1;
+        }
+    }
+    assert!(n > 200, "{n}");
 }

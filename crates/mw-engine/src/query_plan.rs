@@ -64,7 +64,7 @@ use crate::query::EmailFilter;
 /// filter strategy checks in SQL: the index's own enumeration cap.
 pub(crate) const COMBINE_CAP: usize = mw_search::MAX_HITS;
 /// Ids per SQL membership check in the filter strategy (design part 6 start value).
-pub(crate) const FILTER_CHUNK: usize = 5_000;
+pub(crate) const FILTER_CHUNK: usize = COMBINE_CAP;
 /// The `unsupportedFilter` description for a set above the cap.
 pub(crate) const TOO_BROAD: &str = "filter too broad to combine";
 /// Metadata subtrees one query may resolve (t49pg-e5b F2: each is an id set
@@ -127,7 +127,9 @@ pub(crate) fn classify(c: &Clause) -> LeafClass {
         Clause::HasCalendar(_) => LeafClass::Content,
         Clause::Bulk(_) => LeafClass::Content,
         Clause::CalendarEndAfter(_) => LeafClass::Content,
-        Clause::Mailbox(_) => LeafClass::Either,
+        // Slice 2: folder membership is SQL (the index's mailbox field is
+        // not read any more).
+        Clause::Mailbox(_) => LeafClass::Meta,
         Clause::DateRange { .. } => LeafClass::Either,
         Clause::SizeRange { .. } => LeafClass::Either,
         Clause::IdSet(_) => LeafClass::Resolved,
@@ -305,8 +307,12 @@ pub(crate) struct MetaConj {
     pub(crate) smaller: Option<u64>,
     /// A contradiction or an empty condition: matches nothing.
     pub(crate) nothing: bool,
-    /// Meta leaves absorbed (0 = only mailbox/date/size conditions).
+    /// Meta leaves absorbed (0 = only size conditions).
     pub(crate) meta_leaves: usize,
+    /// `in_mailboxes` holds only the query's own folder scope (from
+    /// [`MetaConj::scoped`] or the narrowing of a nested node), which the
+    /// top-level condition enforces anyway; a complement may then drop it.
+    pub(crate) in_from_scope: bool,
 }
 
 impl MetaConj {
@@ -315,6 +321,8 @@ impl MetaConj {
         let mut c = MetaConj::default();
         if let Scope::Folder(mb) = scope {
             c.intersect_in(std::slice::from_ref(mb));
+            c.meta_leaves += 1;
+            c.in_from_scope = true;
         }
         c
     }
@@ -397,8 +405,10 @@ impl MetaConj {
                 true
             }
             Clause::Mailbox(m) => {
+                self.meta_leaves += 1;
                 if positive {
                     self.intersect_in(std::slice::from_ref(m));
+                    self.in_from_scope = false;
                 } else {
                     if self.in_mailboxes.is_none() {
                         insert_sorted(&mut self.not_in, m);
@@ -467,6 +477,8 @@ impl MetaConj {
                         _ => None,
                     })
                     .collect();
+                self.meta_leaves += 1;
+                self.in_from_scope = false;
                 self.intersect_in(&ids);
                 true
             }
@@ -496,20 +508,29 @@ impl MetaConj {
     /// those folders, so its index form must restrict to them too
     /// ([`complement_expr`]; t49pg-e5b F1).
     pub(crate) fn complement(&self) -> Option<Self> {
+        let conditions = self.keywords.len()
+            + self.not_keywords.len()
+            + usize::from(self.pinned.is_some())
+            + usize::from(self.follow_up_active.is_some());
+        // Slice 2: a folder of the subtree's own (`in:M` nested in OR/NOT)
+        // cannot be put back on the index side (its mailbox field is not
+        // maintained), so such a subtree has no complement (t49pg-e5b F1).
         let plain = self.not_in.is_empty()
+            && (self.in_mailboxes.is_none() || self.in_from_scope)
             && self.after.is_none()
             && self.before.is_none()
             && self.larger.is_none()
             && self.smaller.is_none()
             && !self.follow_up
             && !self.nothing
-            && self.meta_leaves == 1;
+            && conditions == 1;
         if !plain {
             return None;
         }
         let mut c = MetaConj {
             meta_leaves: 1,
             in_mailboxes: self.in_mailboxes.clone(),
+            in_from_scope: self.in_from_scope,
             ..MetaConj::default()
         };
         match (
@@ -681,7 +702,9 @@ pub(crate) fn plan(
     if LEGACY.with(std::cell::Cell::get) {
         return Ok(Route::Index);
     }
-    if !conjuncts.iter().any(has_meta) {
+    // Index only (R2) when no condition is metadata, the scope included: a
+    // folder scope is a SQL condition since slice 2.
+    if matches!(scope, Scope::Account) && !conjuncts.iter().any(has_meta) {
         return Ok(Route::Index);
     }
     // A top-level AND (also inside `filter.text`) is a list of conjuncts.
@@ -702,12 +725,16 @@ pub(crate) fn plan(
         });
     }
     let mut top = MetaConj::scoped(scope);
+    // Whether `top` holds a condition (the folder scope or an absorbed
+    // conjunct): then it must be applied, whatever its counters say.
+    let mut top_holds = matches!(scope, Scope::Folder(_));
     let mut nodes = Vec::new();
     let mut either_only = Vec::new();
     for &e in conjuncts {
         if has_meta(e) {
             if let Some(t) = top.try_absorb(e) {
                 top = t;
+                top_holds = true;
                 continue;
             }
             nodes.push(rewrite(e)?);
@@ -717,7 +744,7 @@ pub(crate) fn plan(
             either_only.push(e);
         }
     }
-    let top = if top.meta_leaves > 0 {
+    let top = if top_holds || top.meta_leaves > 0 {
         // Mailbox/date/size conjuncts narrow the SQL id set too (they also
         // stay in the index query).
         for e in either_only {
@@ -747,7 +774,13 @@ pub(crate) fn plan(
 fn narrow(node: &mut Node, mb: &str) {
     match node {
         Node::Index(_) => {}
-        Node::Meta(c) => c.intersect_in(&[mb.to_owned()]),
+        Node::Meta(c) => {
+            let own = c.in_mailboxes.is_some();
+            c.intersect_in(&[mb.to_owned()]);
+            if !own {
+                c.in_from_scope = true;
+            }
+        }
         Node::And(items) | Node::Or(items) => items.iter_mut().for_each(|i| narrow(i, mb)),
         Node::Not(inner) => narrow(inner, mb),
     }
@@ -790,13 +823,26 @@ pub(crate) fn assemble(node: &Node, resolved: &mut std::vec::IntoIter<Expr>) -> 
 /// within the folders, so without them the negation would also select every
 /// message of every other folder (t49pg-e5b F1).
 pub(crate) fn complement_expr(conj: &MetaConj, complement_ids: Vec<String>) -> Expr {
-    let not = Expr::Not(Box::new(id_set(complement_ids)));
-    match &conj.in_mailboxes {
-        None => not,
-        Some(folders) => Expr::And(vec![
-            Expr::Or(folders.iter().map(|m| Expr::Clause(Clause::Mailbox(m.clone()))).collect()),
-            not,
-        ]),
+    // Only a subtree without a folder of its own has a complement (slice 2):
+    // no folder, or the query's scope folder, which the top-level condition
+    // enforces on the same query.
+    debug_assert!(conj.in_mailboxes.is_none() || conj.in_from_scope);
+    Expr::Not(Box::new(id_set(complement_ids)))
+}
+
+impl MetaConj {
+    /// Only folder conditions (no keyword, pin, follow-up or size): the
+    /// combined route checks the index's hits against it in SQL rather than
+    /// reading the folder's ids.
+    pub(crate) fn is_folder_only(&self) -> bool {
+        self.keywords.is_empty()
+            && self.not_keywords.is_empty()
+            && self.pinned.is_none()
+            && !self.follow_up
+            && self.follow_up_active.is_none()
+            && self.larger.is_none()
+            && self.smaller.is_none()
+            && (self.in_mailboxes.is_some() || !self.not_in.is_empty())
     }
 }
 
