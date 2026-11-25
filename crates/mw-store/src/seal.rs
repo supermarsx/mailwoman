@@ -170,7 +170,45 @@ impl StreamSealer {
     }
 }
 
+/// Opens a streamed seal one chunk at a time ([`ServerKey::stream_opener`]).
+pub(crate) struct StreamOpener {
+    cipher: XChaCha20Poly1305,
+    prefix: [u8; STREAM_PREFIX],
+    counter: u32,
+}
+
+impl StreamOpener {
+    /// Sealed bytes of one full (not last) chunk.
+    pub(crate) const FULL: usize = STREAM_CHUNK + TAG_LEN;
+
+    pub(crate) fn open_chunk(&mut self, sealed: &[u8], last: bool) -> Result<Vec<u8>, SealError> {
+        let nonce = stream_nonce(&self.prefix, self.counter, last);
+        self.counter = self.counter.checked_add(1).ok_or(SealError::Decrypt)?;
+        self.cipher
+            .decrypt(XNonce::from_slice(&nonce), Payload { msg: sealed, aad: STREAM_MAGIC })
+            .map_err(|_| SealError::Decrypt)
+    }
+}
+
 impl ServerKey {
+    /// Bytes of a streamed seal's header.
+    pub(crate) const STREAM_HEADER: usize = 4 + STREAM_PREFIX;
+
+    /// An opener for a streamed seal whose header is `header`, or `None` when
+    /// it is not a streamed header.
+    pub(crate) fn stream_opener(&self, header: &[u8]) -> Option<StreamOpener> {
+        if header.len() != Self::STREAM_HEADER || !header.starts_with(STREAM_MAGIC) {
+            return None;
+        }
+        let mut prefix = [0u8; STREAM_PREFIX];
+        prefix.copy_from_slice(&header[4..]);
+        Some(StreamOpener {
+            cipher: XChaCha20Poly1305::new(&self.0.into()),
+            prefix,
+            counter: 0,
+        })
+    }
+
     /// Start a streamed seal: the sealer and the header to write first.
     pub(crate) fn stream_sealer(&self) -> (StreamSealer, Vec<u8>) {
         let mut prefix = [0u8; STREAM_PREFIX];

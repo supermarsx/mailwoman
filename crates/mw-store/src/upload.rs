@@ -96,6 +96,43 @@ pub trait UploadBackend: Send + Sync {
         }
         self.put(account_key, storage_key, all).await
     }
+
+    /// Read an object in pieces (t55), or `None` if it does not exist. The
+    /// default reads it whole with [`UploadBackend::get`]; [`FsUploadBackend`]
+    /// reads the file piece by piece.
+    async fn open_parts(
+        &self,
+        account_key: &str,
+        storage_key: &str,
+    ) -> Result<Option<Box<dyn PartReader>>, UploadError> {
+        Ok(self
+            .get(account_key, storage_key)
+            .await?
+            .map(|data| Box::new(WholeReader { data, at: 0 }) as Box<dyn PartReader>))
+    }
+}
+
+/// Reads an object in pieces ([`UploadBackend::open_parts`]).
+#[async_trait]
+pub trait PartReader: Send {
+    /// Up to `len` further bytes (fewer only at the end); empty at the end.
+    async fn read(&mut self, len: usize) -> Result<Vec<u8>, UploadError>;
+}
+
+/// [`PartReader`] over bytes already in memory (the default `open_parts`).
+struct WholeReader {
+    data: Vec<u8>,
+    at: usize,
+}
+
+#[async_trait]
+impl PartReader for WholeReader {
+    async fn read(&mut self, len: usize) -> Result<Vec<u8>, UploadError> {
+        let end = self.data.len().min(self.at.saturating_add(len));
+        let part = self.data[self.at..end].to_vec();
+        self.at = end;
+        Ok(part)
+    }
 }
 
 /// The parts of an object being written by [`UploadBackend::put_parts`].
@@ -234,6 +271,41 @@ impl UploadBackend for FsUploadBackend {
             }
         }
     }
+
+    async fn open_parts(
+        &self,
+        account_key: &str,
+        storage_key: &str,
+    ) -> Result<Option<Box<dyn PartReader>>, UploadError> {
+        let path = self.object_path(account_key, storage_key)?;
+        match std::fs::File::open(&path) {
+            Ok(file) => Ok(Some(Box::new(FileReader(file)))),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(UploadError::Io(e.to_string())),
+        }
+    }
+}
+
+/// [`PartReader`] over a file of the filesystem backend.
+struct FileReader(std::fs::File);
+
+#[async_trait]
+impl PartReader for FileReader {
+    async fn read(&mut self, len: usize) -> Result<Vec<u8>, UploadError> {
+        use std::io::Read;
+        let mut part = vec![0u8; len];
+        let mut filled = 0;
+        while filled < len {
+            match self.0.read(&mut part[filled..]) {
+                Ok(0) => break,
+                Ok(n) => filled += n,
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(UploadError::Io(e.to_string())),
+            }
+        }
+        part.truncate(filled);
+        Ok(part)
+    }
 }
 
 /// The fail-closed default backend used by a store that has not had a real backend
@@ -255,6 +327,61 @@ impl UploadBackend for FailClosedBackend {
     async fn delete(&self, _: &str, _: &str) -> Result<(), UploadError> {
         Err(UploadError::NotConfigured)
     }
+}
+
+/// A spool or upload read back one plaintext chunk at a time
+/// ([`Store::spool_reader`]).
+pub struct UploadReader {
+    mode: ReadMode,
+    /// The next sealed chunk, read ahead to know whether the current one is last.
+    pending: Option<Vec<u8>>,
+}
+
+enum ReadMode {
+    Stream { opener: seal::StreamOpener, parts: Box<dyn PartReader> },
+    Whole(Option<Vec<u8>>),
+}
+
+impl UploadReader {
+    /// The next plaintext chunk, or `None` at the end. A changed, reordered,
+    /// truncated or extended object is an error, never silently short.
+    pub async fn next_chunk(&mut self) -> Result<Option<Vec<u8>>, StoreError> {
+        match &mut self.mode {
+            ReadMode::Whole(data) => Ok(data.take()),
+            ReadMode::Stream { opener, parts } => {
+                let current = match self.pending.take() {
+                    Some(chunk) => chunk,
+                    None => parts.read(seal::StreamOpener::FULL).await?,
+                };
+                if current.is_empty() {
+                    return Ok(None);
+                }
+                // A full-size chunk is followed by at least the (possibly
+                // empty) last chunk; anything shorter is the last one.
+                let last = current.len() < seal::StreamOpener::FULL;
+                if !last {
+                    let next = parts.read(seal::StreamOpener::FULL).await?;
+                    if next.is_empty() {
+                        return Err(StoreError::Seal(crate::SealError::Truncated));
+                    }
+                    self.pending = Some(next);
+                }
+                let plain = opener.open_chunk(&current, last)?;
+                if last {
+                    self.mode = ReadMode::Whole(None);
+                    if plain.is_empty() {
+                        return Ok(None);
+                    }
+                }
+                Ok(Some(plain))
+            }
+        }
+    }
+}
+
+/// The per-account directory token for spools, distinct from uploads.
+fn spool_dir_token(account_id: &str) -> String {
+    account_dir_token(&format!("spool\u{0}{account_id}"))
 }
 
 /// What [`Store::put_upload_stream`] did.
@@ -414,25 +541,10 @@ impl Store {
         let storage_key = seal::random_token();
         let blob_id = format!("U{storage_key}");
         let account_key = account_dir_token(account_id);
-        let (sealer, header) = self.key.stream_sealer();
-        let mut source = BodyParts {
-            body,
-            sealer,
-            header: Some(header),
-            buf: Vec::with_capacity(seal::STREAM_CHUNK),
-            total: 0,
-            cap,
-            done: false,
-            refused: None,
+        let total = match self.write_streamed(&account_key, &storage_key, body, cap).await? {
+            Ok(total) => total,
+            Err(refused) => return Ok(refused),
         };
-        let written = self.uploads.put_parts(&account_key, &storage_key, &mut source).await;
-        let (total, refused) = (source.total, source.refused.take());
-        match (written, refused) {
-            (_, Some(Refused::TooLarge)) => return Ok(StreamedUpload::TooLarge),
-            (_, Some(Refused::Body)) => return Ok(StreamedUpload::BodyFailed),
-            (Err(e), None) => return Err(e.into()),
-            (Ok(()), None) => {}
-        }
         let now = Utc::now().to_rfc3339();
         let inserted = q("INSERT INTO uploaded_blobs
                  (blob_id, account_id, content_type, size, storage_key, backend_kind, created_at)
@@ -451,6 +563,97 @@ impl Store {
             return Err(e.into());
         }
         Ok(StreamedUpload::Stored { blob_id, size: total })
+    }
+
+    /// Seal `body` chunk by chunk into the object `(account_key, storage_key)`.
+    /// `Ok(Err(..))` is a refusal (over `cap`, or the body failed): nothing kept.
+    async fn write_streamed<S, T, E>(
+        &self,
+        account_key: &str,
+        storage_key: &str,
+        body: &mut S,
+        cap: u64,
+    ) -> Result<Result<u64, StreamedUpload>, StoreError>
+    where
+        S: futures_util::Stream<Item = Result<T, E>> + Unpin + Send,
+        T: AsRef<[u8]> + Send,
+        E: std::fmt::Display + Send,
+    {
+        let (sealer, header) = self.key.stream_sealer();
+        let mut source = BodyParts {
+            body,
+            sealer,
+            header: Some(header),
+            buf: Vec::with_capacity(seal::STREAM_CHUNK),
+            total: 0,
+            cap,
+            done: false,
+            refused: None,
+        };
+        let written = self.uploads.put_parts(account_key, storage_key, &mut source).await;
+        let (total, refused) = (source.total, source.refused.take());
+        match (written, refused) {
+            (_, Some(Refused::TooLarge)) => Ok(Err(StreamedUpload::TooLarge)),
+            (_, Some(Refused::Body)) => Ok(Err(StreamedUpload::BodyFailed)),
+            (Err(e), None) => Err(e.into()),
+            (Ok(()), None) => Ok(Ok(total)),
+        }
+    }
+
+    /// Spool a request body to the upload backend, sealed, with no database row
+    /// (t55): a work file a route reads back in pieces ([`Store::spool_reader`])
+    /// and removes ([`Store::spool_delete`]) itself. Returns the spool key and
+    /// the plaintext size, or the refusal. Spools live under their own per-account
+    /// directory, apart from uploads.
+    pub async fn spool_put_stream<S, T, E>(
+        &self,
+        account_id: &str,
+        body: &mut S,
+        cap: u64,
+    ) -> Result<Result<(String, u64), StreamedUpload>, StoreError>
+    where
+        S: futures_util::Stream<Item = Result<T, E>> + Unpin + Send,
+        T: AsRef<[u8]> + Send,
+        E: std::fmt::Display + Send,
+    {
+        let key = seal::random_token();
+        Ok(self
+            .write_streamed(&spool_dir_token(account_id), &key, body, cap)
+            .await?
+            .map(|size| (key, size)))
+    }
+
+    /// Read a spool back, one chunk at a time.
+    pub async fn spool_reader(&self, account_id: &str, key: &str) -> Result<Option<UploadReader>, StoreError> {
+        self.reader(&spool_dir_token(account_id), key).await
+    }
+
+    /// Remove a spool. A missing spool is not an error.
+    pub async fn spool_delete(&self, account_id: &str, key: &str) -> Result<(), StoreError> {
+        Ok(self.uploads.delete(&spool_dir_token(account_id), key).await?)
+    }
+
+    async fn reader(&self, account_key: &str, storage_key: &str) -> Result<Option<UploadReader>, StoreError> {
+        let Some(mut parts) = self.uploads.open_parts(account_key, storage_key).await? else {
+            return Ok(None);
+        };
+        let header = parts.read(crate::ServerKey::STREAM_HEADER).await?;
+        let mode = match self.key.stream_opener(&header) {
+            Some(opener) => ReadMode::Stream { opener, parts },
+            None => {
+                // One-shot seal: read the rest and open it whole.
+                let mut all = header;
+                loop {
+                    let part = parts.read(seal::STREAM_CHUNK).await?;
+                    if part.is_empty() {
+                        break;
+                    }
+                    all.extend_from_slice(&part);
+                }
+                ReadMode::Whole(Some(self.key.open(&all)?))
+            }
+        };
+        Ok(Some(UploadReader { mode, pending: None }))
     }
 
     /// Resolve an upload for `account_id`, unsealing the object bytes. Account-scoped:
@@ -823,6 +1026,68 @@ mod tests {
         let mut lookalike = b"MWU2".to_vec();
         lookalike.extend_from_slice(&key.seal(b"x").unwrap()[4..]);
         assert!(key.open_upload(&lookalike).is_err(), "neither form: refused");
+    }
+
+    /// t55: a spool is written and read back one chunk at a time, with no row,
+    /// and removed; a truncated spool is an error, never silently short.
+    #[tokio::test]
+    async fn a_spool_reads_back_in_chunks_and_detects_truncation() {
+        let root = temp_root("spool");
+        let store = fs_store(&root).await;
+        let (data, parts) = pieces(3 * seal::STREAM_CHUNK + 777, 5 * 1024);
+        let mut body = futures_util::stream::iter(parts);
+        let (key, size) = store
+            .spool_put_stream("acct-a", &mut body, 64 * 1024 * 1024)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(size as usize, data.len());
+        assert!(store.upload_size("acct-a", &format!("U{key}")).await.unwrap().is_none(), "no row");
+        let mut reader = store.spool_reader("acct-a", &key).await.unwrap().unwrap();
+        let mut back = Vec::new();
+        let mut largest = 0;
+        while let Some(chunk) = reader.next_chunk().await.unwrap() {
+            largest = largest.max(chunk.len());
+            back.extend_from_slice(&chunk);
+        }
+        assert_eq!(back, data);
+        assert!(largest <= seal::STREAM_CHUNK, "{largest}");
+        assert!(store.spool_reader("acct-b", &key).await.unwrap().is_none(), "account-scoped");
+        // Drop the last sealed chunk on disk: reading must fail, not end early.
+        let file = walk(&root).into_iter().next().expect("the spool file");
+        let bytes = std::fs::read(&file).unwrap();
+        let full = seal::STREAM_CHUNK + 16;
+        std::fs::write(&file, &bytes[..4 + 19 + 3 * full]).unwrap();
+        let mut reader = store.spool_reader("acct-a", &key).await.unwrap().unwrap();
+        let mut failed = false;
+        loop {
+            match reader.next_chunk().await {
+                Ok(Some(_)) => {}
+                Ok(None) => break,
+                Err(_) => {
+                    failed = true;
+                    break;
+                }
+            }
+        }
+        assert!(failed, "a truncated spool must not read as complete");
+        store.spool_delete("acct-a", &key).await.unwrap();
+        assert!(walk(&root).is_empty(), "the spool is removed");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A one-shot object (stored before t55) reads back through the chunk reader.
+    #[tokio::test]
+    async fn the_chunk_reader_opens_one_shot_objects_too() {
+        let store = Store::open_in_memory(ServerKey::generate())
+            .await
+            .unwrap()
+            .with_upload_backend(Arc::new(Recording::default()));
+        let blob = store.put_upload("acct-a", "text/plain", b"one-shot body").await.unwrap();
+        let key = blob.trim_start_matches('U');
+        let mut reader = store.reader(&account_dir_token("acct-a"), key).await.unwrap().unwrap();
+        assert_eq!(reader.next_chunk().await.unwrap().unwrap(), b"one-shot body");
+        assert!(reader.next_chunk().await.unwrap().is_none());
     }
 
     #[tokio::test]

@@ -107,6 +107,74 @@ pub fn split(data: &[u8]) -> Vec<Vec<u8>> {
     messages
 }
 
+/// [`split`] for an mbox that arrives in pieces (t55): feed it with
+/// [`MboxSplitter::push`] and collect each message as soon as the next
+/// separator shows it is complete; [`MboxSplitter::finish`] gives the last one.
+/// Holds one message plus one partial line, never the whole mbox. The messages
+/// are exactly those [`split`] returns for the same bytes.
+#[derive(Debug, Default)]
+pub struct MboxSplitter {
+    current: Option<Vec<u8>>,
+    line: Vec<u8>,
+}
+
+impl MboxSplitter {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Feed the next piece; returns the messages it completed.
+    pub fn push(&mut self, data: &[u8]) -> Vec<Vec<u8>> {
+        let mut done = Vec::new();
+        let mut rest = data;
+        while let Some(at) = rest.iter().position(|&b| b == b'\n') {
+            if self.line.is_empty() {
+                self.take_line(&rest[..at], &mut done);
+            } else {
+                let mut line = std::mem::take(&mut self.line);
+                line.extend_from_slice(&rest[..at]);
+                self.take_line(&line, &mut done);
+            }
+            rest = &rest[at + 1..];
+        }
+        self.line.extend_from_slice(rest);
+        done
+    }
+
+    /// The input is complete: the messages still open (the last one, and the
+    /// one before it when the input ends on a separator line).
+    pub fn finish(mut self) -> Vec<Vec<u8>> {
+        let mut done = Vec::new();
+        let line = std::mem::take(&mut self.line);
+        self.take_line(&line, &mut done);
+        done.extend(self.current.take().map(finish_message));
+        done
+    }
+
+    /// Bytes held right now (the message being collected and a partial line).
+    #[must_use]
+    pub fn held(&self) -> usize {
+        self.current.as_ref().map_or(0, Vec::len) + self.line.len()
+    }
+
+    fn take_line(&mut self, line: &[u8], done: &mut Vec<Vec<u8>>) {
+        if is_separator(line) {
+            if let Some(msg) = self.current.take() {
+                done.push(finish_message(msg));
+            }
+            self.current = Some(Vec::new());
+            return;
+        }
+        if let Some(buf) = self.current.as_mut() {
+            if !buf.is_empty() {
+                buf.push(b'\n');
+            }
+            buf.extend_from_slice(&unquote(line));
+        }
+    }
+}
+
 /// Drop the single trailing blank line `to_entry` inserts between entries.
 fn finish_message(mut msg: Vec<u8>) -> Vec<u8> {
     if msg.ends_with(b"\n") {
@@ -136,6 +204,43 @@ fn split_lines(data: &[u8]) -> impl Iterator<Item = &[u8]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The incremental splitter returns exactly what `split` does, for any way
+    /// the input is cut into pieces.
+    #[test]
+    fn the_incremental_splitter_matches_split_for_every_piece_size() {
+        let mut mbox = Vec::new();
+        for i in 0..20 {
+            mbox.extend_from_slice(format!("From sender{i}@example.org Mon Jan  1 00:00:00 2024\r\n").as_bytes());
+            mbox.extend_from_slice(
+                format!("Subject: m{i}\r\n\r\nbody {i}\r\n>From quoted\r\nFrom: not a separator\r\n").as_bytes(),
+            );
+            if i % 3 == 0 {
+                mbox.extend_from_slice(b"\r\n");
+            }
+        }
+        let inputs: Vec<Vec<u8>> = vec![
+            mbox.clone(),
+            b"preamble\nFrom a\nx".to_vec(),
+            b"From a\n".to_vec(),
+            b"no separator at all\n".to_vec(),
+            Vec::new(),
+            b"From a\nline\nFrom b\n\n".to_vec(),
+            b"From a\nbody\nFrom b".to_vec(),
+        ];
+        for input in inputs {
+            let want = split(&input);
+            for piece in [1usize, 2, 3, 7, 64, 1000, input.len().max(1)] {
+                let mut splitter = MboxSplitter::new();
+                let mut got = Vec::new();
+                for chunk in input.chunks(piece) {
+                    got.extend(splitter.push(chunk));
+                }
+                got.extend(splitter.finish());
+                assert_eq!(got, want, "piece size {piece}");
+            }
+        }
+    }
 
     #[test]
     fn quotes_and_unquotes_from_lines() {

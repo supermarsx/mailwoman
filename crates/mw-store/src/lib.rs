@@ -240,7 +240,10 @@ pub use sso::SsoConfigRow;
 pub use twofa::{
     SessionMeta, TotpSecret, TwofaPolicyRow, WebauthnCredentialRow, WebauthnState, session_handle,
 };
-pub use upload::{FsUploadBackend, PartSource, StreamedUpload, Upload, UploadBackend, UploadError};
+pub use upload::{
+    FsUploadBackend, PartReader, PartSource, StreamedUpload, Upload, UploadBackend, UploadError,
+    UploadReader,
+};
 pub use user_prefs::{NotificationRulesRow, SignatureRow};
 pub use v6::{
     AdminUserRow, ApiKeyRow, AuditRow, CacheScopeRow, DomainRow, OAuthClientRow, OAuthTokenRow,

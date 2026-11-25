@@ -13,20 +13,19 @@ const OVERSIZED: usize = 67 * 1024 * 1024;
 /// this is the size whose upload used to end in a reset.
 const FAR_OVERSIZED: usize = 200 * 1024 * 1024;
 
-/// The mbox route's shape: the same body limit, rejection mapping and
-/// admission middleware, without the session/engine parts that run after the
-/// body is read.
+/// The mbox route's shape: the same admission middleware in front of a handler
+/// that reads the body, without the session/engine parts (t55: the route now
+/// streams its body, so the refusals tested here are the admission layer's).
 fn import_like_router(capacity: Arc<tokio::sync::Semaphore>) -> axum::Router {
     axum::Router::new()
         .route(
             "/api/import/mbox",
-            post(|body: Result<Bytes, BytesRejection>| async move {
-                match body {
+            post(|body: Body| async move {
+                match axum::body::to_bytes(body, MAX_MESSAGE_BYTES).await {
                     Ok(_) => StatusCode::OK.into_response(),
-                    Err(rejection) => body_rejected(rejection),
+                    Err(_) => import_too_large(),
                 }
-            })
-            .layer(DefaultBodyLimit::max(MAX_MESSAGE_BYTES)),
+            }),
         )
         .layer(axum::middleware::from_fn(move |request, next| {
             let capacity = capacity.clone();

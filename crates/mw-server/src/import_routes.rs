@@ -38,8 +38,7 @@
 //!
 //! All routes are session-authed and ride the normal CSRF/same-origin guard.
 
-use axum::body::Bytes;
-use axum::extract::rejection::BytesRejection;
+use axum::body::Body;
 use axum::extract::{DefaultBodyLimit, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -276,14 +275,9 @@ async fn import_mbox(
     State(state): State<AppState>,
     headers: HeaderMap,
     Query(q): Query<ImportQuery>,
-    body: Result<Bytes, BytesRejection>,
+    body: Body,
 ) -> Response {
-    let body = match body {
-        Ok(b) => b,
-        Err(rej) => return body_rejected(rej),
-    };
-    let messages = mw_export::split_mbox(&body);
-    ingest_messages(&state, &headers, q.mailbox_id.as_deref(), messages).await
+    import_streamed(&state, &headers, q.mailbox_id.as_deref(), body, Archive::Mbox).await
 }
 
 /// `POST /api/import/eml` — import one RFC822 message (the whole body).
@@ -291,22 +285,9 @@ async fn import_eml(
     State(state): State<AppState>,
     headers: HeaderMap,
     Query(q): Query<ImportQuery>,
-    body: Result<Bytes, BytesRejection>,
+    body: Body,
 ) -> Response {
-    let body = match body {
-        Ok(b) => b,
-        Err(rej) => return body_rejected(rej),
-    };
-    if body.is_empty() {
-        return bad_request("empty message body");
-    }
-    ingest_messages(
-        &state,
-        &headers,
-        q.mailbox_id.as_deref(),
-        vec![body.to_vec()],
-    )
-    .await
+    import_streamed(&state, &headers, q.mailbox_id.as_deref(), body, Archive::Eml).await
 }
 
 /// `POST /api/import/maildir` — import the message files of a maildir, uploaded as
@@ -316,79 +297,287 @@ async fn import_maildir(
     State(state): State<AppState>,
     headers: HeaderMap,
     Query(q): Query<ImportQuery>,
-    body: Result<Bytes, BytesRejection>,
+    body: Body,
 ) -> Response {
-    let body = match body {
-        Ok(b) => b,
-        Err(rej) => return body_rejected(rej),
-    };
-    let messages = match maildir_tar_messages(&body) {
-        Ok(m) => m,
-        Err(e) => return bad_request(&e),
-    };
-    if messages.is_empty() {
-        return bad_request(
-            "no maildir messages found in the tar (expected files under cur/ or new/)",
-        );
-    }
-    ingest_messages(&state, &headers, q.mailbox_id.as_deref(), messages).await
+    import_streamed(&state, &headers, q.mailbox_id.as_deref(), body, Archive::Maildir).await
 }
 
-/// The shared import core: authenticate, resolve the target mailbox, seal each
-/// message to the upload backend, then ingest them all through one `Email/import`.
-async fn ingest_messages(
+/// The three import body formats.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Archive {
+    Mbox,
+    Eml,
+    Maildir,
+}
+
+/// Answer a refusal made before the body was read, draining the body first so
+/// the client sees it (see [`refuse_before_body`]).
+async fn refuse_unread(headers: &HeaderMap, body: Body, response: Response) -> Response {
+    let mut request = axum::extract::Request::new(body);
+    *request.headers_mut() = headers.clone();
+    refuse_before_body(request, response).await
+}
+
+/// The shared import core (t55). It used to read the whole body (up to 64 MiB)
+/// before anything else, split it into a second full set of copies (a maildir
+/// tar about three), then seal each message. Now:
+///
+/// 1. authenticate, check the feature, the account and the target mailbox
+///    before reading any of the body (a refusal drains it, so it is delivered);
+/// 2. stream the body into a sealed spool in the upload store, 64 KiB at a time
+///    (an eml body is stored directly as the message);
+/// 3. read the spool once to count the messages and check their sizes (the
+///    same refusals as before, still before anything is imported);
+/// 4. read it again and store one message at a time, then import them all in
+///    one `Email/import`, as before; the spool is removed.
+///
+/// Memory: one 64 KiB chunk plus one message (at most `maxMessageBytes`).
+async fn import_streamed(
     state: &AppState,
     headers: &HeaderMap,
     mailbox_id: Option<&str>,
-    messages: Vec<Vec<u8>>,
+    body: Body,
+    archive: Archive,
 ) -> Response {
     let session = match crate::user_router::feature_session(state, headers, "import").await {
         Ok(s) => s,
-        Err(resp) => return resp,
+        Err(resp) => return refuse_unread(headers, body, resp).await,
     };
     if let Err(response) = crate::mailbox_target_fence(state, &session, headers).await {
-        return response;
+        return refuse_unread(headers, body, response).await;
     }
     let Some(engine) = &state.engine else {
-        return (
+        let response = (
             StatusCode::NOT_IMPLEMENTED,
             Json(json!({ "error": "import requires engine mode" })),
         )
             .into_response();
+        return refuse_unread(headers, body, response).await;
     };
     match engine.import_available(&session.account_id).await {
-        Ok(true) => {},
-        Ok(false) => return (StatusCode::NOT_IMPLEMENTED, Json(json!({"code":"importUnavailable","error":"this connection cannot import messages durably"}))).into_response(),
-        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
-    }
-    if messages.is_empty() {
-        return bad_request("no messages to import");
+        Ok(true) => {}
+        Ok(false) => {
+            let response = (
+                StatusCode::NOT_IMPLEMENTED,
+                Json(json!({"code":"importUnavailable","error":"this connection cannot import messages durably"})),
+            )
+                .into_response();
+            return refuse_unread(headers, body, response).await;
+        }
+        Err(_) => {
+            return refuse_unread(headers, body, StatusCode::SERVICE_UNAVAILABLE.into_response()).await;
+        }
     }
     let limits = ImportLimits::for_user(&state.store, &session.username).await;
-    if messages.len() > limits.max_messages {
-        return bad_request("too many messages in one import (split the archive)");
-    }
-    // The route's body limit caps the whole request at `MAX_MESSAGE_BYTES`; the
-    // domain's `import.maxMessageBytes` can set a lower per-message cap. Either
-    // refusal answers with the same `413` shape as the body limit rather than a
-    // `400`, so a size refusal looks identical wherever it is raised.
-    if messages.iter().any(|m| m.len() > limits.max_message_bytes) {
-        return payload_too_large(MESSAGE_LIMIT_NAME, limits.max_message_bytes);
-    }
-    let account = &session.account_id;
-
-    // Resolve the destination mailbox id (explicit, or the account inbox).
+    let account = session.account_id.as_str();
     let mailbox_id = match resolve_target_mailbox(engine, account, mailbox_id).await {
         Ok(Some(id)) => id,
-        Ok(None) => return bad_request("no target mailbox (and no inbox found)"),
-        Err(e) => return upstream(&e),
+        Ok(None) => {
+            return refuse_unread(headers, body, bad_request("no target mailbox (and no inbox found)")).await;
+        }
+        Err(e) => return refuse_unread(headers, body, upstream(&e)).await,
     };
 
-    // Seal each message to the upload backend, collecting its blobId. A store_upload
-    // failure (e.g. no MW_UPLOAD_DIR) aborts loudly rather than dropping bytes.
+    let mut stream = body.into_data_stream();
+    if archive == Archive::Eml {
+        return import_eml_streamed(state, engine, account, &mailbox_id, &mut stream, limits).await;
+    }
+    let spooled = state
+        .store
+        .spool_put_stream(account, &mut stream, MAX_MESSAGE_BYTES as u64)
+        .await;
+    let spool = match spooled {
+        Ok(Ok((key, _size))) => key,
+        Ok(Err(mw_store::StreamedUpload::TooLarge)) => {
+            crate::drain_refused_body(stream, 0, MAX_MESSAGE_BYTES).await;
+            return import_too_large();
+        }
+        Ok(Err(_)) => return bad_request("could not read the request body"),
+        Err(e) => {
+            tracing::warn!(
+                "import: the upload backend could not spool the body (is MW_UPLOAD_DIR configured?): {e}"
+            );
+            return upstream("the import could not be stored");
+        }
+    };
+    let outcome = import_spooled(state, engine, account, &mailbox_id, &spool, archive, limits).await;
+    if let Err(e) = state.store.spool_delete(account, &spool).await {
+        tracing::warn!("import: spool not removed: {e}");
+    }
+    outcome
+}
+
+/// An eml body is one message: stored as it arrives, then imported.
+async fn import_eml_streamed(
+    state: &AppState,
+    engine: &mw_engine::Engine,
+    account: &str,
+    mailbox_id: &str,
+    stream: &mut axum::body::BodyDataStream,
+    limits: ImportLimits,
+) -> Response {
+    let stored = state
+        .store
+        .put_upload_stream(account, "message/rfc822", stream, limits.max_message_bytes as u64)
+        .await;
+    let blob_id = match stored {
+        Ok(mw_store::StreamedUpload::Stored { blob_id, size }) => {
+            if size == 0 {
+                let _ = state.store.delete_upload(account, &blob_id).await;
+                return bad_request("empty message body");
+            }
+            blob_id
+        }
+        Ok(mw_store::StreamedUpload::TooLarge) => {
+            return payload_too_large(MESSAGE_LIMIT_NAME, limits.max_message_bytes);
+        }
+        Ok(mw_store::StreamedUpload::BodyFailed) => {
+            return bad_request("could not read the request body");
+        }
+        Err(e) => {
+            tracing::warn!(
+                "import: upload backend rejected message 0 (is MW_UPLOAD_DIR configured?): {e}"
+            );
+            return upstream("message 0 could not be stored");
+        }
+    };
     let mut emails = serde_json::Map::new();
-    for (i, msg) in messages.iter().enumerate() {
-        let blob_id = match engine.store_upload(account, "message/rfc822", msg).await {
+    emails.insert(
+        "i0".into(),
+        json!({ "blobId": blob_id, "mailboxIds": { mailbox_id: true } }),
+    );
+    run_import(engine, account, mailbox_id, emails, 1).await
+}
+
+/// The messages of a spooled archive, read back one at a time.
+struct SpoolMessages {
+    reader: mw_store::UploadReader,
+    splitter: Option<Splitter>,
+    ready: std::collections::VecDeque<(String, Vec<u8>)>,
+}
+
+/// Splits mbox or tar bytes into messages as they arrive.
+enum Splitter {
+    Mbox(mw_export::MboxSplitter),
+    Tar(TarSplitter),
+}
+
+impl SpoolMessages {
+    async fn open(state: &AppState, account: &str, spool: &str, archive: Archive) -> Result<Self, Response> {
+        let reader = match state.store.spool_reader(account, spool).await {
+            Ok(Some(r)) => r,
+            Ok(None) => return Err(upstream("the import could not be read back")),
+            Err(e) => {
+                tracing::warn!("import: spool not readable: {e}");
+                return Err(upstream("the import could not be read back"));
+            }
+        };
+        let splitter = match archive {
+            Archive::Mbox => Splitter::Mbox(mw_export::MboxSplitter::new()),
+            _ => Splitter::Tar(TarSplitter::new()),
+        };
+        Ok(Self { reader, splitter: Some(splitter), ready: Default::default() })
+    }
+
+    /// The next message (its tar path, empty for mbox), or `None` at the end.
+    async fn next(&mut self) -> Result<Option<(String, Vec<u8>)>, Response> {
+        loop {
+            if let Some(message) = self.ready.pop_front() {
+                return Ok(Some(message));
+            }
+            let Some(splitter) = self.splitter.as_mut() else {
+                return Ok(None);
+            };
+            let chunk = match self.reader.next_chunk().await {
+                Ok(chunk) => chunk,
+                Err(e) => {
+                    tracing::warn!("import: spool not readable: {e}");
+                    return Err(upstream("the import could not be read back"));
+                }
+            };
+            match chunk {
+                Some(chunk) => match splitter {
+                    Splitter::Mbox(s) => self.ready.extend(s.push(&chunk).into_iter().map(|m| (String::new(), m))),
+                    Splitter::Tar(t) => self.ready.extend(t.push(&chunk).map_err(|e| bad_request(&e))?),
+                },
+                None => match self.splitter.take().expect("splitter present") {
+                    Splitter::Mbox(s) => self.ready.extend(s.finish().into_iter().map(|m| (String::new(), m))),
+                    Splitter::Tar(t) => t.finish().map_err(|e| bad_request(&e))?,
+                },
+            }
+        }
+    }
+}
+
+/// Is `name` a maildir message path (a file under `cur/` or `new/`)?
+fn is_maildir_path(name: &str) -> bool {
+    name.contains("/cur/") || name.contains("/new/")
+}
+
+async fn import_spooled(
+    state: &AppState,
+    engine: &mw_engine::Engine,
+    account: &str,
+    mailbox_id: &str,
+    spool: &str,
+    archive: Archive,
+    limits: ImportLimits,
+) -> Response {
+    // Pass 1: count and size-check, as the whole-body code did before importing.
+    let (mut all, mut maildir, mut oversized) = (0usize, 0usize, false);
+    let mut messages = match SpoolMessages::open(state, account, spool, archive).await {
+        Ok(m) => m,
+        Err(response) => return response,
+    };
+    loop {
+        match messages.next().await {
+            Ok(Some((name, message))) => {
+                all += 1;
+                maildir += usize::from(is_maildir_path(&name));
+                oversized |= message.len() > limits.max_message_bytes;
+            }
+            Ok(None) => break,
+            Err(response) => return response,
+        }
+    }
+    // A tar not rooted at the maildir imports every regular file (as before).
+    let only_maildir = archive == Archive::Maildir && maildir > 0;
+    let count = if only_maildir { maildir } else { all };
+    if count == 0 {
+        return bad_request(if archive == Archive::Maildir {
+            "no maildir messages found in the tar (expected files under cur/ or new/)"
+        } else {
+            "no messages to import"
+        });
+    }
+    if count > limits.max_messages {
+        return bad_request("too many messages in one import (split the archive)");
+    }
+    if oversized {
+        return payload_too_large(MESSAGE_LIMIT_NAME, limits.max_message_bytes);
+    }
+
+    // Pass 2: seal each message to the upload backend, collecting its blobId. A
+    // store_upload failure (e.g. no MW_UPLOAD_DIR) aborts loudly rather than
+    // dropping bytes.
+    let mut messages = match SpoolMessages::open(state, account, spool, archive).await {
+        Ok(m) => m,
+        Err(response) => return response,
+    };
+    let mut emails = serde_json::Map::new();
+    let mut i = 0usize;
+    loop {
+        let message = match messages.next().await {
+            Ok(Some((name, message))) => {
+                if only_maildir && !is_maildir_path(&name) {
+                    continue;
+                }
+                message
+            }
+            Ok(None) => break,
+            Err(response) => return response,
+        };
+        let blob_id = match engine.store_upload(account, "message/rfc822", &message).await {
             Ok(id) => id,
             Err(e) => {
                 // The store error can carry the upload path; the operator reads it
@@ -401,11 +590,21 @@ async fn ingest_messages(
         };
         emails.insert(
             format!("i{i}"),
-            json!({ "blobId": blob_id, "mailboxIds": { &mailbox_id: true } }),
+            json!({ "blobId": blob_id, "mailboxIds": { mailbox_id: true } }),
         );
+        i += 1;
     }
+    run_import(engine, account, mailbox_id, emails, count).await
+}
 
-    // One Email/import for the whole batch — the same ingest path a client uses.
+/// One `Email/import` for the whole batch — the same ingest path a client uses.
+async fn run_import(
+    engine: &mw_engine::Engine,
+    account: &str,
+    mailbox_id: &str,
+    emails: serde_json::Map<String, Value>,
+    total: usize,
+) -> Response {
     let request = json!({
         "methodCalls": [[
             "Email/import",
@@ -418,7 +617,7 @@ async fn ingest_messages(
     Json(json!({
         "imported": imported,
         "failed": failed,
-        "total": messages.len(),
+        "total": total,
         "mailboxId": mailbox_id,
     }))
     .into_response()
@@ -487,52 +686,117 @@ async fn resolve_target_mailbox(
 /// non-empty regular file is taken). Pure, allocation-bounded, and panic-free — a
 /// truncated or malformed archive yields the entries parsed so far or an error, but
 /// never reads out of bounds.
+#[cfg(test)]
 fn maildir_tar_messages(data: &[u8]) -> Result<Vec<Vec<u8>>, String> {
-    const BLOCK: usize = 512;
-    if data.len() < BLOCK {
-        return Err("not a tar archive (too short)".to_string());
-    }
-    let mut all: Vec<(String, Vec<u8>)> = Vec::new();
-    let mut off = 0usize;
-    while off + BLOCK <= data.len() {
-        let header = &data[off..off + BLOCK];
-        // Two consecutive zero blocks mark the end of the archive.
-        if header.iter().all(|&b| b == 0) {
-            break;
-        }
-        let name = tar_str(&header[0..100]);
-        let size = tar_octal(&header[124..136]).ok_or("malformed tar size field")?;
-        if size > MAX_MESSAGE_BYTES as u64 {
-            return Err("a tar entry exceeds the per-message size limit".to_string());
-        }
-        let size = size as usize;
-        let typeflag = header[156];
-        off += BLOCK;
-        // Body starts after the header, padded up to the next 512 boundary.
-        let end = off.checked_add(size).ok_or("tar size overflow")?;
-        if end > data.len() {
-            return Err("truncated tar entry body".to_string());
-        }
-        // typeflag '0' or NUL is a regular file; skip everything else (dirs, links…).
-        if (typeflag == b'0' || typeflag == 0) && size > 0 && !name.ends_with('/') {
-            all.push((name, data[off..end].to_vec()));
-        }
-        off = end.div_ceil(BLOCK) * BLOCK;
-        if all.len() > MAX_IMPORT_MESSAGES {
-            return Err("too many entries in the maildir tar".to_string());
-        }
-    }
+    let mut tar = TarSplitter::new();
+    let all = tar.push(data)?;
+    tar.finish()?;
     // Prefer real maildir message paths; fall back to every regular file if the tar
     // wasn't rooted at the maildir (so a bare `cur/`-less dump still imports).
     let maildir: Vec<Vec<u8>> = all
         .iter()
-        .filter(|(name, _)| name.contains("/cur/") || name.contains("/new/"))
+        .filter(|(name, _)| is_maildir_path(name))
         .map(|(_, body)| body.clone())
         .collect();
     if maildir.is_empty() {
         Ok(all.into_iter().map(|(_, body)| body).collect())
     } else {
         Ok(maildir)
+    }
+}
+
+/// An uncompressed tar read as it arrives (t55): regular files (name, bytes)
+/// come out one at a time, so only the entry being read is held. Same rules as
+/// the whole-archive parser it replaced: two zero blocks (or the end) finish
+/// it, an entry over the per-message cap, a truncated entry, a malformed size
+/// or more than `MAX_IMPORT_MESSAGES` entries is refused, directories, links and
+/// empty files are skipped.
+struct TarSplitter {
+    buf: Vec<u8>,
+    /// The entry whose body is being read: (name, keep it, body size).
+    entry: Option<(String, bool, usize)>,
+    /// Padding still to skip after an entry body.
+    skip: usize,
+    seen: usize,
+    total: u64,
+    ended: bool,
+}
+
+impl TarSplitter {
+    const BLOCK: usize = 512;
+
+    fn new() -> Self {
+        Self { buf: Vec::new(), entry: None, skip: 0, seen: 0, total: 0, ended: false }
+    }
+
+    fn push(&mut self, data: &[u8]) -> Result<Vec<(String, Vec<u8>)>, String> {
+        self.total += data.len() as u64;
+        let mut out = Vec::new();
+        if self.ended {
+            return Ok(out);
+        }
+        self.buf.extend_from_slice(data);
+        loop {
+            if self.skip > 0 {
+                let n = self.skip.min(self.buf.len());
+                self.buf.drain(..n);
+                self.skip -= n;
+                if self.skip > 0 {
+                    return Ok(out);
+                }
+            }
+            if let Some((_, _, size)) = &self.entry {
+                let size = *size;
+                if self.buf.len() < size {
+                    return Ok(out);
+                }
+                let (name, keep, _) = self.entry.take().expect("entry");
+                let rest = self.buf.split_off(size);
+                let body = std::mem::replace(&mut self.buf, rest);
+                if keep {
+                    out.push((name, body));
+                }
+                self.skip = size.div_ceil(Self::BLOCK) * Self::BLOCK - size;
+                continue;
+            }
+            if self.buf.len() < Self::BLOCK {
+                return Ok(out);
+            }
+            let header: Vec<u8> = self.buf.drain(..Self::BLOCK).collect();
+            // A zero block marks the end of the archive.
+            if header.iter().all(|&b| b == 0) {
+                self.ended = true;
+                self.buf.clear();
+                return Ok(out);
+            }
+            let name = tar_str(&header[0..100]);
+            let size = tar_octal(&header[124..136]).ok_or("malformed tar size field")?;
+            if size > MAX_MESSAGE_BYTES as u64 {
+                return Err("a tar entry exceeds the per-message size limit".to_string());
+            }
+            let size = size as usize;
+            let typeflag = header[156];
+            // typeflag '0' or NUL is a regular file; skip everything else (dirs, links…).
+            let keep = (typeflag == b'0' || typeflag == 0) && size > 0 && !name.ends_with('/');
+            if keep {
+                self.seen += 1;
+                if self.seen > MAX_IMPORT_MESSAGES {
+                    return Err("too many entries in the maildir tar".to_string());
+                }
+            }
+            self.entry = Some((name, keep, size));
+        }
+    }
+
+    /// The input is complete: refuse a truncated archive.
+    fn finish(self) -> Result<(), String> {
+        if self.total < Self::BLOCK as u64 {
+            return Err("not a tar archive (too short)".to_string());
+        }
+        if self.entry.is_some() {
+            return Err("truncated tar entry body".to_string());
+        }
+        Ok(())
     }
 }
 
@@ -788,25 +1052,6 @@ async fn auth_engine<'a>(
     Ok((session, engine))
 }
 
-/// Turn a failed body read on a size-capped import route into a response.
-///
-/// The `Bytes` extractor is fallible once an explicit [`DefaultBodyLimit`] is in
-/// play, and its own rejection is a bare `text/plain` `413`. Taking the
-/// `Result` in the handler lets the limit answer with the crate-shared JSON body
-/// instead, so a client sees the same `{error, limit, maxBytes}` shape here as on
-/// `/jmap/upload` and the blob-download path. Any other read failure (a client
-/// that hung up mid-body) is a `400` — the request never arrived, it was not
-/// too big.
-fn body_rejected(rej: BytesRejection) -> Response {
-    if rej.status() == StatusCode::PAYLOAD_TOO_LARGE {
-        return import_too_large();
-    }
-    bad_request(&format!(
-        "could not read the request body: {}",
-        rej.body_text()
-    ))
-}
-
 /// The JSON `413` for an import body over [`MAX_MESSAGE_BYTES`].
 fn import_too_large() -> Response {
     payload_too_large(MESSAGE_LIMIT_NAME, MAX_MESSAGE_BYTES)
@@ -999,6 +1244,32 @@ mod tests {
         let mut tar = make_tar(&[("maildir/cur/1", &body)]);
         tar.truncate(600); // header (512) present but the 1000-byte body is cut off
         assert!(maildir_tar_messages(&tar).is_err());
+    }
+
+    /// t55: the tar is read as it arrives: any cut into pieces gives the same
+    /// entries, and only the entry being read is held.
+    #[test]
+    fn the_incremental_tar_reader_gives_the_same_entries_for_any_piece_size() {
+        let entries: Vec<(String, Vec<u8>)> = (0..12)
+            .map(|i| (format!("maildir/cur/{i}.msg"), vec![b'a' + i as u8; 300 + i * 517]))
+            .collect();
+        let refs: Vec<(&str, &[u8])> = entries.iter().map(|(n, b)| (n.as_str(), b.as_slice())).collect();
+        let tar = make_tar(&refs);
+        for piece in [1usize, 7, 511, 512, 513, 4096, tar.len()] {
+            let mut t = TarSplitter::new();
+            let mut got = Vec::new();
+            let mut held = 0;
+            for chunk in tar.chunks(piece) {
+                got.extend(t.push(chunk).unwrap());
+                held = held.max(t.buf.len());
+            }
+            t.finish().unwrap();
+            assert_eq!(got, entries, "piece size {piece}");
+            assert!(held < 300 + 11 * 517 + 512 + piece, "held {held} bytes at piece size {piece}");
+        }
+        let mut t = TarSplitter::new();
+        let _ = t.push(&tar[..512 + 100]).unwrap();
+        assert!(t.finish().is_err(), "a tar cut inside an entry is refused");
     }
 
     #[test]
