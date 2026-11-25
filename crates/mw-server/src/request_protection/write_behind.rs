@@ -229,6 +229,8 @@ pub(crate) struct WriteBehindStatus {
     pub unjoined_writes_seen: u64,
     /// Observations written through because the queue was full.
     pub backpressure_writes: u64,
+    /// Requests that waited for a drain at the hard cap (healthy storage).
+    pub full_waits: u64,
 }
 #[derive(Default)]
 struct Counters {
@@ -246,6 +248,7 @@ struct Counters {
     ownership_lost: AtomicU64,
     unjoined_writes_seen: AtomicU64,
     backpressure_writes: AtomicU64,
+    full_waits: AtomicU64,
 }
 fn bump(counter: &AtomicU64, by: u64) {
     counter.fetch_add(by, Ordering::Relaxed);
@@ -334,6 +337,8 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 /// A group handed to its own task (see `WriteBehind::store_group`).
 struct Orphan {
     batch: Vec<Arc<Pending>>,
+    /// `stale_epoch` taken before the task's database read (N3).
+    epoch: u64,
     task: tokio::task::JoinHandle<Result<Vec<(ProtectionOutcome, Option<StoredProtection>)>, StoreError>>,
 }
 /// Keeps a group whose caller is cancelled mid-wait for the next drain.
@@ -386,6 +391,10 @@ pub(crate) struct WriteBehind {
     epoch: Instant,
     /// Two flush intervals: how long one successful check is trusted.
     window: Duration,
+    /// Bumped by every `mark_all_stale`. A load or a flush batch takes it before
+    /// its database read and installs its row as stale when it changed, so a
+    /// mark is never overwritten by a row read before it (e15a N3).
+    stale_epoch: AtomicU64,
     /// The writers marker as of the previous check (`None`: no check yet).
     marker: Mutex<Option<Option<String>>>,
     /// Test hook: a delay between a check and storing its deadline.
@@ -416,6 +425,7 @@ impl WriteBehind {
             epoch: Instant::now(),
             window: mw_store::request_protection::ownership_window(config.flush_every)
                 .unwrap_or(config.flush_every * 2),
+            stale_epoch: AtomicU64::new(0),
             marker: Mutex::new(None),
             #[cfg(test)]
             stall_after_check: Mutex::new(None),
@@ -494,6 +504,8 @@ impl WriteBehind {
     }
     /// Every cached subject without pending observations is re-read on its next use.
     fn mark_all_stale(&self) {
+        // Before the entries: a reader that installs after this sees the change.
+        self.stale_epoch.fetch_add(1, Ordering::SeqCst);
         for shard in &self.shards {
             for entry in lock(shard).values_mut() {
                 if entry.pending.is_empty() {
@@ -606,17 +618,25 @@ impl WriteBehind {
             }
         }
         let started = Instant::now();
+        let epoch = self.stale_epoch.load(Ordering::SeqCst);
         let row = self.store.request_protection_load(key, kind, now).await?;
         bump(&self.counters.loads, 1);
         let mut entries = lock(self.shard(key));
+        // A mark made while the row was read may concern a write after the read.
+        let marked = self.stale_epoch.load(Ordering::SeqCst) != epoch;
+        let loaded = |row| {
+            let mut entry = Entry::loaded(row, started);
+            entry.stale = marked;
+            entry
+        };
         match entries.get_mut(key) {
             // A concurrent request loaded (and possibly charged) it first, or a
             // flush re-seeded it after our read began: keep the newer view.
             Some(entry) if !entry.pending.is_empty() || entry.synced_at > started => {}
-            Some(entry) => *entry = Entry::loaded(row, started),
+            Some(entry) => *entry = loaded(row),
             None => {
                 self.evict(&mut entries);
-                entries.insert(key.to_owned(), Entry::loaded(row, started));
+                entries.insert(key.to_owned(), loaded(row));
             }
         }
         let entry = entries.get_mut(key).expect("entry present under its shard lock");
@@ -686,6 +706,11 @@ impl WriteBehind {
             Err(_) => return Answer::failed(Decision::default()),
         };
         let key = prepared.subject_key().to_owned();
+        // At the hard cap with healthy storage (concurrency alone filled the
+        // queue), wait for the queue to drain and record then (e15a N2); only
+        // a degraded store or a drain that does not make room drops.
+        let mut attempts = 0;
+        loop {
         let recorded = self
             .with_entry(&key, kind, now, |entry| {
                 let mut queue = lock(&self.queue);
@@ -734,6 +759,12 @@ impl WriteBehind {
         let (pending, decision, through, transition, queued) = match recorded {
             Err(_) => return Answer::failed(Decision::default()),
             Ok(Recorded::Full(decision)) => {
+                let healthy = lock(&self.degraded_since).is_none();
+                if healthy && attempts < 3 && self.flush_pending().await.is_ok() {
+                    attempts += 1;
+                    bump(&self.counters.full_waits, 1);
+                    continue;
+                }
                 bump(&self.counters.dropped, 1);
                 return Answer::failed(decision);
             }
@@ -769,7 +800,8 @@ impl WriteBehind {
                 }
             };
         }
-        Answer { decision, storage_failed: self.degraded_too_long() }
+        return Answer { decision, storage_failed: self.degraded_too_long() };
+        }
     }
 
     /// Read an existing probe-path action without charging anything.
@@ -860,8 +892,8 @@ impl WriteBehind {
             return Ok(());
         }
         match self.store_group(participant, batch.clone(), lane.clone()).await {
-            Ok(results) => {
-                self.committed(&batch, results);
+            Ok((results, epoch)) => {
+                self.committed(&batch, results, epoch);
                 Ok(())
             }
             // A deterministic refusal (corrupt row, subject capacity) would fail the
@@ -869,7 +901,7 @@ impl WriteBehind {
             Err(StoreError::Corrupt(_)) => {
                 for pending in &batch {
                     match self.store_group(participant, vec![pending.clone()], lane.clone()).await {
-                        Ok(results) => self.committed(std::slice::from_ref(pending), results),
+                        Ok((results, epoch)) => self.committed(std::slice::from_ref(pending), results, epoch),
                         Err(StoreError::Corrupt(_)) => self.rejected(pending),
                         Err(error) => return Err(self.degrade(error)),
                     }
@@ -890,28 +922,31 @@ impl WriteBehind {
         participant: &Arc<ProtectionParticipant>,
         batch: Vec<Arc<Pending>>,
         lane: WriteLaneRequest,
-    ) -> Result<Vec<(ProtectionOutcome, Option<StoredProtection>)>, StoreError> {
+    ) -> Result<(Vec<(ProtectionOutcome, Option<StoredProtection>)>, u64), StoreError> {
         let (store, participant) = (self.store.clone(), participant.clone());
         let group = batch.clone();
+        // N3: before the task's database read, so a mark made while it reads
+        // is not overwritten when its rows are booked (here or by settle_orphan).
+        let epoch = self.stale_epoch.load(Ordering::SeqCst);
         // The request's statement measurement follows the group into its task.
         let task = tokio::spawn(mw_store::pool_telemetry::in_current_measurement(async move {
             let observations: Vec<_> = group.iter().map(|pending| pending.observation()).collect();
             store.request_protection_sqlite_batch_in(&participant, &observations, lane).await
         }));
-        let mut guard = OrphanGuard { owner: self, orphan: Some(Orphan { batch, task }) };
+        let mut guard = OrphanGuard { owner: self, orphan: Some(Orphan { batch, epoch, task }) };
         let orphan = guard.orphan.as_mut().expect("orphan present");
         let joined = (&mut orphan.task).await;
         guard.orphan = None;
-        joined.unwrap_or_else(|_| Err(StoreError::Db(sqlx::Error::WorkerCrashed)))
+        joined.unwrap_or_else(|_| Err(StoreError::Db(sqlx::Error::WorkerCrashed))).map(|results| (results, epoch))
     }
 
     /// Book a group whose caller was cancelled after handing it to its task.
     /// Caller holds `flushing`, so no other group of the queue is in flight.
     async fn settle_orphan(&self) {
         let orphan = lock(&self.orphan).take();
-        let Some(Orphan { batch, task }) = orphan else { return };
+        let Some(Orphan { batch, epoch, task }) = orphan else { return };
         match task.await {
-            Ok(Ok(results)) => self.committed(&batch, results),
+            Ok(Ok(results)) => self.committed(&batch, results, epoch),
             // Not stored: the observations stay queued and the next group
             // writes them, as after any failed flush.
             Ok(Err(error)) => {
@@ -929,13 +964,20 @@ impl WriteBehind {
 
     /// Re-seed each flushed subject from its committed row, then replay the
     /// observations it queued after this group.
-    fn committed(&self, batch: &[Arc<Pending>], results: Vec<(ProtectionOutcome, Option<StoredProtection>)>) {
+    /// `epoch`: `stale_epoch` taken before the batch's database read.
+    fn committed(
+        &self,
+        batch: &[Arc<Pending>],
+        results: Vec<(ProtectionOutcome, Option<StoredProtection>)>,
+        epoch: u64,
+    ) {
         let mut last: HashMap<&str, (u64, Option<StoredProtection>)> = HashMap::new();
         for (pending, (outcome, stored)) in batch.iter().zip(results) {
             let _ = pending.durable.set(outcome.decision);
             last.insert(pending.prepared.subject_key(), (pending.seq, stored));
         }
         let synced = Instant::now();
+        let marked = self.stale_epoch.load(Ordering::SeqCst) != epoch;
         for (key, (seq, stored)) in last {
             let mut entries = lock(self.shard(key));
             let Some(entry) = entries.get_mut(key) else { continue };
@@ -947,7 +989,8 @@ impl WriteBehind {
                     entry.state = stored.state;
                     entry.expires_at = stored.expires_at;
                     entry.persisted = true;
-                    entry.stale = false;
+                    // Re-read on the next use if a mark happened since the read.
+                    entry.stale = marked;
                     for pending in &entry.pending {
                         pending.replay(&mut entry.state, &mut entry.expires_at);
                     }
@@ -1048,6 +1091,7 @@ impl WriteBehind {
             ownership_lost: counter(&self.counters.ownership_lost),
             unjoined_writes_seen: counter(&self.counters.unjoined_writes_seen),
             backpressure_writes: counter(&self.counters.backpressure_writes),
+            full_waits: counter(&self.counters.full_waits),
         }
     }
 }

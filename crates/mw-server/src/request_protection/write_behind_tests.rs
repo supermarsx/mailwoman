@@ -1338,3 +1338,68 @@ async fn a_slow_flush_does_not_lapse_ownership() {
     let (_, sql) = measure_queries(accounting.record("account", "slow", &p, 1000, None, NONE)).await;
     assert_eq!(statements(&sql), (0, 0, 0), "{sql:?}");
 }
+
+/// e15a N3: a mark made while a load or a flush batch reads its rows is not
+/// overwritten by those (older) rows: the installed entry stays marked.
+#[tokio::test]
+async fn a_mark_during_a_read_survives_the_install() {
+    let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+    let accounting = WriteBehind::new(store.clone(), config(5000, 4096));
+    accounting.check_ownership().await;
+    let mut p = policy();
+    p.rate_limit = 1000;
+    accounting.record("account", "n3", &p, 1000, None, NONE).await; // row created
+    accounting.record("account", "n3", &p, 1000, None, NONE).await; // queued
+    let key = store.request_protection_subject("account", "n3").unwrap();
+    let stale = |accounting: &WriteBehind| lock(accounting.shard(&key)).get(&key).unwrap().stale;
+    // A flush whose rows were read before a mark: simulate the mark between the
+    // epoch read and the install by bumping the epoch after the batch was taken.
+    let batch: Vec<Arc<Pending>> = lock(&accounting.queue).iter().cloned().collect();
+    let epoch = accounting.stale_epoch.load(Ordering::SeqCst);
+    let observations: Vec<_> = batch.iter().map(|pending| pending.observation()).collect();
+    let participant = accounting.participant().await.unwrap();
+    let results = store.request_protection_sqlite_batch_as(&participant, &observations).await.unwrap();
+    accounting.mark_all_stale(); // the checker, between the batch's read and its install
+    accounting.committed(&batch, results, epoch);
+    assert!(stale(&accounting), "the batch's rows must not clear a later mark");
+    // Without a mark in between the install is fresh.
+    accounting.record("account", "n3", &p, 1000, None, NONE).await;
+    accounting.flush_pending().await.unwrap();
+    assert!(!stale(&accounting));
+}
+
+/// e15a N2: concurrency alone (healthy storage) reaching 2 x MAX_PENDING waits
+/// for a drain instead of dropping: nothing is dropped, everything is counted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrency_at_the_hard_cap_waits_and_drops_nothing() {
+    let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+    let accounting = Arc::new(WriteBehind::new(store.clone(), config(5000, 64)));
+    let mut p = policy();
+    p.rate_limit = 100_000;
+    accounting.record("account", "crowd", &p, 1000, None, NONE).await;
+    // Fill to the hard cap directly, as many concurrent in-flight requests would.
+    while accounting.status().pending < 128 {
+        let _ = accounting.with_entry(&store.request_protection_subject("account", "crowd").unwrap(), "account", 1000, |entry| {
+            let prepared = accounting.keyer.prepare("account", "crowd", &p, 1000, None, NONE).unwrap().unwrap();
+            evaluate_protection(&mut entry.state, &mut entry.expires_at, &prepared, &p, 1000, None, NONE);
+            let pending = Arc::new(Pending {
+                seq: accounting.next_seq.fetch_add(1, Ordering::Relaxed), kind: "account", value: "crowd".into(),
+                prepared, policy: p.clone(), now: 1000, signal: None, country: None, ip: None, durable: OnceLock::new(),
+            });
+            entry.pending.push_back(pending.clone());
+            lock(&accounting.queue).push_back(pending);
+        }).await;
+    }
+    let tasks: Vec<_> = (0..32).map(|_| {
+        let (accounting, p) = (accounting.clone(), p.clone());
+        tokio::spawn(async move { accounting.record("account", "crowd", &p, 1000, None, NONE).await })
+    }).collect();
+    for task in tasks {
+        assert!(!task.await.unwrap().storage_failed);
+    }
+    accounting.flush_pending().await.unwrap();
+    let status = accounting.status();
+    assert_eq!(status.dropped, 0, "{status:?}");
+    assert!(status.full_waits >= 1, "{status:?}");
+    assert_eq!(rate_count(&store, "account", "crowd", 1000).await, Some(1 + 128 + 32));
+}
