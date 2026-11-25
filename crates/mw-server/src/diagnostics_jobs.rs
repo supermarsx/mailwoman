@@ -11,6 +11,8 @@ use tokio::sync::{Notify, Semaphore};
 
 const MAX_CHECKS: usize = 128;
 static JOBS: OnceLock<Mutex<HashMap<String, Arc<Job>>>> = OnceLock::new();
+/// Most diagnostics job snapshots kept (t63); running ones are one per admin.
+const MAX_JOBS: usize = 64;
 static PROBES: OnceLock<Arc<Semaphore>> = OnceLock::new();
 struct Job {
     owner: String,
@@ -267,6 +269,11 @@ if target.enabled{targets.push(target);}else{results.push(item(&target,"skipped"
     {
         let mut all = jobs().lock().unwrap_or_else(|e| e.into_inner());
         all.retain(|_, j| j.created.elapsed() < Duration::from_secs(1800));
+        // t63: at most MAX_JOBS kept; the oldest finished job gives way first.
+        crate::hardening::make_room_by(&mut all, MAX_JOBS, |j| {
+            (j.snapshot.lock().unwrap_or_else(|e| e.into_inner())["run"]["status"] != "running")
+                .then_some(j.created)
+        });
         let running = |j: &&Arc<Job>| {
             j.snapshot.lock().unwrap_or_else(|e| e.into_inner())["run"]["status"] == "running"
         };

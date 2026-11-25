@@ -385,9 +385,44 @@ pub enum Expiry {
 
 /// In-process record of when each session was created and last used, so the
 /// server can enforce idle/absolute timeouts without persisting timestamps.
+///
+/// t63: a session that is never checked again (closed tab, deleted elsewhere)
+/// left its entry forever. When a NEW id is inserted and the map has reached
+/// its sweep mark (4,096, then twice the live count), entries already past the
+/// idle or absolute timeout are dropped. Dropping one cannot extend a session:
+/// its next sighting reseeds this clock, and the persisted clocks
+/// (`activity_at` / `created_at`, `enforce_session_clock`) still refuse it.
 #[derive(Default)]
 pub struct SessionGuard {
     inner: Mutex<HashMap<String, Timing>>,
+    sweep_at: std::sync::atomic::AtomicUsize,
+}
+
+const SESSION_GUARD_SWEEP_FLOOR: usize = 4096;
+
+/// t63: make room for one insertion into a map capped at `cap` entries by
+/// removing the entries with the smallest `order` (oldest / soonest to
+/// expire). An entry whose `order` is `None` is never removed (a running job);
+/// if only such entries remain, the map may stay at the cap.
+pub(crate) fn make_room_by<K, V, O>(
+    map: &mut HashMap<K, V>,
+    cap: usize,
+    order: impl Fn(&V) -> Option<O>,
+) where
+    K: Clone + Eq + std::hash::Hash,
+    O: Ord,
+{
+    while map.len() >= cap.max(1) {
+        let Some(victim) = map
+            .iter()
+            .filter_map(|(key, value)| order(value).map(|o| (o, key)))
+            .min_by(|a, b| a.0.cmp(&b.0))
+            .map(|(_, key)| key.clone())
+        else {
+            break;
+        };
+        map.remove(&victim);
+    }
 }
 
 impl SessionGuard {
@@ -437,6 +472,18 @@ impl SessionGuard {
                 Ok(())
             }
             None => {
+                let sweep_at = self.sweep_at.load(std::sync::atomic::Ordering::Relaxed).max(SESSION_GUARD_SWEEP_FLOOR);
+                if map.len() >= sweep_at {
+                    map.retain(|_, t| {
+                        !(now.duration_since(t.last_seen) > cfg.idle_timeout
+                            || (!cfg.absolute_timeout.is_zero()
+                                && now.duration_since(t.created) > cfg.absolute_timeout))
+                    });
+                    self.sweep_at.store(
+                        (map.len() * 2).max(SESSION_GUARD_SWEEP_FLOOR),
+                        std::sync::atomic::Ordering::Relaxed,
+                    );
+                }
                 map.insert(
                     id.to_string(),
                     Timing {
@@ -447,6 +494,11 @@ impl SessionGuard {
                 Ok(())
             }
         }
+    }
+
+    /// Sessions this guard holds a clock for (diagnostics, tests).
+    pub fn tracked(&self) -> usize {
+        self.inner.lock().map(|map| map.len()).unwrap_or(0)
     }
 
     /// Drop a session's timing (logout / expiry).
@@ -495,6 +547,40 @@ impl SessionGuard {
 
 #[cfg(test)]
 mod tests {
+    /// t63 (7): the capped maps (pending second-factor logins, console
+    /// logins, diagnostics jobs) keep at most `cap`, dropping the smallest order
+    /// first and never an entry without one.
+    #[test]
+    fn make_room_keeps_the_cap_and_spares_unorderable_entries() {
+        let mut map: HashMap<u32, Option<u32>> = HashMap::new();
+        for n in 0..10_000u32 {
+            super::make_room_by(&mut map, 64, |v| *v);
+            map.insert(n, if n == 3 { None } else { Some(n) });
+            assert!(map.len() <= 64);
+        }
+        assert!(map.contains_key(&3), "an entry without an order is kept");
+        assert!(map.contains_key(&9_999) && !map.contains_key(&4), "the oldest went first");
+    }
+
+    /// t63 (7): clocks of sessions never seen again are swept once past their
+    /// timeout; a live session keeps its clock.
+    #[test]
+    fn session_guard_sweeps_expired_clocks() {
+        let guard = SessionGuard::new();
+        let cfg = HardeningConfig { idle_timeout: Duration::from_secs(60), ..Default::default() };
+        let start = Instant::now();
+        for n in 0..(SESSION_GUARD_SWEEP_FLOOR * 3) {
+            guard.check_at(&format!("old-{n}"), &cfg, start).unwrap();
+        }
+        let later = start + Duration::from_secs(120);
+        guard.check_at("live", &cfg, later).unwrap();
+        for n in 0..(SESSION_GUARD_SWEEP_FLOOR * 3) {
+            guard.check_at(&format!("new-{n}"), &cfg, later).unwrap();
+        }
+        assert!(guard.tracked() <= SESSION_GUARD_SWEEP_FLOOR * 4, "{}", guard.tracked());
+        assert!(guard.check_at("live", &cfg, later).is_ok());
+    }
+
     use super::*;
 
     fn h(pairs: &[(&str, &str)]) -> HeaderMap {

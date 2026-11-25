@@ -490,6 +490,8 @@ struct Pending {
 }
 
 static PENDING: LazyLock<Mutex<HashMap<String, Pending>>> = LazyLock::new(Default::default);
+/// Most pending console second-factor logins held at once (t63).
+const MAX_PENDING_ADMIN_LOGINS: usize = 1024;
 
 /// Enrolment secrets are bound to the initiating administrator session.
 struct PendingEnrollment {
@@ -672,6 +674,8 @@ async fn login(
             let token = new_token();
             let mut pending = lock(&PENDING);
             pending.retain(|_, p| p.expires > Instant::now());
+            // t63: a count cap on top of the TTL; the soonest-to-expire goes.
+            crate::hardening::make_room_by(&mut pending, MAX_PENDING_ADMIN_LOGINS, |p| Some(p.expires));
             pending.insert(
                 token.clone(),
                 Pending {

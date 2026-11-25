@@ -99,10 +99,18 @@ impl AuditSink for CollectingAudit {
 }
 
 /// Fixed-window per-key rate limiter (requests/min). Ephemeral, in-process.
+///
+/// t63: a window that has ended carries no state (the next request starts a
+/// new one), so ended windows are swept once the map reaches `sweep_at`
+/// (4,096, then twice the live count). Distinct client ids (dynamic
+/// registration) no longer accumulate.
 pub(crate) struct RateLimiter {
     inner: Mutex<HashMap<String, Window>>,
     window: Duration,
+    sweep_at: std::sync::atomic::AtomicUsize,
 }
+
+const RATE_SWEEP_FLOOR: usize = 4096;
 
 struct Window {
     start: Instant,
@@ -114,7 +122,13 @@ impl RateLimiter {
         Self {
             inner: Mutex::new(HashMap::new()),
             window: Duration::from_secs(60),
+            sweep_at: std::sync::atomic::AtomicUsize::new(RATE_SWEEP_FLOOR),
         }
+    }
+
+    /// Keys tracked now (diagnostics, tests).
+    pub(crate) fn len(&self) -> usize {
+        self.inner.lock().map(|map| map.len()).unwrap_or(0)
     }
 
     /// Record a request for `key`; returns `false` when `limit` is exceeded within
@@ -122,6 +136,15 @@ impl RateLimiter {
     pub(crate) fn check(&self, key: &str, limit: u32) -> bool {
         let mut map = self.inner.lock().expect("lock");
         let now = Instant::now();
+        let sweep_at = self.sweep_at.load(std::sync::atomic::Ordering::Relaxed);
+        if map.len() >= sweep_at && !map.contains_key(key) {
+            let window = self.window;
+            map.retain(|_, w| now.duration_since(w.start) < window);
+            self.sweep_at.store(
+                (map.len() * 2).max(RATE_SWEEP_FLOOR),
+                std::sync::atomic::Ordering::Relaxed,
+            );
+        }
         let w = map.entry(key.to_string()).or_insert(Window {
             start: now,
             count: 0,
@@ -388,5 +411,28 @@ impl<S: OAuthStore> AuthServer<S> {
             return Err(OAuthError::InvalidScope);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod rate_limiter_bound_tests {
+    use super::*;
+
+    /// t63 (7): ended windows are swept, so distinct keys do not accumulate;
+    /// a live window keeps its count.
+    #[test]
+    fn ended_windows_are_swept() {
+        let limiter = RateLimiter { window: Duration::from_millis(20), ..RateLimiter::new() };
+        assert!(limiter.check("live", 1));
+        std::thread::sleep(Duration::from_millis(30));
+        for n in 0..(RATE_SWEEP_FLOOR * 3) {
+            limiter.check(&format!("client-{n}"), 10);
+            if n % 1000 == 0 {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+        }
+        assert!(limiter.len() <= RATE_SWEEP_FLOOR * 2, "{} keys", limiter.len());
+        assert!(limiter.check("held", 1));
+        assert!(!limiter.check("held", 1), "a live window still limits");
     }
 }

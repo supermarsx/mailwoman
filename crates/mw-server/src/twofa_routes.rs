@@ -111,6 +111,9 @@ struct RegChallenge {
     expires_at: Instant,
 }
 
+/// Most pending second-factor logins held at once (t63).
+pub(crate) const MAX_PENDING_LOGINS: usize = 16_384;
+
 /// The server-side second-factor state carried in [`AppState`]. Two one-shot,
 /// TTL-swept maps: pending logins (keyed by an opaque token) and passkey
 /// registration challenges (keyed by account id).
@@ -132,7 +135,15 @@ impl TwofaState {
     fn put_pending(&self, token: String, entry: PendingLogin) {
         let mut map = self.pending.lock().expect("twofa pending poisoned");
         map.retain(|_, e| e.expires_at > Instant::now());
+        // t63: a count cap on top of the TTL (an entry needs a correct
+        // password); the soonest-to-expire entry gives way.
+        crate::hardening::make_room_by(&mut map, MAX_PENDING_LOGINS, |e| Some(e.expires_at));
         map.insert(token, entry);
+    }
+
+    /// Pending second-factor logins held now (diagnostics, tests).
+    pub(crate) fn pending_logins(&self) -> usize {
+        self.pending.lock().map(|map| map.len()).unwrap_or(0)
     }
 
     /// Redeem a pending login exactly once (removes it) — used on SUCCESS so the
