@@ -517,7 +517,7 @@ impl Store {
     pub async fn policy_domain_family(&self, domain: &str) -> Result<Vec<String>, StoreError> {
         // t50hp-e9: memoised by exact revision, like the canonical subject.
         let revision = self.settings_revision().await?;
-        let key = format!("family {domain}");
+        let key = format!("family\0{domain}");
         if let Some(revision) = revision
             && let Some(hit) = FAMILY_MEMO.get(self.cache_scope(), &key, revision)
         {
