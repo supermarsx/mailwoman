@@ -140,6 +140,11 @@ pub(crate) fn resync_failure() {
     metrics::counter!("mw_realtime_resync_failures_total").increment(1);
 }
 
+/// A resync read panicked and was contained (t55).
+pub(crate) fn resync_read_panic() {
+    metrics::counter!("mw_realtime_resync_read_panics_total").increment(1);
+}
+
 /// A resync read went to the store (`shared == false`) or joined a read that
 /// started after the requester's gap (`shared == true`).
 pub(crate) fn resync_read(shared: bool) {

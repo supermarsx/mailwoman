@@ -563,6 +563,33 @@ async fn a_queued_read_is_shared_and_concurrency_is_bounded() {
     );
 }
 
+/// t55: a read that panics fails its requesters with an error (not a panic
+/// that would poison the shared read), leaves nothing behind, and the next
+/// read of the account works.
+#[tokio::test]
+async fn a_read_that_panics_fails_only_that_read_and_the_next_one_works() {
+    let hub = Hub::new(1);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counter = calls.clone();
+    let source: ReadFn = Arc::new(move |account| {
+        let first = counter.fetch_add(1, Ordering::SeqCst) == 0;
+        Box::pin(async move {
+            if first {
+                panic!("injected panic in the state read");
+            }
+            Ok(change(&account, "after"))
+        })
+    });
+    let gap = hub.gap();
+    let out = hub.read(&source, "acct1", gap, Duration::from_secs(5)).await;
+    assert!(out.is_err(), "{out:?}");
+    assert!(hub.idle(), "the panicked read left the map");
+    let gap = hub.gap();
+    let out = hub.read(&source, "acct1", gap, Duration::from_secs(5)).await;
+    assert_eq!(out.map(|c| c.email), Ok("after".to_string()));
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
 #[tokio::test]
 async fn a_read_that_outlasts_its_deadline_is_a_failure() {
     let hub = Hub::new(1);

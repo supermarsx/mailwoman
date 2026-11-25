@@ -33,7 +33,7 @@ impl Cache {
         for key in keys {
             let nk = namespaced(class, key);
             let mut value = None;
-            if memory && let Some(entry) = self.inner.mail_memory.get(&nk).await {
+            if memory && let Some(entry) = self.inner.memory_get(crate::Layer::Mail, &nk).await {
                 if entry.bytes.len() <= max_value_bytes {
                     if bytes + entry.bytes.len() > MAX_MAIL_BATCH_BYTES {
                         return Err(CacheError::Store("mail probe byte budget exceeded".into()));

@@ -5212,6 +5212,7 @@ version = "26.19.0"
 dependencies = [
  "bytes",
  "fred",
+ "metrics",
  "moka",
  "mw-store",
  "serde",

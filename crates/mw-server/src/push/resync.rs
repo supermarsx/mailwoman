@@ -166,9 +166,22 @@ impl Hub {
                 return Err("the state read named another account".into());
             }
             Ok(read)
-        }
-        .boxed()
-        .shared();
+        };
+        // A panic inside the read would poison the Shared: every requester
+        // joined to it would panic too, and the cleanup in `read` would not
+        // run. Contained here (t55): it fails this read's requesters only, as
+        // an error, and the finished flight leaves the map like any other.
+        let result = std::panic::AssertUnwindSafe(result)
+            .catch_unwind()
+            .map(|outcome| {
+                outcome.unwrap_or_else(|_| {
+                    metrics::resync_read_panic();
+                    tracing::error!("a realtime state read panicked; its requesters get an error");
+                    Err("the state read failed".into())
+                })
+            })
+            .boxed()
+            .shared();
         Flight { started, result }
     }
 }

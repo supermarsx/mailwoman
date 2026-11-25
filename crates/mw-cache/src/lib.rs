@@ -26,7 +26,7 @@ mod mail_batch;
 pub use mail_batch::MAX_MAIL_BATCH_KEYS;
 
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
@@ -298,9 +298,14 @@ pub struct Cache {
 
 struct Inner {
     matrix: RwLock<ScopeMatrix>,
-    memory: MokaCache<String, MemEntry>,
+    memory: RwLock<MemoryLayer>,
     // Mail versions are ephemeral: bounded bytes, bounded expiry, never settings rows.
-    mail_memory: MokaCache<String, MemEntry>,
+    mail_memory: RwLock<MemoryLayer>,
+    /// The `capacity` both memory layers were built from, to rebuild one.
+    capacity: u64,
+    /// Test hook: the next memory-layer operation panics.
+    #[cfg(test)]
+    panic_once: Arc<AtomicBool>,
     redis: Option<FredClient>,
     redis_configured: bool,
     redis_connected: AtomicBool,
@@ -371,25 +376,21 @@ impl Cache {
         store: Option<Store>,
         capacity: u64,
     ) -> Self {
-        let memory = MokaCache::builder()
-            .max_capacity(capacity)
-            .expire_after(PerEntryExpiry)
-            .build();
-        let minimum_entry_weight = MAIL_MEMORY_BYTES.div_ceil(capacity.max(1)).max(1) as u32;
-        let mail_memory = MokaCache::builder()
-            .max_capacity(if capacity == 0 { 0 } else { MAIL_MEMORY_BYTES })
-            .weigher(move |key: &String, value: &MemEntry| {
-                ((key.len() + value.bytes.len()).min(u32::MAX as usize) as u32)
-                    .max(minimum_entry_weight)
-            })
-            .expire_after(PerEntryExpiry)
-            .build();
+        #[cfg(test)]
+        let panic_once = Arc::new(AtomicBool::new(false));
+        let layer = |which| MemoryLayer {
+            generation: 0,
+            cache: new_moka(which, capacity),
+        };
         let connected = redis.is_some();
         Self {
             inner: Arc::new(Inner {
                 matrix: RwLock::new(matrix),
-                memory,
-                mail_memory,
+                memory: RwLock::new(layer(Layer::General)),
+                mail_memory: RwLock::new(layer(Layer::Mail)),
+                capacity,
+                #[cfg(test)]
+                panic_once,
                 redis,
                 redis_configured,
                 redis_connected: AtomicBool::new(connected),
@@ -473,8 +474,13 @@ impl Cache {
     pub async fn invalidate_ephemeral(&self, class: CacheClass, key: &str) -> CacheResult<()> {
         let policy = self.policy(class);
         let nk = namespaced(class, key);
-        self.inner.memory.invalidate(&nk).await;
-        self.inner.mail_memory.invalidate(&nk).await;
+        let key_ref = nk.as_str();
+        self.inner
+            .guarded(Layer::General, |cache| async move { cache.invalidate(key_ref).await })
+            .await;
+        self.inner
+            .guarded(Layer::Mail, |cache| async move { cache.invalidate(key_ref).await })
+            .await;
         if policy.has(CacheLayer::Redis)
             && let Some(client) = &self.inner.redis
             && let Err(e) = client.del::<i64, _>(nk.clone()).await
@@ -568,7 +574,7 @@ impl Cache {
             return loader().await.map(PlaintextDerived);
         };
         let nk = namespaced(class, key);
-        if memory && let Some(entry) = self.inner.mail_memory.get(&nk).await {
+        if memory && let Some(entry) = self.inner.memory_get(Layer::Mail, &nk).await {
             return Ok(PlaintextDerived(Some((*entry.bytes).clone())));
         }
         if redis && let Some(sealed) = self.redis_get(&nk).await {
@@ -615,20 +621,11 @@ impl Cache {
             .ok()
     }
     async fn mail_put(&self, key: &str, bytes: Vec<u8>, ttl: u64) {
-        self.inner
-            .mail_memory
-            .insert(
-                key.to_owned(),
-                MemEntry {
-                    bytes: Arc::new(bytes),
-                    ttl: Duration::from_secs(ttl),
-                },
-            )
-            .await;
+        self.inner.memory_put(Layer::Mail, key, bytes, ttl).await;
     }
     /// Bounded mail-cache occupancy, in bytes, after pending eviction tasks run.
     pub fn mail_memory_bytes(&self) -> u64 {
-        self.inner.mail_memory.weighted_size()
+        self.inner.layer(Layer::Mail).1.weighted_size()
     }
 
     // ── Internals ────────────────────────────────────────────────────────────
@@ -650,7 +647,7 @@ impl Cache {
 
         // memory → Redis → store, in tier order.
         if policy.has(CacheLayer::Memory)
-            && let Some(entry) = self.inner.memory.get(&nk).await
+            && let Some(entry) = self.inner.memory_get(Layer::General, &nk).await
             && let Ok(v) = serde_json::from_slice::<T>(&entry.bytes)
         {
             return Ok(v);
@@ -706,16 +703,7 @@ impl Cache {
     }
 
     async fn mem_put(&self, nk: &str, bytes: Vec<u8>, ttl_secs: u64) {
-        self.inner
-            .memory
-            .insert(
-                nk.to_string(),
-                MemEntry {
-                    bytes: Arc::new(bytes),
-                    ttl: Duration::from_secs(ttl_secs),
-                },
-            )
-            .await;
+        self.inner.memory_put(Layer::General, nk, bytes, ttl_secs).await;
     }
 
     async fn redis_get(&self, nk: &str) -> Option<Vec<u8>> {
@@ -768,8 +756,8 @@ impl Cache {
     /// the cache's own inspection, no live server required — that a zero-access
     /// `PlaintextDerived` value never lands in memory.
     pub fn memory_contains(&self, class: CacheClass, key: &str) -> bool {
-        self.inner.memory.contains_key(&namespaced(class, key))
-            || self.inner.mail_memory.contains_key(&namespaced(class, key))
+        self.inner.layer(Layer::General).1.contains_key(&namespaced(class, key))
+            || self.inner.layer(Layer::Mail).1.contains_key(&namespaced(class, key))
     }
 
     /// Whether the Redis tier holds `key` in `class`. `Ok(false)` when Redis is
@@ -791,12 +779,163 @@ impl Cache {
     /// Force the memory tier to run its pending eviction/expiry tasks — test
     /// hook so TTL-expiry assertions are deterministic.
     pub async fn run_pending_memory_tasks(&self) {
-        self.inner.memory.run_pending_tasks().await;
-        self.inner.mail_memory.run_pending_tasks().await;
+        self.inner
+            .guarded(Layer::General, |cache| async move { cache.run_pending_tasks().await })
+            .await;
+        self.inner
+            .guarded(Layer::Mail, |cache| async move { cache.run_pending_tasks().await })
+            .await;
     }
 }
 
 const TOMBSTONE: &str = "\u{0}mw-cache:tombstone";
+
+// ─── Memory layer panic containment (t55) ───────────────────────────────────
+
+/// Which in-process memory layer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Layer {
+    General,
+    Mail,
+}
+
+impl Layer {
+    fn name(self) -> &'static str {
+        match self {
+            Self::General => "memory",
+            Self::Mail => "mail_memory",
+        }
+    }
+}
+
+/// One moka instance and the number of times it was replaced.
+struct MemoryLayer {
+    generation: u64,
+    cache: MokaCache<String, MemEntry>,
+}
+
+/// Memory-layer operations that panicked and were contained, since start.
+static MEMORY_LAYER_PANICS: AtomicU64 = AtomicU64::new(0);
+
+/// How many memory-layer operations panicked and were contained since the
+/// process started (also exported as `mw_cache_memory_panics_total`).
+pub fn memory_layer_panics() -> u64 {
+    MEMORY_LAYER_PANICS.load(Ordering::Relaxed)
+}
+
+fn new_moka(which: Layer, capacity: u64) -> MokaCache<String, MemEntry> {
+    let builder = match which {
+        Layer::General => MokaCache::builder().max_capacity(capacity),
+        Layer::Mail => {
+            let minimum_entry_weight = MAIL_MEMORY_BYTES.div_ceil(capacity.max(1)).max(1) as u32;
+            MokaCache::builder()
+                .max_capacity(if capacity == 0 { 0 } else { MAIL_MEMORY_BYTES })
+                .weigher(move |key: &String, value: &MemEntry| {
+                    ((key.len() + value.bytes.len()).min(u32::MAX as usize) as u32)
+                        .max(minimum_entry_weight)
+                })
+        }
+    }
+    .expire_after(PerEntryExpiry);
+    builder.build()
+}
+
+impl Inner {
+    fn slot(&self, which: Layer) -> &RwLock<MemoryLayer> {
+        match which {
+            Layer::General => &self.memory,
+            Layer::Mail => &self.mail_memory,
+        }
+    }
+
+    /// The current moka instance of `which` (a cheap handle clone).
+    fn layer(&self, which: Layer) -> (u64, MokaCache<String, MemEntry>) {
+        let guard = self.slot(which).read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        (guard.generation, guard.cache.clone())
+    }
+
+    /// Run one memory-layer operation, containing a panic inside it.
+    ///
+    /// moka keeps its maintenance task in a `futures::Shared` while it runs;
+    /// when that task panics (moka 0.12.15's frequency sketch overflowed on a
+    /// production load), the stored Shared stays poisoned and every later
+    /// operation that runs maintenance panics again ("inner future panicked
+    /// during poll"), for the life of the process. So a panic here is caught,
+    /// logged and counted, the operation answers as a miss (`None`; the memory
+    /// layer is advisory), and the instance is replaced by a fresh, empty one
+    /// unless another caller already replaced it.
+    async fn guarded<T, F, Fut>(&self, which: Layer, op: F) -> Option<T>
+    where
+        F: FnOnce(MokaCache<String, MemEntry>) -> Fut,
+        Fut: std::future::Future<Output = T>,
+    {
+        let (generation, cache) = self.layer(which);
+        #[cfg(test)]
+        let armed = self.panic_once.swap(false, Ordering::SeqCst);
+        let mut fut = std::pin::pin!(async move {
+            // Test hook: stands in for a panic inside moka (its maintenance
+            // runs inside these operations).
+            #[cfg(test)]
+            if armed {
+                panic!("injected panic in a memory-layer operation");
+            }
+            op(cache).await
+        });
+        let caught = std::future::poll_fn(|cx| {
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| fut.as_mut().poll(cx))) {
+                Ok(std::task::Poll::Pending) => std::task::Poll::Pending,
+                Ok(std::task::Poll::Ready(value)) => std::task::Poll::Ready(Ok(value)),
+                Err(payload) => std::task::Poll::Ready(Err(payload)),
+            }
+        })
+        .await;
+        match caught {
+            Ok(value) => Some(value),
+            Err(payload) => {
+                self.contain_panic(which, generation, payload.as_ref());
+                None
+            }
+        }
+    }
+
+    fn contain_panic(&self, which: Layer, generation: u64, payload: &(dyn std::any::Any + Send)) {
+        MEMORY_LAYER_PANICS.fetch_add(1, Ordering::Relaxed);
+        metrics::counter!("mw_cache_memory_panics_total", "layer" => which.name()).increment(1);
+        let mut slot = self.slot(which).write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if slot.generation != generation {
+            return; // Already replaced after this instance failed.
+        }
+        let message = payload
+            .downcast_ref::<&str>()
+            .map(|s| (*s).to_string())
+            .or_else(|| payload.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "non-text panic payload".into());
+        tracing::error!(
+            target: "mw_cache",
+            layer = which.name(),
+            generation,
+            panic = %message,
+            "in-process cache layer panicked; replaced with an empty instance"
+        );
+        slot.cache = new_moka(which, self.capacity);
+        slot.generation = generation + 1;
+    }
+
+    async fn memory_get(&self, which: Layer, key: &str) -> Option<MemEntry> {
+        self.guarded(which, |cache| async move { cache.get(key).await })
+            .await
+            .flatten()
+    }
+
+    async fn memory_put(&self, which: Layer, key: &str, bytes: Vec<u8>, ttl_secs: u64) {
+        let entry = MemEntry {
+            bytes: Arc::new(bytes),
+            ttl: Duration::from_secs(ttl_secs),
+        };
+        self.guarded(which, |cache| async move { cache.insert(key.to_owned(), entry).await })
+            .await;
+    }
+}
 
 fn namespaced(class: CacheClass, key: &str) -> String {
     format!("{}:{}", class.as_str(), key)
@@ -872,3 +1011,7 @@ pub fn body_cache_key(account: &str, blob_ref: &str) -> String {
         serde_json::to_string(&(account, blob_ref)).expect("string tuple")
     )
 }
+
+#[cfg(test)]
+#[path = "panic_tests.rs"]
+mod panic_tests;

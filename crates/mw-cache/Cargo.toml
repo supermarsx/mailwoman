@@ -21,6 +21,8 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 bytes = { workspace = true }
 moka = { workspace = true }
+# t55: contained memory-layer panics are counted (mw_cache_memory_panics_total).
+metrics = { workspace = true }
 # rustls + ring TLS ONLY (no native-tls / openssl); `i-std` pulls the standard
 # command interfaces (keys/strings/etc.) this cache uses.
 fred = { workspace = true, features = ["enable-rustls-ring"] }

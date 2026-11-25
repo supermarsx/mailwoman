@@ -553,7 +553,7 @@ async fn validated_mail_respects_disabled_and_small_configured_memory_capacity()
         .unwrap();
     }
     tiny.run_pending_memory_tasks().await;
-    assert!(tiny.inner.mail_memory.entry_count() <= 1);
+    assert!(tiny.inner.layer(Layer::Mail).1.entry_count() <= 1);
     assert!(tiny.mail_memory_bytes() <= MAIL_MEMORY_BYTES);
 }
 
