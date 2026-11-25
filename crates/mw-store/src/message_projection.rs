@@ -161,6 +161,9 @@ impl<'a> ProjectionQuery<'a> {
 pub(crate) enum ProjectionOp {
     Page,
     Count,
+    /// A page whose every row also carries the total (`COUNT(*) OVER ()`):
+    /// the page and `calculateTotal` in one statement (t50hp-e31).
+    PageCounted,
 }
 
 /// Bits that change the statement text. Everything else is a parameter.
@@ -339,6 +342,9 @@ fn build(
     b.sql.push_str(match op {
         ProjectionOp::Page => "SELECT s.stable_id FROM ",
         ProjectionOp::Count => "SELECT CAST(COUNT(*) AS BIGINT) AS n FROM ",
+        ProjectionOp::PageCounted => {
+            "SELECT s.stable_id, CAST(COUNT(*) OVER () AS BIGINT) AS n FROM "
+        }
     });
     b.sql.push_str(if via_messages {
         "messages m JOIN message_state s ON s.stable_id=m.stable_id"
@@ -446,7 +452,7 @@ fn build(
         let list = b.list(&ids);
         b.sql.push_str(&format!(" AND s.stable_id IN {list}"));
     }
-    if op == ProjectionOp::Page {
+    if op != ProjectionOp::Count {
         let t = order_table;
         b.sql.push_str(&match query.sort {
             ProjectionSort::ReceivedDesc => {
@@ -478,6 +484,24 @@ fn interned(shape: Shape, sql: String) -> &'static str {
     texts
         .entry(shape)
         .or_insert_with(|| Box::leak(sql.into_boxed_str()))
+}
+
+/// The account's folders UNION ALL a page statement (one interned text per
+/// page text, so a bounded set).
+fn union_text(page: &'static str) -> &'static str {
+    static TEXTS: OnceLock<Mutex<HashMap<&'static str, &'static str>>> = OnceLock::new();
+    let mut texts = TEXTS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    texts.entry(page).or_insert_with(|| {
+        Box::leak(
+            format!(
+                "SELECT 'm' AS k, b.id AS v FROM mailboxes b WHERE b.account_id=?1 UNION ALL SELECT 's' AS k, x.stable_id AS v FROM ({page}) x"
+            )
+            .into_boxed_str(),
+        )
+    })
 }
 
 /// The statement and parameters for `query`, or `None` when it matches nothing.
@@ -564,6 +588,115 @@ impl Store {
             statement = statement.bind(arg);
         }
         Ok(statement.fetch_all_scalar_string(&self.backend).await?)
+    }
+
+    /// The page of `query` and, in the same statement, the number of messages
+    /// matching it (t50hp-e31: `calculateTotal` without a second statement).
+    /// A page past the end carries no row and so no total; that case alone
+    /// costs a second statement (the COUNT).
+    pub async fn projection_page_counted(
+        &self,
+        query: &ProjectionQuery<'_>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<(Vec<String>, u64), StoreError> {
+        if limit <= 0 {
+            return Ok((Vec::new(), self.projection_count(query).await?));
+        }
+        let Some((sql, mut args)) =
+            projection_statement(query, ProjectionOp::PageCounted, self.backend.dialect())?
+        else {
+            return Ok((Vec::new(), 0));
+        };
+        let n = args.len();
+        args[n - 2] = Arg::Int(limit);
+        args[n - 1] = Arg::Int(offset.max(0));
+        let mut statement = q(sql);
+        for arg in args {
+            statement = statement.bind(arg);
+        }
+        let rows = statement.fetch_all(&self.backend).await?;
+        let Some(first) = rows.first() else {
+            if offset <= 0 {
+                return Ok((Vec::new(), 0));
+            }
+            return Ok((Vec::new(), self.projection_count(query).await?));
+        };
+        let total = u64::try_from(first.get_i64("n")).unwrap_or(0);
+        Ok((rows.iter().map(|r| r.get_string("stable_id")).collect(), total))
+    }
+
+    /// The account's folder ids and, in the same statement, the first `limit`
+    /// ids of `query` (t50hp-e31: the index scope and the planner's SQL id set
+    /// in one read). `query.account_id` must be `account_id`.
+    pub async fn projection_ids_with_mailboxes(
+        &self,
+        account_id: &str,
+        query: &ProjectionQuery<'_>,
+        limit: i64,
+    ) -> Result<(Vec<String>, Vec<String>), StoreError> {
+        if query.account_id != account_id {
+            return Err(StoreError::Invalid("projection query of another account"));
+        }
+        const MAILBOXES: &str = "SELECT 'm' AS k, b.id AS v FROM mailboxes b WHERE b.account_id=?1";
+        let statement = match projection_statement(query, ProjectionOp::Page, self.backend.dialect())? {
+            Some((sql, mut args)) if limit > 0 => {
+                let n = args.len();
+                args[n - 2] = Arg::Int(limit);
+                args[n - 1] = Arg::Int(0);
+                let mut statement = q(union_text(sql));
+                for arg in args {
+                    statement = statement.bind(arg);
+                }
+                statement
+            }
+            _ => q(MAILBOXES).bind(account_id),
+        };
+        let (mut boxes, mut ids) = (Vec::new(), Vec::new());
+        for row in statement.fetch_all(&self.backend).await? {
+            if row.get_string("k") == "m" {
+                boxes.push(row.get_string("v"));
+            } else {
+                ids.push(row.get_string("v"));
+            }
+        }
+        Ok((boxes, ids))
+    }
+
+    /// The folder read of the client's unread count (as
+    /// `get_mailbox_with_zero_access`) and the folder's first unread id in
+    /// folder-list order, in one statement (t50hp-e31). The id is the first
+    /// row `projection_ids` returns for {this folder, seen=0}; ownership is the
+    /// caller's check of the returned `account_id`.
+    pub async fn mailbox_with_zero_access_and_first_unread(
+        &self,
+        id: &str,
+    ) -> Result<(crate::Mailbox, bool, Option<String>), StoreError> {
+        let row = q(
+            "SELECT m.id, m.account_id, m.name, m.role, m.uidvalidity, m.uidnext, m.highestmodseq, m.total, m.unread, m.parent_id,
+                    CAST(CASE WHEN z.account_id IS NULL THEN 0 WHEN z.enabled=0 THEN 0 ELSE 1 END AS BIGINT) AS zero_access,
+                    (SELECT s.stable_id FROM message_state s WHERE s.mailbox_id=m.id AND s.seen=0
+                      ORDER BY s.internaldate DESC NULLS LAST, s.uid DESC, s.stable_id LIMIT 1) AS first_unread
+             FROM mailboxes m LEFT JOIN zeroaccess_accounts z ON z.account_id = m.account_id
+             WHERE m.id = ?1",
+        )
+        .bind(id)
+        .fetch_optional(&self.backend)
+        .await?
+        .ok_or(StoreError::NotFound)?;
+        let mailbox = crate::Mailbox {
+            id: row.get_string("id"),
+            account_id: row.get_string("account_id"),
+            name: row.get_string("name"),
+            role: row.get_opt_string("role"),
+            uidvalidity: row.get_i64("uidvalidity") as u32,
+            uidnext: row.get_i64("uidnext") as u32,
+            highestmodseq: row.get_i64("highestmodseq") as u64,
+            total: row.get_i64("total") as u32,
+            unread: row.get_i64("unread") as u32,
+            parent_id: row.get_opt_string("parent_id"),
+        };
+        Ok((mailbox, row.get_i64("zero_access") != 0, row.get_opt_string("first_unread")))
     }
 
     /// Number of messages matching `query`.

@@ -1245,6 +1245,17 @@ async fn query_world(s: &Store) -> (World, Vec<String>) {
 
 async fn builders_contract(s: Store) {
     let (w, ids) = query_world(&s).await;
+    // t50hp-e31: the folder read with its first unread id equals the read
+    // alone plus the projection's first unread row.
+    for mb in w.boxes.iter().chain([&w.other_box]) {
+        let (m, zero, first) = s.mailbox_with_zero_access_and_first_unread(mb).await.unwrap();
+        let (alone, zero_alone) = s.get_mailbox_with_zero_access(mb).await.unwrap();
+        assert_eq!((m.id.clone(), m.account_id.clone(), m.unread, m.total, zero), (alone.id, alone.account_id, alone.unread, alone.total, zero_alone));
+        let one = [mb.clone()];
+        let q = ProjectionQuery { mailboxes: MailboxScope::In(&one), seen: Some(false), ..ProjectionQuery::account(&m.account_id) };
+        assert_eq!(first, s.projection_ids(&q, 1, 0).await.unwrap().into_iter().next(), "{mb}");
+    }
+    assert!(matches!(s.mailbox_with_zero_access_and_first_unread("no-such-folder").await, Err(StoreError::NotFound)));
     let one = std::slice::from_ref(&w.boxes[0]);
     let two = [w.boxes[0].clone(), w.boxes[1].clone(), w.other_box.clone()];
     let foreign = std::slice::from_ref(&w.other_box);
@@ -1475,6 +1486,34 @@ async fn builders_contract(s: Store) {
             expected.iter().skip(3).take(5).cloned().collect::<Vec<_>>(),
             "{name}: window"
         );
+        // t50hp-e31: page and total in one statement, at every window, also
+        // past the end and with limit 0.
+        for (limit, offset) in [(5i64, 3i64), (1, 0), (1000, 0), (0, 0), (5, 10_000)] {
+            let (ids, total) = s.projection_page_counted(query, limit, offset).await.unwrap();
+            assert_eq!(total, expected.len() as u64, "{name}: counted total at {limit}/{offset}");
+            assert_eq!(
+                ids,
+                expected.iter().skip(offset as usize).take(limit as usize).cloned().collect::<Vec<_>>(),
+                "{name}: counted page at {limit}/{offset}"
+            );
+        }
+        // t50hp-e31: the account's folders and the ids in one statement.
+        let (boxes, ids) = s
+            .projection_ids_with_mailboxes(query.account_id, query, 1000)
+            .await
+            .unwrap();
+        let mut want_boxes: Vec<String> = s
+            .list_mailboxes(query.account_id)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        let mut boxes = boxes;
+        boxes.sort();
+        want_boxes.sort();
+        assert_eq!(boxes, want_boxes, "{name}: folders");
+        assert_eq!(ids, expected, "{name}: ids with folders");
         if *name != "other account" {
             let other: BTreeSet<String> = s
                 .projection_ids(&ProjectionQuery::account(&w.other), 1000, 0)

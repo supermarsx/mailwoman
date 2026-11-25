@@ -808,15 +808,15 @@ fn list_batch(account: &str, inbox: &str, page: usize) -> Vec<Value> {
 /// Warm statements of the list batch through the generic path and with the
 /// S3-a shortcut (total from the counter).
 ///
-/// Since t50hp-e31 the unread query reads SQL, not the index: generic = R1
-/// (the folder read, the projection page, its COUNT; before: the folder read,
-/// the account's mailbox list for the index scope, then the index), and the
-/// shortcut's limit-1 id is one projection statement where it was an index
-/// top-1. Each count is one higher than before (10 -> 11, 9 -> 10); the index
-/// work both replaced is not SQL and does not show here. The planner's
-/// trigger check is reused for 5 s, so the warm runs do not repeat it.
-const LIST_BATCH_GENERIC: usize = 11;
-const LIST_BATCH_SHORTCUT: usize = 10;
+/// Since t50hp-e31 the unread query reads SQL, not the index, at the same
+/// statement counts as before: generic = R1, the folder read and one
+/// projection statement carrying the page and its total (before: the folder
+/// read, the account's mailbox list for the index scope, then the index);
+/// the shortcut's limit-1 id comes with its folder read (before: an index
+/// top-1). The index work both replaced is not SQL and does not show here.
+/// The planner's trigger check is reused for 5 s, so warm runs do not repeat it.
+const LIST_BATCH_GENERIC: usize = 10;
+const LIST_BATCH_SHORTCUT: usize = 9;
 
 async fn list_batch_budget(hot: &Hot, backend: &str) {
     let inbox = hot
@@ -889,11 +889,16 @@ async fn planner_route_statements(hot: &Hot, backend: &str) {
         ("R1 unread in folder", json!({"inMailbox": inbox, "notKeyword": "$seen"})),
         ("R1 flagged account-wide", json!({"hasKeyword": "$flagged"})),
         ("R1 label in folder", json!({"inMailbox": inbox, "hasKeyword": "work"})),
-        ("R3 unread + text in folder", json!({"inMailbox": inbox, "notKeyword": "$seen", "text": "body"})),
-        ("R3 text is:unread OR from:", json!({"inMailbox": inbox, "text": "is:unread OR from:nobody"})),
+        ("R1 label account-wide", json!({"hasKeyword": "work"})),
         ("R2 text in folder", json!({"inMailbox": inbox, "text": "body"})),
+        ("R2 text account-wide", json!({"text": "body"})),
+        ("R3 unread + text in folder", json!({"inMailbox": inbox, "notKeyword": "$seen", "text": "body"})),
+        ("R3 unread + text account-wide", json!({"notKeyword": "$seen", "text": "body"})),
+        ("R3 is:unread OR from: in folder", json!({"inMailbox": inbox, "text": "is:unread OR from:nobody"})),
+        ("R3 is:unread OR from: account-wide", json!({"text": "is:unread OR from:nobody"})),
     ] {
-        let calls = vec![json!(["Email/query", {"accountId": hot.a, "filter": filter, "limit": 50, "position": 0, "calculateTotal": true}, "q"])];
+      for (limit, total) in [(5, true), (50, true), (50, false)] {
+        let calls = vec![json!(["Email/query", {"accountId": hot.a, "filter": filter, "limit": limit, "position": 0, "calculateTotal": total}, "q"])];
         legacy(true);
         let (old, before) = hot.warm(&hot.a, calls.clone()).await;
         legacy(false);
@@ -902,10 +907,13 @@ async fn planner_route_statements(hot: &Hot, backend: &str) {
         // This fixture's index is empty (rows are seeded into the store only),
         // so the old path's answers are not compared; its statements are.
         assert_eq!(old["methodResponses"][0][0], json!("Email/query"), "{name}: {old}");
-        eprintln!("t50hp-e31 {backend} {name}: old path {} statements, planner {}", before.len(), after.len());
+        eprintln!("t50hp-e31 {backend} {name} limit {limit} total {total}: old path {} statements, planner {}", before.len(), after.len());
         for f in families(&after) {
             eprintln!("t50hp-e31 {backend}   {f}");
         }
+        // No shape may cost more SQL statements than the old path.
+        assert!(after.len() <= before.len(), "{backend} {name} limit {limit}: {} > {}: {:#?} old {:#?}", after.len(), before.len(), families(&after), families(&before));
+      }
     }
 }
 

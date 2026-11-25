@@ -305,7 +305,10 @@ fn is_error(resp: &Value, kind: &str) -> bool {
 
 /// The metadata routes (R1, R3 inject, R3 nested, the unread count's id)
 /// against a broken SQL side: each must be `serverFail`; R2 still answers.
-async fn metadata_routes_refuse(w: &World, context: &str) {
+/// `unread_id_reads_it`: whether the broken object is one the unread count's
+/// limit-1 id reads (message_state via the folder read, or the trigger check);
+/// when it is not (message_keyword), that id must still be right.
+async fn metadata_routes_refuse(w: &World, context: &str, unread_id_reads_it: bool) {
     let acct = &w.a;
     let inbox = acct.folder("INBOX").to_owned();
     for filter in [
@@ -333,10 +336,16 @@ async fn metadata_routes_refuse(w: &World, context: &str) {
         .filter(|r| r.mailbox == inbox && !r.keywords.contains("$seen"))
         .count();
     assert!(unread_in_inbox > 0);
-    assert!(
-        is_error(resp, "serverFail"),
-        "{context}: unread count id must refuse: {resp}"
-    );
+    if unread_id_reads_it {
+        assert!(
+            is_error(resp, "serverFail"),
+            "{context}: unread count id must refuse: {resp}"
+        );
+    } else {
+        assert_eq!(resp[1]["total"], json!(unread_in_inbox), "{context}: {resp}");
+        let id = resp[1]["ids"][0].as_str().unwrap_or_else(|| panic!("{context}: {resp}"));
+        assert!(w.rows(acct).await.iter().any(|r| r.id == id && r.mailbox == inbox && !r.keywords.contains("$seen")), "{context}: {resp}");
+    }
     // No metadata condition: the index answers as today.
     let resp = query(w, acct, json!({"text": "alpha"}), false).await;
     assert_eq!(resp[0], json!("Email/query"), "{context}: {resp}");
@@ -352,7 +361,7 @@ async fn missing_or_broken_projection_refuses_sqlite() {
         .execute(&pool)
         .await
         .unwrap();
-    metadata_routes_refuse(&w, "sqlite trigger dropped").await;
+    metadata_routes_refuse(&w, "sqlite trigger dropped", true).await;
     // An SQL error: the table is gone (triggers intact).
     let (store, pool) = sqlite_file("table").await;
     let w = World::new(store, 12).await;
@@ -360,7 +369,14 @@ async fn missing_or_broken_projection_refuses_sqlite() {
         .execute(&pool)
         .await
         .unwrap();
-    metadata_routes_refuse(&w, "sqlite table dropped").await;
+    metadata_routes_refuse(&w, "sqlite keyword table dropped", false).await;
+    let (store, pool) = sqlite_file("state").await;
+    let w = World::new(store, 12).await;
+    sqlx::query("DROP TABLE message_state")
+        .execute(&pool)
+        .await
+        .unwrap();
+    metadata_routes_refuse(&w, "sqlite state table dropped", true).await;
     UNCACHED_PROJECTION_CHECK.with(|c| c.set(false));
 }
 
@@ -373,7 +389,7 @@ async fn missing_or_broken_projection_refuses_postgres() {
     let w = World::new(store, 12).await;
     pg.exec("ALTER TABLE messages DISABLE TRIGGER message_projection_insert")
         .await;
-    metadata_routes_refuse(&w, "postgres trigger disabled").await;
+    metadata_routes_refuse(&w, "postgres trigger disabled", true).await;
     pg.drop().await;
     let Some((store, pg)) = private_pg("renamed").await else {
         return;
@@ -381,7 +397,15 @@ async fn missing_or_broken_projection_refuses_postgres() {
     let w = World::new(store, 12).await;
     pg.exec("ALTER TABLE message_keyword RENAME TO message_keyword_gone")
         .await;
-    metadata_routes_refuse(&w, "postgres table renamed").await;
+    metadata_routes_refuse(&w, "postgres keyword table renamed", false).await;
+    pg.drop().await;
+    let Some((store, pg)) = private_pg("staterenamed").await else {
+        return;
+    };
+    let w = World::new(store, 12).await;
+    pg.exec("ALTER TABLE message_state RENAME TO message_state_gone")
+        .await;
+    metadata_routes_refuse(&w, "postgres state table renamed", true).await;
     pg.drop().await;
     UNCACHED_PROJECTION_CHECK.with(|c| c.set(false));
 }
@@ -719,4 +743,38 @@ async fn zero_access_metadata_queries_are_answered_from_sql() {
         .await
         .unwrap();
     }
+}
+
+// ---- pre-existing bug, recorded, not fixed here --------------------------------------
+
+/// Pre-existing (found by the differential test's PostgreSQL leg, t50hp-e31):
+/// a keyword the user sets whose name has a derived prefix (`$list:`,
+/// `$supersedes:`, `$mw-mention:`, `$priority-high/low`) can never be removed
+/// from the search index. `index_publication::patch_current` rebuilds the
+/// keywords from `flags_json` and then re-adds every derived-prefix value of
+/// the STORED document, so the user's value is carried forever (until a full
+/// rebuild from source). Decision P2 (union of index and SQL) keeps the stale
+/// value visible to `hasKeyword` / `list:`.
+///
+/// Fix sketch (index_publication.rs, not this lane): carry over only the
+/// values the content produced. Either recompute them from the source at
+/// publication (mentions, List-Id, Supersedes, priority are all content), or
+/// keep them in a separate `IndexDoc` field (e.g. `derived_keywords`) written
+/// at build time and re-added by patch_current instead of filtering
+/// `doc.keywords` by prefix; the user's keywords then come only from
+/// flags_json.
+#[tokio::test]
+#[ignore = "pre-existing bug: patch_current keeps a user keyword with a derived-prefix name (see doc comment)"]
+async fn user_keyword_with_a_derived_prefix_leaves_the_index_when_removed() {
+    let w = World::new(Store::open_in_memory(ServerKey::generate()).await.unwrap(), 0).await;
+    w.ingest_pair_for_tests().await;
+    let acct = &w.a;
+    let id = w.rows(acct).await.remove(0).id;
+    for set in [json!(true), Value::Null] {
+        w.update(&acct.id, &id, json!({"keywords/$list:x": set})).await;
+    }
+    let keywords = w.engine.search().fetch_doc(&id).unwrap().unwrap().keywords;
+    assert!(!keywords.contains(&"$list:x".to_owned()), "index still holds the removed keyword: {keywords:?}");
+    let resp = query(&w, acct, json!({"hasKeyword": "$list:x"}), false).await;
+    assert!(id_set(&resp).is_empty(), "{resp}");
 }

@@ -788,17 +788,27 @@ impl Engine {
         // counter. The same single mailbox read also says whether the account
         // is zero-access, so the generic path costs the same statements.
         let unread_shape = crate::unread_count_shortcut::is_unread_count_filter(&filter);
+        // The folder this request verified as the account's own (t50hp-e31:
+        // the index scope then needs no account folder list).
+        let mut verified_folder: Option<String> = None;
         if let Some(mailbox) = filter.in_mailbox.clone() {
+            // t50hp-e31: the unread-count shape's folder read also carries the
+            // folder's first unread id, so the shortcut's limit-1 id costs no
+            // statement of its own.
             let resolved = if unread_shape {
-                self.store().get_mailbox_with_zero_access(&mailbox).await.map(|(m, zero)| (m, Some(zero)))
+                self.store()
+                    .mailbox_with_zero_access_and_first_unread(&mailbox)
+                    .await
+                    .map(|(m, zero, first)| (m, Some((zero, first))))
             } else {
                 self.store().get_mailbox(&mailbox).await.map(|m| (m, None))
             };
             match resolved {
-                Ok((real, zero_access)) if real.account_id == account_id => {
-                    if let Some(zero_access) = zero_access
+                Ok((real, unread_read)) if real.account_id == account_id => {
+                    verified_folder = Some(real.id.clone());
+                    if let Some((zero_access, first_unread)) = unread_read
                         && let Some(page) = self
-                            .unread_count_page(account_id, &real, zero_access, &filter, args, custom_sort)
+                            .unread_count_page(account_id, &real, zero_access, first_unread, &filter, args, custom_sort)
                             .await?
                     {
                         return Ok(page);
@@ -951,7 +961,9 @@ impl Engine {
                 crate::query_plan::Route::Index | crate::query_plan::Route::Combined { .. } => {}
             }
         }
-        let mut hits = self.search_ids_ordered(account_id, &filter, sort, semantic, &tie_breakers).await?;
+        let mut hits = self
+            .search_ids_ordered(account_id, &filter, sort, semantic, &tie_breakers, verified_folder.as_deref())
+            .await?;
         if let Some(additional) = additional_filter
             && (additional.needs_search() || additional.in_mailbox_other_than.is_some())
         {
@@ -1005,11 +1017,13 @@ impl Engine {
     ///
     /// Owned real folder only (checked by the caller); a zero-access account,
     /// whose index documents are withheld, keeps the generic path.
+    #[allow(clippy::too_many_arguments)]
     async fn unread_count_page(
         &self,
         account_id: &str,
         real: &mw_store::Mailbox,
         zero_access: bool,
+        first_unread: Option<String>,
         filter: &EmailFilter,
         args: &Value,
         custom_sort: bool,
@@ -1034,16 +1048,11 @@ impl Engine {
         let ids = if limit == 0 || unread == 0 {
             Vec::new()
         } else if !crate::query_plan::legacy() {
-            // t50hp-e31: the first unread id in folder-list order, from the
-            // projection (seen = the counter's rule, so it agrees with
-            // `total`); no index read.
+            // t50hp-e31: the first unread id in folder-list order, read from
+            // the projection by the folder read itself (seen = the counter's
+            // rule, so it agrees with `total`); no index read, no statement.
             self.projection_ready().await?;
-            let query = mw_store::message_projection::ProjectionQuery {
-                mailboxes: mw_store::message_projection::MailboxScope::In(std::slice::from_ref(&real.id)),
-                seen: Some(false),
-                ..mw_store::message_projection::ProjectionQuery::account(account_id)
-            };
-            self.store().projection_ids(&query, 1, 0).await?
+            first_unread.into_iter().collect()
         } else {
             self.index_read_fence(account_id).await?;
             // Ownership is established (the caller compared the folder's
@@ -1119,7 +1128,7 @@ impl Engine {
         sort: mw_search::Sort,
         semantic: Option<bool>,
     ) -> std::result::Result<mw_search::SearchHits, QueryFail> {
-        self.search_ids_ordered(account_id, filter, sort, semantic, &[]).await
+        self.search_ids_ordered(account_id, filter, sort, semantic, &[], None).await
     }
 
     /// R1 (t50hp-e31): a page of a metadata-only query from the projection
@@ -1167,10 +1176,14 @@ impl Engine {
             };
             return Ok(QueryPage { ids, position: start, total, total_truncated: false });
         }
-        let ids = store
-            .projection_ids(&query, sql_limit, position.min(i64::MAX as u64) as i64)
-            .await?;
-        let total = if want_total { Some(store.projection_count(&query).await?) } else { None };
+        let offset = position.min(i64::MAX as u64) as i64;
+        // With a total: the page and the total in one statement.
+        let (ids, total) = if want_total {
+            let (ids, total) = store.projection_page_counted(&query, sql_limit, offset).await?;
+            (ids, Some(total))
+        } else {
+            (store.projection_ids(&query, sql_limit, offset).await?, None)
+        };
         Ok(QueryPage { ids, position, total, total_truncated: false })
     }
 
@@ -1203,16 +1216,18 @@ impl Engine {
     /// in SQL. Nested conditions become id sets (or the negation of their
     /// complement's); the top-level condition is injected as an id set, or,
     /// above the cap, checked in SQL against the index's hits (filter).
+    #[allow(clippy::too_many_arguments)]
     async fn combined_hits(
         &self,
         account_id: &str,
-        scope: mw_search::Expr,
+        scope: Option<&str>,
+        folder_only: bool,
         top: Option<crate::query_plan::MetaConj>,
         nodes: Vec<crate::query_plan::Node>,
         sort: mw_search::Sort,
         tie_breakers: &[mw_search::Sort],
     ) -> std::result::Result<mw_search::SearchHits, QueryFail> {
-        use crate::query_plan::{FILTER_CHUNK, Taken, assemble, id_set, meta_nodes, taken};
+        use crate::query_plan::{FILTER_CHUNK, Taken, assemble, combine_cap, id_set, meta_nodes, taken};
         self.projection_ready().await?;
         // The index side keeps today's refusals.
         self.index_read_fence(account_id).await?;
@@ -1220,9 +1235,37 @@ impl Engine {
         for node in &nodes {
             meta_nodes(node, &mut metas);
         }
+        // The first SQL set (the top-level one, else the first nested one) is
+        // read in the same statement as the account's folders the index scope
+        // needs; a verified one-folder query needs no folder list at all.
+        let first = top.as_ref().or(metas.first().copied()).filter(|c| !c.nothing);
+        let cap = combine_cap();
+        let (mailbox_ids, mut prefetched) = match (folder_only, scope, first) {
+            (true, Some(mb), _) => (vec![mb.to_owned()], None),
+            (_, _, Some(conj)) => {
+                let query = conj.projection(account_id, mw_store::message_projection::ProjectionSort::ReceivedDesc);
+                let (boxes, ids) = self
+                    .store()
+                    .projection_ids_with_mailboxes(account_id, &query, cap as i64 + 1)
+                    .await?;
+                (boxes, Some(ids))
+            }
+            _ => (
+                self.store().list_mailboxes(account_id).await?.into_iter().map(|m| m.id).collect(),
+                None,
+            ),
+        };
+        let Some(scope) = search_index::scope_expr(&mailbox_ids, scope) else {
+            return Ok(mw_search::SearchHits::default());
+        };
+        // `prefetched` belongs to `top` when there is one, else to metas[0].
+        let mut top_ids = if top.is_some() { prefetched.take() } else { None };
         let mut resolved = Vec::with_capacity(metas.len());
         for conj in metas {
-            resolved.push(self.resolve_meta(account_id, conj).await?);
+            match prefetched.take() {
+                Some(ids) if ids.len() <= cap => resolved.push(id_set(ids)),
+                _ => resolved.push(self.resolve_meta(account_id, conj).await?),
+            }
         }
         let mut resolved = resolved.into_iter();
         let mut clauses = vec![scope];
@@ -1231,13 +1274,19 @@ impl Engine {
         }
         let filter = match top {
             None => None,
-            Some(conj) => match self.meta_ids(account_id, &conj).await? {
-                Some(ids) => {
-                    clauses.push(id_set(ids));
-                    None
+            Some(conj) => {
+                let ids = match top_ids.take() {
+                    Some(ids) => (ids.len() <= cap).then_some(ids),
+                    None => self.meta_ids(account_id, &conj).await?,
+                };
+                match ids {
+                    Some(ids) => {
+                        clauses.push(id_set(ids));
+                        None
+                    }
+                    None => Some(conj),
                 }
-                None => Some(conj),
-            },
+            }
         };
         taken(if filter.is_some() { Taken::Filter } else { Taken::Inject });
         let sq = search_index::from_clauses(clauses, sort);
@@ -1264,35 +1313,37 @@ impl Engine {
         sort: mw_search::Sort,
         semantic: Option<bool>,
         tie_breakers: &[mw_search::Sort],
+        verified_folder: Option<&str>,
     ) -> std::result::Result<mw_search::SearchHits, QueryFail> {
         use crate::query_plan::{COMBINE_CAP, Route, Scope, Taken, taken};
-        let mailbox_ids: Vec<String> = self
-            .store()
-            .list_mailboxes(account_id)
-            .await?
-            .into_iter()
-            .map(|m| m.id)
-            .collect();
         // Scope to a single mailbox only when the filter pins a real one.
         let scope = filter.in_mailbox.as_deref();
-        // t50hp-e31: plan the query over the same clauses the index query is
-        // built from. No metadata condition (R2): today's index query,
-        // unchanged.
-        let scope_expr = search_index::scope_expr(&mailbox_ids, scope);
-        let conjuncts = crate::query_plan::filter_conjuncts(filter, Some(&mailbox_ids));
-        let route = match (&scope_expr, &conjuncts) {
-            (Some(_), Some(conjuncts)) => {
+        // t50hp-e31: plan over the same clauses the index query is built from,
+        // before any read: the route does not depend on the account's folder
+        // list (an unowned `inMailboxes` id matches nothing either way: the
+        // SQL side checks ownership, the index side ANDs the account scope).
+        // No metadata condition (R2): today's index query, unchanged.
+        let route = match crate::query_plan::filter_conjuncts(filter, None) {
+            None => Route::Nothing,
+            Some(conjuncts) => {
                 let plan_scope = match scope {
                     Some(mb) => Scope::Folder(mb.to_owned()),
                     None => Scope::Account,
                 };
                 let semantic_on = filter.semantic.or(semantic) == Some(true);
-                crate::query_plan::plan(conjuncts, &plan_scope, &sort, tie_breakers, semantic_on)
+                crate::query_plan::plan(&conjuncts, &plan_scope, &sort, tie_breakers, semantic_on)
                     .map_err(|m| QueryFail::Engine(EngineError::Protocol(m.into())))?
             }
-            // Matches nothing: today's index query (match-nothing) answers.
-            _ => Route::Index,
         };
+        // A one-folder query whose folder this request verified as the
+        // account's, with no `inMailboxes`: the index scope is that folder, and
+        // the scope guard gets it alone instead of the account's folder list
+        // (it builds the same clause from either).
+        // The test-only old path keeps today's folder-list read.
+        let folder_only = !crate::query_plan::legacy()
+            && filter.in_mailboxes.is_none()
+            && scope.is_some()
+            && scope == verified_folder;
         let mut hits = match route {
             Route::Nothing => {
                 taken(Taken::Nothing);
@@ -1312,12 +1363,15 @@ impl Engine {
                 // Journal mode: wait for this account's handed-off publications
                 // (or refuse) before the index is consulted. No-op in commit mode.
                 self.index_read_fence(account_id).await?;
+                let mailbox_ids: Vec<String> = match (folder_only, scope) {
+                    (true, Some(mb)) => vec![mb.to_owned()],
+                    _ => self.store().list_mailboxes(account_id).await?.into_iter().map(|m| m.id).collect(),
+                };
                 let sq = search_index::build_search_query(filter, sort, &mailbox_ids, scope);
                 self.index_hits(account_id, sq, tie_breakers).await?
             }
             Route::Combined { top, nodes } => {
-                let scope_expr = scope_expr.expect("planned with a scope");
-                self.combined_hits(account_id, scope_expr, top, nodes, sort, tie_breakers).await?
+                self.combined_hits(account_id, scope, folder_only, top, nodes, sort, tie_breakers).await?
             }
         };
 
