@@ -46,6 +46,8 @@ pub(crate) const REGENERATED: &[&str] = &[
     // 0125: per-message flag/keyword projection kept by AFTER triggers on
     // `messages`; they write only these two tables.
     "message_keyword",
+    // 0134: stamp of the projection triggers; each installation stamps its own.
+    "message_projection_stamp",
     "message_state",
 ];
 

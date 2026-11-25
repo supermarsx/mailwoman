@@ -743,8 +743,8 @@ async fn raw_writers_contract(s: Store) {
         exec(&s, "UPDATE OR REPLACE messages SET flags_json='[\"Answered\",\"Answered\"]' WHERE stable_id='r6'").await;
         assert_clean(&s, "outer conflict clauses").await;
     } else {
-        // Rows written with every trigger off (as the t61 seeding does) heal on
-        // their next write; until then the audit reports them.
+        // A replica-role write (the t61 seeding, logical-replication apply) skips
+        // origin triggers but not the projection's: 0134 enables them ALWAYS.
         let Backend::Postgres(pool) = &s.backend else {
             unreachable!()
         };
@@ -758,26 +758,14 @@ async fn raw_writers_contract(s: Store) {
             .await
             .unwrap();
         tx.commit().await.unwrap();
-        let audit = s.audit_message_projection(Some(a)).await.unwrap();
-        assert_eq!(
-            audit.sample,
-            [
-                ProjectionDrift::MissingState {
-                    stable_id: "r7".into()
-                },
-                ProjectionDrift::MissingKeyword {
-                    stable_id: "r7".into(),
-                    keyword: "$seen".into()
-                }
-            ]
-        );
+        assert_clean(&s, "replica-role insert").await;
         exec(
             &s,
             "UPDATE messages SET flags_json='[\"Seen\",\"Flagged\"]' WHERE stable_id='r7'",
         )
         .await;
         exec(&s, "UPDATE messages SET size=size+1").await;
-        assert_clean(&s, "after the trigger-less rows were written again").await;
+        assert_clean(&s, "after the replica-role row was written again").await;
     }
     // The account cascade removes the rest.
     exec(&s, &format!("DELETE FROM accounts WHERE id='{a}'")).await;

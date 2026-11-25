@@ -574,6 +574,24 @@ pub enum ProjectionDrift {
     ExtraKeyword { stable_id: String, keyword: String },
 }
 
+/// The live stamp of the three projection triggers (0134). PostgreSQL: trigger
+/// and function row identities and versions plus tgenabled, and mw_message_flags;
+/// SQLite: the trigger definitions. Must equal the migration's own expression.
+const PROJECTION_STAMP_PG: &str = "(SELECT string_agg(t.tgname||':'||t.oid::text||':'||t.xmin::text||':'||t.tgenabled::text||':'||p.oid::text||':'||p.xmin::text, ',' ORDER BY t.tgname) || ',' || (SELECT f.oid::text||':'||f.xmin::text FROM pg_catalog.pg_proc f JOIN pg_catalog.pg_namespace fn ON fn.oid=f.pronamespace WHERE fn.nspname=current_schema() AND f.proname='mw_message_flags') FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_class c ON c.oid=t.tgrelid JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace JOIN pg_catalog.pg_proc p ON p.oid=t.tgfoid WHERE n.nspname=current_schema() AND c.relname='messages' AND NOT t.tgisinternal AND t.tgname IN ('message_projection_insert','message_projection_update','message_projection_delete'))";
+const PROJECTION_STAMP_SQLITE: &str = "(SELECT group_concat(name||':'||sql, ',') FROM (SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name='messages' AND name IN ('message_projection_insert','message_projection_update','message_projection_delete') ORDER BY name))";
+
+fn intern(sql: String) -> &'static str {
+    static SQL: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<&'static str>>> =
+        std::sync::OnceLock::new();
+    let mut set = SQL.get_or_init(Default::default).lock().unwrap_or_else(|p| p.into_inner());
+    if let Some(found) = set.get(sql.as_str()) {
+        return found;
+    }
+    let leaked: &'static str = Box::leak(sql.into_boxed_str());
+    set.insert(leaked);
+    leaked
+}
+
 /// Result of [`Store::audit_message_projection`].
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ProjectionAudit {
@@ -880,21 +898,61 @@ impl Store {
         self.projection_ids(&query, i64::MAX, 0).await
     }
 
-    /// Whether the three 0125 triggers are installed (and, on PostgreSQL,
-    /// enabled in origin mode, tgenabled='O'). A metadata route must refuse
-    /// rather than answer from tables nobody maintains.
+    /// Whether the projection can be trusted: the three 0125 triggers are
+    /// installed (on PostgreSQL enabled ALWAYS, 0134: they also fire under
+    /// session_replication_role=replica) AND their live stamp equals the one
+    /// stored at the last migration or clean audit
+    /// ([`Store::restamp_message_projection`]). A trigger disabled and enabled
+    /// again, or replaced, changes the live stamp, so the answer stays false
+    /// until an audit has found both tables clean. A metadata route must refuse
+    /// rather than answer from tables nobody maintained.
     pub async fn message_projection_installed(&self) -> Result<bool, StoreError> {
-        let n = match self.backend.dialect() {
-            Dialect::Sqlite => q("SELECT CAST(COUNT(*) AS BIGINT) FROM sqlite_master WHERE type='trigger' AND tbl_name='messages'
-                     AND name IN ('message_projection_insert','message_projection_update','message_projection_delete')"),
-            Dialect::Postgres => q("SELECT CAST(COUNT(*) AS BIGINT) FROM pg_catalog.pg_trigger t
+        let sql = match self.backend.dialect() {
+            Dialect::Sqlite => {
+                "SELECT CAST(CASE WHEN (SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND tbl_name='messages'
+                     AND name IN ('message_projection_insert','message_projection_update','message_projection_delete'))=3
+                     AND (SELECT stamp FROM message_projection_stamp WHERE id=1) IS ".to_owned()
+                    + PROJECTION_STAMP_SQLITE
+                    + " THEN 1 ELSE 0 END AS BIGINT)"
+            }
+            Dialect::Postgres => {
+                "SELECT CAST(CASE WHEN (SELECT COUNT(*) FROM pg_catalog.pg_trigger t
                      JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-                     WHERE n.nspname = current_schema() AND c.relname = 'messages' AND t.tgenabled = 'O' AND NOT t.tgisinternal
-                     AND t.tgname IN ('message_projection_insert','message_projection_update','message_projection_delete')"),
+                     WHERE n.nspname = current_schema() AND c.relname = 'messages' AND t.tgenabled = 'A' AND NOT t.tgisinternal
+                     AND t.tgname IN ('message_projection_insert','message_projection_update','message_projection_delete'))=3
+                     AND (SELECT stamp FROM message_projection_stamp WHERE id=1) IS NOT DISTINCT FROM "
+                    .to_owned()
+                    + PROJECTION_STAMP_PG
+                    + " THEN 1 ELSE 0 END AS BIGINT)"
+            }
+        };
+        let n = q(intern(sql)).fetch_scalar_i64(&self.backend).await?;
+        Ok(n == 1)
+    }
+
+    /// Audit both tables over every account and, only when the audit is clean
+    /// and the triggers did not change meanwhile, store their live stamp so
+    /// [`Store::message_projection_installed`] answers true again. Returns
+    /// whether it re-stamped. Reads every message (chunks of 500): an admin
+    /// action or start-up step, not a request path.
+    pub async fn restamp_message_projection(&self) -> Result<bool, StoreError> {
+        let live = match self.backend.dialect() {
+            Dialect::Sqlite => "SELECT ".to_owned() + PROJECTION_STAMP_SQLITE + " AS stamp",
+            Dialect::Postgres => "SELECT ".to_owned() + PROJECTION_STAMP_PG + " AS stamp",
+        };
+        let live = intern(live);
+        let before = q(live).fetch_one(&self.backend).await?.get_opt_string("stamp");
+        let audit = self.audit_message_projection(None).await?;
+        let after = q(live).fetch_one(&self.backend).await?.get_opt_string("stamp");
+        if !audit.is_clean() || before.is_none() || before != after {
+            return Ok(false);
         }
-        .fetch_scalar_i64(&self.backend)
-        .await?;
-        Ok(n == 3)
+        q("UPDATE message_projection_stamp SET stamp=?1 WHERE id=1")
+            .bind(before)
+            .execute(&self.backend)
+            .await?;
+        // Enabled-state requirements are part of the check itself.
+        self.message_projection_installed().await
     }
 
     /// Recompute the projection of one account (or of every account) in Rust
@@ -1039,3 +1097,6 @@ impl Store {
 #[cfg(test)]
 #[path = "message_projection_tests.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "message_projection_stamp_tests.rs"]
+mod stamp_tests;
