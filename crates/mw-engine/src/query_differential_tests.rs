@@ -1160,13 +1160,34 @@ pub(crate) fn text_filter(form: &str) -> String {
 /// Fill a template for `acct`.
 pub(crate) fn fill(template: &str, w: &World, acct: &Account) -> String {
     let other = if acct.id == w.a.id { &w.b } else { &w.a };
-    template
-        .replace("{INBOX}", acct.folder("INBOX"))
-        .replace("{Archive}", acct.folder("Archive"))
-        .replace("{Work}", acct.folder("Work"))
-        .replace("{SAVED}", &acct.saved)
+    let mut out = template.to_owned();
+    for name in FOLDERS {
+        let key = format!("{{{name}}}");
+        if out.contains(&key) {
+            out = out.replace(&key, acct.folder(name));
+        }
+    }
+    out.replace("{SAVED}", &acct.saved)
         .replace("{FOREIGN}", other.folder("INBOX"))
         .replace("{EVENTS}", crate::query::EVENTS_VIEW_ID)
+}
+
+/// An account with no folder and no saved search, registered with the engine.
+pub(crate) async fn empty_account(w: &World) -> Account {
+    let store = w.engine.store();
+    let login = format!("e31c-{}-{}", std::process::id(), chrono::Utc::now().timestamp_micros());
+    let id = store
+        .create_account(
+            &NewAccount { kind: AccountKind::Imap, host: "fixture.invalid", port: 993, tls: "implicit", username: &login, sync_policy_json: "{}" },
+            &Credentials { username: login.clone(), password: "x".into() },
+        )
+        .await
+        .unwrap();
+    w.engine.register_backend(
+        id.clone(),
+        AccountRuntime::new(Arc::new(Remote { next_uid: AtomicU32::new(100_000) }), Arc::new(NoSend), "o0@fixture.invalid"),
+    );
+    Account { id, folders: Vec::new(), saved: "e31-no-saved-search".into(), tag: "c" }
 }
 
 /// The oracle: the expected ordered result of `filter` with `sort` for `acct`,

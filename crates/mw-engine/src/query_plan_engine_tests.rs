@@ -920,3 +920,63 @@ async fn date_conditions_use_the_index_date_for_rows_without_internaldate() {
         check_path(&w, acct, &rows, template, &plain_sort(), WINDOWS[0], "F3 undated", false, false).await.unwrap();
     }
 }
+
+// ---- slice 2: folders and account isolation ------------------------------------------
+
+fn uses_own_folder(template: &str) -> bool {
+    ["{INBOX}", "{Archive}", "{Work}", "{SAVED}"].iter().any(|k| template.contains(k))
+}
+
+/// An account with no mailboxes (new, before its first sync) matches nothing
+/// on any route, with A's folder ids too, on both paths (design part 13
+/// risk 1; t32-h7).
+#[tokio::test]
+async fn account_without_mailboxes_matches_nothing() {
+    let w = World::new(Store::open_in_memory(ServerKey::generate()).await.unwrap(), 24).await;
+    let c = super::query_differential_tests::empty_account(&w).await;
+    let mut n = 0;
+    let mut filters: Vec<String> = singles().into_iter().map(str::to_owned).collect();
+    filters.extend(text_forms().into_iter().map(text_filter));
+    for f in filters.iter().filter(|f| !uses_own_folder(f)) {
+        for legacy in [true, false] {
+            check_path(&w, &c, &[], f, &plain_sort(), WINDOWS[0], "no mailboxes", legacy, false).await.unwrap();
+            n += 1;
+        }
+    }
+    assert!(n > 40, "{n}");
+}
+
+/// A message whose row moved to the other account (its stable id now B's),
+/// with the index document rebuilt for B: neither account sees it in the
+/// other's results, on any route, both paths.
+#[tokio::test]
+async fn stable_id_moved_across_accounts_stays_with_its_new_account() {
+    let (store, pool) = sqlite_file("reassign").await;
+    let w = World::new(store, 24).await;
+    let moved: Vec<String> = w.rows(&w.a).await.into_iter().map(|r| r.id).take(3).collect();
+    for (i, id) in moved.iter().enumerate() {
+        sqlx::query("UPDATE messages SET account_id=?1, mailbox_id=?2, uid=?4 WHERE stable_id=?3")
+            .bind(&w.b.id)
+            .bind(w.b.folder("INBOX"))
+            .bind(id)
+            .bind(900_000 + i as i64)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    w.engine
+        .publish_current_index(&w.b.id, moved.clone(), crate::index_publication::PublicationMode::Rebuild)
+        .await
+        .unwrap();
+    let mut filters: Vec<String> = singles().into_iter().map(str::to_owned).collect();
+    filters.extend(text_forms().into_iter().map(text_filter));
+    for acct in [&w.a, &w.b] {
+        let rows = w.rows(acct).await;
+        assert_eq!(rows.iter().filter(|r| moved.contains(&r.id)).count(), if acct.id == w.b.id { 3 } else { 0 });
+        for f in &filters {
+            for legacy in [true, false] {
+                check_path(&w, acct, &rows, f, &plain_sort(), WINDOWS[0], "reassigned", legacy, false).await.unwrap();
+            }
+        }
+    }
+}
