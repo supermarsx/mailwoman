@@ -57,7 +57,17 @@ export function runDefinition(name,{backend='sqlite',appCpus=4,transportConcurre
     note:'instrumented: sql-shape-diagnostics build with the request profile on; statement and commit counts are request-scoped; its CPU and latency are not throughput numbers'},
   ]};
  }
- throw new Error('Unknown run; use r0a or r1');
+ // t63 measurement M3 (allocator A/B), one leg per arm: idle 60 s after seeding (every session open), the goal mix
+ // at C32 for 120 s, idle 300 s after. The audit's "1,000 users open / close / reopen" stage is NOT built: the
+ // fixture seeds its sessions once and the generator has no close/reopen phase.
+ if(name==='m3'){
+  const modes={...R1_MODES,...(backend==='postgres'?{MW_REQUEST_PROTECTION_ACCOUNTING:'synchronous'}:{})};
+  return {name,description:'M3 allocator A/B (t63 audit): idle 60 s, goal mix C32 120 s, idle 300 s; app memory at each boundary, µs CPU per request, p99',
+   notBuilt:['1,000 users open / close / reopen (no generator phase for it)'],legs:[
+   {id:'m3',image:'release',instrumented:false,env:{...fixtureEnv({principals:principals??1000,messages:50,workload:GOAL_MIX_NAME,workers,backend,seconds:scale?.seconds??120,warmupSeconds:scale?.warmup??10,concurrency:'32',endpoints:GOAL_MIX_NAME,deadlineSeconds:scale?.deadline??1800,requestProfile:false}),...modes,
+    MW_LOAD_FIXTURE_IDLE_BEFORE_SECONDS:String(scale?5:60),MW_LOAD_FIXTURE_IDLE_AFTER_SECONDS:String(scale?5:300)}}]};
+ }
+ throw new Error('Unknown run; use r0a, r1 or m3');
 }
 
 const delta=(after,before)=>Number.isFinite(after)&&Number.isFinite(before)&&after>=before?after-before:null;

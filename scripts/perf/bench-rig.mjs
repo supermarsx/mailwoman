@@ -32,6 +32,7 @@ import {randomBytes} from 'node:crypto';
 import os from 'node:os';
 import {allocate,validatePlan,dockerCpuArgs,hostEnv,ROLES} from './rig-cpuset.mjs';
 import {parseSamples} from './rig-cgroup.mjs';
+import {containerMemory} from './rig-memory.mjs';
 import {DEFAULT_THRESHOLDS} from './rig-quiet.mjs';
 import {runDefinition,legRows,weightedMix,markdownSummary} from './rig-shapes.mjs';
 import {compare,markdownComparison,metricsOfSummary,readBaseline,writeBaseline,bless,DEFAULT_THRESHOLD} from './rig-compare.mjs';
@@ -41,12 +42,12 @@ export const SAMPLE_INTERVAL_MS=250,HOST_INTERVAL_MS=2000;
 
 export function parseArgs(argv){
  const [command,...rest]=argv;
- if(!['plan','run','ab','analyse','compare'].includes(command))throw new Error('Use plan, run, ab, analyse or compare');
+ if(!['plan','run','ab','m3','analyse','compare'].includes(command))throw new Error('Use plan, run, ab, m3, analyse or compare');
  const args={};
  for(const arg of rest){
   if(!arg.startsWith('--'))throw new Error('Use --name=value');
   const at=arg.indexOf('=');const key=at<0?arg.slice(2):arg.slice(2,at),value=at<0?true:arg.slice(at+1);
-  if(!['run','run-id','image','diagnostics-image','report-root','private-root','confirm-bench-slot','backend','vcpus','app','database','generator','upstream','rig','cpuset-app','cpuset-database','cpuset-generator','cpuset-upstream','cpuset-rig','app-memory','transport-concurrency','principals','smoke','host-sampler','host-logical-cpus','legs','dir','generator-impl','native-generator-bin','parent-image','candidate-image','parent-diagnostics-image','candidate-diagnostics-image','candidate','reference','baseline','threshold','bless','reason','out'].includes(key))throw new Error('Unknown option --'+key);
+  if(!['run','run-id','image','diagnostics-image','report-root','private-root','confirm-bench-slot','backend','vcpus','app','database','generator','upstream','rig','cpuset-app','cpuset-database','cpuset-generator','cpuset-upstream','cpuset-rig','app-memory','transport-concurrency','principals','smoke','host-sampler','host-logical-cpus','legs','dir','generator-impl','native-generator-bin','parent-image','candidate-image','parent-diagnostics-image','candidate-diagnostics-image','candidate','reference','baseline','threshold','bless','reason','out','arm-image-glibc','arm-image-musl','arm-image-jemalloc','arm-image-mimalloc','arena-max'].includes(key))throw new Error('Unknown option --'+key);
   args[key]=value;
  }
  return {command,args};
@@ -220,6 +221,8 @@ export async function analyseLeg(plan,leg,legDir){
  const names=infrastructure.containersAtEnd??infrastructure.containersAtStart??{};
  for(const sample of samples)for(const [id,row] of Object.entries(sample.others??{}))if(names[id])row.name=names[id];
  const {samples:hostSamples,excludePids}=await readHostSamples(join(legDir,'host-samples.jsonl'),infrastructure.clock?.offsetMs);
+ const idleText=await readFile(join(legDir,'reports','idle-windows.jsonl'),'utf8').catch(()=>'');
+ const idleWindows=idleText.split(/\r?\n/).filter(Boolean).flatMap(line=>{try{const w=JSON.parse(line);return Number.isFinite(w.startMs)&&Number.isFinite(w.endMs)?[{phase:String(w.phase),startMs:w.startMs,endMs:w.endMs,app:containerMemory(samples,'app',{startMs:w.startMs,endMs:w.endMs})}]:[];}catch{return [];}});
  const reportsDir=join(legDir,'reports');
  const files=(await readdir(reportsDir).catch(()=>[])).filter(name=>/^native-[0-9]+\.json$/.test(name));
  if(files.length!==1)return {rows:[],notes:[`${leg.id}: expected one native-<users>.json report, found ${files.length}`]};
@@ -231,7 +234,7 @@ export async function analyseLeg(plan,leg,legDir){
  if(malformed)notes.push(`${leg.id}: ${malformed} malformed sampler lines ignored`);
  if(report.kind!=='coordinated-native-http-fixture')notes.push(`${leg.id}: report kind ${report.kind??'unknown'} (a failure report has no stages)`);
  if(!hostSamples.length)notes.push(`${leg.id}: Windows host processes were not sampled (--host-sampler not given): work outside the Docker VM is not in the quiet verdict`);
- return {rows,notes,judgedAgainst:report.judgedAgainst??null,imageRuntime:infrastructure.imageRuntime??null};
+ return {rows,notes,judgedAgainst:report.judgedAgainst??null,imageRuntime:infrastructure.imageRuntime??null,idleWindows};
 }
 
 export async function writeSummary(plan,dir,legResults){
@@ -240,6 +243,8 @@ export async function writeSummary(plan,dir,legResults){
   host:{vmVcpus:plan.cpus.vcpus,hostLogicalCpus:plan.hostLogicalCpus,note:'VM vCPUs float over host cores; cpusets pin containers to vCPUs, not to physical cores'},
   cpusets:Object.fromEntries(Object.entries(plan.cpus.roles).map(([role,v])=>[role,v.cpuset])),thresholds:plan.thresholds,
   imageRuntime:legResults.find(result=>result.imageRuntime)?.imageRuntime??null,
+  idleWindows:legResults.flatMap(result=>result.idleWindows??[]),
+  ...(plan.arm?{arm:plan.arm}:{}),
   rows,...(plan.run==='r1'?{mix:weightedMix(rows)}:{}),notes:legResults.flatMap(result=>result.notes),
   reportFields:{usecCpuPerRequest:'per container and server total, from cgroup cpu.stat',rpsPerLogicalCpu:'accepted rps per allotted and per consumed server CPU',
    databaseCommitsPerRequest:'transaction commits + autocommit writes (mw-store pool telemetry commit counter)',contaminated:'quiet-host witness, plan section 8 rule 1'}};
@@ -265,6 +270,26 @@ export async function runOnce(plan,{runId,image,diagnosticsImage,reportRoot,priv
 }
 
 // The A B B A order of a parent/candidate comparison: run ids and images.
+export const M3_ARMS=Object.freeze([
+ {id:'glibc',image:'arm-image-glibc',env:{},describe:'glibc malloc, default settings (the fixture image today)'},
+ {id:'glibc-arena',image:'arm-image-glibc',env:{MALLOC_ARENA_MAX:'arena-max'},describe:'glibc malloc with MALLOC_ARENA_MAX (value from --arena-max, default 2: a commonly used setting, not measured here)'},
+ {id:'musl',image:'arm-image-musl',env:{},describe:'musl static, as shipped (fixture-static target)'},
+ {id:'jemalloc',image:'arm-image-jemalloc',env:{},describe:'jemalloc (needs an image built with the alloc-jemalloc feature; not available yet)'},
+ {id:'mimalloc',image:'arm-image-mimalloc',env:{},describe:'mimalloc (needs an image built with the alloc-mimalloc feature; not available yet)'},
+]);
+// The arms that can run with the images given; the others are listed with the reason.
+export function m3Arms(args){
+ const arena=String(args['arena-max']??'2');if(!/^[1-9][0-9]{0,2}$/.test(arena))throw new Error('Invalid --arena-max');
+ const run=[],skipped=[];
+ for(const arm of M3_ARMS){
+  const image=args[arm.image];
+  if(typeof image!=='string'||!image){skipped.push({id:arm.id,reason:`no --${arm.image}`});continue;}
+  run.push({id:arm.id,image,describe:arm.describe,env:Object.fromEntries(Object.entries(arm.env).map(([k,v])=>[k,v==='arena-max'?arena:v]))});
+ }
+ if(!run.length)throw new Error('m3 needs at least one --arm-image-<arm>');
+ return {run,skipped};
+}
+
 export function abOrder(runId,{parent,candidate}){
  return [['a1',parent],['b1',candidate],['b2',candidate],['a2',parent]].map(([tag,images])=>({runId:`${runId}-${tag}`,tag,...images}));
 }
@@ -273,6 +298,21 @@ export async function runAb(order,runOne,{threshold=DEFAULT_THRESHOLD}={}){
  const done={};
  for(const step of order)done[step.tag]=await runOne(step);
  return compare([done.a1,done.a2].map(metricsOfSummary),[done.b1,done.b2].map(metricsOfSummary),{threshold});
+}
+
+// M3 table: per arm, app memory at each boundary, µs CPU per request and p99 of the mix.
+export function m3Table(byArm,skipped=[]){
+ const mib=v=>Number.isFinite(v)?(v/1048576).toFixed(1):'–';
+ const lines=['| Arm | libc / allocator | App MiB end of idle before | App MiB end of mix (max inside) | App MiB end of idle after | µs CPU/req (server) | p99 ms | Quiet |','| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |'];
+ for(const [arm,summary] of Object.entries(byArm)){
+  const row=summary.rows.find(r=>r.kind==='mix')??summary.rows[0];
+  const app=Object.values(row?.memory?.containers??{}).find(c=>c.role==='app');
+  const idle=phase=>summary.idleWindows?.find(w=>w.phase===phase)?.app?.currentEndBytes;
+  lines.push(`| ${arm} | ${summary.imageRuntime?summary.imageRuntime.libc+' / '+summary.imageRuntime.allocator:'not recorded'} | ${mib(idle('before'))} | ${mib(app?.currentEndBytes)} (${mib(app?.maxSampledBytes)}) | ${mib(idle('after'))} | ${row?.usecCpuPerRequest?.server??'–'} | ${row?.latencyMs?.p99??'–'} | ${row?.contaminated?'CONTAMINATED':'quiet'} |`);
+ }
+ for(const s of skipped)lines.push(`| ${s.id} | – | not run: ${s.reason} | | | | | |`);
+ lines.push('','Not built: 1,000 users open / close / reopen (the fixture seeds sessions once; the generator has no close/reopen phase).');
+ return lines.join('\n')+'\n';
 }
 
 async function summaries(list){return Promise.all(String(list).split(',').map(async dir=>JSON.parse(await readFile(join(resolve(dir),'summary.json'),'utf8'))));}
@@ -319,6 +359,16 @@ async function main(){
   if(!args.image)throw new Error('--image required');
   const {dir}=await runOnce(plan,{runId,image:String(args.image),diagnosticsImage:args['diagnostics-image'],...roots});
   console.log(join(dir,'summary.md'));return;
+ }
+ if(command==='m3'){
+  if(plan.run!=='m3')throw new Error('m3 needs --run=m3');
+  const {run,skipped}=m3Arms(args),summaries={};
+  for(const arm of run){
+   const armPlan={...plan,legs:plan.legs.map(leg=>({...leg,env:{...leg.env,...arm.env}})),arm:{id:arm.id,describe:arm.describe,env:arm.env}};
+   summaries[arm.id]=(await runOnce(armPlan,{runId:`${runId}-${arm.id}`,image:arm.image,...roots})).summary;
+  }
+  const table=m3Table(summaries,skipped);
+  await writeFile(join(resolve(roots.reportRoot),`${runId}-m3.md`),table);process.stdout.write(table);return;
  }
  // ab: the default flow for a new image. Parent vs candidate, order A B B A, then compare.
  for(const key of ['parent-image','candidate-image'])if(!args[key])throw new Error(`ab needs --${key}`);

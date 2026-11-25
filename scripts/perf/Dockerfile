@@ -120,3 +120,37 @@ RUN --mount=type=bind,from=rust-source,source=/src,target=/mw-input,ro \
     && node -e 'const fs=require("fs");const rows=fs.readFileSync("/out/profile-artifacts.jsonl","utf8").trim().split("\n").filter(Boolean).map(JSON.parse);const row=rows.findLast(r=>r.reason==="compiler-artifact"&&r.target.name==="native_load_fixture"&&r.executable);if(!row)throw Error("Missing symbol fixture executable");fs.copyFileSync(row.executable,"/out/request-load-fixture-profile");fs.chmodSync("/out/request-load-fixture-profile",0o755);' \
     && sha256sum --check /out/release-before-profile.sha256 \
     && sha256sum /out/request-load-fixture /out/request-load-fixture-profile > /out/fixture-executables.sha256
+
+# Optional "as shipped" fixture (t62-n12): the native fixture linked the way the shipped image is
+# (root Dockerfile `build-musl` / `runtime-static`): Alpine rust image, x86_64-unknown-linux-musl,
+# RUSTFLAGS="-C target-feature=+crt-static", so musl libc and musl's allocator, statically linked.
+# The image is the ordinary fixture image (Node for the generator, scripts, gates) with only the
+# fixture executable replaced; build it with `--target fixture-static`.
+FROM rust:1.98.1-alpine@sha256:7cc1c22d77d9432f7fe012a70e6d3e555af54c2a6832700ed7d553f1769ae89f AS compile-fixture-static
+ARG MW_BUILD_REVISION
+ARG MW_BUILD_RELEASE_TAG
+ARG MW_BUILD_JOBS=8
+ARG MW_FIXTURE_DIAGNOSTICS=0
+RUN apk add --no-cache build-base ca-certificates python3
+ENV RUSTFLAGS="-C target-feature=+crt-static" RUSTUP_TOOLCHAIN=1.98.1 CARGO_INCREMENTAL=0 CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \
+    MW_BUILD_REVISION=${MW_BUILD_REVISION} MW_BUILD_RELEASE_TAG=${MW_BUILD_RELEASE_TAG} MW_CARGO_BUILD_MODE=release
+WORKDIR /src
+COPY --from=rust-source /src/ /src/
+COPY scripts/build/source_mirror.py /usr/local/lib/mailwoman-build/source_mirror.py
+RUN --mount=type=bind,from=rust-source,source=/src,target=/mw-input,ro \
+    --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=mailwoman-source-target-musl-fixture-v1,target=/mw-build-cache,sharing=locked \
+    printf '%s' "$MW_BUILD_REVISION" | grep -Eq '^[0-9a-f]{40}$' \
+    && mirror_cargo() { python3 /usr/local/lib/mailwoman-build/source_mirror.py --input /mw-input --cache-root /mw-build-cache -- "$@"; } \
+    && case "$MW_FIXTURE_DIAGNOSTICS" in 0) features=load-test-fixtures ;; 1) features=sql-shape-diagnostics ;; *) echo 'Choose MW_FIXTURE_DIAGNOSTICS 0 or 1' >&2; exit 1 ;; esac \
+    && export CARGO_BUILD_JOBS="${MW_BUILD_JOBS:-8}" \
+    && mkdir -p /out-static \
+    && mirror_cargo cargo test --locked --release -p mw-server --test native_load_fixture --no-run --features "$features" \
+         --target x86_64-unknown-linux-musl --message-format=json > /out-static/artifacts.jsonl \
+    && python3 -c 'import json,shutil,os,sys;rows=[json.loads(l) for l in open("/out-static/artifacts.jsonl") if l.strip()];row=[r for r in rows if r.get("reason")=="compiler-artifact" and r["target"]["name"]=="native_load_fixture" and r.get("executable")][-1];shutil.copyfile(row["executable"],"/out-static/request-load-fixture");os.chmod("/out-static/request-load-fixture",0o755)'
+FROM fixture AS fixture-static
+LABEL org.opencontainers.image.revision=${MW_BUILD_REVISION} mw.fixture.link="static musl (+crt-static, x86_64-unknown-linux-musl)"
+COPY --from=compile-fixture-static /out-static/request-load-fixture /out/request-load-fixture
+RUN ! ldd /out/request-load-fixture 2>/dev/null | grep -q 'libc.so' \
+    && /out/request-load-fixture readiness_ --nocapture --test-threads=1 > /out/static-readiness-tests.log 2>&1; status=$?; cat /out/static-readiness-tests.log; \
+    test "$status" = 0 && grep -q 'test result: ok. 2 passed;' /out/static-readiness-tests.log

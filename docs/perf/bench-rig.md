@@ -240,3 +240,29 @@ Every summary records the fixture image's C library and allocator (`imageRuntime
 Checked on 2026-11-25 for `t62-fixture:5717b070f`: Debian 12, glibc 2.36, dynamically linked `x86_64-unknown-linux-gnu`,
 no `#[global_allocator]` in the workspace, so glibc malloc. Shipped installs use the musl static image (t63 audit), so
 memory and allocator numbers from the fixture do not transfer to them as they are.
+
+## As-shipped fixture and allocator A/B (t63 measurement M3)
+
+`--target fixture-static` of `scripts/perf/Dockerfile` builds the native fixture the way the shipped image is linked
+(root `Dockerfile` `build-musl`): `rust:1.98.1-alpine` (same digest), `x86_64-unknown-linux-musl`,
+`RUSTFLAGS="-C target-feature=+crt-static"`, so musl libc and musl's malloc, statically linked. The image is the
+ordinary fixture image with only `/out/request-load-fixture` replaced (Node and the scripts stay for the
+generator); its gate checks the binary has no `libc.so` and passes the readiness tests. `MW_FIXTURE_DIAGNOSTICS`
+applies to it too. Every report records libc and allocator from `ldd` (`imageRuntime`).
+
+```sh
+git archive --format=tar <commit> | docker build -f scripts/perf/Dockerfile --target fixture-static \
+  --build-arg MW_BUILD_REVISION=<40-hex commit> -t rig-fixture-static:<short> -
+node scripts/perf/bench-rig.mjs m3 --run=m3 --run-id=m3-1 --arm-image-glibc=rig-fixture:<short> \
+  --arm-image-musl=rig-fixture-static:<short> [--arena-max=2] --report-root=<dir> --private-root=<dir> --confirm-bench-slot
+```
+
+Arms: `glibc` (default), `glibc-arena` (`MALLOC_ARENA_MAX`, `--arena-max`, default 2: a commonly used setting, not
+derived from a measurement here), `musl` (as shipped), `jemalloc`, `mimalloc`. An arm runs only when its image is
+given; the jemalloc and mimalloc arms need images built with allocator features that do not exist yet (they need
+new crates from crates.io; waiting for approval). Stages per arm: idle 60 s after seeding with every session open
+(`MW_LOAD_FIXTURE_IDLE_BEFORE_SECONDS`), the goal mix at C32 for 120 s, idle 300 s
+(`MW_LOAD_FIXTURE_IDLE_AFTER_SECONDS`; both 0–900, default 0). The fixture writes the idle windows to
+`idle-windows.jsonl`; `<run-id>-m3.md` has per arm the app memory at the end of each window, the largest value
+inside the mix, µs CPU per request and p99. Not built: the audit's "1,000 users open / close / reopen" stage
+(the fixture seeds its sessions once; the generator has no close/reopen phase).

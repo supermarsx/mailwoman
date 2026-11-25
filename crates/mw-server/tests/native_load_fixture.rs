@@ -797,6 +797,41 @@ fn native_multi_principal_http_load_fixture() {
         .unwrap()
         .block_on(run(workers));
 }
+/// MW_LOAD_FIXTURE_IDLE_BEFORE_SECONDS / _AFTER_SECONDS: unset means 0; 0..=900.
+fn fixture_idle_seconds(name: &str) -> std::result::Result<u64, String> {
+    idle_seconds(name, std::env::var(name).ok().as_deref())
+}
+fn idle_seconds(name: &str, value: Option<&str>) -> std::result::Result<u64, String> {
+    match value {
+        None => Ok(0),
+        Some(text) => match text.trim().parse::<u64>() {
+            Ok(n) if n <= 900 => Ok(n),
+            _ => Err(format!("{name} must be a whole number of seconds from 0 to 900")),
+        },
+    }
+}
+async fn idle_hold(phase: &str, seconds: u64, report: &std::path::Path) {
+    if seconds == 0 {
+        return;
+    }
+    let now = || std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+    let start = now();
+    tokio::time::sleep(Duration::from_secs(seconds)).await;
+    let line = json!({"phase": phase, "startMs": start, "endMs": now(), "seconds": seconds}).to_string() + "\n";
+    use std::io::Write as _;
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(report.join("idle-windows.jsonl")) {
+        let _ = file.write_all(line.as_bytes());
+    }
+}
+#[test]
+fn idle_holds_default_to_zero_and_are_bounded() {
+    assert_eq!(idle_seconds("X", None), Ok(0));
+    assert_eq!(idle_seconds("X", Some("300")), Ok(300));
+    assert_eq!(idle_seconds("X", Some("900")), Ok(900));
+    for bad in ["901", "-1", "x", ""] {
+        assert!(idle_seconds("X", Some(bad)).is_err(), "{bad}");
+    }
+}
 /// Highest MW_LOAD_FIXTURE_WORKERS (tokio worker threads of the fixture
 /// process). It was 32; 128 lets the fixture use a 56-CPU or larger cpuset.
 const FIXTURE_WORKERS_MAX: usize = 128;
@@ -1538,6 +1573,12 @@ async fn run(workers: usize) {
         data["workloadProfile"]["attachmentSampleBytes"] = json!(attachment_sample_bytes);
     }
     write_private(&handoff.0, &data);
+    // t62-n12: optional idle holds around the campaign (bench rig memory preset M3): the
+    // server keeps running with every session and nothing is sent; the windows are written
+    // to idle-windows.jsonl in the report directory for the rig's samplers.
+    let idle_before = fixture_idle_seconds("MW_LOAD_FIXTURE_IDLE_BEFORE_SECONDS").unwrap_or_else(|error| panic!("{error}"));
+    let idle_after = fixture_idle_seconds("MW_LOAD_FIXTURE_IDLE_AFTER_SECONDS").unwrap_or_else(|error| panic!("{error}"));
+    idle_hold("before", idle_before, &report).await;
     let outcome = if std::env::var("MW_LOAD_FIXTURE_EXTERNAL_DRIVER").as_deref() == Ok("1") {
         external_control::run(&data, &format!("native-{count}"), &report, deadline).await
     } else {
@@ -1574,6 +1615,7 @@ async fn run(workers: usize) {
             Err(_) => Err("native load generator exceeded bounded deadline".to_owned()),
         }
     };
+    idle_hold("after", idle_after, &report).await;
     task.abort();
     let _ = task.await;
     store.close().await;
