@@ -1365,6 +1365,17 @@ async fn a_mark_during_a_read_survives_the_install() {
     accounting.mark_all_stale(); // the checker, between the batch's read and its install
     accounting.committed(&batch, results, epoch);
     assert!(stale(&accounting), "the batch's rows must not clear a later mark");
+    // The same, with the mark made inside `committed`, after the batch's epoch
+    // was compared in the old code but before the subject's shard lock (e15a N3).
+    accounting.record("account", "n3", &p, 1000, None, NONE).await;
+    let batch: Vec<Arc<Pending>> = lock(&accounting.queue).iter().cloned().collect();
+    let epoch = accounting.stale_epoch.load(Ordering::SeqCst);
+    let observations: Vec<_> = batch.iter().map(|pending| pending.observation()).collect();
+    let results = store.request_protection_sqlite_batch_as(&participant, &observations).await.unwrap();
+    *lock(&accounting.mark_before_install) = true;
+    accounting.committed(&batch, results, epoch);
+    assert!(stale(&accounting), "a mark between the loop start and the shard lock survives");
+    lock(&accounting.queue).clear();
     // Without a mark in between the install is fresh.
     accounting.record("account", "n3", &p, 1000, None, NONE).await;
     accounting.flush_pending().await.unwrap();
@@ -1584,4 +1595,53 @@ async fn the_stated_bound_refuses_long_intervals_and_writes_short_windows_throug
     assert!(accounting.window_too_short(&p));
     accounting.record("account", "wide", &p, 1000, None, NONE).await;
     assert_eq!(accounting.status().write_throughs, before + 1, "written through");
+}
+
+/// e15a N2 residual: with healthy storage, a request whose observation cannot be
+/// queued (the queue stayed at its hard cap through three drains) is refused,
+/// never admitted uncounted, whatever `storageFailure` says.
+#[tokio::test]
+async fn a_load_drop_with_healthy_storage_is_refused_under_both_settings() {
+    use axum::http::StatusCode;
+    let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+    let accounting = WriteBehind::new(store.clone(), config(5000, 64));
+    let mut p = policy();
+    p.rate_limit = 100_000;
+    accounting.record("account", "load", &p, 1000, None, NONE).await;
+    // Hold the flush lock so no drain can make room, then fill to the hard cap.
+    let held = accounting.flushing.lock().await;
+    let key = store.request_protection_subject("account", "load").unwrap();
+    while accounting.status().pending < 128 {
+        let _ = accounting.with_entry(&key, "account", 1000, |entry| {
+            let prepared = accounting.keyer.prepare("account", "load", &p, 1000, None, NONE).unwrap().unwrap();
+            evaluate_protection(&mut entry.state, &mut entry.expires_at, &prepared, &p, 1000, None, NONE);
+            let pending = Arc::new(Pending {
+                seq: accounting.next_seq.fetch_add(1, Ordering::Relaxed), kind: "account", value: "load".into(),
+                prepared, policy: p.clone(), now: 1000, signal: None, country: None, ip: None, durable: OnceLock::new(),
+            });
+            entry.pending.push_back(pending.clone());
+            lock(&accounting.queue).push_back(pending);
+        }).await;
+    }
+    drop(held);
+    // Drains that make no room (test hook): the request gives up after three.
+    *lock(&accounting.drain_makes_no_room) = true;
+    let answer = accounting.record("account", "load", &p, 1000, None, NONE).await;
+    assert!(!answer.storage_failed && answer.decision.enforced, "{answer:?}");
+    for fail_closed in [true, false] {
+        assert_eq!(guard_status(answer, fail_closed, &p), Some(StatusCode::TOO_MANY_REQUESTS), "{fail_closed}");
+    }
+    let status = accounting.status();
+    assert_eq!((status.load_refusals, status.full_waits), (1, 3), "{status:?}");
+}
+
+/// The MAX_PENDING floor follows the HTTP in-flight limit.
+#[test]
+fn max_pending_is_at_least_twice_the_in_flight_limit() {
+    assert_eq!(max_pending_for(None, 1024).unwrap(), 4096, "the default covers 1024 in flight");
+    assert_eq!(max_pending_for(None, 4096).unwrap(), 8192, "unset: raised to the floor");
+    assert_eq!(max_pending_for(None, 100_000).unwrap(), 65536, "capped");
+    assert_eq!(max_pending_for(Some(2048), 1024).unwrap(), 2048);
+    let refused = max_pending_for(Some(1000), 1024).unwrap_err();
+    assert!(refused.contains("MW_REQUEST_PROTECTION_MAX_PENDING") && refused.contains("2048"), "{refused}");
 }

@@ -627,5 +627,5 @@ fn postgres_write_behind_warm_request_has_no_protection_statements() {
 /// (reads, writes, other) on the pool. A ceiling: it may only go down. The
 /// synchronous path's only change in t50hp-e8 is the witness join, made once
 /// per process on its own connection (not a pool statement, not per request).
-const POSTGRES_ENFORCED_SYNCHRONOUS_ME: (u64, u64, u64) = (15, 4, 2);
-const POSTGRES_ENFORCED_SYNCHRONOUS_ECHO: (u64, u64, u64) = (17, 4, 2);
+const POSTGRES_ENFORCED_SYNCHRONOUS_ME: (u64, u64, u64) = (13, 4, 2);
+const POSTGRES_ENFORCED_SYNCHRONOUS_ECHO: (u64, u64, u64) = (15, 4, 2);

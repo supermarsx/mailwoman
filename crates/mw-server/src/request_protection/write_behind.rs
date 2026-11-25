@@ -141,6 +141,12 @@ impl AccountingConfig {
             read(MAX_PENDING_VAR).as_deref(),
         )?;
         let reread = parse_reread(read(REREAD_VAR).as_deref(), config.flush_every)?;
+        let mut config = config;
+        let http_requests = crate::inbound_http::HttpLimits::from_env_without_probe()
+            .map(|limits| limits.requests)
+            .unwrap_or_else(|_| crate::inbound_http::HttpLimits::default().requests);
+        let explicit = read(MAX_PENDING_VAR).filter(|raw| !raw.trim().is_empty()).map(|_| config.max_pending);
+        config.max_pending = max_pending_for(explicit, http_requests)?;
         REREAD_MS.store(u64::try_from(reread.as_millis()).unwrap_or(u64::MAX), Ordering::Relaxed);
         Ok(config)
     }
@@ -230,6 +236,31 @@ pub(crate) fn parse_reread(raw: Option<&str>, flush_every: Duration) -> Result<D
     Ok(reread)
 }
 
+/// The refusal for a request whose observation could not be queued with
+/// healthy storage (the queue stayed at its hard cap): wait one second.
+const LOAD_REFUSAL: Decision = Decision {
+    action: mw_store::request_protection_model::Action::Throttle,
+    reason: Some(mw_store::request_protection_model::Reason::RequestRate),
+    enforced: true,
+    retry_after_secs: 1,
+};
+
+/// The smallest `MW_REQUEST_PROTECTION_MAX_PENDING` for an HTTP in-flight
+/// request limit: a request records at most one observation at a time, so with
+/// the queue at least twice the in-flight limit, the hard cap (twice the queue)
+/// cannot be reached by in-flight requests alone. Unset: the larger of the
+/// default and this floor (capped at 65536). Set below it: start-up is refused.
+pub(crate) fn max_pending_for(configured: Option<usize>, http_requests: usize) -> Result<usize, String> {
+    let floor = http_requests.saturating_mul(2).min(65536);
+    match configured {
+        None => Ok(AccountingConfig::default().max_pending.max(floor)),
+        Some(value) if value >= floor => Ok(value),
+        Some(value) => Err(format!(
+            "{MAX_PENDING_VAR}={value} is below twice the HTTP in-flight request limit ({http_requests}); use at least {floor}, or leave it unset"
+        )),
+    }
+}
+
 /// The answer for one observation or probe read.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct Answer {
@@ -279,6 +310,8 @@ pub(crate) struct WriteBehindStatus {
     pub full_waits: u64,
     /// The longest flush so far, in milliseconds (D in the multi-process bound).
     pub flush_max_ms: u64,
+    /// Requests refused because the queue stayed at its hard cap with healthy storage.
+    pub load_refusals: u64,
 }
 #[derive(Default)]
 struct Counters {
@@ -298,6 +331,7 @@ struct Counters {
     backpressure_writes: AtomicU64,
     full_waits: AtomicU64,
     flush_max_ms: AtomicU64,
+    load_refusals: AtomicU64,
 }
 fn bump(counter: &AtomicU64, by: u64) {
     counter.fetch_add(by, Ordering::Relaxed);
@@ -446,6 +480,13 @@ pub(crate) struct WriteBehind {
     /// its database read and installs its row as stale when it changed, so a
     /// mark is never overwritten by a row read before it (e15a N3).
     stale_epoch: AtomicU64,
+    /// Test hook: run `mark_all_stale` once inside `committed`, just before a
+    /// subject's shard lock is taken.
+    #[cfg(test)]
+    mark_before_install: Mutex<bool>,
+    /// Test hook: the hard-cap wait's drains make no room.
+    #[cfg(test)]
+    drain_makes_no_room: Mutex<bool>,
     /// The writers marker as of the previous check (`None`: no check yet).
     marker: Mutex<Option<Option<String>>>,
     /// Test hook: a delay between a check and storing its deadline.
@@ -478,6 +519,10 @@ impl WriteBehind {
             window: mw_store::request_protection::ownership_window(config.flush_every)
                 .unwrap_or(config.flush_every * 2),
             stale_epoch: AtomicU64::new(0),
+            #[cfg(test)]
+            mark_before_install: Mutex::new(false),
+            #[cfg(test)]
+            drain_makes_no_room: Mutex::new(false),
             marker: Mutex::new(None),
             #[cfg(test)]
             stall_after_check: Mutex::new(None),
@@ -824,12 +869,22 @@ impl WriteBehind {
             Err(_) => return Answer::failed(Decision::default()),
             Ok(Recorded::Full(decision)) => {
                 let healthy = lock(&self.degraded_since).is_none();
-                if healthy && attempts < 3 && self.flush_pending().await.is_ok() {
+                #[cfg(test)]
+                let drained = if *lock(&self.drain_makes_no_room) { Ok(()) } else { self.flush_pending().await };
+                #[cfg(not(test))]
+                let drained = self.flush_pending().await;
+                if healthy && attempts < 3 && drained.is_ok() {
                     attempts += 1;
                     bump(&self.counters.full_waits, 1);
                     continue;
                 }
                 bump(&self.counters.dropped, 1);
+                if healthy {
+                    // Load alone filled the queue: never admit uncounted, whatever
+                    // `storageFailure` says (it is for failing storage).
+                    bump(&self.counters.load_refusals, 1);
+                    return Answer::ok(if decision.enforced { decision } else { LOAD_REFUSAL });
+                }
                 return Answer::failed(decision);
             }
             Ok(Recorded::Queued { pending, decision, through, transition, full, queued }) => {
@@ -1046,9 +1101,16 @@ impl WriteBehind {
             last.insert(pending.prepared.subject_key(), (pending.seq, stored));
         }
         let synced = Instant::now();
-        let marked = self.stale_epoch.load(Ordering::SeqCst) != epoch;
         for (key, (seq, stored)) in last {
+            #[cfg(test)]
+            if std::mem::take(&mut *lock(&self.mark_before_install)) {
+                self.mark_all_stale();
+            }
             let mut entries = lock(self.shard(key));
+            // Under the subject's shard lock: `mark_all_stale` bumps the epoch
+            // before it visits any shard, so a mark that has not yet reached
+            // this shard is seen here (e15a N3).
+            let marked = self.stale_epoch.load(Ordering::SeqCst) != epoch;
             let Some(entry) = entries.get_mut(key) else { continue };
             while entry.pending.front().is_some_and(|pending| pending.seq <= seq) {
                 entry.pending.pop_front();
@@ -1162,6 +1224,7 @@ impl WriteBehind {
             backpressure_writes: counter(&self.counters.backpressure_writes),
             full_waits: counter(&self.counters.full_waits),
             flush_max_ms: counter(&self.counters.flush_max_ms),
+            load_refusals: counter(&self.counters.load_refusals),
         }
     }
 }

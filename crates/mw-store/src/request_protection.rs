@@ -230,11 +230,18 @@ impl SubjectKeyer {
 /// (re-joined when its PostgreSQL witness session dies).
 #[derive(Default)]
 struct Writer {
-    participant: std::sync::Mutex<Option<std::sync::Arc<ProtectionParticipant>>>,
+    /// SQLite: held here for the process's life. PostgreSQL: only a weak
+    /// reference; the session's liveness task holds it, so the witness session
+    /// ends with the runtime that opened it (or when it dies).
+    participant: std::sync::Mutex<Option<WriterSlot>>,
     /// One join attempt at a time.
     joining: tokio::sync::Mutex<()>,
     /// After a failed join, writes are marked until this instant, then a join is tried again.
     retry_after: std::sync::Mutex<Option<std::time::Instant>>,
+}
+enum WriterSlot {
+    Strong(std::sync::Arc<ProtectionParticipant>),
+    Weak(std::sync::Weak<ProtectionParticipant>),
 }
 type Writers = std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<Writer>>>;
 static WRITERS: std::sync::LazyLock<Writers> = std::sync::LazyLock::new(Default::default);
@@ -1510,11 +1517,17 @@ impl Store {
             .clone();
         let current = || {
             let mut slot = writer.participant.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if slot.as_ref().is_some_and(|participant| !participant.alive()) {
-                // A dead PostgreSQL witness session: mark until joined again.
+            let participant = match slot.as_ref() {
+                Some(WriterSlot::Strong(participant)) => Some(participant.clone()),
+                Some(WriterSlot::Weak(participant)) => participant.upgrade(),
+                None => None,
+            };
+            // A dead PostgreSQL witness session (or its runtime gone): mark until joined again.
+            let participant = participant.filter(|participant| participant.alive());
+            if participant.is_none() {
                 *slot = None;
             }
-            slot.clone()
+            participant
         };
         if let Some(participant) = current() {
             return !participant.acknowledged();
@@ -1541,21 +1554,24 @@ impl Store {
                 WITNESS.joins.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let marks = !participant.acknowledged();
                 let participant = std::sync::Arc::new(participant);
-                if matches!(location, owner::Location::Postgres { .. }) {
+                let slot = if matches!(location, owner::Location::Postgres { .. }) {
                     // Liveness: a dead session is noticed within LIVENESS, and the
                     // next write marks itself and joins again (see pg_owner GRACE).
+                    // The task owns the participant: its session ends with the task.
                     let weak = std::sync::Arc::downgrade(&participant);
                     tokio::spawn(async move {
                         loop {
                             tokio::time::sleep(pg_owner::LIVENESS).await;
-                            let Some(participant) = weak.upgrade() else { break };
                             if !participant.probe().await {
                                 break;
                             }
                         }
                     });
-                }
-                *writer.participant.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(participant);
+                    WriterSlot::Weak(weak)
+                } else {
+                    WriterSlot::Strong(participant)
+                };
+                *writer.participant.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(slot);
                 *writer.retry_after.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
                 marks
             }
