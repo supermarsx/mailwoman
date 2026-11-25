@@ -243,18 +243,20 @@ async fn a_writer_that_cannot_join_marks_its_write_and_retries_later() {
     std::fs::write(&lock,b"").unwrap();
     let mut permissions=std::fs::metadata(&lock).unwrap().permissions();permissions.set_readonly(true);
     std::fs::set_permissions(&lock,permissions.clone()).unwrap();
-    LAST_MARKER_BUMP_MS.store(i64::MIN/2,std::sync::atomic::Ordering::Relaxed);
     let before=request_protection_witness_status();
     assert_eq!(store.request_protection_writers_marker().await.unwrap(),None);
     let p=policy();
     store.request_protection("account","marked",&p,1000,None).await.unwrap();
     assert_eq!(store.request_protection_writers_marker().await.unwrap().as_deref(),Some("1"),"the write carries the marker");
-    // Within MARKER_PERIOD the marker is not bumped again (no serialisation on its row).
+    // e15a (g): a marked write that rolls back takes its bump with it, and the
+    // next marked write (within a second) bumps again when it commits.
+    q("CREATE TRIGGER rp_fail_once BEFORE UPDATE ON request_protection_subject BEGIN SELECT RAISE(ABORT,'injected'); END")
+        .execute(&store.backend).await.unwrap();
+    assert!(store.request_protection("account","marked",&p,1000,None).await.is_err(),"rolled back");
+    assert_eq!(store.request_protection_writers_marker().await.unwrap().as_deref(),Some("1"),"its bump rolled back too");
+    q("DROP TRIGGER rp_fail_once").execute(&store.backend).await.unwrap();
     store.request_protection("account","marked",&p,1000,None).await.unwrap();
-    assert_eq!(store.request_protection_writers_marker().await.unwrap().as_deref(),Some("1"));
-    tokio::time::sleep(MARKER_PERIOD+std::time::Duration::from_millis(50)).await;
-    store.request_protection("account","marked",&p,1000,None).await.unwrap();
-    assert_eq!(store.request_protection_writers_marker().await.unwrap().as_deref(),Some("2"));
+    assert_eq!(store.request_protection_writers_marker().await.unwrap().as_deref(),Some("2"),"the committed write moved the marker");
     let after=request_protection_witness_status();
     assert!(after.join_failures>before.join_failures&&after.unjoined_writes>=before.unjoined_writes+3,"{after:?}");
     assert!(after.last_failure.is_some());

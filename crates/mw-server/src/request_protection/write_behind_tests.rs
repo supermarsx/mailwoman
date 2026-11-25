@@ -889,7 +889,11 @@ async fn sign_in_failures() -> (Vec<u16>, Vec<(String, usize)>, Vec<Value>) {
     let locks = store.list_auth_source_locks(now).await.unwrap()
         .into_iter().map(|lock| (lock.surface, lock.failures)).collect();
     let mut rows: Vec<Value> = store.request_protection_rows(now, None, 250).await.unwrap().into_iter()
-        .map(|row| json!({"kind": row.subject_kind, "rate": row.snapshot.rate_count,
+        // The user-agent budget has its own fixed window; a boundary between the
+        // twelve requests resets its count in one run and not the other, so its
+        // rate is not compared (the anomalies and stage are).
+        .map(|row| json!({"kind": row.subject_kind,
+            "rate": (!row.subject_kind.starts_with("ua-")).then_some(row.snapshot.rate_count),
             "anomalous": row.snapshot.short.anomalous, "stage": row.snapshot.stage}))
         .collect();
     rows.sort_by_key(Value::to_string);
@@ -1657,7 +1661,8 @@ async fn pg_ownership_is_off_by_default() {
     let store = Store::open(&url, ServerKey::generate()).await.unwrap();
     let accounting = WriteBehind::start(store, config(100, 4096));
     tokio::time::sleep(Duration::from_secs(6)).await; // past the grace period
-    assert!(!accounting.status().owned);
+    let status = accounting.status();
+    assert!(!status.owned && !status.ownership_enabled, "{status:?}");
     assert_eq!(AccountingConfig::parse(None, None, None).unwrap().mode, AccountingMode::Synchronous);
 }
 

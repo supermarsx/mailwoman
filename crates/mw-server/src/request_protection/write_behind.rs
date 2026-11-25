@@ -101,7 +101,7 @@ pub(crate) const PG_OWNERSHIP_VAR: &str = "MW_REQUEST_PROTECTION_PG_OWNERSHIP";
 /// PostgreSQL uses the re-read rule with the compare-and-set flush.
 pub(crate) static PG_OWNERSHIP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// An owner trusts its cache again only after the writers marker has not
-/// changed for this long (longer than the marker's bump period).
+/// changed for this long.
 const MARKER_QUIET: Duration = Duration::from_secs(2);
 /// The batch API's group limit.
 const BATCH: usize = 64;
@@ -322,6 +322,12 @@ pub(crate) struct WriteBehindStatus {
     pub unjoined_writes_seen: u64,
     /// Observations written through because the queue was full.
     pub backpressure_writes: u64,
+    /// Which regime this instance runs: whether ownership may be used at all
+    /// (SQLite, or PostgreSQL with MW_REQUEST_PROTECTION_PG_OWNERSHIP=on).
+    pub ownership_enabled: bool,
+    /// Observations accounted synchronously because their window is shorter
+    /// than six times F + S + 2D while not owned (the bound's write-through).
+    pub short_window_write_throughs: u64,
     /// Requests that waited for a drain at the hard cap (healthy storage).
     pub full_waits: u64,
     /// The longest flush so far, in milliseconds (D in the multi-process bound).
@@ -345,6 +351,7 @@ struct Counters {
     ownership_lost: AtomicU64,
     unjoined_writes_seen: AtomicU64,
     backpressure_writes: AtomicU64,
+    short_window_write_throughs: AtomicU64,
     full_waits: AtomicU64,
     flush_max_ms: AtomicU64,
     flush_last_ms: AtomicU64,
@@ -456,7 +463,7 @@ impl Drop for OrphanGuard<'_> {
 
 enum Recorded {
     Full(Decision),
-    Queued { pending: Arc<Pending>, decision: Decision, through: bool, transition: bool, full: bool, queued: usize },
+    Queued { pending: Arc<Pending>, decision: Decision, through: bool, transition: bool, full: bool, tight: bool, queued: usize },
 }
 
 pub(crate) struct WriteBehind {
@@ -487,7 +494,10 @@ pub(crate) struct WriteBehind {
     participant: Mutex<Option<Arc<ProtectionParticipant>>>,
     joining: tokio::sync::Mutex<()>,
     /// Whether the ownership rule may be used at all.
-    ownership: bool,
+    ownership: std::sync::atomic::AtomicBool,
+    /// Compare-and-set conflicts seen so far (PostgreSQL): one while owned means
+    /// an unknown writer, and ownership is switched off for good.
+    cas_conflicts_seen: AtomicU64,
     /// Milliseconds since `epoch` until which ownership holds; 0 = not owned.
     owned_until_ms: AtomicU64,
     epoch: Instant,
@@ -533,7 +543,8 @@ impl WriteBehind {
             orphan: Mutex::new(None),
             participant: Mutex::new(None),
             joining: tokio::sync::Mutex::new(()),
-            ownership,
+            ownership: std::sync::atomic::AtomicBool::new(ownership),
+            cas_conflicts_seen: AtomicU64::new(mw_store::request_protection::request_protection_witness_status().cas_conflicts),
             owned_until_ms: AtomicU64::new(0),
             epoch: Instant::now(),
             window: mw_store::request_protection::ownership_window(config.flush_every)
@@ -606,8 +617,8 @@ impl WriteBehind {
 
     /// Test hook: never use the ownership rule.
     #[cfg(test)]
-    pub(crate) fn without_ownership(mut self) -> Self {
-        self.ownership = false;
+    pub(crate) fn without_ownership(self) -> Self {
+        self.ownership.store(false, Ordering::Relaxed);
         self
     }
 
@@ -661,7 +672,17 @@ impl WriteBehind {
     /// One ownership check (its own timer, independent of flushing): file
     /// system calls and one indexed read of the writers marker.
     pub(crate) async fn check_ownership(&self) {
-        if !self.ownership {
+        if !self.ownership.load(Ordering::Relaxed) {
+            return;
+        }
+        // A row changed under an owner's flush (PostgreSQL CAS conflict) means a
+        // writer outside the witness, such as an older binary (e15a C3): stop
+        // owning for the life of this process.
+        let conflicts = mw_store::request_protection::request_protection_witness_status().cas_conflicts;
+        if conflicts > self.cas_conflicts_seen.swap(conflicts, Ordering::Relaxed) && self.owned() {
+            self.ownership.store(false, Ordering::Relaxed);
+            self.lose_ownership();
+            tracing::warn!(target: "request_protection", "a request-protection row changed under this owner's flush (another writer outside the witness, an older version?); ownership is off until restart");
             return;
         }
         let Ok(participant) = self.participant().await else {
@@ -686,8 +707,8 @@ impl WriteBehind {
                     *seen = Some(marker);
                     (changed, moved)
                 };
-                // Writers that mark bump at most once per MARKER_PERIOD: while
-                // the marker moves, nobody owns (entries follow the re-read rule).
+                // While the marker moves (writers outside the witness are active)
+                // and for MARKER_QUIET after, nobody owns: entries follow the re-read rule.
                 {
                     let mut changed_at = lock(&self.marker_changed_at);
                     if marker_moved {
@@ -902,6 +923,7 @@ impl WriteBehind {
                     pending,
                     decision: step.decision,
                     through: step.transition || new_row || typed || full || tight,
+                    tight,
                     transition: step.transition,
                     full,
                     queued: queue.len(),
@@ -930,9 +952,12 @@ impl WriteBehind {
                 }
                 return Answer::failed(decision);
             }
-            Ok(Recorded::Queued { pending, decision, through, transition, full, queued }) => {
+            Ok(Recorded::Queued { pending, decision, through, transition, full, tight, queued }) => {
                 if full {
                     bump(&self.counters.backpressure_writes, 1);
+                }
+                if tight {
+                    bump(&self.counters.short_window_write_throughs, 1);
                 }
                 (pending, decision, through, transition, queued)
             }
@@ -1266,6 +1291,8 @@ impl WriteBehind {
             ownership_lost: counter(&self.counters.ownership_lost),
             unjoined_writes_seen: counter(&self.counters.unjoined_writes_seen),
             backpressure_writes: counter(&self.counters.backpressure_writes),
+            ownership_enabled: self.ownership.load(Ordering::Relaxed),
+            short_window_write_throughs: counter(&self.counters.short_window_write_throughs),
             full_waits: counter(&self.counters.full_waits),
             flush_max_ms: counter(&self.counters.flush_max_ms),
             load_refusals: counter(&self.counters.load_refusals),

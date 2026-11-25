@@ -81,8 +81,9 @@ pub(crate) struct PgWitness {
     token: String,
     seen_joins: Mutex<Option<u64>>,
     joined_at: Instant,
-    /// The last check that found another participant.
-    last_other: Mutex<Option<Instant>>,
+    /// Since when every check found this participant alone (`None`: the last
+    /// check was not Alone: another participant, busy, failed).
+    alone_since: Mutex<Option<Instant>>,
     alive: AtomicBool,
 }
 fn warn_unstable() {
@@ -198,7 +199,7 @@ impl PgWitness {
             token,
             seen_joins: Mutex::new(Some(mine)),
             joined_at: Instant::now(),
-            last_other: Mutex::new(None),
+            alone_since: Mutex::new(None),
             alive: AtomicBool::new(true),
         };
         Ok((witness, acknowledged))
@@ -210,6 +211,7 @@ impl PgWitness {
         let ownership = match self.check_at(window).await {
             Ok(ownership) => ownership,
             Err(_) => {
+                self.not_alone();
                 self.alive.store(false, Ordering::Release);
                 *self.connection.lock().await = None;
                 Ownership::Lost
@@ -229,18 +231,23 @@ impl PgWitness {
             warn_unstable();
         }
         if !admitted.try_get::<bool, _>("admitted").map_err(db)? {
+            self.not_alone();
             timed(tx.rollback()).await?;
             return Ok(Ownership::Busy);
         }
         let standby: bool = admitted.try_get("standby").map_err(db)?;
         let alone = alone_now(&mut tx, &self.id).await?;
         let state = read_state(&mut tx).await?;
+        // The grace counts from the first Alone check after ANY other result
+        // (e15a C1 residual): another participant, Busy or a failed check.
         let quiet = {
-            let mut last_other = self.last_other.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if !alone {
-                *last_other = Some(Instant::now());
+            let mut since = self.alone_since.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if alone {
+                since.get_or_insert_with(Instant::now).elapsed() >= GRACE
+            } else {
+                *since = None;
+                false
             }
-            last_other.is_none_or(|at| at.elapsed() >= GRACE)
         };
         let may_own = alone
             && quiet
@@ -277,6 +284,9 @@ impl PgWitness {
     }
     pub(crate) fn alive(&self) -> bool {
         self.alive.load(Ordering::Acquire)
+    }
+    fn not_alone(&self) {
+        *self.alone_since.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
     }
     pub(crate) async fn backend_pid(&self) -> Option<i32> {
         self.connection.lock().await.as_ref().map(|_| self.pid)
