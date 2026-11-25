@@ -258,6 +258,16 @@ fn unavailable() -> AdminApiError {
         "Request protection is temporarily unavailable",
     )
 }
+/// t50hp-e9: the published source changed before an accounting effect; the
+/// same refusal as `request_inputs`' terminal one (nothing dispatched).
+fn source_changed() -> AdminApiError {
+    AdminApiError::new(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "requestInputSourceChanged",
+        "Request input source changed",
+    )
+    .with("notDispatched", true)
+}
 fn limited(decision: Decision) -> AdminApiError {
     AdminApiError::new(
         StatusCode::TOO_MANY_REQUESTS,
@@ -321,6 +331,12 @@ impl Context {
         let Some(mut policy) = self.admission_policy(kind, value) else {
             return Ok(());
         };
+        // t50hp-e9: the charge below is an effect taken on published inputs
+        // (config, trust, the identified session): one fresh source
+        // observation first. The guard's earlier boundaries are decisions.
+        if crate::request_inputs::effect_boundary(&self.state.store, crate::published_guard_context::Guard::Protection).await.is_err() {
+            return Err(source_changed());
+        }
         // A verified image/inline-part capability belongs to the already
         // admitted signing batch. Active adaptive actions and independent UA
         // limits still apply; its individual download spends no second budget.
@@ -1018,7 +1034,15 @@ pub(crate) async fn guard(
     {
         return next.run(request).await;
     }
-    if let Err(response) = crate::request_inputs::effect_boundary(&state.store, crate::published_guard_context::Guard::Protection).await { return response; }
+    // t50hp-e9: probe_gate writes (records a probe hit) only for a hostile
+    // probe path; every other request reaches only its read-only decision,
+    // and the accounting writes validate in `Context::admit`.
+    let boundary = if probe {
+        crate::request_inputs::effect_boundary(&state.store, crate::published_guard_context::Guard::Protection).await
+    } else {
+        crate::request_inputs::decision_boundary(&state.store, crate::published_guard_context::Guard::Protection).await
+    };
+    if let Err(response) = boundary { return response; }
     let prepared=crate::published_guard_context::current().await.and_then(|current| {
         let value=current.inputs.protection()?;
         current.used(crate::published_guard_context::Guard::Protection);Some(value)
@@ -1063,7 +1087,7 @@ pub(crate) async fn guard(
             Err(refused) => return refused,
         }
     }
-    if let Err(response) = crate::request_inputs::effect_boundary(&state.store, crate::published_guard_context::Guard::Trust).await { return response; }
+    if let Err(response) = crate::request_inputs::decision_boundary(&state.store, crate::published_guard_context::Guard::Trust).await { return response; }
     let trust = match revision.as_ref() {Some(revision)=>crate::trust_tier::policy_at_revision(&state.store,revision).await,
         None=>crate::trust_tier::policy(&state.store).await};
     let mut ua_allowed = false;
@@ -1132,7 +1156,7 @@ pub(crate) async fn guard(
         request.extensions_mut().insert(proof.clone());
     }
     let trusted_percent = if source.is_some_and(crate::trust_tier::is_known) {
-        if let Err(response) = crate::request_inputs::effect_boundary(&state.store, crate::published_guard_context::Guard::GlobalKnobs).await { return response; }
+        if let Err(response) = crate::request_inputs::decision_boundary(&state.store, crate::published_guard_context::Guard::GlobalKnobs).await { return response; }
         match revision.as_ref() {
             Some(revision)=>crate::rate_leeway::knobs_at_revision(&state.store,"",revision).await,
             None=>crate::rate_leeway::knobs(&state.store,"").await,

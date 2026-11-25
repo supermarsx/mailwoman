@@ -254,9 +254,16 @@ fn ordinary_request_inputs_guard_session_revocation_refuses_without_anonymous_fa
         fixture.writer.delete_session(&fixture.session).await.unwrap();
         pause.release.notify_one();
         let reply = tokio::time::timeout(Duration::from_secs(10), pending).await.unwrap();
-        assert_eq!(reply.status, StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(reply.body["code"], "requestInputSourceChanged");
-        assert_eq!(reply.inputs.stored_reader_hits, 0);
+        // t50hp-e9: request protection's stored-session read is a deferred
+        // decision boundary: the frame's row (observed earlier in THIS request)
+        // is its evidence, and the change is refused at the request's next
+        // observation (the innermost settle), before any accounting effect,
+        // handler or dispatch, with the original classification (401 for a
+        // session that no longer exists).
+        assert_eq!(reply.status, StatusCode::UNAUTHORIZED, "{}", reply.body);
+        assert_eq!(reply.inputs.failure_classifications, 1);
+        assert_eq!(reply.inputs.stored_reader_hits, 1);
+        assert!(reply.inputs.deferred_boundaries > 0);
         assert_eq!(reply.inputs.legacy_guard_session_reads, 0, "changed consumed DATA cannot be treated as anonymous/legacy evidence");
         assert_eq!(reply.auth_calls, 0);
         no_dispatch(&reply);
@@ -485,6 +492,8 @@ fn ordinary_request_inputs_new_mutable_policy_refuses_at_original_guard_load() {
         let environment = crate::request_inputs::Environment::capture().unwrap();
         let entry = worker.request_inputs(&fixture.session, &environment).unwrap();
         assert_eq!(entry.guard.as_ref().unwrap().global("security.sessionBinding.enabled").unwrap().value, json!(false));
+        let record_key = format!("sess-sec:v1:{}", crate::push_relay::hash_token(&fixture.session));
+        let record_before = fixture.writer.get_setting(&record_key).await.unwrap();
         let pause = inputs_control::EffectPause::new(crate::published_guard_context::Guard::Watch);
         let pending = inputs_control::effect_probe(pause.clone(), send(&fixture, peer(fixture.request()), true));
         tokio::pin!(pending);
@@ -500,9 +509,123 @@ fn ordinary_request_inputs_new_mutable_policy_refuses_at_original_guard_load() {
         assert_eq!(reply.status, StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(reply.body["code"], "requestInputSourceChanged");
         assert_ne!(reply.guards & 1, 0, "the earlier actual Protocol guard consumed the old frame");
-        assert_eq!(reply.guards & 64, 0, "refuse BEFORE the old disabled Watch configuration/effects are consumed");
-        assert_eq!(reply.auth_calls, 0); assert_eq!(reply.inputs.failure_classifications, 0);
+        // t50hp-e9: Watch's load point is a decision boundary; the old
+        // configuration may feed its decision, but no Watch effect runs on it:
+        // the record is untouched and the request is refused before the handler.
+        assert_eq!(fixture.writer.get_setting(&record_key).await.unwrap(), record_before,
+            "no Watch effect under the old configuration");
+        assert_eq!(reply.auth_calls, 0);
         assert_eq!(reply.inputs.legacy_session_reads, 0);
         no_dispatch(&reply);
     });
+}
+
+// ---------------------------------------------------------------------------
+// t50hp-e9: deferred decision boundaries. A change committed while the request
+// waits at a boundary that no longer reads is refused at the request's next
+// observation, before any dispatch or handler answer. One case per removed
+// statement and per revocation/policy kind.
+// ---------------------------------------------------------------------------
+
+async fn e9_change(fixture: &Fixture, case: &str) {
+    match case {
+        "sign-out" => fixture.writer.delete_session(&fixture.session).await.map(drop).unwrap(),
+        "revoke-sessions" => fixture.writer.delete_sessions_for_account(&fixture.account).await.map(drop).unwrap(),
+        "account-disable" => crate::account_gate::update_flags(&fixture.writer, &fixture.account,
+            |flags| flags.disabled = true).await.map(drop).unwrap(),
+        "password-change" => crate::account_gate::update_flags(&fixture.writer, &fixture.account,
+            |flags| flags.force_password_change = true).await.map(drop).unwrap(),
+        "policy" => policy(&fixture.writer, "session.absoluteSecs", json!(86_400 * 29)).await,
+        "feature-gate" => policy(&fixture.writer, "access.protocols", json!(["imap", "pop3", "jmap"])).await,
+        "linked-scope" => {
+            // The account becomes a linked-mailbox target (linked_account row).
+            let options = mw_store::encryption::connect_options(&fixture.db, fixture.db_key.as_ref(), false);
+            let pool = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1)
+                .connect_with(options).await.unwrap();
+            let principal: String = sqlx::query_scalar("SELECT principal_id FROM session_principal WHERE session_id=?1")
+                .bind(&fixture.session).fetch_one(&pool).await.unwrap();
+            sqlx::query("INSERT INTO linked_account(id,owner_principal_id,child_principal_id,child_subject,account_id,display_name,sealed_session,revision,created_at) VALUES(?1,?2,?2,'e9-child',?3,'E9',x'00','r',1)")
+                .bind(uuid::Uuid::new_v4().to_string()).bind(&principal).bind(&fixture.account)
+                .execute(&pool).await.unwrap();
+            pool.close().await;
+        }
+        _ => unreachable!("{case}"),
+    }
+}
+
+/// Pause at `guard`'s (deferred) load point, commit `case`, release.
+async fn e9_paused(fixture: &Fixture, request: Request<Body>, guard: crate::published_guard_context::Guard, case: &str) -> Reply {
+    let pause = inputs_control::EffectPause::new(guard);
+    let pending = inputs_control::effect_probe(pause.clone(), send(fixture, request, true));
+    tokio::pin!(pending);
+    tokio::time::timeout(Duration::from_secs(10), async {
+        tokio::select! { _=pause.entered.notified()=>{}, _=&mut pending=>panic!("{case}: the deferred load point was not reached") }
+    }).await.expect("bounded deferred boundary wait");
+    e9_change(fixture, case).await;
+    pause.release.notify_one();
+    tokio::time::timeout(Duration::from_secs(20), pending).await.expect("bounded reply")
+}
+
+#[test]
+fn deferred_decision_boundaries_refuse_a_change_before_dispatch() {
+    use crate::published_guard_context::Guard;
+    // Each deferred boundary of the JMAP batch, and each change kind at least once.
+    for (guard, case) in [
+        (Guard::Trust, "sign-out"), (Guard::Probe, "revoke-sessions"),
+        (Guard::Protection, "account-disable"), (Guard::Geography, "password-change"),
+        (Guard::GlobalKnobs, "policy"), (Guard::Trust, "feature-gate"),
+        (Guard::Geography, "linked-scope"), (Guard::GlobalKnobs, "sign-out"),
+        (Guard::Watch, "account-disable"), (Guard::Watch, "linked-scope"),
+    ] {
+        run_fixture(move || async move {
+            let fixture = Fixture::new().await;
+            let _worker = warm(&fixture).await;
+            let reply = e9_paused(&fixture, peer(fixture.request()), guard, case).await;
+            assert_ne!(reply.status, StatusCode::OK, "{case} at {}: {}", guard as u32, reply.body);
+            assert_ne!(reply.status, StatusCode::INTERNAL_SERVER_ERROR, "{case}: a refusal, not a failure");
+            assert!(reply.inputs.deferred_boundaries > 0, "{case}: the boundary deferred");
+            no_dispatch(&reply);
+        });
+    }
+}
+
+/// The GET routes: the innermost settle layer (or `/api/me`'s seal) observes
+/// the deferred decisions before the handler answers.
+#[test]
+fn deferred_decision_boundaries_refuse_a_change_before_a_get_handler_answers() {
+    use crate::published_guard_context::Guard;
+    for (path, guard, case) in [
+        ("/api/me", Guard::Geography, "sign-out"),
+        ("/api/me", Guard::Trust, "account-disable"),
+        ("/api/settings", Guard::Geography, "sign-out"),
+        ("/api/settings", Guard::Probe, "account-disable"),
+        ("/api/settings", Guard::Protection, "password-change"),
+        ("/api/features", Guard::Trust, "policy"),
+        ("/api/settings", Guard::Watch, "revoke-sessions"),
+        ("/api/me", Guard::Watch, "sign-out"),
+    ] {
+        run_fixture(move || async move {
+            let fixture = Fixture::new().await;
+            let _worker = warm(&fixture).await;
+            let get = |fixture: &Fixture| {
+                let mut request = me(fixture);
+                *request.uri_mut() = path.parse().unwrap();
+                request
+            };
+            // Published before the change: the GET installs a frame.
+            let before = send(&fixture, get(&fixture), true).await;
+            assert_eq!(before.status, StatusCode::OK, "{path}: {}", before.body);
+            let reply = e9_paused(&fixture, get(&fixture), guard, case).await;
+            assert!(reply.inputs.deferred_boundaries > 0, "{path} {case}: deferred");
+            assert_ne!(reply.status, StatusCode::INTERNAL_SERVER_ERROR, "{path} {case}: a refusal, not a failure");
+            assert_eq!(reply.auth_calls, 0, "{path} {case}: refused before the handler authenticates");
+            match case {
+                // /api/me answers a held account with passwordChangeRequired.
+                "password-change" | "policy" => assert!(
+                    reply.status != StatusCode::OK || reply.body != before.body,
+                    "{path} {case}: {} {}", reply.status, reply.body),
+                _ => assert_ne!(reply.status, StatusCode::OK, "{path} {case}: {}", reply.body),
+            }
+        });
+    }
 }

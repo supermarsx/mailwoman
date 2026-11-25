@@ -57,7 +57,10 @@ pub(crate) async fn request(
     account_id: &str,
     username: &str,
 ) -> Result<Held, Response> {
-    crate::request_inputs::effect_boundary(&state.store, crate::published_guard_context::Guard::GlobalKnobs).await?;
+    // t50hp-e9: the knobs size an in-memory slot (no stored effect); the JMAP
+    // handler observes the source again after the slot wait (connector
+    // boundary, seal) and before dispatch.
+    crate::request_inputs::decision_boundary(&state.store, crate::published_guard_context::Guard::GlobalKnobs).await?;
     let knobs = rate_leeway::knobs(&state.store, rate_leeway::domain_of(username)).await;
     request_with_knobs(account_id, knobs).await
 }

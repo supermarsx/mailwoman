@@ -239,7 +239,8 @@ pub(crate) async fn session_guard(
     } else {
         request
     };
-    if let Err(response) = crate::request_inputs::effect_boundary(&state.store, crate::published_guard_context::Guard::Geography).await { return response; }
+    // t50hp-e9: decision only (allow or refuse); see request_inputs::decision_boundary.
+    if let Err(response) = crate::request_inputs::decision_boundary(&state.store, crate::published_guard_context::Guard::Geography).await { return response; }
     // t50hp: the request's settings revision (shared by its middleware, see
     // settings_request_revision), not a separate fresh read per key.
     let mut request = request;
@@ -262,7 +263,8 @@ pub(crate) async fn session_guard(
         Some(true) => {}
         None => return unavailable().into_response(),
     }
-    if let Err(response) = crate::request_inputs::effect_boundary(&state.store, crate::published_guard_context::Guard::Geography).await { return response; }
+    // t50hp-e9: decision only (allow or refuse); see request_inputs::decision_boundary.
+    if let Err(response) = crate::request_inputs::decision_boundary(&state.store, crate::published_guard_context::Guard::Geography).await { return response; }
     let policy = match Policy::load_at(&state, revision.as_ref()).await {
         Ok(policy) => policy,
         Err(error) => return error.into_response(),

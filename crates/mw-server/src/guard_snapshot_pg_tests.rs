@@ -509,3 +509,30 @@ fn sqlite_commit_in_one_appstate_stops_reuse_in_another_within_the_bound() {
         run(move || async move { cross_process(sqlite_db(), case).await });
     }
 }
+
+/// t50hp-e9: statements (each one a database round trip) per warm GET /api/me
+/// on PostgreSQL: mode off (original readers, one authentication statement)
+/// and bounded (published inputs certified by the mirror). Measurement only;
+/// the budgets live in guard_read_budget_tests.
+#[test]
+fn postgres_warm_identity_round_trips() {
+    let Some(dsn) = pg_dsn() else { return };
+    run(move || async move {
+        let f = Fixture::new(pg_schema(&dsn).await).await;
+        for _ in 0..3 {
+            assert_eq!(send(&f.b, f.me(), OFF).await.status, StatusCode::OK);
+        }
+        let (off, off_sql) = mw_store::pool_telemetry::measure_queries(send(&f.b, f.me(), OFF)).await;
+        assert_eq!(off.status, StatusCode::OK, "{}", off.body);
+        f.ready(&f.b, SHORT).await;
+        f.reusing(&f.b, SHORT, true).await;
+        let (on, on_sql) = mw_store::pool_telemetry::measure_queries(send(&f.b, f.me(), SHORT)).await;
+        assert_eq!(on.status, StatusCode::OK, "{}", on.body);
+        assert_eq!(on.body, off.body);
+        let trips = |sql: &mw_store::pool_telemetry::QuerySnapshot| sql.read.calls + sql.write.calls + sql.other.calls;
+        eprintln!("{}", json!({"kind":"t50hp-e9-pg-identity-round-trips",
+            "off":{"reads":off_sql.read.calls,"writes":off_sql.write.calls,"other":off_sql.other.calls,"roundTrips":trips(&off_sql)},
+            "bounded":{"reads":on_sql.read.calls,"writes":on_sql.write.calls,"other":on_sql.other.calls,"roundTrips":trips(&on_sql),
+                "fresh":on.snap.fresh,"reused":on.snap.reused,"deferred":on.inputs.deferred_boundaries}}));
+    });
+}

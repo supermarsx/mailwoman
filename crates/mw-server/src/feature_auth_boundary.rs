@@ -258,7 +258,10 @@ pub(crate) async fn authenticate_deferred(
         #[cfg(test)] after_prepared(&id).await;
         let authenticated = crate::authed(state, headers).await.map_err(BoundaryError::Authentication)?;
         #[cfg(test)] wait_pause(PauseAt::AfterAuthentication, &id).await;
-        crate::request_inputs::refresh().await.map_err(BoundaryError::Features)?;
+        // t50hp-e9: on published inputs the authentication above read no SQL;
+        // the handler observes the source after its waits (connector boundary)
+        // and in `seal` before dispatch, so this observation is owed, not read.
+        crate::request_inputs::defer_refresh();
         if !same_session(hint, &authenticated) {
             return Err(BoundaryError::Features(auth_fence_refusal()));
         }

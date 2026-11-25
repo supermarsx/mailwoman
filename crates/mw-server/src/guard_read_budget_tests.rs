@@ -204,8 +204,10 @@ fn sqlite_guard_chain_statement_budget() {
         let fixture = Fixture::new(sqlite_db(), "sqlite-off").await;
         run_budgets(
             &fixture,
-            &Budget { route: "GET /api/me", reads: 13, writes: 0, other: 0 },
-            &Budget { route: "POST /jmap/api Core/echo", reads: 15, writes: 0, other: 0 },
+            // t50hp-e9: the session row, its clocks and the linked-target
+            // flag in one statement (Store::authed_session_unit): 13/15 -> 11/13.
+            &Budget { route: "GET /api/me", reads: 11, writes: 0, other: 0 },
+            &Budget { route: "POST /jmap/api Core/echo", reads: 13, writes: 0, other: 0 },
         )
         .await;
     });
@@ -221,8 +223,10 @@ fn postgres_guard_chain_statement_budget() {
         let fixture = Fixture::new(url, "postgres").await;
         run_budgets(
             &fixture,
-            &Budget { route: "GET /api/me", reads: 13, writes: 0, other: 0 },
-            &Budget { route: "POST /jmap/api Core/echo", reads: 15, writes: 0, other: 0 },
+            // t50hp-e9: the session row, its clocks and the linked-target
+            // flag in one statement (Store::authed_session_unit): 13/15 -> 11/13.
+            &Budget { route: "GET /api/me", reads: 11, writes: 0, other: 0 },
+            &Budget { route: "POST /jmap/api Core/echo", reads: 13, writes: 0, other: 0 },
         )
         .await;
     });
@@ -520,4 +524,45 @@ fn sqlite_write_behind_warm_request_has_no_protection_statements() {
         // the default profile (measured: one read fewer, outside protection).
         assert!(deferred.read.calls <= off.read.calls, "{route}: {deferred:?} / {off:?}");
     }
+}
+
+// ---------------------------------------------------------------------------
+// t50hp-e9: the original path reads the session row, its clocks and the
+// linked-target flag in one statement (`Store::authed_session_unit`). Each
+// decision the two removed statements fed still refuses on current data.
+// ---------------------------------------------------------------------------
+
+async fn authentication_unit_decisions(fixture: &Fixture) {
+    let (status, body, _) = fixture.send(fixture.me()).await;
+    assert_eq!(status, StatusCode::OK, "{}: {body}", fixture.label);
+    // The clock read (was session_activity_clock): an idle deadline in the
+    // past, committed after the previous request, expires the session now.
+    assert!(fixture.writer.record_session_activity(&fixture.session, "2000-01-01T00:00:00Z").await.unwrap());
+    let (status, body, _) = fixture.send(fixture.me()).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{}: {body}", fixture.label);
+    assert_eq!(body["error"], "session expired", "{}", fixture.label);
+    assert!(fixture.writer.get_primary_session(&fixture.session).await.is_err(), "{}: deleted", fixture.label);
+    // Signed out (the row itself): refused.
+    let (status, _, _) = fixture.send(fixture.me()).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{}", fixture.label);
+}
+
+#[test]
+fn sqlite_authentication_unit_decisions() {
+    run_fixture(|| async {
+        let fixture = Fixture::new(sqlite_db(), "sqlite-off").await;
+        authentication_unit_decisions(&fixture).await;
+    });
+}
+
+#[test]
+fn postgres_authentication_unit_decisions() {
+    let Some(url) = std::env::var("MW_TEST_PG").ok().filter(|url| !url.is_empty()) else {
+        eprintln!("[guard_read_budget] MW_TEST_PG unset: Postgres leg not run");
+        return;
+    };
+    run_fixture(move || async move {
+        let fixture = Fixture::new(url, "postgres").await;
+        authentication_unit_decisions(&fixture).await;
+    });
 }

@@ -465,14 +465,16 @@ pub(crate) async fn guard(State(state): State<AppState>, mut request: Request, n
         return next.run(request).await;
     }
     // Keeps the shared trust-tier policy fresh (cached 30 s) for every guard.
-    if let Err(response) = crate::request_inputs::effect_boundary(&state.store, crate::published_guard_context::Guard::Trust).await { return response; }
+    // t50hp-e9: decision inputs only (see request_inputs::decision_boundary);
+    // this guard's own effects come after `next.run`, after later observations.
+    if let Err(response) = crate::request_inputs::decision_boundary(&state.store, crate::published_guard_context::Guard::Trust).await { return response; }
     // t50hp: at the request's shared settings revision (no second read).
     let trust = crate::trust_tier::policy_for_request(&state.store, &mut request).await;
     let Some(ip) = crate::scope_mw::proxy::client_ip(request.headers(), request.extensions())
     else {
         return next.run(request).await;
     };
-    if let Err(response) = crate::request_inputs::effect_boundary(&state.store, crate::published_guard_context::Guard::Probe).await { return response; }
+    if let Err(response) = crate::request_inputs::decision_boundary(&state.store, crate::published_guard_context::Guard::Probe).await { return response; }
     let prepared=crate::published_guard_context::current().await.and_then(|current| {
         let policy=current.inputs.probe()?;
         current.used(crate::published_guard_context::Guard::Probe);Some(policy)

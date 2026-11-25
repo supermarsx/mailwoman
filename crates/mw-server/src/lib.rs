@@ -1837,6 +1837,10 @@ fn router(
         // t91: innermost, so it sees only requests every guard below admitted.
         // A request without `Idempotency-Key` passes through untouched.
         .layer(shared_route::wrap(middleware::from_fn(idempotency::layer)))
+        // t50hp-e9: inside every guard: one source observation for the
+        // decisions the guards deferred (request_inputs::decision_boundary),
+        // before the inner layers and the handler. No-op without a frame.
+        .layer(shared_route::wrap(middleware::from_fn(request_inputs::settle_layer)))
         // t98: feature profiles: refuse a feature that is off for the subject.
         .layer(shared_route::wrap(middleware::from_fn_with_state(
             state.clone(),
@@ -3395,7 +3399,11 @@ async fn me(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Some(obj) = body.as_object_mut() {
         obj.insert("csrfToken".into(), json!(token));
     }
-    if let Err(response) = request_inputs::seal().await { return response; }
+    // t50hp-e9: no `seal` here. On published inputs this handler reads no SQL
+    // (session, gate and storage authority come from the frame), and the
+    // innermost guard layer (`request_inputs::settle_layer`) observed the
+    // source after the last guard and before this handler; a second
+    // observation here duplicated it. Without a frame `seal` was a no-op.
     let mut resp = Json(body).into_response();
     if existing.as_deref() != Some(token.as_str()) {
         resp.headers_mut()
@@ -6444,11 +6452,11 @@ async fn authed_with_gate_inner(
     headers: &HeaderMap,
 ) -> Result<(mw_store::Session, account_gate::AccountGate), Response> {
     let bearer = push_relay::bearer_token(headers);
-    let mut session = match &bearer {
-        Some(token) => authed_native(state, token).await?,
+    let (mut session, linked_required) = match &bearer {
+        Some(token) => (authed_native(state, token).await?, None),
         None => authed_cookie(state, headers).await?,
     };
-    if fixture_profile::measure(fixture_profile::Phase::LinkedLogin, linked_login::blocked(state,&session)).await.map_err(|error|account_gate::unavailable("linked login policy",error))? {return Err(unauthorized());}
+    if fixture_profile::measure(fixture_profile::Phase::LinkedLogin, linked_login::blocked_with(state,&session,linked_required)).await.map_err(|error|account_gate::unavailable("linked login policy",error))? {return Err(unauthorized());}
     if let Err(response) = fixture_profile::measure(fixture_profile::Phase::DomainUpgrade, domain_upgrade::refresh_session(state, &mut session)).await {
         let _ = state.store.delete_session(&session.id).await;
         state.sessions.forget(&session.id);
@@ -6493,19 +6501,24 @@ async fn authed_with_gate_inner(
 }
 
 /// The cookie half of [`authed_with_gate`]: resolve the session and enforce its
-/// timeouts.
+/// timeouts. Also returns the linked-login flag when this read produced it.
+///
+/// t50hp-e9: without published inputs the session row, its clocks and the
+/// linked-target flag come from ONE statement (`Store::authed_session_unit`),
+/// where three separate reads of the same row used to run back to back.
 async fn authed_cookie(
     state: &AppState,
     headers: &HeaderMap,
-) -> Result<mw_store::Session, Response> {
+) -> Result<(mw_store::Session, Option<bool>), Response> {
     let id = cookie_value(headers).ok_or_else(unauthorized)?;
-    let (session, last_seen) = if let Some(inputs) = request_inputs::current(&state.store).await {
+    let (session, last_seen, clocks, linked_required) = if let Some(inputs) = request_inputs::current(&state.store).await {
         let source = inputs.source().ok_or_else(unauthorized)?;
-        (inputs.session().clone(), source.last_seen().map(str::to_owned))
+        (inputs.session().clone(), source.last_seen().map(str::to_owned), None, None)
     } else {
         #[cfg(test)] request_inputs::test_control::record(|counts| counts.legacy_session_reads += 1);
-        fixture_profile::measure(fixture_profile::Phase::SessionRead, state.store.get_primary_session_with_activity(&id))
-            .await.map_err(|_| unauthorized())?
+        let unit = fixture_profile::measure(fixture_profile::Phase::SessionRead, state.store.authed_session_unit(&id))
+            .await.map_err(|_| unauthorized())?;
+        (unit.session, unit.last_seen, Some(unit.clocks), Some(unit.linked_policy_required))
     };
     if let Err(reason) = state.sessions.check(&id, &state.hardening) {
         tracing::info!("session {id} expired ({reason:?})");
@@ -6513,7 +6526,7 @@ async fn authed_cookie(
         state.sessions.forget(&id);
         return Err(session_expired());
     }
-    fixture_profile::measure(fixture_profile::Phase::SessionClock, security_center::enforce_session_clock(state, &session)).await?;
+    fixture_profile::measure(fixture_profile::Phase::SessionClock, security_center::enforce_session_clock_with(state, &session, clocks)).await?;
     let flush_seconds = session_persistence::flush_seconds();
     if state.store.session_touch_may_be_due_at(last_seen.as_deref(), flush_seconds, chrono::Utc::now()) {
         let _ = fixture_profile::measure(fixture_profile::Phase::SessionTouch,
@@ -6521,7 +6534,7 @@ async fn authed_cookie(
     } else {
         fixture_profile::measure(fixture_profile::Phase::SessionTouchSkipped, std::future::ready(())).await;
     }
-    Ok(session)
+    Ok((session, linked_required))
 }
 
 /// Resolve a native bearer session (plan §2.2). The token doubles as the opaque

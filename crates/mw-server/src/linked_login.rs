@@ -4,6 +4,11 @@ use mw_store::{Session,StoreError};
 pub(crate) const KEY:&str="accounts.linked.directLogin";
 pub(crate) const USER_CONTROL:&str="accounts.linked.allowUserLoginPolicy";
 pub(crate) async fn blocked(state:&AppState,session:&Session)->Result<bool,StoreError>{
+    blocked_with(state,session,None).await
+}
+/// [`blocked`] with the linked-target flag read in the authentication
+/// statement (`Store::authed_session_unit`) instead of a separate read.
+pub(crate) async fn blocked_with(state:&AppState,session:&Session,required:Option<bool>)->Result<bool,StoreError>{
     if let Some(inputs)=crate::request_inputs::current(&state.store).await
         && inputs.matches_session(session) {
         // Admission requires the observed source's linked-policy requirement
@@ -11,7 +16,8 @@ pub(crate) async fn blocked(state:&AppState,session:&Session)->Result<bool,Store
         inputs.consume();
         return Ok(false);
     }
-    if !state.store.linked_direct_login_policy_required(&session.id,&session.account_id).await? {return Ok(false);}
+    let required=match required {Some(required)=>required,None=>state.store.linked_direct_login_policy_required(&session.id,&session.account_id).await?};
+    if !required {return Ok(false);}
     Ok(!effective_for_session(state,session,KEY).await?.and_then(|entry|entry.value.as_bool()).unwrap_or(true))
 }
 pub(crate) async fn user_control(state:&AppState,session:&Session)->Result<bool,StoreError>{

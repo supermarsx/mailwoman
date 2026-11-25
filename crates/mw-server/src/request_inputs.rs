@@ -291,6 +291,9 @@ struct Scope {
     first: OnceCell<Option<Arc<Current>>>,
     body: Mutex<Option<[u8; 32]>>,
     held_allowed: bool,
+    /// t50hp-e9: a [`decision_boundary`] ran since the last successful source
+    /// observation; the next observation, or [`settle`], discharges it.
+    owed: AtomicBool,
 }
 pub(crate) struct Current {
     pub(crate) entry: Arc<Published>,
@@ -353,7 +356,8 @@ async fn scoped(state: AppState, request: Request, next: Next) -> Response {
     let held_allowed = request.uri().path() == "/api/me";
     #[cfg(feature="load-test-fixtures")]
     crate::request_inputs_fixture::record(crate::request_inputs_fixture::Event::Context);
-    let scope = Arc::new(Scope { state, cookie, first: OnceCell::new(), body: Mutex::new(None), held_allowed });
+    let scope = Arc::new(Scope { state, cookie, first: OnceCell::new(), body: Mutex::new(None), held_allowed,
+        owed: AtomicBool::new(false) });
     SCOPE.scope(scope, next.run(request)).await
 }
 
@@ -520,6 +524,62 @@ pub(crate) async fn effect_boundary(store: &Store, guard: crate::published_guard
     reobserve(&scope, &current).await.map_err(|_| refused())
 }
 
+/// t50hp-e9 (A3 W-4): the load point of a guard whose published input feeds a
+/// DECISION only (allow, refuse, classify) and no effect before the next
+/// source observation of this request. No statement here: the decision uses
+/// the request's last observation, and the request owes one more observation
+/// before any effect or response — the next [`effect_boundary`],
+/// [`connector_boundary`], [`refresh`]/[`seal`] or the innermost [`settle`].
+///
+/// Why that is the same check: every observation compares the source with the
+/// request's FIRST one (`same_published_source` + `entry.matches`), and the
+/// epochs it compares only move forward. A later observation that still
+/// matches therefore proves that nothing the published entry depends on
+/// changed at any time since the first one, so a decision taken in between
+/// was taken on current DATA. A later observation that does not match is the
+/// usual terminal refusal, and the deferred decision had no effect. A refusal
+/// answered by the guard itself uses data observed in this request.
+pub(crate) async fn decision_boundary(store: &Store, guard: crate::published_guard_context::Guard) -> Result<(), Response> {
+    let Some(_current) = current(store).await else { return Ok(()); };
+    let scope = SCOPE.try_with(Arc::clone).map_err(|_| refused())?;
+    #[cfg(test)] test_control::before_effect(guard).await;
+    #[cfg(not(test))] let _ = guard;
+    scope.owed.store(true, Ordering::Relaxed);
+    #[cfg(test)] test_control::record(|counts| counts.deferred_boundaries += 1);
+    Ok(())
+}
+
+/// t50hp-e9: discharge the decisions [`decision_boundary`] deferred, with one
+/// observation, unless a later observation already did. Called by the
+/// innermost guard layer ([`settle_layer`]).
+pub(crate) async fn settle() -> Result<(), Response> {
+    let Ok(scope) = SCOPE.try_with(Arc::clone) else { return Ok(()); };
+    if !scope.owed.swap(false, Ordering::Relaxed) { return Ok(()); }
+    refresh().await
+}
+
+/// Innermost guard layer: after every middleware decision and before the
+/// inner layers (idempotency, device recognition) and the handler run, the
+/// deferred decisions are validated once, so the handler's own effects
+/// (authentication telemetry, its data reads, its answer) follow a source
+/// observation made after the last guard.
+pub(crate) async fn settle_layer(request: Request, next: Next) -> Response {
+    if let Err(response) = settle().await { return response; }
+    next.run(request).await
+}
+
+/// [`refresh`] for an authentication point followed, on every path that can
+/// reach an effect, by another observation of this request (the JMAP handler's
+/// connector boundary and its `seal` before dispatch). Marks the observation
+/// owed instead of reading it.
+pub(crate) fn defer_refresh() {
+    let Ok(scope) = SCOPE.try_with(Arc::clone) else { return; };
+    let Some(Some(current)) = scope.first.get() else { return; };
+    if !current.used.load(Ordering::Relaxed) { return; }
+    scope.owed.store(true, Ordering::Relaxed);
+    #[cfg(test)] test_control::record(|counts| counts.deferred_boundaries += 1);
+}
+
 /// Borrow stored DATA for the same actor at the original guard's load point.
 /// Live guard decisions and effects remain with that guard. A changed frame is
 /// a refusal; it must never become anonymous evidence or a legacy-loader miss.
@@ -531,7 +591,15 @@ pub(crate) async fn stored_session(
     let Some(inputs) = current(store).await else { return Ok(None); };
     if inputs.session.id != id { return Ok(None); }
     #[cfg(test)] test_control::before_stored(guard).await;
-    effect_boundary(store, guard).await?;
+    // t50hp-e9: request protection uses the row as evidence for its decisions
+    // (tier, a user-agent block exemption); its accounting effects validate at
+    // `Context::admit`. Session watch acts on the row (records, alerts,
+    // revocation): it keeps the observation here.
+    if matches!(guard, crate::published_guard_context::Guard::Protection) {
+        decision_boundary(store, guard).await?;
+    } else {
+        effect_boundary(store, guard).await?;
+    }
     inputs.consume();
     #[cfg(test)] test_control::record(|counts| counts.stored_reader_hits += 1);
     Ok(Some(inputs.session.clone()))
@@ -549,6 +617,8 @@ pub(crate) mod test_control {
         pub first_fences: u64, pub refresh_fences: u64, pub session_decodes: u64,
         pub legacy_session_reads: u64, pub failure_classifications: u64,
         pub stored_reader_hits: u64, pub legacy_guard_session_reads: u64,
+        /// t50hp-e9: boundaries that deferred their observation.
+        pub deferred_boundaries: u64,
         /// Frames installed for the request (first_frame accepted a fence).
         pub frames_ready: u64,
     }
@@ -571,12 +641,15 @@ pub(crate) mod test_control {
         static STORED: std::sync::Arc<EffectPause>; }
     pub(crate) struct EffectPause {
         guard: u32,
+        /// One pause per probe: a guard may pass its load point twice (a
+        /// deferred decision, then the observation before its first effect).
+        fired: std::sync::atomic::AtomicBool,
         pub entered: tokio::sync::Notify,
         pub release: tokio::sync::Notify,
     }
     impl EffectPause {
         pub(crate) fn new(guard: crate::published_guard_context::Guard) -> std::sync::Arc<Self> {
-            std::sync::Arc::new(Self { guard: guard as u32,
+            std::sync::Arc::new(Self { guard: guard as u32, fired: std::sync::atomic::AtomicBool::new(false),
                 entered: tokio::sync::Notify::new(), release: tokio::sync::Notify::new() })
         }
     }
@@ -623,14 +696,14 @@ pub(crate) mod test_control {
     }
     pub(super) async fn before_effect(guard: crate::published_guard_context::Guard) {
         let Ok(pause) = EFFECT.try_with(std::sync::Arc::clone) else { return; };
-        if pause.guard != guard as u32 { return; }
+        if pause.guard != guard as u32 || pause.fired.swap(true, std::sync::atomic::Ordering::Relaxed) { return; }
         pause.entered.notify_one();
         tokio::time::timeout(std::time::Duration::from_secs(10), pause.release.notified())
             .await.expect("bounded actual guard-load pause");
     }
     pub(super) async fn before_stored(guard: crate::published_guard_context::Guard) {
         let Ok(pause) = STORED.try_with(std::sync::Arc::clone) else { return; };
-        if pause.guard != guard as u32 { return; }
+        if pause.guard != guard as u32 || pause.fired.swap(true, std::sync::atomic::Ordering::Relaxed) { return; }
         pause.entered.notify_one();
         tokio::time::timeout(std::time::Duration::from_secs(10), pause.release.notified())
             .await.expect("bounded actual stored-session reader pause");
@@ -755,6 +828,7 @@ async fn reobserve(scope: &Scope, current: &Current) -> Result<(), ()> {
                 guard.matches_configuration(&scope.state.store, fence).unwrap_or(false))
         {
             *current.current.lock().map_err(|_| ())? = (fence.clone(), observed.built);
+            scope.owed.store(false, Ordering::Relaxed);
             return Ok(());
         }
         if !observed.reused { return Err(()); }

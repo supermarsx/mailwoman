@@ -434,6 +434,16 @@ pub(crate) async fn enforce_session_clock(
     state: &AppState,
     session: &mw_store::Session,
 ) -> Result<(), Response> {
+    enforce_session_clock_with(state, session, None).await
+}
+/// [`enforce_session_clock`] with the clocks the caller read in the same
+/// statement as the session row (`Store::authed_session_unit`), in place of a
+/// second read of that row. Published inputs still take precedence.
+pub(crate) async fn enforce_session_clock_with(
+    state: &AppState,
+    session: &mw_store::Session,
+    read: Option<(String, String)>,
+) -> Result<(), Response> {
     let inputs = crate::request_inputs::current(&state.store).await
         .filter(|inputs| inputs.matches_session(session));
     let policy = if let Some(inputs) = &inputs {
@@ -446,6 +456,8 @@ pub(crate) async fn enforce_session_clock(
             let (created, activity) = source.clocks();
             (created.to_owned(), activity.to_owned())
         })
+    } else if let Some(read) = read {
+        Some(read)
     } else { state
         .store
         .session_activity_clock(&session.id)

@@ -678,7 +678,11 @@ async fn inspect(
     ext: &axum::http::Extensions,
     path: &str,
 ) -> Option<Response> {
-    if let Err(response) = crate::request_inputs::effect_boundary(&state.store, crate::published_guard_context::Guard::Watch).await { return Some(response); }
+    // t50hp-e9: the configuration feeds decisions first; the source is
+    // observed once, right before this guard's first effect (record write,
+    // alert, revocation, step-up flag, sweep): see `watch_effect`.
+    if let Err(response) = crate::request_inputs::decision_boundary(&state.store, crate::published_guard_context::Guard::Watch).await { return Some(response); }
+    let mut observed = false;
     let cfg = config(state).await;
     let want_country_alert = cfg.rules.country_alert;
     if !cfg.binding.enabled && !cfg.rules.theft && !want_country_alert {
@@ -694,6 +698,7 @@ async fn inspect(
     let fp = session_binding::derive(&secret, &client, country.as_deref(), ip, cfg.binding.attrs);
 
     let Some(mut sec) = load(state, &hash).await else {
+        if let Err(response) = watch_effect(state, &mut observed).await { return Some(response); }
         return create_or_reuse(
             state, target, &cfg, &hash, fp, country, &net, t, headers, ext,
         )
@@ -874,6 +879,7 @@ async fn inspect(
         && geo_failure_alerts(state).await
         && sec.debounce("countryUnavailable", t, 86_400)
     {
+        if let Err(response) = watch_effect(state, &mut observed).await { return Some(response); }
         let user = alerts::user_prefs(state, &sec.account).await;
         alerts::raise(
             state,
@@ -893,6 +899,9 @@ async fn inspect(
         )
         .await;
     }
+    if (!events.is_empty() || level > 0)
+        && let Err(response) = watch_effect(state, &mut observed).await
+    { return Some(response); }
     for e in events {
         alerts::raise(state, e, &prefs).await;
     }
@@ -930,14 +939,30 @@ async fn inspect(
             || c.sec.fp != sec.fp
     });
     if changed {
+        if let Err(response) = watch_effect(state, &mut observed).await { return Some(response); }
         save(state, &hash, &sec).await;
     } else {
         // Keep the in-memory history current without a write.
         let saved_at = cache_lock().get(&hash).map_or(t, |c| c.saved_at);
         remember(&hash, &sec, saved_at);
     }
-    sweep_if_due(state, cfg.rules.retention_days);
+    if sweep_due() {
+        if let Err(response) = watch_effect(state, &mut observed).await { return Some(response); }
+        sweep_if_due(state, cfg.rules.retention_days);
+    }
     gate
+}
+
+/// t50hp-e9: one source observation before the first effect of [`inspect`]
+/// (the decisions before it used the request's last observation; see
+/// `request_inputs::decision_boundary`). Later effects of the same call
+/// follow it without another wait on the source.
+async fn watch_effect(state: &AppState, observed: &mut bool) -> Result<(), Response> {
+    if !*observed {
+        crate::request_inputs::effect_boundary(&state.store, crate::published_guard_context::Guard::Watch).await?;
+        *observed = true;
+    }
+    Ok(())
 }
 
 /// `None` when the session holds a live step-up proof, else the 403 to send.
@@ -1105,13 +1130,17 @@ pub(crate) async fn on_rotate(state: &AppState, old_id: &str, new_id: &str) {
 
 // ─── retention ──────────────────────────────────────────────────────────────
 
+static SWEEP_LAST: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+/// Whether [`sweep_if_due`] would start a sweep now (no claim is taken).
+fn sweep_due() -> bool {
+    now() - SWEEP_LAST.load(std::sync::atomic::Ordering::Relaxed) >= SWEEP_EVERY_SECS
+}
 fn sweep_if_due(state: &AppState, retention_days: i64) {
-    use std::sync::atomic::{AtomicI64, Ordering};
-    static LAST: AtomicI64 = AtomicI64::new(0);
+    use std::sync::atomic::Ordering;
     let t = now();
-    let last = LAST.load(Ordering::Relaxed);
+    let last = SWEEP_LAST.load(Ordering::Relaxed);
     if t - last < SWEEP_EVERY_SECS
-        || LAST
+        || SWEEP_LAST
             .compare_exchange(last, t, Ordering::Relaxed, Ordering::Relaxed)
             .is_err()
     {

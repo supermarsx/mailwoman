@@ -260,9 +260,11 @@ fn bounded_warm_watch_reads_only_the_sign_in_address_and_off_mode_is_unchanged()
         let off = f.get(HOME, FIREFOX, OFF).await;
         assert_eq!(off.status, StatusCode::OK, "{}", off.body);
         assert_eq!((off.watch.inspections, off.watch.prefs_fresh, off.watch.prefs_reused), (1, 1, 0));
-        // Today's statements: the published-input effect boundary fence (1) and
-        // user_prefs: signin_identity (1) + three settings_revision reads.
-        assert_eq!((off.watch.reads, off.watch.writes, off.watch.other), (5, 0, 0), "{:?}", off.watch);
+        // Today's statements: user_prefs: signin_identity (1) + three
+        // settings_revision reads. t50hp-e9: the Watch load point is a deferred
+        // decision boundary; this mismatch only reads (debounced), so no fence
+        // is read here (was 5 with the boundary fence).
+        assert_eq!((off.watch.reads, off.watch.writes, off.watch.other), (4, 0, 0), "{:?}", off.watch);
         f.mirror(&state, SHORT).await;
         let hit = f.reusing(HOME, FIREFOX, SHORT, true).await;
         // The one statement left: the signin_identity primary-key read.
@@ -279,7 +281,8 @@ fn bounded_warm_watch_reads_only_the_sign_in_address_and_off_mode_is_unchanged()
         }
         let off_public = f.get(PUBLIC, CHROME, OFF).await;
         assert_eq!((off_public.watch.prefs_fresh, off_public.watch.geo_reused), (0, 0), "{:?}", off_public.watch);
-        assert_eq!((off_public.watch.reads, off_public.watch.writes), (2, 0), "fence + geo switch: {:?}", off_public.watch);
+        // t50hp-e9: the geo switch only; the Watch fence is deferred (no effect).
+        assert_eq!((off_public.watch.reads, off_public.watch.writes), (1, 0), "geo switch: {:?}", off_public.watch);
         let hit_public = f.reusing(PUBLIC, CHROME, SHORT, true).await;
         assert_eq!((hit_public.watch.reads, hit_public.watch.writes, hit_public.watch.geo_reused), (0, 0, 1), "{:?}", hit_public.watch);
         eprintln!("{}", serde_json::json!({"kind":"t34-e13-session-watch-phase","offReads":off.watch.reads,

@@ -4,6 +4,19 @@ use crate::{Store, StoreError};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
+/// One cookie authentication read ([`Store::authed_session_unit`]). Request
+/// data only; never retained beyond the request that read it.
+#[derive(Clone)]
+pub struct AuthedSessionUnit {
+    pub session: crate::Session,
+    /// Telemetry (the touch-due test), as the primary read returns it.
+    pub last_seen: Option<String>,
+    /// `(created_at, COALESCE(activity_at, created_at))` of the same row.
+    pub clocks: (String, String),
+    /// Whether the account is a linked-mailbox target (the linked-login policy applies).
+    pub linked_policy_required: bool,
+}
+
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionDevice {
@@ -208,6 +221,32 @@ impl Store {
             .fetch_optional(&self.backend)
             .await?
             .map(|r| (r.get_string("created_at"), r.get_string("last_seen"))))
+    }
+
+    /// t50hp-e9: the cookie authentication unit in ONE statement — what
+    /// [`Store::get_primary_session_with_activity`], [`Store::session_activity_clock`]
+    /// and [`Store::linked_direct_login_policy_required`] read separately, from
+    /// the same row in the same snapshot. Same filters and credential opening as
+    /// the primary read (`linked_internal=0`; a row that does not open is an
+    /// error). The linked-login flag equals the separate read for a primary
+    /// session: its `linked_internal=1` branch cannot match this row.
+    pub async fn authed_session_unit(&self, id: &str) -> Result<AuthedSessionUnit, StoreError> {
+        let row = q("SELECT s.id,s.account_id,s.username,s.jmap_url,s.api_url,s.sealed_creds,s.last_seen,s.created_at,COALESCE(s.activity_at,s.created_at) AS activity_at,CAST(CASE WHEN EXISTS(SELECT 1 FROM linked_account la WHERE la.account_id=s.account_id) THEN 1 ELSE 0 END AS BIGINT) AS linked_required FROM sessions s WHERE s.id=?1 AND s.linked_internal=0")
+            .bind(id).fetch_optional(&self.backend).await?.ok_or(StoreError::NotFound)?;
+        let session = crate::Session {
+            id: row.get_string("id"),
+            account_id: row.get_string("account_id"),
+            username: row.get_string("username"),
+            jmap_url: row.get_string("jmap_url"),
+            api_url: row.get_string("api_url"),
+            credentials: crate::decode_creds(&self.key.open(&row.get_blob("sealed_creds"))?)?,
+        };
+        Ok(AuthedSessionUnit {
+            session,
+            last_seen: row.try_get_opt_string("last_seen").ok().flatten(),
+            clocks: (row.get_string("created_at"), row.get_string("activity_at")),
+            linked_policy_required: row.get_i64("linked_required") != 0,
+        })
     }
 
     /// Original sign-in and genuine user activity, independent of background traffic.
@@ -1183,5 +1222,81 @@ mod browser_recognition_tests {
                 .await
                 .is_err()
         );
+    }
+}
+
+/// t50hp-e9: `authed_session_unit` answers exactly what the three separate
+/// reads it replaces answer, for every row shape the authentication sees.
+#[cfg(test)]
+mod authed_session_unit_tests {
+    use super::*;
+    use crate::{Credentials, ServerKey};
+    async fn sql(store: &Store, query: &'static str, binds: &[&str]) {
+        let mut statement = q(query);
+        for value in binds {
+            statement = statement.bind(*value);
+        }
+        statement.execute(&store.backend).await.unwrap();
+    }
+    async fn same_as_separate_reads(store: &Store, id: &str, account: &str) -> AuthedSessionUnit {
+        let unit = store.authed_session_unit(id).await.unwrap();
+        let (session, last_seen) = store.get_primary_session_with_activity(id).await.unwrap();
+        assert_eq!(
+            (&unit.session.id, &unit.session.account_id, &unit.session.username, &unit.session.jmap_url, &unit.session.api_url),
+            (&session.id, &session.account_id, &session.username, &session.jmap_url, &session.api_url)
+        );
+        assert_eq!(unit.session.credentials.username, session.credentials.username);
+        assert_eq!(unit.session.credentials.password, session.credentials.password);
+        assert_eq!(unit.last_seen, last_seen);
+        assert_eq!(Some(unit.clocks.clone()), store.session_activity_clock(id).await.unwrap());
+        assert_eq!(
+            unit.linked_policy_required,
+            store.linked_direct_login_policy_required(id, account).await.unwrap()
+        );
+        unit
+    }
+    async fn exercise(store: Store) {
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+        let account = format!("acct-unit-{suffix}");
+        let creds = Credentials { username: format!("unit-{suffix}@example.test"), password: "synthetic".into() };
+        let id = store.create_session(&account, &creds.username, "engine", "engine", &creds).await.unwrap();
+        let unit = same_as_separate_reads(&store, &id, &account).await;
+        assert!(!unit.linked_policy_required);
+        assert_eq!(unit.clocks.0, unit.clocks.1, "no activity yet: activity = created");
+        // Activity recorded: the same row's new clock, never the old one.
+        assert!(store.record_session_activity(&id, "2000-01-01T00:00:00Z").await.unwrap());
+        let unit = same_as_separate_reads(&store, &id, &account).await;
+        assert_eq!(unit.clocks.1, "2000-01-01T00:00:00Z");
+        // The account becomes a linked-mailbox target: the policy flag follows.
+        let principal = format!("p-unit-{suffix}");
+        let link = format!("l-unit-{suffix}");
+        sql(&store, "INSERT INTO identity_principal(id,state,created_at) VALUES(?1,'active',1)", &[&principal]).await;
+        q("INSERT INTO linked_account(id,owner_principal_id,child_principal_id,child_subject,account_id,display_name,sealed_session,revision,created_at) VALUES(?1,?2,?2,?3,?4,'Unit',?5,'r',1)")
+            .bind(link.as_str()).bind(principal.as_str()).bind(format!("subject-{suffix}")).bind(account.as_str())
+            .bind(vec![0u8; 8]).execute(&store.backend).await.unwrap();
+        let unit = same_as_separate_reads(&store, &id, &account).await;
+        assert!(unit.linked_policy_required);
+        // An internal (linked) session row is not a primary session.
+        sql(&store, "UPDATE sessions SET linked_internal=1 WHERE id=?1", &[&id]).await;
+        assert!(matches!(store.authed_session_unit(&id).await, Err(StoreError::NotFound)));
+        assert!(store.get_primary_session_with_activity(&id).await.is_err());
+        sql(&store, "UPDATE sessions SET linked_internal=0 WHERE id=?1", &[&id]).await;
+        // Signed out / revoked: no row.
+        store.delete_session(&id).await.unwrap();
+        assert!(matches!(store.authed_session_unit(&id).await, Err(StoreError::NotFound)));
+        sql(&store, "DELETE FROM linked_account WHERE id=?1", &[&link]).await;
+        sql(&store, "DELETE FROM identity_principal WHERE id=?1", &[&principal]).await;
+    }
+    #[tokio::test]
+    async fn sqlite_unit_equals_the_separate_reads() {
+        exercise(Store::open_in_memory(ServerKey::generate()).await.unwrap()).await;
+    }
+    #[tokio::test]
+    async fn postgres_unit_equals_the_separate_reads() {
+        let Some(url) = std::env::var("MW_TEST_PG").ok().filter(|url| !url.is_empty()) else {
+            eprintln!("[authed_session_unit] MW_TEST_PG unset: Postgres leg not run");
+            return;
+        };
+        exercise(Store::open(&url, ServerKey::generate()).await.unwrap()).await;
     }
 }

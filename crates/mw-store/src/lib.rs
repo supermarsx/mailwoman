@@ -88,7 +88,7 @@ pub mod request_metrics;
 pub mod signin_admission;
 pub mod user_directory;
 pub mod user_lifecycle;
-pub use security_center::{LinkedOrigin, RememberedDevice, SecuritySession, SessionDevice, SigninEvent};
+pub use security_center::{AuthedSessionUnit, LinkedOrigin, RememberedDevice, SecuritySession, SessionDevice, SigninEvent};
 mod admin_accounts;
 pub mod ephemeral;
 mod admin_passkeys;
