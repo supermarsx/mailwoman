@@ -387,7 +387,12 @@ impl ProtectionParticipant {
             Err(_) => return Ownership::Lost,
         };
         // Another name (hard link) of the database file would use another witness.
-        let single = mw_platform_fs::file_identity(database).is_ok_and(|identity| identity.links == 1);
+        // No file at the name: a generation database, opened through its manifest
+        // by every process, so the name itself is the identity.
+        let single = match mw_platform_fs::file_identity(database) {
+            Ok(identity) => identity.links == 1,
+            Err(error) => error.kind() == std::io::ErrorKind::NotFound && !database.exists(),
+        };
         let alone = alone && single;
         let changed = state.is_none_or(|state| Some(state.joins) != *seen_joins);
         let mut next = state.unwrap_or_default();

@@ -235,6 +235,26 @@ struct Writer {
 }
 type Writers = std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, std::sync::Arc<Writer>>>;
 static WRITERS: std::sync::LazyLock<Writers> = std::sync::LazyLock::new(Default::default);
+/// The witness location of a database path: the canonical path of the file;
+/// when no file exists at that name (a converted database whose legacy file
+/// was retired; the data is in a generation file named by the manifest), the
+/// canonical parent directory joined with the name, lower-cased on Windows
+/// (case-insensitive names). A name with no file behind it cannot be a
+/// symbolic-link alias. `None` only when the parent cannot be resolved.
+fn canonical_database_path(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    match std::fs::canonicalize(path) {
+        Ok(canonical) => Some(canonical),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound && !path.exists() => {
+            let name = path.file_name()?;
+            let parent = path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(std::path::Path::new("."));
+            let parent = std::fs::canonicalize(parent).ok()?;
+            #[cfg(windows)]
+            let name = std::ffi::OsString::from(name.to_string_lossy().to_lowercase());
+            Some(parent.join(name))
+        }
+        Err(_) => None,
+    }
+}
 /// Delay before the next join attempt: after a busy admission lock, and after any other failure.
 const RETRY_TRANSIENT: std::time::Duration = std::time::Duration::from_secs(1);
 const RETRY_PERMANENT: std::time::Duration = std::time::Duration::from_secs(10);
@@ -1426,7 +1446,7 @@ impl Store {
                 let canonical = match fresh {
                     Some(canonical) => canonical,
                     None => {
-                        let canonical = std::fs::canonicalize(path).ok();
+                        let canonical = canonical_database_path(path);
                         locations.insert(path.to_path_buf(), (std::time::Instant::now(), canonical.clone()));
                         canonical
                     }

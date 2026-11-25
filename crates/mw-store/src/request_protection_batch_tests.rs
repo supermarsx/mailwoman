@@ -256,3 +256,17 @@ async fn a_writer_that_cannot_join_marks_its_write_and_retries_later() {
     assert!(store.request_protection_join().await.is_err(),"start-up join reports the failure");
     permissions.set_readonly(false);std::fs::set_permissions(&lock,permissions).unwrap();
 }
+#[tokio::test]
+async fn a_database_name_without_a_file_is_located_by_its_parent_and_joins() {
+    // A converted database whose legacy file was retired: no file at the name.
+    let directory=tempfile::tempdir().unwrap();
+    let missing=directory.path().join("Retired.db");
+    let located=canonical_database_path(&missing).unwrap();
+    assert_eq!(located.parent().unwrap(),std::fs::canonicalize(directory.path()).unwrap());
+    #[cfg(windows)] assert_eq!(located.file_name().unwrap(),"retired.db");
+    #[cfg(not(windows))] assert_eq!(located.file_name().unwrap(),"Retired.db");
+    // A participant there joins and owns (no hard-link question without a file).
+    let owner=ProtectionParticipant::join(&owner::Location::File(located)).await.unwrap();
+    assert!(matches!(owner.check(std::time::Duration::from_millis(500)).ownership,Ownership::Alone{..}));
+    assert!(canonical_database_path(std::path::Path::new("/no/such/dir/at/all/x.db")).is_none());
+}
