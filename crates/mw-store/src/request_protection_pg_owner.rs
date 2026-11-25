@@ -30,10 +30,15 @@
 //! client-side timeout, so a dead or partitioned connection makes the check
 //! fail (`Lost`); ownership then lapses at the deadline of the previous check,
 //! which is counted from before that check (R3). A participant does not report
-//! `Alone` until [`GRACE`] after it joined: every other participant notices the
-//! loss of its own witness session within [`LIVENESS`] and marks its writes
-//! from then on, so after a failover (all sessions lost, advisory locks gone)
-//! no owner trusts its cache while a writer with a dead session is unmarked.
+//! `Alone` until [`GRACE`] after it joined AND after the last check that saw
+//! another participant: every other participant notices the loss of its own
+//! witness session within [`LIVENESS`] + [`STATEMENT_TIMEOUT`], then bumps the
+//! writers marker at once and marks its writes from then on, so neither after
+//! a failover (all sessions lost, advisory locks gone) nor after one other
+//! session dies does an owner trust its cache while that writer is unmarked
+//! (e15a C1). The session's identity (backend pid and a session setting) is
+//! checked again in every check; once it changes the participant never owns
+//! (a transaction-mode pooler, e15a C2).
 use super::owner::{Checked, Ownership, StateLine, join_wait};
 use crate::StoreError;
 use sqlx::{ConnectOptions, Connection, Executor, Row};
@@ -45,8 +50,11 @@ use std::time::{Duration, Instant};
 pub(crate) const STATEMENT_TIMEOUT: Duration = Duration::from_secs(2);
 /// How often a participant's own witness session is probed.
 pub(crate) const LIVENESS: Duration = Duration::from_secs(1);
-/// A participant does not own before this long after its join.
-pub(crate) const GRACE: Duration = Duration::from_secs(3);
+/// A participant does not own before this long after its join or after a
+/// check that saw another participant: [`LIVENESS`] + [`STATEMENT_TIMEOUT`]
+/// (how long another participant may take to notice its own session died)
+/// plus a 2 s margin.
+pub(crate) const GRACE: Duration = Duration::from_secs(5);
 const POLL: Duration = Duration::from_millis(25);
 const STATE_KEY: &str = "request-protection:pg-witness";
 const SCOPE: &str = "current_database()||':'||current_schema()||':'||$1";
@@ -67,15 +75,25 @@ async fn timed<T>(
 pub(crate) struct PgWitness {
     connection: tokio::sync::Mutex<Option<sqlx::PgConnection>>,
     id: String,
-    /// The session kept its identity across statements when it was opened.
-    stable: bool,
+    /// The session has kept its identity in every statement so far (sticky false).
+    stable: AtomicBool,
+    pid: i32,
+    token: String,
     seen_joins: Mutex<Option<u64>>,
     joined_at: Instant,
+    /// The last check that found another participant.
+    last_other: Mutex<Option<Instant>>,
     alive: AtomicBool,
+}
+fn warn_unstable() {
+    static WARNED: AtomicBool = AtomicBool::new(false);
+    if !WARNED.swap(true, Ordering::Relaxed) {
+        eprintln!("[mw-store] request protection witness: the PostgreSQL session is not stable (a transaction pooler?); write-behind accounting will not own. Use a direct connection or a session-mode pooler.");
+    }
 }
 impl std::fmt::Debug for PgWitness {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PgWitness").field("stable", &self.stable).finish_non_exhaustive()
+        f.debug_struct("PgWitness").field("stable", &self.stable.load(Ordering::Relaxed)).finish_non_exhaustive()
     }
 }
 
@@ -128,13 +146,11 @@ impl PgWitness {
         let first = timed(sqlx::query("SELECT pg_backend_pid() AS pid, set_config('mw.protection_witness',$1,false) AS token").bind(&token).fetch_one(&mut connection)).await?;
         let _ = timed(sqlx::query("SELECT 1").execute(&mut connection)).await?;
         let second = timed(sqlx::query("SELECT pg_backend_pid() AS pid, current_setting('mw.protection_witness',true) AS token").fetch_one(&mut connection)).await?;
-        let stable = first.try_get::<i32, _>("pid").map_err(db)? == second.try_get::<i32, _>("pid").map_err(db)?
+        let pid = first.try_get::<i32, _>("pid").map_err(db)?;
+        let stable = pid == second.try_get::<i32, _>("pid").map_err(db)?
             && second.try_get::<Option<String>, _>("token").map_err(db)?.as_deref() == Some(token.as_str());
         if !stable {
-            static WARNED: AtomicBool = AtomicBool::new(false);
-            if !WARNED.swap(true, Ordering::Relaxed) {
-                eprintln!("[mw-store] request protection witness: the PostgreSQL session is not stable (a transaction pooler?); write-behind accounting will not own");
-            }
+            warn_unstable();
         }
         // Exclusive holds of the participant lock are momentary (a check under
         // the admission lock): retry the shared lock briefly.
@@ -177,9 +193,12 @@ impl PgWitness {
         let witness = Self {
             connection: tokio::sync::Mutex::new(Some(connection)),
             id: id.to_owned(),
-            stable,
+            stable: AtomicBool::new(stable),
+            pid,
+            token,
             seen_joins: Mutex::new(Some(mine)),
             joined_at: Instant::now(),
+            last_other: Mutex::new(None),
             alive: AtomicBool::new(true),
         };
         Ok((witness, acknowledged))
@@ -202,7 +221,13 @@ impl PgWitness {
         let mut slot = self.connection.lock().await;
         let Some(connection) = slot.as_mut() else { return Ok(Ownership::Lost) };
         let mut tx = timed(connection.begin()).await?;
-        let admitted = timed(sqlx::query(&format!("SELECT pg_try_advisory_xact_lock(hashtextextended({SCOPE},719308)) AS admitted, pg_is_in_recovery() AS standby")).bind(&self.id).fetch_one(&mut *tx)).await?;
+        let admitted = timed(sqlx::query(&format!("SELECT pg_try_advisory_xact_lock(hashtextextended({SCOPE},719308)) AS admitted, pg_is_in_recovery() AS standby, pg_backend_pid() AS pid, current_setting('mw.protection_witness',true) AS token")).bind(&self.id).fetch_one(&mut *tx)).await?;
+        // Every check: still the session that holds this participant's lock?
+        let same = admitted.try_get::<i32, _>("pid").map_err(db)? == self.pid
+            && admitted.try_get::<Option<String>, _>("token").map_err(db)?.as_deref() == Some(self.token.as_str());
+        if !same && self.stable.swap(false, Ordering::AcqRel) {
+            warn_unstable();
+        }
         if !admitted.try_get::<bool, _>("admitted").map_err(db)? {
             timed(tx.rollback()).await?;
             return Ok(Ownership::Busy);
@@ -210,7 +235,18 @@ impl PgWitness {
         let standby: bool = admitted.try_get("standby").map_err(db)?;
         let alone = alone_now(&mut tx, &self.id).await?;
         let state = read_state(&mut tx).await?;
-        let may_own = alone && !standby && self.stable && self.joined_at.elapsed() >= GRACE;
+        let quiet = {
+            let mut last_other = self.last_other.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if !alone {
+                *last_other = Some(Instant::now());
+            }
+            last_other.is_none_or(|at| at.elapsed() >= GRACE)
+        };
+        let may_own = alone
+            && quiet
+            && !standby
+            && self.stable.load(Ordering::Acquire)
+            && self.joined_at.elapsed() >= GRACE;
         let seen_joins = *self.seen_joins.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let changed = state.is_none_or(|state| Some(state.joins) != seen_joins);
         let mut next = state.unwrap_or_default();
@@ -242,7 +278,15 @@ impl PgWitness {
     pub(crate) fn alive(&self) -> bool {
         self.alive.load(Ordering::Acquire)
     }
+    pub(crate) async fn backend_pid(&self) -> Option<i32> {
+        self.connection.lock().await.as_ref().map(|_| self.pid)
+    }
     pub(crate) fn stable(&self) -> bool {
-        self.stable
+        self.stable.load(Ordering::Acquire)
+    }
+    /// Test hook: make the next check see another session's identity.
+    #[cfg(test)]
+    pub(crate) fn pretend_other_session(&mut self) {
+        self.pid = -1;
     }
 }

@@ -277,12 +277,37 @@ const RETRY_PERMANENT: std::time::Duration = std::time::Duration::from_secs(10);
 /// so such a write is seen within one flush interval. Key filtered by no
 /// settings trigger.
 pub const WRITERS_MARKER: &str = "request-protection:unjoined-writes";
+/// The marker is bumped at most once per [`MARKER_PERIOD`] per process, so
+/// writers that mark do not serialise on its row (e15a review (g)). Owners stay
+/// non-owners until the marker has not changed for longer than this period
+/// (see `write_behind.rs`, MARKER_QUIET), so a write that skipped the bump falls
+/// in a time when no owner trusts its cache.
+pub const MARKER_PERIOD: std::time::Duration = std::time::Duration::from_secs(1);
+static LAST_MARKER_BUMP_MS: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(i64::MIN / 2);
 async fn bump_writers_marker(tx: &mut Tx) -> Result<(), StoreError> {
+    use std::sync::atomic::Ordering::Relaxed;
+    WITNESS.unjoined_writes.fetch_add(1, Relaxed);
+    let now = chrono::Utc::now().timestamp_millis();
+    let last = LAST_MARKER_BUMP_MS.load(Relaxed);
+    let period = i64::try_from(MARKER_PERIOD.as_millis()).unwrap_or(i64::MAX);
+    if now.saturating_sub(last) < period || LAST_MARKER_BUMP_MS.compare_exchange(last, now, Relaxed, Relaxed).is_err() {
+        return Ok(());
+    }
     q("INSERT INTO settings(key,value) VALUES('request-protection:unjoined-writes','1') ON CONFLICT(key) DO UPDATE SET value=CAST(CAST(settings.value AS INTEGER)+1 AS TEXT)")
         .execute_tx(tx)
         .await?;
-    WITNESS.unjoined_writes.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     Ok(())
+}
+impl Store {
+    /// Bump the writers marker now, in its own transaction: a writer whose
+    /// PostgreSQL witness session just died (e15a C1).
+    pub(crate) async fn request_protection_bump_marker_now(&self) -> Result<(), StoreError> {
+        LAST_MARKER_BUMP_MS.store(i64::MIN / 2, std::sync::atomic::Ordering::Relaxed);
+        let mut tx = self.backend.begin().await?;
+        bump_writers_marker(&mut tx).await?;
+        tx.commit().await?;
+        Ok(())
+    }
 }
 
 /// Process-wide counters of the synchronous writers' witness joins.
@@ -1559,10 +1584,13 @@ impl Store {
                     // next write marks itself and joins again (see pg_owner GRACE).
                     // The task owns the participant: its session ends with the task.
                     let weak = std::sync::Arc::downgrade(&participant);
+                    let store = self.clone();
                     tokio::spawn(async move {
                         loop {
                             tokio::time::sleep(pg_owner::LIVENESS).await;
                             if !participant.probe().await {
+                                // Tell any owner now: its next check sees the marker.
+                                let _ = store.request_protection_bump_marker_now().await;
                                 break;
                             }
                         }

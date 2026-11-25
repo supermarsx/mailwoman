@@ -95,6 +95,14 @@ pub(crate) const BOUND_DIVISOR: u64 = 6;
 const DEFAULT_WINDOW: Duration = Duration::from_secs(60);
 /// S in milliseconds (0: equal to the flush interval), set once at start-up.
 static REREAD_MS: AtomicU64 = AtomicU64::new(0);
+pub(crate) const PG_OWNERSHIP_VAR: &str = "MW_REQUEST_PROTECTION_PG_OWNERSHIP";
+/// Ownership (the advisory-lock witness) on PostgreSQL: off unless
+/// `MW_REQUEST_PROTECTION_PG_OWNERSHIP=on` (e15a C1-C3). Off, write-behind on
+/// PostgreSQL uses the re-read rule with the compare-and-set flush.
+pub(crate) static PG_OWNERSHIP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// An owner trusts its cache again only after the writers marker has not
+/// changed for this long (longer than the marker's bump period).
+const MARKER_QUIET: Duration = Duration::from_secs(2);
 /// The batch API's group limit.
 const BATCH: usize = 64;
 const SHARDS: usize = 64;
@@ -141,6 +149,14 @@ impl AccountingConfig {
             read(MAX_PENDING_VAR).as_deref(),
         )?;
         let reread = parse_reread(read(REREAD_VAR).as_deref(), config.flush_every)?;
+        let pg_ownership = match read(PG_OWNERSHIP_VAR).as_deref().map(str::trim) {
+            None | Some("") | Some("off") => false,
+            Some("on") => true,
+            Some(other) => {
+                return Err(format!("{PG_OWNERSHIP_VAR}={other:?} is invalid; use \"off\" or \"on\""));
+            }
+        };
+        PG_OWNERSHIP.store(pg_ownership, Ordering::Relaxed);
         let mut config = config;
         let http_requests = crate::inbound_http::HttpLimits::from_env_without_probe()
             .map(|limits| limits.requests)
@@ -331,6 +347,7 @@ struct Counters {
     backpressure_writes: AtomicU64,
     full_waits: AtomicU64,
     flush_max_ms: AtomicU64,
+    flush_last_ms: AtomicU64,
     load_refusals: AtomicU64,
 }
 fn bump(counter: &AtomicU64, by: u64) {
@@ -487,6 +504,8 @@ pub(crate) struct WriteBehind {
     /// Test hook: the hard-cap wait's drains make no room.
     #[cfg(test)]
     drain_makes_no_room: Mutex<bool>,
+    /// When the writers marker last changed (a real change, not the first read).
+    marker_changed_at: Mutex<Option<Instant>>,
     /// The writers marker as of the previous check (`None`: no check yet).
     marker: Mutex<Option<Option<String>>>,
     /// Test hook: a delay between a check and storing its deadline.
@@ -499,6 +518,7 @@ pub(crate) struct WriteBehind {
 
 impl WriteBehind {
     pub(crate) fn new(store: Store, config: AccountingConfig) -> Self {
+        let ownership = store.uses_sqlite() || PG_OWNERSHIP.load(Ordering::Relaxed);
         Self {
             keyer: store.request_protection_keyer(),
             store,
@@ -513,7 +533,7 @@ impl WriteBehind {
             orphan: Mutex::new(None),
             participant: Mutex::new(None),
             joining: tokio::sync::Mutex::new(()),
-            ownership: true,
+            ownership,
             owned_until_ms: AtomicU64::new(0),
             epoch: Instant::now(),
             window: mw_store::request_protection::ownership_window(config.flush_every)
@@ -523,6 +543,7 @@ impl WriteBehind {
             mark_before_install: Mutex::new(false),
             #[cfg(test)]
             drain_makes_no_room: Mutex::new(false),
+            marker_changed_at: Mutex::new(None),
             marker: Mutex::new(None),
             #[cfg(test)]
             stall_after_check: Mutex::new(None),
@@ -574,7 +595,12 @@ impl WriteBehind {
     /// short adaptive window.
     fn window_too_short(&self, policy: &Policy) -> bool {
         let window = u64::from(policy.rate_window_secs.min(policy.short.seconds)).saturating_mul(1000);
-        let staleness = u64::try_from((self.flush_every + self.reread).as_millis()).unwrap_or(u64::MAX);
+        // F + S + 2D with D the latest flush time (e15a C4): a slow database
+        // moves more windows to the synchronous path instead of exceeding the bound.
+        let flush = self.counters.flush_last_ms.load(Ordering::Relaxed);
+        let staleness = u64::try_from((self.flush_every + self.reread).as_millis())
+            .unwrap_or(u64::MAX)
+            .saturating_add(flush.saturating_mul(2));
         window < staleness.saturating_mul(BOUND_DIVISOR)
     }
 
@@ -650,15 +676,32 @@ impl WriteBehind {
                     self.lose_ownership();
                     return;
                 };
-                let marker_changed = {
+                let (marker_changed, marker_moved) = {
                     let mut seen = lock(&self.marker);
                     let changed = seen.as_ref() != Some(&marker);
-                    if changed && seen.is_some() {
+                    let moved = changed && seen.is_some();
+                    if moved {
                         bump(&self.counters.unjoined_writes_seen, 1);
                     }
                     *seen = Some(marker);
-                    changed
+                    (changed, moved)
                 };
+                // Writers that mark bump at most once per MARKER_PERIOD: while
+                // the marker moves, nobody owns (entries follow the re-read rule).
+                {
+                    let mut changed_at = lock(&self.marker_changed_at);
+                    if marker_moved {
+                        *changed_at = Some(Instant::now());
+                    }
+                    if changed_at.is_some_and(|at| at.elapsed() < MARKER_QUIET) {
+                        drop(changed_at);
+                        self.lose_ownership();
+                        if marker_moved {
+                            self.mark_all_stale();
+                        }
+                        return;
+                    }
+                }
                 let was_owned = self.owned();
                 if changed || marker_changed || !was_owned {
                     // Before ownership is (re)asserted: anything cached may predate
@@ -995,6 +1038,7 @@ impl WriteBehind {
         // D in the multi-process bound: the longest flush so far.
         let took = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         self.counters.flush_max_ms.fetch_max(took, Ordering::Relaxed);
+        self.counters.flush_last_ms.store(took, Ordering::Relaxed);
         result
     }
 

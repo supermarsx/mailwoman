@@ -427,6 +427,13 @@ impl ProtectionParticipant {
             _ => true,
         }
     }
+    /// The server process id of the PostgreSQL witness session (`None` otherwise).
+    pub async fn witness_backend_pid(&self) -> Option<i32> {
+        match &self.kind {
+            Kind::Postgres(witness) => witness.backend_pid().await,
+            _ => None,
+        }
+    }
     /// The witness session still answers (PostgreSQL; always true otherwise).
     pub fn alive(&self) -> bool {
         match &self.kind {

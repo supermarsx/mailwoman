@@ -602,7 +602,19 @@ fn postgres_write_behind_warm_request_has_no_protection_statements() {
     };
     let off = measure_enforced_on(Some("off"), None, false);
     let synchronous = measure_enforced_on(Some("sync"), None, true);
+    // Default: no ownership on PostgreSQL (re-read rule + CAS flush).
+    crate::request_protection::write_behind::PG_OWNERSHIP.store(false, std::sync::atomic::Ordering::Relaxed);
+    let shared = measure_enforced_on(Some("wbshared"), Some(write_behind), true);
+    // Opt-in ownership (MW_REQUEST_PROTECTION_PG_OWNERSHIP=on).
+    crate::request_protection::write_behind::PG_OWNERSHIP.store(true, std::sync::atomic::Ordering::Relaxed);
     let deferred = measure_enforced_on(Some("wb"), Some(write_behind), true);
+    crate::request_protection::write_behind::PG_OWNERSHIP.store(false, std::sync::atomic::Ordering::Relaxed);
+    for (route, shared) in [("GET /api/me", shared.0), ("POST /jmap/api Core/echo", shared.1)] {
+        eprintln!("{}", json!({"kind":"t50hp-e8-protection-statements","backend":"postgres","route":route,
+            "enforcedWriteBehindNoOwnership":{"reads":shared.read.calls,"writes":shared.write.calls,"other":shared.other.calls}}));
+        assert_eq!((shared.write.calls, shared.other.calls), (0, 0), "{route}: {shared:?}");
+    }
+    assert!(shared.0.read.calls <= synchronous.0.read.calls && shared.1.read.calls <= synchronous.1.read.calls);
     for (route, off, synchronous, deferred, today) in [
         ("GET /api/me", off.0, synchronous.0, deferred.0, POSTGRES_ENFORCED_SYNCHRONOUS_ME),
         ("POST /jmap/api Core/echo", off.1, synchronous.1, deferred.1, POSTGRES_ENFORCED_SYNCHRONOUS_ECHO),

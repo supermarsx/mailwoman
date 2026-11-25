@@ -243,15 +243,20 @@ async fn a_writer_that_cannot_join_marks_its_write_and_retries_later() {
     std::fs::write(&lock,b"").unwrap();
     let mut permissions=std::fs::metadata(&lock).unwrap().permissions();permissions.set_readonly(true);
     std::fs::set_permissions(&lock,permissions.clone()).unwrap();
+    LAST_MARKER_BUMP_MS.store(i64::MIN/2,std::sync::atomic::Ordering::Relaxed);
     let before=request_protection_witness_status();
     assert_eq!(store.request_protection_writers_marker().await.unwrap(),None);
     let p=policy();
     store.request_protection("account","marked",&p,1000,None).await.unwrap();
     assert_eq!(store.request_protection_writers_marker().await.unwrap().as_deref(),Some("1"),"the write carries the marker");
+    // Within MARKER_PERIOD the marker is not bumped again (no serialisation on its row).
+    store.request_protection("account","marked",&p,1000,None).await.unwrap();
+    assert_eq!(store.request_protection_writers_marker().await.unwrap().as_deref(),Some("1"));
+    tokio::time::sleep(MARKER_PERIOD+std::time::Duration::from_millis(50)).await;
     store.request_protection("account","marked",&p,1000,None).await.unwrap();
     assert_eq!(store.request_protection_writers_marker().await.unwrap().as_deref(),Some("2"));
     let after=request_protection_witness_status();
-    assert!(after.join_failures>before.join_failures&&after.unjoined_writes>=before.unjoined_writes+2,"{after:?}");
+    assert!(after.join_failures>before.join_failures&&after.unjoined_writes>=before.unjoined_writes+3,"{after:?}");
     assert!(after.last_failure.is_some());
     assert!(store.request_protection_join().await.is_err(),"start-up join reports the failure");
     permissions.set_readonly(false);std::fs::set_permissions(&lock,permissions).unwrap();
@@ -269,4 +274,18 @@ async fn a_database_name_without_a_file_is_located_by_its_parent_and_joins() {
     let owner=ProtectionParticipant::join(&owner::Location::File(located)).await.unwrap();
     assert!(matches!(owner.check(std::time::Duration::from_millis(500)).await.ownership,Ownership::Alone{..}));
     assert!(canonical_database_path(std::path::Path::new("/no/such/dir/at/all/x.db")).is_none());
+}
+#[tokio::test]
+async fn postgres_witness_rechecks_the_session_identity_on_every_check() {
+    // e15a C2: a session whose identity changes after the join never owns again.
+    let Some(url)=std::env::var("MW_TEST_PG").ok().filter(|url|!url.is_empty()) else { return };
+    let store=Store::open(&url,ServerKey::generate()).await.unwrap();
+    let owner::Location::Postgres{pool,id}=store.protection_location() else { panic!("postgres") };
+    let id=format!("{id}-c2-{}",uuid::Uuid::new_v4().simple());
+    let (mut witness,_)=pg_owner::PgWitness::join(&pool,&id).await.unwrap();
+    assert!(witness.stable());
+    witness.pretend_other_session();
+    let window=std::time::Duration::from_millis(500);
+    assert_eq!(witness.check(window).await.ownership,Ownership::Shared);
+    assert!(!witness.stable(),"sticky");
 }

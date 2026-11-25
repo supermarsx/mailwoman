@@ -1443,6 +1443,7 @@ async fn pg_lone_owner_answers_warm_requests_without_sql_and_a_second_participan
         eprintln!("[write_behind] MW_TEST_PG unset: PostgreSQL leg not run");
         return;
     };
+    PG_OWNERSHIP.store(true, Ordering::Relaxed); // opt-in (MW_REQUEST_PROTECTION_PG_OWNERSHIP=on)
     let key = ServerKey::generate();
     let store = Store::open(&url, key.clone()).await.unwrap();
     let accounting = WriteBehind::start(store.clone(), config(100, 4096));
@@ -1470,6 +1471,7 @@ async fn pg_lone_owner_answers_warm_requests_without_sql_and_a_second_participan
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pg_a_terminated_witness_session_ends_ownership_within_the_deadline() {
     let Some(url) = fresh_pg_database("terminate").await else { return };
+    PG_OWNERSHIP.store(true, Ordering::Relaxed);
     let store = Store::open(&url, ServerKey::generate()).await.unwrap();
     let accounting = WriteBehind::start(store.clone(), config(100, 4096));
     settle_ownership_within(&accounting, true, Duration::from_secs(10)).await;
@@ -1644,4 +1646,64 @@ fn max_pending_is_at_least_twice_the_in_flight_limit() {
     assert_eq!(max_pending_for(Some(2048), 1024).unwrap(), 2048);
     let refused = max_pending_for(Some(1000), 1024).unwrap_err();
     assert!(refused.contains("MW_REQUEST_PROTECTION_MAX_PENDING") && refused.contains("2048"), "{refused}");
+}
+
+/// PostgreSQL ownership is opt-in (e15a C3): by default an accounting instance
+/// on PostgreSQL never owns and uses the re-read rule with the CAS flush.
+#[tokio::test]
+async fn pg_ownership_is_off_by_default() {
+    let Some(url) = fresh_pg_database("default").await else { return };
+    PG_OWNERSHIP.store(false, Ordering::Relaxed);
+    let store = Store::open(&url, ServerKey::generate()).await.unwrap();
+    let accounting = WriteBehind::start(store, config(100, 4096));
+    tokio::time::sleep(Duration::from_secs(6)).await; // past the grace period
+    assert!(!accounting.status().owned);
+    assert_eq!(AccountingConfig::parse(None, None, None).unwrap().mode, AccountingMode::Synchronous);
+}
+
+/// e15a C1: another participant's witness session dies while the owner's
+/// survives. The owner does not own for the grace period after it last saw
+/// that participant (the writer may still write unmarked until it notices).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pg_a_dead_other_session_does_not_make_the_owner_own_before_the_grace() {
+    let Some(url) = fresh_pg_database("c1").await else { return };
+    PG_OWNERSHIP.store(true, Ordering::Relaxed);
+    let key = ServerKey::generate();
+    let store = Store::open(&url, key.clone()).await.unwrap();
+    let accounting = WriteBehind::start(store.clone(), config(100, 4096));
+    settle_ownership_within(&accounting, true, Duration::from_secs(10)).await;
+    let mut p = policy();
+    p.rate_limit = 1000;
+    // A synchronous writer in another "process" joins: ownership ends.
+    let other = Store::open(&url, key).await.unwrap();
+    other.request_protection("client", "192.0.2.90", &p, 1000, None).await.unwrap();
+    settle_ownership_within(&accounting, false, Duration::from_secs(10)).await;
+    let mine = accounting.participant().await.unwrap().witness_backend_pid().await.unwrap();
+    let database = url.rsplit_once('/').unwrap().1.to_owned();
+    {
+        use sqlx::Connection;
+        let mut admin = sqlx::PgConnection::connect(&std::env::var("MW_TEST_PG").unwrap()).await.unwrap();
+        sqlx::query("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=$1 AND application_name='mailwoman-protection-witness' AND pid<>$2")
+            .bind(&database).bind(mine).execute(&mut admin).await.unwrap();
+    }
+    let killed = Instant::now();
+    while killed.elapsed() < Duration::from_secs(4) {
+        assert!(!accounting.status().owned, "owned {:?} after the other session died", killed.elapsed());
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    drop(other);
+    settle_ownership_within(&accounting, true, Duration::from_secs(20)).await;
+    PG_OWNERSHIP.store(false, Ordering::Relaxed);
+}
+
+/// e15a C4: a slow flush moves more windows to the synchronous path.
+#[tokio::test]
+async fn a_slow_flush_widens_the_synchronous_windows() {
+    let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+    let accounting = WriteBehind::new(store, config(250, 4096));
+    let mut p = policy();
+    p.rate_window_secs = 4; // 4 s >= 6 x 0.5 s
+    assert!(!accounting.window_too_short(&p));
+    accounting.counters.flush_last_ms.store(300, Ordering::Relaxed); // D = 300 ms
+    assert!(accounting.window_too_short(&p), "6 x (0.5 s + 0.6 s) > 4 s");
 }
