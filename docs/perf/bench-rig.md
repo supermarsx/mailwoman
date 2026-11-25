@@ -179,3 +179,41 @@ clamp(max(64 × CPUs, 16 × pool), 256, min(16,384, memory / 4 MiB)), HTTP/2 str
 - That the fixture image builds and passes its gated tests with `MW_FIXTURE_DIAGNOSTICS=1`.
 - The native generator option with the single-shape groups (the launcher wiring is tested; a live stage is not).
 - The VM-to-host clock offset (for the Windows host sampler) is measured once per leg with `docker exec`.
+
+## Regression comparison (standing rule: do not regress)
+
+`scripts/perf/rig-baseline.json` holds the tracked numbers per goal-mix shape and backend. The first rows come from
+t34-bench1's R1 run on image 5717b070f (`.orchestration/reports/perf-investigation/t62-r0a-r1-20261124`; SQLite: 17
+shapes and the mix; PostgreSQL: 14 shapes and the mix). That image did not count commits, so `databaseCommits` is
+null there and not compared until a bless adds it.
+
+```sh
+# a run against the committed baseline (exit 1 on a regression)
+node scripts/perf/bench-rig.mjs compare --candidate=<evidence>/<run-id> [--out=<path prefix>]
+# two candidate repeats against two parent repeats
+node scripts/perf/bench-rig.mjs compare --candidate=<b1>,<b2> --reference=<a1>,<a2>
+# the default flow for a new image: parent vs candidate, order A B B A, then the comparison
+node scripts/perf/bench-rig.mjs ab --run=r1 --run-id=<id> --parent-image=<A> --candidate-image=<B> \
+  --parent-diagnostics-image=<A diag> --candidate-diagnostics-image=<B diag> \
+  --report-root=<evidence dir> --private-root=<private dir> --confirm-bench-slot
+# replace the baseline rows of the candidate's backend (never automatic)
+node scripts/perf/bench-rig.mjs compare --candidate=<run> --bless --reason="<why these are the new numbers>"
+```
+
+Verdict per shape:
+
+- Counters regress on any increase: statements per request (reads, writes, other = BEGIN and the rest), database
+  commits, upstream commands per request, errors, 503, 429, timeouts. Per-request counts are compared at 0.1 when
+  process-wide (they include background work; the second decimal is not reproducible) and at 0.01 when
+  request-scoped. An increase in any candidate repeat counts.
+- Noisy numbers (µs CPU per request, rps, rps per consumed CPU, p50, p99) regress only when worse by more than the
+  threshold (default 8%, `--threshold`) in every repeat, with at least two repeats (A B B A pairs a1/b1 and a2/b2).
+  With one repeat a worse value is `unconfirmed` and does not fail. Contaminated stages are not compared on them.
+- A shape with no reference row is `no-reference`, not `same`.
+
+`ab` writes `<run-id>-compare.md/.json` beside the four runs. A bless appends `{at, reason, from, backends}` to the
+file's `blessed` list.
+
+Basis difference to keep in mind: the 5717b070f rows divide CPU by completed requests and use ~1 s samples; the rig
+divides by requests accepted inside the window and samples every 250 ms. For a closed-loop stage the two counts differ
+by the requests in flight at the window end.

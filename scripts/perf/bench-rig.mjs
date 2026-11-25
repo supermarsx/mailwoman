@@ -3,7 +3,13 @@
 //   node scripts/perf/bench-rig.mjs plan    --run=r0a|r1 [options]            print the plan (cpusets, legs, env); no Docker
 //   node scripts/perf/bench-rig.mjs run     --run=r0a|r1 --run-id=<id> --image=<fixture image> [--diagnostics-image=<image>]
 //                                           --report-root=<dir> --private-root=<dir> --confirm-bench-slot [options]
+//   node scripts/perf/bench-rig.mjs ab      --run=r0a|r1 --run-id=<id> --parent-image=<A> --candidate-image=<B>
+//                                           [--parent-diagnostics-image --candidate-diagnostics-image] --report-root --private-root
+//                                           --confirm-bench-slot   runs A B B A, then compares (default flow for a new image)
 //   node scripts/perf/bench-rig.mjs analyse --dir=<report dir of one run>      rebuild summary.json/summary.md from saved files
+//   node scripts/perf/bench-rig.mjs compare --candidate=<run dir>[,<run dir>] [--reference=<run dir>[,<run dir>] | --baseline=<file>]
+//                                           [--threshold=0.08] [--out=<path prefix>] [--bless --reason="..."]
+//                                           exit 1 on a regression; the baseline changes only with --bless and a reason
 //
 // Options: --backend=sqlite|postgres  --vcpus=<Docker VM vCPUs, default 26>  --app=4 --database=4 --generator=4 --rig=1
 //          (CPUs per role; consecutive from CPU 1; or --cpuset-app=0-3 style explicit sets)  --app-memory=8g
@@ -28,18 +34,19 @@ import {allocate,validatePlan,dockerCpuArgs,hostEnv,ROLES} from './rig-cpuset.mj
 import {parseSamples} from './rig-cgroup.mjs';
 import {DEFAULT_THRESHOLDS} from './rig-quiet.mjs';
 import {runDefinition,legRows,weightedMix,markdownSummary} from './rig-shapes.mjs';
+import {compare,markdownComparison,metricsOfSummary,readBaseline,writeBaseline,bless,DEFAULT_THRESHOLD} from './rig-compare.mjs';
 
 const HERE=dirname(fileURLToPath(import.meta.url));
 export const SAMPLE_INTERVAL_MS=250,HOST_INTERVAL_MS=2000;
 
 export function parseArgs(argv){
  const [command,...rest]=argv;
- if(!['plan','run','analyse'].includes(command))throw new Error('Use plan, run or analyse');
+ if(!['plan','run','ab','analyse','compare'].includes(command))throw new Error('Use plan, run, ab, analyse or compare');
  const args={};
  for(const arg of rest){
   if(!arg.startsWith('--'))throw new Error('Use --name=value');
   const at=arg.indexOf('=');const key=at<0?arg.slice(2):arg.slice(2,at),value=at<0?true:arg.slice(at+1);
-  if(!['run','run-id','image','diagnostics-image','report-root','private-root','confirm-bench-slot','backend','vcpus','app','database','generator','upstream','rig','cpuset-app','cpuset-database','cpuset-generator','cpuset-upstream','cpuset-rig','app-memory','transport-concurrency','principals','smoke','host-sampler','host-logical-cpus','legs','dir','generator-impl','native-generator-bin'].includes(key))throw new Error('Unknown option --'+key);
+  if(!['run','run-id','image','diagnostics-image','report-root','private-root','confirm-bench-slot','backend','vcpus','app','database','generator','upstream','rig','cpuset-app','cpuset-database','cpuset-generator','cpuset-upstream','cpuset-rig','app-memory','transport-concurrency','principals','smoke','host-sampler','host-logical-cpus','legs','dir','generator-impl','native-generator-bin','parent-image','candidate-image','parent-diagnostics-image','candidate-diagnostics-image','candidate','reference','baseline','threshold','bless','reason','out'].includes(key))throw new Error('Unknown option --'+key);
   args[key]=value;
  }
  return {command,args};
@@ -230,31 +237,85 @@ export async function writeSummary(plan,dir,legResults){
  return summary;
 }
 
+// One run (all legs of the plan) with one fixture image (and its diagnostics image). Returns the summary.
+export async function runOnce(plan,{runId,image,diagnosticsImage,reportRoot,privateRoot,runLegImpl=runLeg,analyse=analyseLeg}){
+ if(!/^[a-z0-9][a-z0-9-]{0,31}$/.test(runId))throw new Error('Invalid --run-id');
+ if(plan.legs.some(leg=>leg.image==='diagnostics')&&!diagnosticsImage)throw new Error('R1 needs a diagnostics image (fixture built with --build-arg MW_FIXTURE_DIAGNOSTICS=1), or --legs without diagnostics-shapes');
+ const dir=join(resolve(reportRoot),runId),privateDir=join(resolve(privateRoot),`private-${runId}`);
+ if(await exists(dir))throw new Error('Existing evidence is retained; choose a new --run-id');
+ await mkdir(dir,{recursive:true});await writeFile(join(dir,'plan.json'),JSON.stringify({...plan,image,diagnosticsImage:diagnosticsImage??null},null,2)+'\n');
+ const results=[];
+ for(const leg of plan.legs){
+  const legDir=await runLegImpl(plan,leg,{runId,image:leg.image==='diagnostics'?diagnosticsImage:image,reportDir:dir,privateDir,startHostSampler:plan.sampler.hostSampler?windowsHostSampler():null});
+  results.push(await analyse(plan,leg,legDir));
+ }
+ await rm(privateDir,{recursive:true,force:true});
+ return {dir,summary:await writeSummary(plan,dir,results)};
+}
+
+// The A B B A order of a parent/candidate comparison: run ids and images.
+export function abOrder(runId,{parent,candidate}){
+ return [['a1',parent],['b1',candidate],['b2',candidate],['a2',parent]].map(([tag,images])=>({runId:`${runId}-${tag}`,tag,...images}));
+}
+// Run A B B A with `runOne(step)` and compare repeat 1 (a1 vs b1) and repeat 2 (a2 vs b2).
+export async function runAb(order,runOne,{threshold=DEFAULT_THRESHOLD}={}){
+ const done={};
+ for(const step of order)done[step.tag]=await runOne(step);
+ return compare([done.a1,done.a2].map(metricsOfSummary),[done.b1,done.b2].map(metricsOfSummary),{threshold});
+}
+
+async function summaries(list){return Promise.all(String(list).split(',').map(async dir=>JSON.parse(await readFile(join(resolve(dir),'summary.json'),'utf8'))));}
+
+export async function compareCommand(args,{baselinePath=resolve(String(args.baseline??join(HERE,'rig-baseline.json'))),write=process.stdout.write.bind(process.stdout)}={}){
+ if(!args.candidate)throw new Error('compare needs --candidate=<run dir>[,<run dir>]');
+ const candidates=(await summaries(args.candidate)).map(metricsOfSummary);
+ const threshold=args.threshold===undefined?DEFAULT_THRESHOLD:Number(args.threshold);
+ if(args.bless===true&&args.reference)throw new Error('--bless applies to the baseline file, not to --reference runs');
+ let references;
+ if(args.reference)references=(await summaries(args.reference)).map(metricsOfSummary);
+ else{
+  const baseline=await readBaseline(baselinePath);
+  if(args.bless===true){
+   if(candidates.length!==1)throw new Error('--bless takes exactly one candidate run');
+   await writeBaseline(baselinePath,bless(baseline,candidates[0],{reason:args.reason,from:String(args.candidate)}));
+   write(`baseline updated: ${baselinePath}\n`);return {blessed:true};
+  }
+  references=[baseline.rows];
+ }
+ const result=compare(references,candidates,{threshold});
+ const markdown=markdownComparison(result);
+ if(args.out){await writeFile(resolve(String(args.out))+'.json',JSON.stringify(result,null,2)+'\n');await writeFile(resolve(String(args.out))+'.md',markdown);}
+ write(markdown);
+ return result;
+}
+
 async function main(){
  const {command,args}=parseArgs(process.argv.slice(2));
  if(command==='analyse'){
   if(!args.dir)throw new Error('--dir required');
   const dir=resolve(String(args.dir)),plan=JSON.parse(await readFile(join(dir,'plan.json'),'utf8'));
   const results=[];for(const leg of plan.legs)results.push(await analyseLeg(plan,leg,join(dir,leg.id)));
-  const summary=await writeSummary(plan,dir,results);console.log(join(dir,'summary.md'));return summary;
+  await writeSummary(plan,dir,results);console.log(join(dir,'summary.md'));return;
  }
+ if(command==='compare'){const result=await compareCommand(args);if(result.regressions)process.exitCode=1;return;}
  const plan=buildPlan(args);
- if(command==='plan'){console.log(JSON.stringify(plan,null,2));return plan;}
- if(args['confirm-bench-slot']!==true)throw new Error('run needs --confirm-bench-slot: take the bench lock in .orchestration/state.md first (and the quiet lock for stages above 8 CPUs)');
- const runId=String(args['run-id']??'');if(!/^[a-z0-9][a-z0-9-]{0,31}$/.test(runId))throw new Error('Invalid --run-id');
- if(!args.image||!args['report-root']||!args['private-root'])throw new Error('--image, --report-root and --private-root required');
+ if(command==='plan'){console.log(JSON.stringify(plan,null,2));return;}
+ if(args['confirm-bench-slot']!==true)throw new Error(`${command} needs --confirm-bench-slot: take the bench lock in .orchestration/state.md first (and the quiet lock for stages above 8 CPUs)`);
+ if(!args['report-root']||!args['private-root'])throw new Error('--report-root and --private-root required');
  if(plan.generator.implementation==='native')await stat(plan.generator.nativeBin).catch(()=>{throw new Error('--native-generator-bin does not exist');});
- if(plan.legs.some(leg=>leg.image==='diagnostics')&&!args['diagnostics-image'])throw new Error('R1 needs --diagnostics-image (fixture built with --build-arg MW_FIXTURE_DIAGNOSTICS=1), or --legs without diagnostics-shapes');
- const dir=join(resolve(String(args['report-root'])),runId),privateRoot=resolve(String(args['private-root']));
- if(await exists(dir))throw new Error('Existing evidence is retained; choose a new --run-id');
- await mkdir(dir,{recursive:true});await writeFile(join(dir,'plan.json'),JSON.stringify(plan,null,2)+'\n');
- const results=[];
- for(const leg of plan.legs){
-  const image=leg.image==='diagnostics'?String(args['diagnostics-image']):String(args.image);
-  const legDir=await runLeg(plan,leg,{runId,image,reportDir:dir,privateDir:join(privateRoot,`private-${runId}`),startHostSampler:plan.sampler.hostSampler?windowsHostSampler():null});
-  results.push(await analyseLeg(plan,leg,legDir));
+ const runId=String(args['run-id']??''),roots={reportRoot:String(args['report-root']),privateRoot:String(args['private-root'])};
+ if(command==='run'){
+  if(!args.image)throw new Error('--image required');
+  const {dir}=await runOnce(plan,{runId,image:String(args.image),diagnosticsImage:args['diagnostics-image'],...roots});
+  console.log(join(dir,'summary.md'));return;
  }
- await rm(join(privateRoot,`private-${runId}`),{recursive:true,force:true});
- await writeSummary(plan,dir,results);console.log(join(dir,'summary.md'));
+ // ab: the default flow for a new image. Parent vs candidate, order A B B A, then compare.
+ for(const key of ['parent-image','candidate-image'])if(!args[key])throw new Error(`ab needs --${key}`);
+ const order=abOrder(runId,{parent:{image:String(args['parent-image']),diagnosticsImage:args['parent-diagnostics-image']},candidate:{image:String(args['candidate-image']),diagnosticsImage:args['candidate-diagnostics-image']}});
+ const result=await runAb(order,async step=>(await runOnce(plan,{runId:step.runId,image:step.image,diagnosticsImage:step.diagnosticsImage,...roots})).summary,{threshold:args.threshold===undefined?DEFAULT_THRESHOLD:Number(args.threshold)});
+ const out=join(resolve(roots.reportRoot),`${runId}-compare`);
+ await writeFile(out+'.json',JSON.stringify(result,null,2)+'\n');await writeFile(out+'.md',markdownComparison(result));
+ process.stdout.write(markdownComparison(result));
+ if(result.regressions)process.exitCode=1;
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href)main().catch(error=>{console.error(error.message);process.exitCode=1;});

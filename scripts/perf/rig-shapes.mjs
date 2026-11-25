@@ -102,7 +102,7 @@ export function legRows(report,{leg,samples,hostSamples,plan,labels,runContainer
   const generatorLabel=Object.entries(labels).find(([,role])=>role==='generator')?.[0];
   return {leg:leg.id,instrumented:leg.instrumented,shape:shape.name,kind:shape.kind,weight:shape.weight,endpoint:stage.endpoint,concurrency:stage.concurrency??null,
    phase:stage.phase??null,requests:stage.requests??null,acceptedInWindow:stage.acceptedDuringScheduledWindow??null,acceptedRps:Number.isFinite(stage.acceptedDuringScheduledWindowRps)?Number(stage.acceptedDuringScheduledWindowRps.toFixed(1)):null,
-   errors:stage.errors??null,throttled:stage.throttled??null,timeouts:stage.timeouts??null,
+   errors:stage.errors??null,throttled:stage.throttled??null,timeouts:stage.timeouts??null,http503:Number.isSafeInteger(stage.statuses?.['503'])?stage.statuses['503']:(stage.statuses?0:null),
    latencyMs:{p50:stage.latencyMs?.p50??null,p99:stage.latencyMs?.p99??null},
    database:stageCounters(stage),cpu,
    usecCpuPerRequest:{server:cpu.server?.usecCpuPerRequest??null,generator:generatorLabel?cpu.containers?.[generatorLabel]?.usecCpuPerRequest??null:null},
