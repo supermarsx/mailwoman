@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 const OLD_0113: &str = include_str!("../migrations_pg/0113_mail_data_publication.sql");
 const NEW_0129: &str = include_str!("../migrations_pg/0129_mail_data_statement_triggers.sql");
 const NEW_0131: &str = include_str!("../migrations_pg/0131_mail_data_seq_lock_order.sql");
+const NEW_0133: &str = include_str!("../migrations_pg/0133_mail_data_single_row.sql");
 const SEQ_TABLES: [&str; 4] = [
     "changes",
     "pim_changes",
@@ -135,19 +136,14 @@ fn required_set_is_0113_with_0129_replacements() {
     for name in REPLACED {
         assert!(lite.iter().any(|t| t.name == name));
     }
-    // 0131: every ensure advances seq (both dialects), seq triggers on the logs.
-    for (pg, set) in [(true, &pg), (false, &lite)] {
+    // 0131: every ensure advances seq (both dialects); 0133 removed the change-log
+    // seq triggers again (above the cost gate).
+    for (_pg, set) in [(true, &pg), (false, &lite)] {
         for table in SEQ_TABLES {
-            for event in ["insert", "update", "delete"] {
-                let t = set
-                    .iter()
-                    .find(|t| t.name == format!("mail_data_seq_{table}_{event}"))
-                    .unwrap_or_else(|| panic!("seq trigger on {table} {event}"));
-                assert_eq!(t.table, table);
-                if pg {
-                    assert_eq!(t.kind & 1, 0, "statement level on PostgreSQL");
-                }
-            }
+            assert!(
+                set.iter().all(|t| t.table != table),
+                "no seq trigger on {table} after 0133"
+            );
         }
         assert!(
             set.iter()
@@ -264,11 +260,15 @@ async fn postgres_validator_requires_0129_and_restamps_once_at_upgrade() {
             .unwrap(),
         "0113's row triggers are not the required set any more"
     );
-    // The upgrade itself: 0129, then 0131's function definitions (its table and
-    // seq-trigger parts are already in place in this schema).
+    // The upgrade itself: 0129, then the function definitions of 0131 and 0133
+    // (their table and trigger parts are already in place in this schema).
     raw(
         &mut conn,
-        &format!("BEGIN;{NEW_0129};{};COMMIT", replay_0131_functions()),
+        &format!(
+            "BEGIN;{NEW_0129};{};{};COMMIT",
+            replay_functions(NEW_0131, &schema),
+            replay_functions(NEW_0133, &schema)
+        ),
     )
     .await
     .unwrap();
@@ -306,8 +306,7 @@ async fn postgres_validator_requires_0129_and_restamps_once_at_upgrade() {
         ("rekey trigger with another WHEN", format!("DROP TRIGGER mail_data_message_rekey ON messages;{}", rekey.replace("OLD.stable_id IS DISTINCT FROM NEW.stable_id", "OLD.uid IS DISTINCT FROM NEW.uid")), format!("DROP TRIGGER mail_data_message_rekey ON messages;{rekey}")),
         ("update trigger per row", format!("DROP TRIGGER mail_data_messages_updated ON messages;{}", updated.replace("REFERENCING OLD TABLE AS mail_data_old NEW TABLE AS mail_data_new FOR EACH STATEMENT", "FOR EACH ROW")), format!("DROP TRIGGER mail_data_messages_updated ON messages;{updated}")),
         ("insert trigger with other transition name", format!("DROP TRIGGER mail_data_messages_inserted ON messages;{}", inserted.replace("AS mail_data_new", "AS other_new")), format!("DROP TRIGGER mail_data_messages_inserted ON messages;{inserted}")),
-        ("statement function body changed", "CREATE OR REPLACE FUNCTION mail_data_messages_deleted_fn() RETURNS TRIGGER LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END $$".into(), format!("CREATE OR REPLACE {};ALTER FUNCTION mail_data_messages_deleted_fn() SET search_path = pg_catalog, \"{schema}\"", between(NEW_0131, "FUNCTION mail_data_messages_deleted_fn()", "END $$;"))),
-        ("seq trigger missing", "DROP TRIGGER mail_data_seq_changes_insert ON changes".into(), between(NEW_0131, "CREATE TRIGGER mail_data_seq_changes_insert ", ";").into()),
+        ("statement function body changed", "CREATE OR REPLACE FUNCTION mail_data_messages_deleted_fn() RETURNS TRIGGER LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END $$".into(), format!("CREATE OR REPLACE {};ALTER FUNCTION mail_data_messages_deleted_fn() SET search_path = pg_catalog, \"{schema}\"", between(NEW_0133, "FUNCTION mail_data_messages_deleted_fn()", "END $$;"))),
         ("0113 function without the seq bump", format!("CREATE OR REPLACE {};ALTER FUNCTION mail_data_mailbox_insert_fn() SET search_path = pg_catalog, \"{schema}\"", between(OLD_0113, "FUNCTION mail_data_mailbox_insert_fn()", "END $$;")), format!("CREATE OR REPLACE {};ALTER FUNCTION mail_data_mailbox_insert_fn() SET search_path = pg_catalog, \"{schema}\"", between(NEW_0131, "FUNCTION mail_data_mailbox_insert_fn()", "END $$;"))),
     ];
     for (what, break_sql, repair_sql) in cases {
@@ -337,17 +336,27 @@ async fn postgres_validator_requires_0129_and_restamps_once_at_upgrade() {
     pg.cleanup().await;
 }
 
-fn replay_0131_functions() -> String {
+/// The CREATE OR REPLACE FUNCTION blocks of a migration, each followed by its
+/// search_path pin (the migration's own DO block also names functions a later
+/// migration drops).
+fn replay_functions(migration: &str, schema: &str) -> String {
     let mut sql = String::new();
-    let mut rest = NEW_0131;
+    let mut rest = migration;
     while let Some(at) = rest.find("CREATE OR REPLACE FUNCTION ") {
         let block = between(&rest[at..], "CREATE OR REPLACE FUNCTION ", "END $$;");
+        let name = block["CREATE OR REPLACE FUNCTION ".len()..]
+            .split('(')
+            .next()
+            .unwrap();
         sql += block;
-        sql += "
-";
+        sql += &format!(
+            "
+ALTER FUNCTION {name}() SET search_path = pg_catalog, \"{schema}\";
+"
+        );
         rest = &rest[at + block.len()..];
     }
-    sql + between(NEW_0131, "DO $$ DECLARE function_name", "END $$;")
+    sql
 }
 
 // ---- differential test ----
@@ -954,28 +963,28 @@ async fn seq_contract(store: Store) {
         ),
         (
             "INSERT INTO changes(account_id,type,state,stable_id,op,at) VALUES('sq','Email',1,'sq1','updated','2026-01-01T00:00:00Z')",
-            true,
+            false,
         ),
         (
             "UPDATE changes SET at='2026-01-02T00:00:00Z' WHERE account_id='sq'",
-            true,
+            false,
         ),
-        ("DELETE FROM changes WHERE account_id='sq'", true),
+        ("DELETE FROM changes WHERE account_id='sq'", false),
         (
             "INSERT INTO pim_changes(account_id,type,state,object_id,op,at) VALUES('sq','Contact',1,'c1','created','2026-01-01T00:00:00Z')",
-            true,
+            false,
         ),
         (
             "INSERT INTO crypto_changes(account_id,type,state,object_id,op,at) VALUES('sq','Key',1,'k1','created','2026-01-01T00:00:00Z')",
-            true,
+            false,
         ),
         (
             "INSERT INTO change_log_checkpoint(account_id,type,head_state,pruned_through) VALUES('sq','Email',1,0)",
-            true,
+            false,
         ),
         (
             "UPDATE change_log_checkpoint SET pruned_through=1 WHERE account_id='sq'",
-            true,
+            false,
         ),
         ("UPDATE mailboxes SET role='sent' WHERE id='sq_arch'", true),
         ("DELETE FROM messages WHERE stable_id='sq1'", true),
@@ -1115,5 +1124,143 @@ async fn postgres_two_writers_of_one_account_do_not_deadlock() {
         "{deadlocks} transactions of {iterations} x 2 deadlocked"
     );
     drop(setup);
+    pg.cleanup().await;
+}
+
+// ---- 0133: single-message statements no slower than before 0129 ----
+
+/// The schema as it was before 0129: 0113's messages triggers exactly (no seq)
+/// and 0110's verdict trigger without 0132's column list.
+fn restore_pre_0129(schema: &str) -> String {
+    let mut sql = String::new();
+    for name in ADDED {
+        sql += &format!("DROP TRIGGER {name} ON messages;DROP FUNCTION {name}_fn();\n");
+    }
+    for name in REPLACED {
+        sql += between(OLD_0113, &format!("CREATE FUNCTION {name}_fn()"), "END $$;");
+        sql += "\n";
+        sql += between(OLD_0113, &format!("CREATE TRIGGER {name} "), ";");
+        sql +=
+            &format!("\nALTER FUNCTION {name}_fn() SET search_path = pg_catalog, \"{schema}\";\n");
+    }
+    sql + "DROP TRIGGER verdict_content_revision ON messages;\
+           CREATE TRIGGER verdict_content_revision BEFORE INSERT OR UPDATE ON messages FOR EACH ROW EXECUTE FUNCTION mw_verdict_content_revision();"
+}
+
+async fn execution_us(conn: &mut PgConnection, sql: &str) -> f64 {
+    let rows = sqlx::query(&format!("EXPLAIN (ANALYZE) {sql}"))
+        .fetch_all(&mut *conn)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
+    rows.iter()
+        .filter_map(|r| {
+            r.get::<String, _>(0)
+                .trim()
+                .strip_prefix("Execution Time: ")
+                .and_then(|t| t.trim_end_matches(" ms").parse::<f64>().ok())
+        })
+        .next()
+        .expect("EXPLAIN ANALYZE prints the execution time")
+        * 1000.0
+}
+
+fn median(mut v: Vec<f64>) -> f64 {
+    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    v[v.len() / 2]
+}
+
+/// One-row INSERT, flag UPDATE, move UPDATE and DELETE (the shape of every
+/// Email/set the goal mix sends) through all messages triggers: the current
+/// schema against the pre-0129 schema in the same server, statements
+/// interleaved one by one so host load affects both alike. Median statement
+/// time must not exceed the pre-0129 median by more than 5% (noise margin;
+/// measured at 0133 in psql, outbox present/absent: INSERT -8/-8%, flag -13/-9%,
+/// move -17/-17%, DELETE -1/-3%; DELETE is the one within noise).
+/// Both with the account's outbox row present and absent (an acknowledged
+/// hint deletes it, so the next write inserts it again).
+#[tokio::test]
+async fn postgres_one_row_writes_no_slower_than_before_0129() {
+    let Some(mut pg) = Pg::new().await else {
+        return;
+    };
+    let rounds: usize = std::env::var("MW_N15_COST_ROUNDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(200);
+    let (pre_schema, pre_store) = pg.schema("n15_pre").await;
+    let (cur_schema, cur_store) = pg.schema("n15_cur").await;
+    pre_store.close().await;
+    cur_store.close().await;
+    let mut pre = pg.connect(&pre_schema).await;
+    let mut cur = pg.connect(&cur_schema).await;
+    raw(&mut pre, &restore_pre_0129(&pre_schema)).await.unwrap();
+    let envelope = "convert_to(repeat('envelope-subject-and-addresses ',20),'UTF8')";
+    for conn in [&mut pre, &mut cur] {
+        raw(conn, &account_sql("ct")).await.unwrap();
+        raw(conn, &format!("INSERT INTO messages(stable_id,account_id,mailbox_id,uid,uidvalidity,internaldate,size,flags_json,envelope_json) SELECT 'bg'||g,'ct','ct_inbox',100000+g,1,'2026-01-01T00:00:00Z',100,'[]',{envelope} FROM generate_series(1,10000) g")).await.unwrap();
+        raw(conn, "VACUUM ANALYZE").await.unwrap();
+    }
+    let ops = [
+        (
+            "insert",
+            format!(
+                "INSERT INTO messages(stable_id,account_id,mailbox_id,uid,uidvalidity,internaldate,size,flags_json,envelope_json) VALUES('c{{i}}','ct','ct_inbox',{{i}},1,'2026-01-01T00:00:00Z',100,'[]',{envelope})"
+            ),
+        ),
+        (
+            "flag",
+            "UPDATE messages SET flags_json='[\"Seen\"]' WHERE stable_id='c{i}'".to_owned(),
+        ),
+        (
+            "move",
+            "UPDATE messages SET mailbox_id='ct_trash' WHERE stable_id='c{i}'".to_owned(),
+        ),
+        (
+            "delete",
+            "DELETE FROM messages WHERE stable_id='c{i}'".to_owned(),
+        ),
+    ];
+    let mut report = Vec::new();
+    for (mode, absent) in [("outbox row present", false), ("outbox row absent", true)] {
+        let mut times: BTreeMap<(&str, bool), Vec<f64>> = BTreeMap::new();
+        let warmup = 20;
+        for round in 0..warmup + rounds {
+            let i = round + if absent { 1_000_000 } else { 0 };
+            for (op, template) in &ops {
+                let sql = template.replace("{i}", &i.to_string());
+                for current in if round % 2 == 0 {
+                    [false, true]
+                } else {
+                    [true, false]
+                } {
+                    let conn = if current { &mut cur } else { &mut pre };
+                    if absent {
+                        raw(conn, "DELETE FROM mail_data_outbox WHERE account_id='ct'")
+                            .await
+                            .unwrap();
+                    }
+                    let us = execution_us(conn, &sql).await;
+                    if round >= warmup {
+                        times.entry((op, current)).or_default().push(us);
+                    }
+                }
+            }
+        }
+        for (op, _) in &ops {
+            let before = median(times[&(*op, false)].clone());
+            let now = median(times[&(*op, true)].clone());
+            report.push(format!(
+                "{mode:18} {op:7} pre-0129 {before:7.1} us  now {now:7.1} us  ({:+5.1}%)",
+                (now / before - 1.0) * 100.0
+            ));
+            assert!(
+                now <= before * 1.05,
+                "{mode}: one-row {op} median {now:.1} us > pre-0129 {before:.1} us + 5%\n{}",
+                report.join("\n")
+            );
+        }
+    }
+    eprintln!("{}", report.join("\n"));
+    drop((pre, cur));
     pg.cleanup().await;
 }

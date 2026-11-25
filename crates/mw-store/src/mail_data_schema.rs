@@ -5,11 +5,11 @@ use super::*;
 use std::sync::OnceLock;
 fn invalid(message:&'static str)->StoreError { StoreError::Invalid(message) }
 const SQLITE_SQL: &str = concat!(include_str!("../migrations/0109_message_list_envelope.sql"),"\n",include_str!("../migrations/0110_verdict_source.sql"),"\n",include_str!("../migrations/0113_mail_data_publication.sql"),"
-",include_str!("../migrations/0131_mail_data_seq_lock_order.sql"));
+",include_str!("../migrations/0131_mail_data_seq_lock_order.sql"),"\n",include_str!("../migrations/0133_mail_data_single_row.sql"));
 const PG_SQL: &str = concat!(include_str!("../migrations_pg/0109_message_list_envelope.sql"),"\n",include_str!("../migrations_pg/0110_verdict_source.sql"),"\n",include_str!("../migrations_pg/0113_mail_data_publication.sql"),"
 ",include_str!("../migrations_pg/0129_mail_data_statement_triggers.sql"),"
 ",include_str!("../migrations_pg/0131_mail_data_seq_lock_order.sql"),"
-",include_str!("../migrations_pg/0132_flag_write_trigger_columns.sql"));
+",include_str!("../migrations_pg/0132_flag_write_trigger_columns.sql"),"\n",include_str!("../migrations_pg/0133_mail_data_single_row.sql"));
 const TABLES: &[&str] = &["accounts","messages","message_meta","message_list_envelope","bodies","mailboxes","address_books","contacts","zeroaccess_accounts","security_verdicts","mail_data_accounts","mail_data_rows","mail_data_outbox","changes","change_log_checkpoint","pim_changes","crypto_changes"];
 pub(crate) fn stamp_expression(dialect: Dialect) -> &'static str {
     static SQL: OnceLock<[String; 2]> = OnceLock::new();
@@ -154,7 +154,7 @@ fn triggers(pg: bool) -> Vec<Trigger> {
 }
 fn functions() -> Vec<Function> {
     let mut out: Vec<Function> = Vec::new();
-    // A later CREATE OR REPLACE (0131) replaces the earlier definition.
+    // A later CREATE OR REPLACE (0131, 0133) replaces the earlier definition.
     let source = PG_SQL.replace("CREATE OR REPLACE FUNCTION ", "CREATE FUNCTION ");
     for (create, chunk) in statements(&source, "CREATE FUNCTION ", "DROP FUNCTION ") {
         if !create {
