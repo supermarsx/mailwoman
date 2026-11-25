@@ -537,7 +537,13 @@ async fn remove(
     UrlPath(id): UrlPath<String>,
 ) -> Response {
     match state.store.delete_ui_plugin(&id).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Ok(()) => {
+            // t63: the plugin's key/value data goes with it.
+            if let Err(e) = state.store.plugin_kv_purge(&kv_namespace(&id)).await {
+                return store_error(&e);
+            }
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => store_error(&e),
     }
 }
@@ -675,8 +681,8 @@ async fn broker_rpc(
 
     match (req.cap.as_str(), req.method.as_str()) {
         ("net:host-allowlist", "fetch") => broker_fetch(&req, &grants).await,
-        ("store:kv-scoped", "get") => broker_kv_get(&plugin_id, &session.account_id, &req),
-        ("store:kv-scoped", "put") => broker_kv_put(&plugin_id, &session.account_id, &req),
+        ("store:kv-scoped", "get") => broker_kv_get(&state.store, &plugin_id, &session.account_id, &req).await,
+        ("store:kv-scoped", "put") => broker_kv_put(&state.store, &plugin_id, &session.account_id, &req).await,
         _ => rpc_err(
             &req.id,
             "not-implemented",
@@ -726,42 +732,46 @@ async fn broker_fetch(req: &RpcRequest, grants: &[UiPluginGrantRow]) -> Response
     }
 }
 
-/// The key/value store for the `store:kv-scoped` capability. In-process (there is no
-/// 0010 KV table); keyed by `plugin_id \0 account_id \0 key`, so a plugin cannot read
-/// another plugin's namespace and an account cannot read what the same plugin stored
-/// for another account.
-static UI_KV: LazyLock<Mutex<HashMap<String, Value>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
-fn kv_key(plugin_id: &str, account_id: &str, key: &str) -> String {
-    format!("{plugin_id}\u{0}{account_id}\u{0}{key}")
+/// The key/value store for the `store:kv-scoped` capability (t63: persisted).
+///
+/// Until t63 this was a process map with no entry or byte limit, never cleared,
+/// and lost at restart. It now lives in the sealed `plugin_kv` table under the
+/// namespace `(ui:<plugin_id>, account_id)`: the same quotas as engine plugins
+/// (`plugins.kv.*` / `MW_PLUGIN_KV_MAX_*`: key and value bytes, total bytes and
+/// keys per namespace), removed with the plugin (`remove`) and with the
+/// account (the erasure data map covers `plugin_kv` by account id). A plugin
+/// still cannot read another plugin's namespace, nor an account another's.
+pub(crate) fn kv_namespace(plugin_id: &str) -> String {
+    format!("ui:{plugin_id}")
 }
 
-fn broker_kv_get(plugin_id: &str, account_id: &str, req: &RpcRequest) -> Response {
+async fn broker_kv_get(store: &mw_store::Store, plugin_id: &str, account_id: &str, req: &RpcRequest) -> Response {
     let key = match req.args.first().and_then(Value::as_str) {
         Some(k) => k,
         None => return rpc_err(&req.id, "bad-request", "get requires a key argument"),
     };
-    let value = UI_KV
-        .lock()
-        .expect("ui kv lock")
-        .get(&kv_key(plugin_id, account_id, key))
-        .cloned()
-        .unwrap_or(Value::Null);
-    rpc_ok(&req.id, value)
+    match store.plugin_kv_get(&kv_namespace(plugin_id), account_id, key).await {
+        Ok(Some(bytes)) => rpc_ok(&req.id, serde_json::from_slice(&bytes).unwrap_or(Value::Null)),
+        Ok(None) => rpc_ok(&req.id, Value::Null),
+        Err(_) => rpc_err(&req.id, "internal", "store unavailable"),
+    }
 }
 
-fn broker_kv_put(plugin_id: &str, account_id: &str, req: &RpcRequest) -> Response {
+async fn broker_kv_put(store: &mw_store::Store, plugin_id: &str, account_id: &str, req: &RpcRequest) -> Response {
     let key = match req.args.first().and_then(Value::as_str) {
         Some(k) => k.to_string(),
         None => return rpc_err(&req.id, "bad-request", "put requires a key argument"),
     };
     let value = req.args.get(1).cloned().unwrap_or(Value::Null);
-    UI_KV
-        .lock()
-        .expect("ui kv lock")
-        .insert(kv_key(plugin_id, account_id, &key), value);
-    rpc_ok(&req.id, json!({ "ok": true }))
+    let Ok(bytes) = serde_json::to_vec(&value) else {
+        return rpc_err(&req.id, "bad-request", "value is not JSON");
+    };
+    let limits = crate::v7_mount::plugin_kv_limits(store).await;
+    match store.plugin_kv_set(&kv_namespace(plugin_id), account_id, &key, &bytes, &limits).await {
+        Ok(()) => rpc_ok(&req.id, json!({ "ok": true })),
+        Err(mw_store::PluginKvError::Store(_)) => rpc_err(&req.id, "internal", "store unavailable"),
+        Err(error) => rpc_err(&req.id, "quota-exceeded", error.to_string()),
+    }
 }
 
 // ── response + parsing helpers ───────────────────────────────────────────────────
@@ -1022,36 +1032,42 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn kv_broker_scopes_per_plugin() {
-        let get = RpcRequest {
+    async fn kv_broker_scopes_per_plugin_and_is_bounded_and_purged() {
+        let store = mw_store::Store::open_in_memory(mw_store::ServerKey::generate()).await.unwrap();
+        let request = |method: &str, args: Vec<Value>| RpcRequest {
             v: 1,
-            id: "r1".into(),
+            id: "r".into(),
             cap: "store:kv-scoped".into(),
-            method: "get".into(),
-            args: vec![json!("k")],
+            method: method.into(),
+            args,
         };
-        let put = RpcRequest {
-            v: 1,
-            id: "r2".into(),
-            cap: "store:kv-scoped".into(),
-            method: "put".into(),
-            args: vec![json!("k"), json!("v-a")],
+        let body = |response: Response| async move {
+            let bytes = axum::body::to_bytes(response.into_body(), 1 << 20).await.unwrap();
+            serde_json::from_slice::<Value>(&bytes).unwrap()
         };
-        broker_kv_put("plugin-a", "acct-1", &put);
-        // Plugin B cannot read plugin A's namespace.
-        let resp_b = broker_kv_get("plugin-b", "acct-1", &get);
-        assert_eq!(resp_b.status(), StatusCode::OK);
-        // (namespaced key ensures isolation; direct map check)
-        let stored = |plugin: &str, account: &str| {
-            UI_KV
-                .lock()
-                .unwrap()
-                .get(&kv_key(plugin, account, "k"))
-                .is_some()
-        };
-        assert!(stored("plugin-a", "acct-1"));
-        assert!(!stored("plugin-b", "acct-1"));
-        // Nor can another account read what plugin A stored for this one.
-        assert!(!stored("plugin-a", "acct-2"));
+        let put = request("put", vec![json!("k"), json!({"v": "a"})]);
+        assert_eq!(body(broker_kv_put(&store, "plugin-a", "acct-1", &put).await).await["ok"]["ok"], true);
+        let get = request("get", vec![json!("k")]);
+        assert_eq!(body(broker_kv_get(&store, "plugin-a", "acct-1", &get).await).await["ok"], json!({"v": "a"}));
+        // Plugin B cannot read plugin A's namespace, nor another account A's.
+        assert_eq!(body(broker_kv_get(&store, "plugin-b", "acct-1", &get).await).await["ok"], Value::Null);
+        assert_eq!(body(broker_kv_get(&store, "plugin-a", "acct-2", &get).await).await["ok"], Value::Null);
+        // Bounded: the namespace's key count and value size are capped.
+        let limits = crate::v7_mount::plugin_kv_limits(&store).await;
+        let big = request("put", vec![json!("big"), json!("x".repeat(limits.max_value_bytes + 1))]);
+        assert_eq!(body(broker_kv_put(&store, "plugin-a", "acct-1", &big).await).await["err"]["code"], "quota-exceeded");
+        let mut refused = 0;
+        for n in 0..(limits.max_keys + 5) {
+            let put = request("put", vec![json!(format!("k{n}")), json!(1)]);
+            if body(broker_kv_put(&store, "plugin-a", "acct-3", &put).await).await["err"]["code"] == "quota-exceeded" {
+                refused += 1;
+            }
+        }
+        assert!(refused >= 5, "the key cap holds ({refused} refused)");
+        assert!(store.plugin_kv_list(&kv_namespace("plugin-a"), "acct-3").await.unwrap().len() as i64 <= limits.max_keys);
+        // Removed with the plugin.
+        store.plugin_kv_purge(&kv_namespace("plugin-a")).await.unwrap();
+        assert_eq!(body(broker_kv_get(&store, "plugin-a", "acct-1", &get).await).await["ok"], Value::Null);
+        store.close().await;
     }
 }
