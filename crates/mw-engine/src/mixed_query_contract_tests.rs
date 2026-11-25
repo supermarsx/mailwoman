@@ -242,12 +242,16 @@ async fn mixed_contract_effective_keyword_collisions_keep_exact_negation_and_imp
         "keywords/Work":true}),
     )
     .await;
+    // Since t50hp-e32 slice 1 (0126) a keyword patch is stored in SQL only;
+    // the index document keeps its ingest-time keywords and the queries below
+    // read the keyword from SQL.
     let current = s.f.engine.search().fetch_doc(&s.f.id).unwrap().unwrap();
     assert!(
-        current
+        !current
             .keywords
             .iter()
-            .any(|key| key == "$mw-followup-active")
+            .any(|key| key == "$mw-followup-active"),
+        "a keyword patch no longer rewrites the index document"
     );
     s.expect(
         json!({"text":"body:amberneedle AND is:followup"}),
@@ -270,10 +274,14 @@ async fn mixed_contract_effective_keyword_collisions_keep_exact_negation_and_imp
     .await;
     let out = s.query(json!({"filter":{"text":"body:amberneedle"},"calculateTotal":true,
         "sort":[{"property":"importance","isAscending":false},{"property":"subject","isAscending":true}]})).await;
+    // Since t50hp-e32 slice 1 a user-set `$priority-high` stays in SQL (filters
+    // see it, above) and no longer reaches the index document, so the
+    // index-side importance sort ranks by content-derived importance only (the
+    // planned S4 behaviour of decision P2, reached at slice 1).
     assert_eq!(
         out["ids"],
-        json!([s.f.id, s.b]),
-        "effective custom priority participates in the existing comparator"
+        json!([s.b, s.f.id]),
+        "importance sort uses content-derived importance"
     );
     assert_eq!(out["total"], 2);
     assert_eq!(out["ids"].as_array().unwrap().len(), 2);
