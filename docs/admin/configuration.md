@@ -175,6 +175,9 @@ nothing is stored; **boot** = read once at start, a change needs a restart.
 
 | Name | Class | Value | Default | Precedence | What | Set in / reason |
 |---|---|---|---|---|---|---|
+| <a id="mw-upstream-connect-timeout-secs"></a>`MW_UPSTREAM_CONNECT_TIMEOUT_SECS` | readOnly | plain | 15 | boot | seconds an IMAP or POP3 TCP connect may take, 1 to 120; another value is reported and the default used | needed before the database opens or to reach the console |
+| <a id="mw-upstream-greeting-timeout-secs"></a>`MW_UPSTREAM_GREETING_TIMEOUT_SECS` | readOnly | plain | 15 | boot | seconds an IMAP or POP3 server has for the TLS handshake and its greeting, 1 to 120; another value is reported and the default used | needed before the database opens or to reach the console |
+| <a id="mw-upstream-read-timeout-secs"></a>`MW_UPSTREAM_READ_TIMEOUT_SECS` | readOnly | plain | 60 | boot | seconds an IMAP or POP3 server has to answer a command, extended by one second per 16 KiB received (so a large download is not cut off), 5 to 600; IMAP IDLE waits are not bounded by it; another value is reported and the default used | needed before the database opens or to reach the console |
 | <a id="mw-jmap-upstreams"></a>`MW_JMAP_UPSTREAMS` | ui | url |  | fallback | allowed JMAP proxy origins (seeds the default upstream) | Admin → Domains → Upstreams |
 | <a id="mw-smtp-host"></a>`MW_SMTP_HOST` | ui | plain | the IMAP host | fallback | engine submission host when a domain has no SMTP upstream | Admin → Domains → Upstreams |
 | <a id="mw-smtp-port"></a>`MW_SMTP_PORT` | ui | plain | 587 | fallback | engine submission port | Admin → Domains → Upstreams |

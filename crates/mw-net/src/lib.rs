@@ -21,6 +21,11 @@
 use std::fmt;
 mod auth;
 pub use auth::{AuthMechanism, AuthProtocol, PasswordAuthPolicy};
+mod timeouts;
+pub use timeouts::{
+    CONNECT_VAR, GREETING_VAR, READ_VAR, ReadDeadline, UpstreamTimeouts, parse_upstream_timeouts,
+    upstream_timeouts, with_upstream_timeouts, within,
+};
 use std::future::Future;
 use std::io;
 use std::pin::Pin;
@@ -95,9 +100,11 @@ impl Dialer for DirectDialer {
 /// The protocol crates call this so "no dialer configured" and "the direct
 /// dialer" are the same code path.
 pub async fn dial(dialer: Option<&dyn Dialer>, host: &str, port: u16) -> io::Result<BoxStream> {
+    // t63: bounded by the upstream connect timeout (timeouts.rs).
+    let limit = upstream_timeouts().connect;
     match dialer {
-        Some(d) => d.dial(host, port).await,
-        None => DirectDialer.dial(host, port).await,
+        Some(d) => within(limit, "connect", d.dial(host, port)).await,
+        None => within(limit, "connect", DirectDialer.dial(host, port)).await,
     }
 }
 

@@ -162,6 +162,10 @@ pub struct Connection {
     tag_seq: u32,
     host: String,
     tls_options: mw_net::TlsOptions,
+    /// t63: the bound of the exchange in progress (mw_net timeouts). Each
+    /// command write starts a new one; the greeting has its own; IDLE waits
+    /// clear it (the caller races them against its keepalive).
+    deadline: Option<mw_net::ReadDeadline>,
 }
 
 impl Connection {
@@ -195,13 +199,22 @@ impl Connection {
         mode: TlsMode,
         options: &mw_net::TlsOptions,
     ) -> ImapResult<(Self, OwnedResponse)> {
-        let stream = ImapStream::connect_via_with_tls(dialer, host, port, mode, options).await?;
+        // The dial has its own connect bound; the TLS handshake (implicit
+        // TLS) shares the greeting bound.
+        let timeouts = mw_net::upstream_timeouts();
+        let stream = tokio::time::timeout(
+            timeouts.connect + timeouts.greeting,
+            ImapStream::connect_via_with_tls(dialer, host, port, mode, options),
+        )
+        .await
+        .map_err(|_| ImapError::Io(std::io::Error::new(std::io::ErrorKind::TimedOut, "upstream TLS handshake timed out")))??;
         let mut conn = Connection {
             stream: Some(stream),
             buf: BytesMut::with_capacity(8 * 1024),
             tag_seq: 0,
             host: host.to_string(),
             tls_options: options.clone(),
+            deadline: Some(mw_net::ReadDeadline::greeting()),
         };
         let greeting = conn.read_response().await?;
         match &greeting {
@@ -246,10 +259,13 @@ impl Connection {
 
     async fn write_all(&mut self, bytes: &[u8]) -> ImapResult<()> {
         let stream = self.stream.as_mut().ok_or(ImapError::Eof)?;
-        let result = async {
+        // A client write starts a new exchange, bounded from here (t63).
+        self.deadline = Some(mw_net::ReadDeadline::response());
+        let limit = mw_net::upstream_timeouts().read;
+        let result = mw_net::within(limit, "write", async {
             stream.write_all(bytes).await?;
             stream.flush().await
-        }
+        })
         .await;
         if let Err(error) = result {
             self.stream = None;
@@ -296,7 +312,11 @@ impl Connection {
                 }
             }
             let stream = self.stream.as_mut().ok_or(ImapError::Eof)?;
-            match stream.read_buf(&mut self.buf).await {
+            let read = match &mut self.deadline {
+                Some(deadline) => deadline.read(stream.read_buf(&mut self.buf)).await,
+                None => stream.read_buf(&mut self.buf).await,
+            };
+            match read {
                 Ok(0) => {
                     self.stream = None;
                     return Err(ImapError::Eof);
@@ -561,7 +581,11 @@ impl Connection {
                 return Ok(String::from_utf8_lossy(&line).into_owned());
             }
             let stream = self.stream.as_mut().ok_or(ImapError::Eof)?;
-            match stream.read_buf(&mut self.buf).await {
+            let read = match &mut self.deadline {
+                Some(deadline) => deadline.read(stream.read_buf(&mut self.buf)).await,
+                None => stream.read_buf(&mut self.buf).await,
+            };
+            match read {
                 Ok(0) => {
                     self.stream = None;
                     return Err(ImapError::Eof);
@@ -644,6 +668,7 @@ impl Connection {
     /// Read the next untagged response during an active IDLE (no timeout here;
     /// the caller races this against its stop signal / keepalive timer).
     pub async fn idle_next(&mut self) -> ImapResult<OwnedResponse> {
+        self.deadline = None;
         self.read_response().await
     }
 
@@ -658,7 +683,12 @@ impl Connection {
         self.execute("STARTTLS").await?.ok()?;
         let stream = self.stream.take().ok_or(ImapError::Eof)?;
         let host = self.host.clone();
-        self.stream = Some(stream.upgrade_with_tls(&host, &self.tls_options).await?);
+        let limit = mw_net::upstream_timeouts().greeting;
+        self.stream = Some(
+            tokio::time::timeout(limit, stream.upgrade_with_tls(&host, &self.tls_options))
+                .await
+                .map_err(|_| ImapError::Io(std::io::Error::new(std::io::ErrorKind::TimedOut, "upstream TLS handshake timed out")))??,
+        );
         // Any buffered pre-TLS bytes would be a protocol violation; discard.
         self.buf.clear();
         Ok(())
@@ -765,5 +795,70 @@ mod utf8_quoted_tests {
     fn a_stray_quote_in_free_text_is_left_alone() {
         let mut buf = BytesMut::from("* OK [ALERT] it is \"fine\r\n".as_bytes());
         assert!(!literalize_8bit_quoted(&mut buf));
+    }
+}
+
+#[cfg(test)]
+mod upstream_timeout_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::net::TcpListener;
+
+    fn small() -> mw_net::UpstreamTimeouts {
+        mw_net::UpstreamTimeouts {
+            connect: Duration::from_millis(500),
+            greeting: Duration::from_millis(300),
+            read: Duration::from_millis(400),
+            min_rate: 16 * 1024,
+        }
+    }
+
+    /// t63 item 0: a server that accepts and never greets, one that greets and
+    /// then never answers a command, and one that trickles bytes are each cut
+    /// off near their bound; an IDLE wait is not bounded here.
+    #[tokio::test]
+    async fn silent_stalled_and_trickling_servers_are_cut_off() {
+        mw_net::with_upstream_timeouts(small(), async {
+            for mode in ["silent", "stall", "trickle"] {
+                let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let addr = listener.local_addr().unwrap();
+                let server = tokio::spawn(async move {
+                    let (sock, _) = listener.accept().await.unwrap();
+                    let (rd, mut wr) = sock.into_split();
+                    let mut reader = BufReader::new(rd);
+                    if mode != "silent" {
+                        wr.write_all(b"* OK ready\r\n").await.unwrap();
+                        let mut line = String::new();
+                        let _ = reader.read_line(&mut line).await;
+                        if mode == "trickle" {
+                            let _ = wr.write_all(b"* CAPABILITY IMAP4rev1").await;
+                            loop {
+                                if wr.write_all(b" X").await.is_err() {
+                                    break;
+                                }
+                                tokio::time::sleep(Duration::from_millis(50)).await;
+                            }
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                    drop((reader, wr));
+                });
+                let started = Instant::now();
+                let result = async {
+                    let (mut conn, _) = Connection::connect_via_with_tls(
+                        None, "127.0.0.1", addr.port(), TlsMode::Plaintext, &mw_net::TlsOptions::default(),
+                    )
+                    .await?;
+                    conn.execute("CAPABILITY").await.map(|_| ())
+                }
+                .await;
+                assert!(result.is_err(), "{mode}: must fail");
+                let bound = if mode == "silent" { small().greeting } else { small().read };
+                assert!(started.elapsed() < bound * 3, "{mode}: {:?}", started.elapsed());
+                server.abort();
+            }
+        })
+        .await;
     }
 }

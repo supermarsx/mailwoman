@@ -1274,6 +1274,9 @@ pub static CATALOGUE: &[Knob] = &[
         "MCP OAuth resource identifier; changing it invalidates issued tokens",
     ),
     // ── Mail, upstreams and content ────────────────────────────────────────────
+    boot("MW_UPSTREAM_CONNECT_TIMEOUT_SECS",Gr::Mail,Plain,R::Boot,"15","seconds an IMAP or POP3 TCP connect may take, 1 to 120; another value is reported and the default used"),
+    boot("MW_UPSTREAM_GREETING_TIMEOUT_SECS",Gr::Mail,Plain,R::Boot,"15","seconds an IMAP or POP3 server has for the TLS handshake and its greeting, 1 to 120; another value is reported and the default used"),
+    boot("MW_UPSTREAM_READ_TIMEOUT_SECS",Gr::Mail,Plain,R::Boot,"60","seconds an IMAP or POP3 server has to answer a command, extended by one second per 16 KiB received (so a large download is not cut off), 5 to 600; IMAP IDLE waits are not bounded by it; another value is reported and the default used"),
     ui(
         "MW_JMAP_UPSTREAMS",
         Gr::Mail,

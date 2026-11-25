@@ -46,6 +46,9 @@ pub struct Pop3Conn {
     /// plaintext transport. Enables the `SCRAM-SHA-256-PLUS` mechanism when the
     /// server also advertises it, binding the exchange to the negotiated type.
     channel_binding: Option<(&'static str, Vec<u8>)>,
+    /// t63: the bound of the exchange in progress (mw_net timeouts): the
+    /// greeting's, then one per command sent.
+    deadline: mw_net::ReadDeadline,
 }
 
 /// Outcome of reading one line during a SASL `AUTH` exchange.
@@ -55,11 +58,19 @@ enum AuthStep {
     Continue(String),
 }
 
+/// A TLS handshake within the greeting bound (t63).
+async fn bounded_tls<T>(handshake: impl std::future::Future<Output = Result<T>>) -> Result<T> {
+    tokio::time::timeout(mw_net::upstream_timeouts().greeting, handshake)
+        .await
+        .map_err(|_| EngineError::Transport("upstream TLS handshake timed out".into()))?
+}
+
 impl Pop3Conn {
     fn new(stream: Box<dyn AsyncStream>) -> Self {
         Self {
             stream: BufReader::new(stream),
             channel_binding: None,
+            deadline: mw_net::ReadDeadline::greeting(),
         }
     }
 
@@ -72,6 +83,7 @@ impl Pop3Conn {
         Self {
             stream: BufReader::new(stream),
             channel_binding,
+            deadline: mw_net::ReadDeadline::greeting(),
         }
     }
 
@@ -117,7 +129,7 @@ impl Pop3Conn {
                 c
             }
             TlsMode::Implicit => {
-                let (tls, binding) = tls_connect(tcp, &cfg.host, options).await?;
+                let (tls, binding) = bounded_tls(tls_connect(tcp, &cfg.host, options)).await?;
                 let mut c = Pop3Conn::with_binding(tls, binding);
                 c.read_greeting().await?;
                 c
@@ -127,7 +139,7 @@ impl Pop3Conn {
                 c.read_greeting().await?;
                 c.stls().await?;
                 let inner = c.into_inner()?;
-                let (tls, binding) = tls_connect(inner, &cfg.host, options).await?;
+                let (tls, binding) = bounded_tls(tls_connect(inner, &cfg.host, options)).await?;
                 Pop3Conn::with_binding(tls, binding)
             }
         };
@@ -157,8 +169,8 @@ impl Pop3Conn {
     async fn read_line_raw(&mut self) -> Result<Vec<u8>> {
         let mut buf = Vec::new();
         let n = self
-            .stream
-            .read_until(b'\n', &mut buf)
+            .deadline
+            .read(self.stream.read_until(b'\n', &mut buf))
             .await
             .map_err(transport)?;
         if n == 0 {
@@ -186,10 +198,17 @@ impl Pop3Conn {
     }
 
     async fn send(&mut self, cmd: &str) -> Result<()> {
+        // A command starts a new exchange, bounded from here (t63).
+        self.deadline = mw_net::ReadDeadline::response();
         let w = self.stream.get_mut();
-        w.write_all(cmd.as_bytes()).await.map_err(transport)?;
-        w.write_all(b"\r\n").await.map_err(transport)?;
-        w.flush().await.map_err(transport)?;
+        let limit = mw_net::upstream_timeouts().read;
+        mw_net::within(limit, "write", async {
+            w.write_all(cmd.as_bytes()).await?;
+            w.write_all(b"\r\n").await?;
+            w.flush().await
+        })
+        .await
+        .map_err(transport)?;
         Ok(())
     }
 
@@ -1107,5 +1126,69 @@ YqfW0Bfyo6G3YnlWYjUrStuY5R68A7lxiZznYBOKulqbEKmad70FATFl
                 .to_string()
                 .starts_with(MIN_TLS_REFUSED)
         );
+    }
+}
+
+#[cfg(test)]
+mod upstream_timeout_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+    use tokio::net::{TcpListener, TcpStream};
+
+    fn small() -> mw_net::UpstreamTimeouts {
+        mw_net::UpstreamTimeouts {
+            connect: Duration::from_millis(500),
+            greeting: Duration::from_millis(300),
+            read: Duration::from_millis(400),
+            min_rate: 16 * 1024,
+        }
+    }
+
+    /// t63 item 0: a server that accepts and never greets, one that greets and
+    /// then never answers a command, and one that trickles bytes are each cut
+    /// off near their bound.
+    #[tokio::test]
+    async fn silent_stalled_and_trickling_servers_are_cut_off() {
+        mw_net::with_upstream_timeouts(small(), async {
+            for mode in ["silent", "stall", "trickle"] {
+                let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let addr = listener.local_addr().unwrap();
+                let server = tokio::spawn(async move {
+                    let (sock, _) = listener.accept().await.unwrap();
+                    let (rd, mut wr) = sock.into_split();
+                    let mut reader = BufReader::new(rd);
+                    if mode != "silent" {
+                        wr.write_all(b"+OK ready\r\n").await.unwrap();
+                        let mut line = String::new();
+                        let _ = reader.read_line(&mut line).await;
+                        if mode == "trickle" {
+                            loop {
+                                if wr.write_all(b"+").await.is_err() {
+                                    break;
+                                }
+                                tokio::time::sleep(Duration::from_millis(50)).await;
+                            }
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                    drop((reader, wr));
+                });
+                let tcp = TcpStream::connect(addr).await.unwrap();
+                let mut conn = Pop3Conn::new(Box::new(tcp));
+                let started = Instant::now();
+                let result = async {
+                    conn.read_greeting().await?;
+                    conn.send("CAPA").await?;
+                    conn.read_status().await.map(|_| ())
+                }
+                .await;
+                assert!(result.is_err(), "{mode}: must fail");
+                let bound = if mode == "silent" { small().greeting } else { small().read };
+                assert!(started.elapsed() < bound * 3, "{mode}: {:?}", started.elapsed());
+                server.abort();
+            }
+        })
+        .await;
     }
 }
