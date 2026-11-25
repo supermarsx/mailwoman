@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use mw_store::{MailboxUpsert, MessageUpsert, Store};
-use tokio::sync::{broadcast, mpsc, watch};
+use tokio::sync::{broadcast, watch};
 
 #[path = "date_upgrade.rs"]
 mod date_upgrade;
@@ -1768,8 +1768,8 @@ impl Engine {
 
         // Establish the first watch before returning so the caller sees any
         // immediate auth/transport failure (preserving the original contract).
-        let (tx, rx) = mpsc::unbounded_channel();
-        let handle = rt.backend.watch(ChangeSink::new(tx)).await?;
+        let (sink, rx) = ChangeSink::coalescing();
+        let handle = rt.backend.watch(sink).await?;
 
         let (stop_tx, stop_rx) = watch::channel(false);
         let engine = Arc::clone(self);
@@ -1835,7 +1835,7 @@ async fn watch_loop(
     account_id: String,
     backend: Arc<dyn AccountBackend>,
     mut handle: WatchHandle,
-    mut rx: mpsc::UnboundedReceiver<ChangeEvent>,
+    mut rx: crate::backend::ChangeStream,
     mut stop_rx: watch::Receiver<bool>,
 ) {
     let mut backoff = Duration::from_secs(1);
@@ -1856,8 +1856,8 @@ async fn watch_loop(
 
         // Re-establish the watch (fresh backend login) and resync to catch up on
         // anything missed while disconnected.
-        let (tx, new_rx) = mpsc::unbounded_channel();
-        match backend.watch(ChangeSink::new(tx)).await {
+        let (sink, new_rx) = ChangeSink::coalescing();
+        match backend.watch(sink).await {
             Ok(new_handle) => {
                 handle = new_handle;
                 rx = new_rx;
@@ -1887,7 +1887,7 @@ async fn watch_loop(
                 tracing::warn!("watch reconnect failed for {account_id}: {e}; will retry");
                 // Keep looping: `consume_events` on a closed channel returns
                 // immediately, so the next iteration just backs off and retries.
-                let (_tx, empty_rx) = mpsc::unbounded_channel();
+                let (_sink, empty_rx) = ChangeSink::coalescing();
                 rx = empty_rx; // sender dropped ⇒ recv() yields None at once
             }
         }
@@ -1906,7 +1906,7 @@ enum WatchExit {
 async fn consume_events(
     engine: &Arc<Engine>,
     account_id: &str,
-    rx: &mut mpsc::UnboundedReceiver<ChangeEvent>,
+    rx: &mut crate::backend::ChangeStream,
     stop_rx: &mut watch::Receiver<bool>,
 ) -> WatchExit {
     loop {

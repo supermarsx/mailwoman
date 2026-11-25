@@ -14,6 +14,7 @@
 //!   support; the engine persists whatever the backend returns.
 
 use std::collections::BTreeSet;
+use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -572,24 +573,173 @@ pub enum ChangeEvent {
 
 /// The sender half handed to a backend's `watch` loop.
 ///
-/// Wraps an unbounded channel so a backend can push [`ChangeEvent`]s without
-/// blocking on the engine's consumption rate; the engine holds the receiver.
+/// A backend pushes [`ChangeEvent`]s without blocking on the engine's
+/// consumption rate. The engine uses [`ChangeSink::coalescing`] (t63): events
+/// arrive from the upstream server (one per IDLE notification) and each costs a
+/// resync, so a pending "changed" for a mailbox absorbs further ones for the
+/// same mailbox, at most [`MAX_PENDING_MAILBOXES`] distinct mailboxes wait, and
+/// a disconnect is one flag. A noisy or hostile server can neither grow memory
+/// nor queue more resyncs than there are distinct mailboxes.
+/// [`ChangeSink::new`] wraps a plain channel (backend tests).
 #[derive(Debug, Clone)]
 pub struct ChangeSink {
-    tx: mpsc::UnboundedSender<ChangeEvent>,
+    inner: SinkInner,
+}
+
+#[derive(Debug, Clone)]
+enum SinkInner {
+    Channel(mpsc::UnboundedSender<ChangeEvent>),
+    Coalescing(Arc<SenderGuard>),
+}
+
+/// Distinct mailboxes that may wait for a resync at once per watch.
+pub const MAX_PENDING_MAILBOXES: usize = 1024;
+
+#[derive(Debug, Default)]
+struct ChangeQueue {
+    state: std::sync::Mutex<PendingChanges>,
+    notify: tokio::sync::Notify,
+}
+
+#[derive(Debug, Default)]
+struct PendingChanges {
+    order: std::collections::VecDeque<RawMailboxRef>,
+    names: std::collections::HashSet<String>,
+    disconnected: bool,
+    senders_gone: bool,
+    receiver_gone: bool,
+}
+
+/// Dropped when the last clone of a coalescing sink is dropped.
+#[derive(Debug)]
+struct SenderGuard(Arc<ChangeQueue>);
+impl Drop for SenderGuard {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.0.state.lock() {
+            state.senders_gone = true;
+        }
+        self.0.notify.notify_one();
+    }
+}
+
+/// Process counters of the coalescing change queues (diagnostics).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeQueueStats {
+    /// Events queued for a resync.
+    pub queued: u64,
+    /// Events absorbed by a pending entry for the same mailbox.
+    pub coalesced: u64,
+    /// Events dropped because MAX_PENDING_MAILBOXES were already waiting
+    /// (the periodic catch-up sweep still resyncs).
+    pub dropped: u64,
+}
+static QUEUED: AtomicU64 = AtomicU64::new(0);
+static COALESCED: AtomicU64 = AtomicU64::new(0);
+static DROPPED: AtomicU64 = AtomicU64::new(0);
+
+/// Process-wide counters of every coalescing change queue.
+pub fn change_queue_stats() -> ChangeQueueStats {
+    ChangeQueueStats {
+        queued: QUEUED.load(Ordering::Relaxed),
+        coalesced: COALESCED.load(Ordering::Relaxed),
+        dropped: DROPPED.load(Ordering::Relaxed),
+    }
+}
+
+/// The engine's end of a coalescing sink.
+#[derive(Debug)]
+pub struct ChangeStream {
+    queue: Arc<ChangeQueue>,
+}
+
+impl ChangeStream {
+    /// The next event: a disconnect first, then pending mailboxes in arrival
+    /// order; `None` once every sender is gone and nothing is pending.
+    pub async fn recv(&mut self) -> Option<ChangeEvent> {
+        loop {
+            {
+                let mut state = self.queue.state.lock().unwrap_or_else(|p| p.into_inner());
+                if std::mem::take(&mut state.disconnected) {
+                    return Some(ChangeEvent::Disconnected);
+                }
+                if let Some(mailbox) = state.order.pop_front() {
+                    state.names.remove(&mailbox.name);
+                    return Some(ChangeEvent::MailboxChanged { mailbox });
+                }
+                if state.senders_gone {
+                    return None;
+                }
+            }
+            // notify_one stores a permit when nobody waits: no lost wake-up.
+            self.queue.notify.notified().await;
+        }
+    }
+
+    /// Mailboxes waiting now.
+    pub fn pending(&self) -> usize {
+        self.queue.state.lock().map(|state| state.order.len()).unwrap_or(0)
+    }
+}
+
+impl Drop for ChangeStream {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.queue.state.lock() {
+            state.receiver_gone = true;
+            state.order.clear();
+            state.names.clear();
+        }
+    }
 }
 
 impl ChangeSink {
-    /// Wrap a channel sender (constructed by the engine) as a sink.
+    /// Wrap a channel sender as a sink (no coalescing; backend tests).
     pub fn new(tx: mpsc::UnboundedSender<ChangeEvent>) -> Self {
-        Self { tx }
+        Self { inner: SinkInner::Channel(tx) }
+    }
+
+    /// A coalescing sink and its stream (see the type docs).
+    pub fn coalescing() -> (Self, ChangeStream) {
+        let queue = Arc::new(ChangeQueue::default());
+        (
+            Self { inner: SinkInner::Coalescing(Arc::new(SenderGuard(queue.clone()))) },
+            ChangeStream { queue },
+        )
     }
 
     /// Emit a change event; errors only if the engine stopped listening.
     pub fn emit(&self, event: ChangeEvent) -> Result<()> {
-        self.tx
-            .send(event)
-            .map_err(|_| EngineError::Transport("change sink closed".into()))
+        let closed = || EngineError::Transport("change sink closed".into());
+        match &self.inner {
+            SinkInner::Channel(tx) => tx.send(event).map_err(|_| closed()),
+            SinkInner::Coalescing(guard) => {
+                let queue = &guard.0;
+                {
+                    let mut state = queue.state.lock().unwrap_or_else(|p| p.into_inner());
+                    if state.receiver_gone {
+                        return Err(closed());
+                    }
+                    match event {
+                        ChangeEvent::Disconnected => state.disconnected = true,
+                        ChangeEvent::MailboxChanged { mailbox } => {
+                            if state.names.contains(&mailbox.name) {
+                                COALESCED.fetch_add(1, Ordering::Relaxed);
+                                return Ok(());
+                            }
+                            if state.order.len() >= MAX_PENDING_MAILBOXES {
+                                DROPPED.fetch_add(1, Ordering::Relaxed);
+                                return Ok(());
+                            }
+                            QUEUED.fetch_add(1, Ordering::Relaxed);
+                            state.names.insert(mailbox.name.clone());
+                            state.order.push_back(mailbox);
+                        }
+                    }
+                }
+                queue.notify.notify_one();
+                Ok(())
+            }
+        }
     }
 }
 
@@ -611,5 +761,62 @@ impl WatchHandle {
     /// Signal the backend's watch loop to terminate.
     pub fn stop(&self) {
         let _ = self.stop.send(true);
+    }
+}
+
+#[cfg(test)]
+mod change_queue_tests {
+    use super::*;
+
+    fn changed(name: &str) -> ChangeEvent {
+        ChangeEvent::MailboxChanged { mailbox: RawMailboxRef { name: name.into(), uidvalidity: 1 } }
+    }
+
+    /// t63 (8): a flood from the upstream server costs at most one pending
+    /// resync per distinct mailbox and at most MAX_PENDING_MAILBOXES entries.
+    #[tokio::test]
+    async fn a_flood_of_change_events_is_coalesced_and_bounded() {
+        let (sink, mut stream) = ChangeSink::coalescing();
+        let before = change_queue_stats();
+        for _ in 0..100_000 {
+            sink.emit(changed("INBOX")).unwrap();
+        }
+        for n in 0..5_000 {
+            sink.emit(changed(&format!("hostile-{n}"))).unwrap();
+        }
+        sink.emit(changed("INBOX")).unwrap();
+        assert_eq!(stream.pending(), MAX_PENDING_MAILBOXES);
+        let after = change_queue_stats();
+        assert!(after.coalesced - before.coalesced >= 100_000 - 1);
+        assert!(after.dropped - before.dropped >= 5_000 - (MAX_PENDING_MAILBOXES as u64 - 1));
+        // Arrival order, INBOX once.
+        assert_eq!(stream.recv().await, Some(changed("INBOX")));
+        assert_eq!(stream.recv().await, Some(changed("hostile-0")));
+        // Once taken, a mailbox can be queued again.
+        sink.emit(changed("INBOX")).unwrap();
+        sink.emit(ChangeEvent::Disconnected).unwrap();
+        sink.emit(ChangeEvent::Disconnected).unwrap();
+        assert_eq!(stream.recv().await, Some(ChangeEvent::Disconnected), "a disconnect goes first");
+        let mut rest = 0;
+        while stream.pending() > 0 {
+            stream.recv().await.unwrap();
+            rest += 1;
+        }
+        assert_eq!(rest, MAX_PENDING_MAILBOXES - 2 + 1);
+        drop(sink);
+        assert_eq!(stream.recv().await, None, "all senders gone");
+    }
+
+    #[tokio::test]
+    async fn a_waiting_receiver_is_woken_and_a_dropped_one_closes_the_sink() {
+        let (sink, mut stream) = ChangeSink::coalescing();
+        let waiter = tokio::spawn(async move { stream.recv().await });
+        tokio::task::yield_now().await;
+        sink.emit(changed("INBOX")).unwrap();
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(5), waiter).await.unwrap().unwrap(),
+            Some(changed("INBOX"))
+        );
+        assert!(sink.emit(changed("INBOX")).is_err(), "receiver dropped: the backend stops");
     }
 }
