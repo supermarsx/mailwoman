@@ -756,7 +756,9 @@ impl WriteBehind {
             let (lane, _urgent): (WriteLaneRequest, Option<EscalationGuard>) = if transition {
                 (WriteLane::Priority.into(), Some(self.escalation.raise()))
             } else {
-                (WriteLane::Normal.into(), None)
+                // Escalatable too: a transition that queues behind this
+                // drain's `flushing` moves it to the priority lane (re-check G1).
+                (WriteLaneRequest::escalatable(&self.escalation), None)
             };
             let flushed = self.drain(pending.seq, lane).await;
             return match (flushed, pending.durable.get()) {

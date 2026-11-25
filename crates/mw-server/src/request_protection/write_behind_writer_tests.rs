@@ -148,3 +148,50 @@ async fn g1_a_transition_is_not_held_behind_a_flush_in_a_congested_normal_lane()
     }
     store.close().await;
 }
+
+/// Re-check G1: a typed write-through (Malformed, normal lane) that holds
+/// `flushing` while it waits in a congested normal lane is escalated when a
+/// transition queues behind it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn g1_a_transition_is_not_held_behind_a_typed_write_through_in_a_congested_normal_lane() {
+    if !group_mode() {
+        mw_test_gate::skip("G1 write-behind priority bound: needs MW_SQLITE_WRITER=group");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("g1b.db");
+    let store = Store::open(path.to_str().unwrap(), ServerKey::generate()).await.unwrap();
+    let accounting = Arc::new(WriteBehind::new(store.clone(), config()));
+    let p = policy(3);
+    accounting.record("account", "g1b", &p, 1000, None, NONE).await;
+    accounting.record("account", "typed", &p, 1000, None, NONE).await;
+    let mut backlog = Vec::new();
+    for n in 0..1000u32 {
+        let store = store.clone();
+        backlog.push(tokio::spawn(async move {
+            let _ = store.record_changes("congestion", "Email", &[format!("m{n}")], "updated").await;
+        }));
+    }
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    let (typed, typed_policy) = (accounting.clone(), p.clone());
+    let malformed = tokio::spawn(async move {
+        typed.record("account", "typed", &typed_policy, 1001, Some(Signal::Malformed), NONE).await
+    });
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    accounting.record("account", "g1b", &p, 1002, None, NONE).await;
+    let started = Instant::now();
+    let mut answer = accounting.record("account", "g1b", &p, 1003, None, NONE).await;
+    if !answer.decision.enforced {
+        answer = accounting.record("account", "g1b", &p, 1004, None, NONE).await;
+    }
+    let waited = started.elapsed();
+    let still_queued = backlog.iter().filter(|task| !task.is_finished()).count();
+    assert!(answer.decision.enforced && !answer.storage_failed, "transition not durable");
+    assert!(still_queued >= 200, "the transition waited for the normal backlog: {still_queued} left after {waited:?}");
+    eprintln!("G1b: transition answered after {waited:?}; {still_queued} congestion jobs still pending");
+    assert!(!malformed.await.unwrap().storage_failed);
+    for task in backlog {
+        task.await.unwrap();
+    }
+    store.close().await;
+}
