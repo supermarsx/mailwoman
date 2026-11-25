@@ -90,6 +90,24 @@ async fn report(hot: &Hot, backend: &str, route: &str, calls: Vec<Value>) -> Val
         "WRITE_INVENTORY {}",
         json!({"backend": backend, "route": route, "statements": all.len(), "begins": begins, "commits": commits, "sql": all})
     );
+    // Budgets (t50hp-e19, after slice 1 + W11): SQLite statements, PostgreSQL
+    // round trips (statements + transactions; BEGIN is not recorded). Lower
+    // them when a change saves more; never raise them silently.
+    let budget = match (backend, route) {
+        ("sqlite", "keywords") => Some(11),
+        ("sqlite", "move") => Some(24),
+        ("sqlite", "destroy") => Some(18),
+        ("sqlite", "goal-mix-write (2 set + 2 get)") => Some(23),
+        ("postgres", "keywords") => Some(11),
+        ("postgres", "move") => Some(15),
+        ("postgres", "destroy") => Some(18),
+        ("postgres", "goal-mix-write (2 set + 2 get)") => Some(24),
+        _ => None,
+    };
+    if let Some(budget) = budget {
+        let cost = if backend == "postgres" { all.len() + commits } else { all.len() };
+        assert!(cost <= budget, "{backend} {route}: {cost} > budget {budget}: {all:#?}");
+    }
     response
 }
 

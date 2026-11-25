@@ -664,18 +664,11 @@ impl World {
             }
         };
         self.update(&acct.id, &id, patch.clone()).await;
-        if derived_name(what)
-            && patch
-                .get(format!("keywords/{what}"))
-                .is_some_and(|v| v.as_bool() == Some(true))
-        {
-            self.sticky
-                .lock()
-                .unwrap()
-                .entry(id.clone())
-                .or_default()
-                .insert(what.to_owned());
-        }
+        // t50hp-e32 slice 1: a keyword patch is written to SQL only, so a
+        // derived-prefix keyword set here never reaches the index document and
+        // adds nothing to `sticky` (which now holds what the document got at
+        // ingest or at the last rebuild).
+        let _ = derived_name(what);
         format!("{what} {patch} on {id}")
     }
 }
@@ -1508,9 +1501,50 @@ fn ids_len_of(body: &Value) -> usize {
 /// Run the matrix as `acct`. `full` = every filter x window and the sorts;
 /// otherwise the singles and text forms with the first window.
 pub(crate) async fn run_matrix(w: &World, which: char, full: bool, context: &str) -> usize {
+    // t50hp-e32 slice 1 changed what this compares (the assertions themselves
+    // are unchanged): flags, pin, snooze and follow-up are no longer written to
+    // index documents. So
+    // 1. the planner is compared with the brute-force oracle over the index
+    //    exactly as the writes left it (metadata stale in the documents; the
+    //    oracle's derived keyword = present at ingest/rebuild OR set in SQL),
+    //    for every shape: the planner must not read stale metadata;
+    // 2. the old index path (LEGACY) can only be right over current documents,
+    //    so the account's index is rebuilt from SQL first (design part 11) and
+    //    then both paths are compared with the oracle and with each other.
     let acct = w.account(which);
     w.rebuild_index(acct).await;
     let rows = w.rows(acct).await;
+    let mut n = run_matrix_leg(w, acct, &rows, full, &format!("{context} [stale index]"), true).await;
+    w.engine.rebuild_search_index(&acct.id).await.unwrap();
+    {
+        // A rebuild writes each document from current SQL: an ingest-time
+        // derived keyword that SQL no longer has is gone from the index.
+        let mut sticky = w.sticky.lock().unwrap();
+        for row in &rows {
+            sticky.remove(&row.id);
+        }
+    }
+    let rows = w.rows(acct).await;
+    n += run_matrix_leg(w, acct, &rows, full, context, false).await;
+    n
+}
+
+/// One pass over the matrix: `planner_only` compares the planner with the
+/// oracle; otherwise both paths ([`check_one`]).
+async fn run_matrix_leg(w: &World, acct: &Account, rows: &[Row], full: bool, context: &str, planner_only: bool) -> usize {
+    let rows = rows.to_vec();
+    let one = |f: String, s: SortSpec, win: Window| {
+        let rows = rows.clone();
+        async move {
+            if planner_only {
+                check_path(w, acct, &rows, &f, &s, win, &format!("{context} [planner]"), false, false)
+                    .await
+                    .expect("no unsupportedFilter");
+            } else {
+                check_one(w, acct, &rows, &f, &s, win, context).await;
+            }
+        }
+    };
     let mut n = 0;
     let mut filters: Vec<String> = singles().into_iter().map(str::to_owned).collect();
     filters.extend(text_forms().into_iter().map(text_filter));
@@ -1521,21 +1555,21 @@ pub(crate) async fn run_matrix(w: &World, which: char, full: bool, context: &str
         all.extend(pairs());
         for f in &all {
             for win in WINDOWS {
-                check_one(w, acct, &rows, f, default_sort, win, context).await;
+                one(f.clone(), default_sort.clone(), win).await;
                 n += 1;
             }
         }
         for f in &filters {
             for s in &sort_list[1..] {
                 for win in [WINDOWS[0], WINDOWS[1]] {
-                    check_one(w, acct, &rows, f, s, win, context).await;
+                    one(f.clone(), s.clone(), win).await;
                     n += 1;
                 }
             }
         }
     } else {
         for f in &filters {
-            check_one(w, acct, &rows, f, default_sort, WINDOWS[0], context).await;
+            one(f.clone(), default_sort.clone(), WINDOWS[0]).await;
             n += 1;
         }
     }
