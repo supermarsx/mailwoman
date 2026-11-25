@@ -6,6 +6,8 @@ mod ordinary_request_input_tests;
 mod jmap_session_once_tests;
 #[path = "request_inputs_route_tests.rs"]
 mod request_inputs_route_tests;
+#[path = "request_inputs_revocation_matrix_tests.rs"]
+mod request_inputs_revocation_matrix_tests;
 use super::*;
 use axum::{
     Router,
