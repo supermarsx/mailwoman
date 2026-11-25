@@ -9,15 +9,17 @@ use std::path::Path;
 use std::task::Poll;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+/// Production limits, except that every job goes through the batch path
+/// (the idle fast path is tested on its own).
 fn limits() -> Limits {
-    Limits::default()
+    Limits { solo_when_idle: false, ..Limits::default() }
 }
 /// Batches that only end when the queue is empty or full: lets a test hold
 /// the first job and know every queued job joins its batch.
 fn wide() -> Limits {
     Limits {
         max_time: Duration::from_secs(30),
-        ..Limits::default()
+        ..limits()
     }
 }
 
@@ -1233,4 +1235,33 @@ async fn a_killed_process_loses_no_answered_job_and_half_applies_none() {
     assert_eq!(stored, paired, "a job is stored with both rows or not at all");
     eprintln!("kill -9: {} answered, {} stored", answered.len(), stored.len());
     pool.close().await;
+}
+
+/// No regression at low concurrency: an idle writer runs a lone job as an
+/// ordinary transaction (no savepoint, no hand-over); a job arriving while it
+/// runs still queues and is grouped.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_idle_writer_runs_a_lone_job_as_its_own_transaction_and_still_groups_under_load() {
+    let f = fixture(Limits { max_time: Duration::from_secs(30), ..Limits::default() }).await;
+    for id in 0..10 {
+        insert(&f.backend, Lane::Normal, id).await.unwrap();
+    }
+    let stats = f.writer.stats();
+    assert_eq!((stats.solo_idle, stats.commits, stats.in_flight), (10, 0, 0), "{stats:?}");
+    // Hold the idle path's transaction; arrivals meanwhile form one batch.
+    let (first, entered, release) = held(&f, 100);
+    entered.notified().await;
+    let mut tasks = Vec::new();
+    for id in 101..117 {
+        tasks.push(spawn_insert(&f, Lane::Normal, id));
+    }
+    until_in_flight(&f.writer, 17).await;
+    release.notify_one();
+    first.await.unwrap().unwrap();
+    for task in tasks {
+        task.await.unwrap().unwrap();
+    }
+    let stats = f.writer.stats();
+    assert_eq!((stats.solo_idle, stats.commits, stats.jobs), (11, 1, 16), "{stats:?}");
+    assert_eq!(ids(&f).await.len(), 27);
 }

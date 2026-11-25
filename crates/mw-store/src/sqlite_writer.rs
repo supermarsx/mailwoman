@@ -23,6 +23,10 @@
 //!   transaction (cancelled future, panic), is undone with `ROLLBACK TO
 //!   mw_job`; the other jobs of the batch are not touched. A ticket whose caller
 //!   went away before its turn is skipped: it never starts.
+//! - Idle fast path: when nothing is queued or running, a job runs as an
+//!   ordinary transaction of its own (no savepoint, no hand-over), exactly as
+//!   with `gate`; it counts as in flight, so jobs arriving meanwhile queue and
+//!   form the next batch.
 //! - Lanes are served by weighted alternation: priority tickets first, but
 //!   after [`PRIORITY_RUN`] priority grants in a row a waiting normal ticket gets
 //!   the next turn, so neither lane can starve the other.
@@ -253,6 +257,8 @@ pub struct SqliteWriterStats {
     pub left_transaction: u64,
     /// Writer tasks started (1 per database unless its runtime ended).
     pub writer_starts: u64,
+    /// Jobs run as their own transaction because the writer was idle.
+    pub solo_idle: u64,
 }
 
 #[derive(Default)]
@@ -281,6 +287,7 @@ struct Counters {
     solo_fallbacks: AtomicU64,
     left_transaction: AtomicU64,
     writer_starts: AtomicU64,
+    solo_idle: AtomicU64,
 }
 impl Counters {
     const fn new() -> Self {
@@ -309,6 +316,7 @@ impl Counters {
             solo_fallbacks: AtomicU64::new(0),
             left_transaction: AtomicU64::new(0),
             writer_starts: AtomicU64::new(0),
+            solo_idle: AtomicU64::new(0),
         }
     }
     fn snapshot(&self) -> SqliteWriterStats {
@@ -338,6 +346,7 @@ impl Counters {
             solo_fallbacks: load(&self.solo_fallbacks),
             left_transaction: load(&self.left_transaction),
             writer_starts: load(&self.writer_starts),
+            solo_idle: load(&self.solo_idle),
         }
     }
 }
@@ -363,6 +372,10 @@ pub(crate) struct Limits {
     pub(crate) queue: usize,
     pub(crate) queue_priority: usize,
     pub(crate) wait_limit: Duration,
+    /// An idle writer (nothing queued or running) runs a job as an ordinary
+    /// transaction of its own: no savepoint, no hand-over, exactly the `gate`
+    /// path, so a lone write is never slower than without the writer.
+    pub(crate) solo_when_idle: bool,
 }
 /// Test builds only: a batch-time override (microseconds, 0 = the constant)
 /// for writers created after it is set; the benchmark compares windows.
@@ -383,6 +396,7 @@ impl Default for Limits {
             queue: QUEUE_JOBS,
             queue_priority: QUEUE_PRIORITY_JOBS,
             wait_limit: WAIT_LIMIT,
+            solo_when_idle: true,
         }
     }
 }
@@ -509,7 +523,9 @@ impl Drop for Grant {
 /// directly: it re-runs the job alone when the batch fails.
 pub(crate) struct WriteLease(LeaseKind);
 enum LeaseKind {
-    Solo(Option<Tx>),
+    /// The transaction, and (fast path) the in-flight mark that makes later
+    /// arrivals queue for a batch while it runs.
+    Solo(Option<Tx>, Option<InFlight>),
     Grouped(Grant),
 }
 
@@ -524,11 +540,11 @@ pub(crate) enum Finished<T, E> {
 
 impl WriteLease {
     pub(crate) fn solo(tx: Tx) -> Self {
-        Self(LeaseKind::Solo(Some(tx)))
+        Self(LeaseKind::Solo(Some(tx), None))
     }
     pub(crate) fn tx(&mut self) -> &mut Tx {
         match &mut self.0 {
-            LeaseKind::Solo(tx) => tx.as_mut().expect("lease holds its transaction"),
+            LeaseKind::Solo(tx, _) => tx.as_mut().expect("lease holds its transaction"),
             LeaseKind::Grouped(grant) => grant.tx.as_mut().expect("lease holds its transaction"),
         }
     }
@@ -536,7 +552,7 @@ impl WriteLease {
     /// that contains the job; an `Err` result rolls the job back.
     pub(crate) async fn finish<T, E: From<sqlx::Error>>(mut self, result: Result<T, E>) -> Finished<T, E> {
         match &mut self.0 {
-            LeaseKind::Solo(tx) => {
+            LeaseKind::Solo(tx, _) => {
                 let tx = tx.take().expect("lease holds its transaction");
                 match result {
                     Ok(value) => match tx.commit().await {
@@ -637,6 +653,18 @@ impl GroupWriter {
     ) -> Result<WriteLease, sqlx::Error> {
         if self.shared.closing.load(Ordering::Acquire) {
             return Err(sqlx::Error::PoolClosed);
+        }
+        // Idle fast path: nothing queued or running, so there is nothing to
+        // group with. Counted in flight until it ends, so a job arriving
+        // meanwhile queues for a batch (which starts after this commit).
+        if self.shared.limits.solo_when_idle && self.shared.in_flight.load(Ordering::Acquire) == 0 {
+            let flight = InFlight::enter(&self.shared);
+            if self.shared.in_flight.load(Ordering::Acquire) == 1 {
+                self.shared.add(|c| &c.solo_idle, 1);
+                let tx = Tx::Sqlite(live.begin_at(at).await?);
+                return Ok(WriteLease(LeaseKind::Solo(Some(tx), Some(flight))));
+            }
+            drop(flight);
         }
         let waited = tokio::time::timeout(self.shared.limits.wait_limit, self.wait_turn(live, request)).await;
         match waited {

@@ -464,6 +464,8 @@ async fn grouped_mutation_capacity() {
         queue: 4096,
         // A 1,024-job move batch runs longer than the production 5 s turn wait.
         wait_limit: Duration::from_secs(120),
+        // Every job through the batch path (N jobs per commit, not 1 + N-1).
+        solo_when_idle: false,
         ..super::Limits::default()
     });
     let world = Arc::new(World {
