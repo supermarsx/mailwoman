@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { postgresProfile, postgresArgs, parseBytes } from './postgres-profile.mjs';
+import { postgresProfile, postgresArgs, parseBytes, memoryShares, colocatedProfile, appConnections, BACKEND_MIB } from './postgres-profile.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -36,14 +36,31 @@ test('no profile turns durability off', () => {
   }
 });
 
-test('a 1 GiB co-located host keeps stock-sized memory settings', () => {
-  const s = postgresProfile({ cpus: 1, memoryBytes: 1 * GiB, profile: 'colocated' });
-  assert.equal(s.shared_buffers, '153MB');
-  assert.equal(s.max_connections, '100');
+test('a 1 GiB co-located host: PostgreSQL fits its share with the connections the app opens', () => {
+  const shares = memoryShares({ hostMiB: 1024 });
+  assert.deepEqual(shares, { app: 437, postgres: 235, valkey: 64, reserve: 256, caddy: 0 });
+  const s = colocatedProfile({ pgMiB: shares.postgres, hostMiB: 1024, cpus: 1, appCpus: 1 });
+  assert.equal(s.shared_buffers, '58MB');
+  assert.equal(s.max_connections, '30');
   assert.equal(s.work_mem, '4MB');
-  assert.equal(s.maintenance_work_mem, '64MB');
   assert.equal(s.max_wal_size, '1GB');
-  assert.equal(s.autovacuum_naptime, '1min');
+  // shared_buffers + the app's 12 connections x (backend 8 MiB + one 4 MiB
+  // work_mem node) stays inside PostgreSQL's share.
+  const active = appConnections(1);
+  assert.equal(active, 12);
+  assert.ok(58 + active * (BACKEND_MIB + 4) <= shares.postgres);
+});
+
+test('memory shares never give a component more than the host has', () => {
+  for (const hostMiB of [1024, 2048, 4096, 8192, 16384, 65536]) {
+    for (const stack of ['full', 'single']) {
+      for (const caddy of [false, true]) {
+        const m = memoryShares({ hostMiB, stack, caddy });
+        assert.equal(m.app + m.postgres + m.valkey + (stack === 'full' ? 32 : 0) + m.reserve + m.caddy, hostMiB);
+        assert.ok(m.app > 0);
+      }
+    }
+  }
 });
 
 test('only the benchmark profile loads diagnosis extensions', () => {
@@ -64,15 +81,21 @@ test('inputs are validated', () => {
   assert.throws(() => postgresProfile({ cpus: 2, memoryBytes: GiB, profile: 'fast' }));
 });
 
-test('deploy.sh full stack renders the colocated profile', () => {
+const bash = (script) => execFileSync('bash', ['-c', `source scripts/deploy-stack.sh; ${script}`], { cwd: root, encoding: 'utf8' });
+
+test('deploy.sh full stack renders the colocated profile and the same shares', () => {
   // Keys the stack leaves at PostgreSQL's defaults (durability, wal_level,
-  // huge_pages) or that only apply to a dedicated server.
+  // huge_pages, wal_buffers, checkpoint_completion_target, naptime).
   const notRendered = new Set(['fsync', 'full_page_writes', 'synchronous_commit', 'wal_level', 'huge_pages', 'wal_buffers', 'autovacuum_naptime', 'checkpoint_completion_target']);
-  for (const [kib, cpus] of [[1048576, 1], [4194304, 2], [16777216, 8], [67108864, 16], [268435456, 64]]) {
-    const out = execFileSync('bash', ['-c', `source scripts/deploy-stack.sh; stack_postgres_settings ${kib} ${cpus}`], { cwd: root, encoding: 'utf8' });
-    const lines = out.split(/\s+/).filter(Boolean);
+  for (const [hostMiB, cpus, appCpus] of [[1024, 1, 1], [2048, 2, 2], [4096, 2, 2], [16384, 8, 4], [65536, 16, 4], [262144, 64, 64]]) {
+    for (const [stack, caddy] of [['full', 0], ['full', 1], ['single', 0]]) {
+      const m = memoryShares({ hostMiB, stack, caddy: caddy === 1 });
+      assert.equal(bash(`stack_memory_shares ${hostMiB} ${stack} ${caddy}`).trim(), `${m.app} ${m.postgres} ${m.valkey} ${m.reserve} ${m.caddy}`);
+    }
+    const pg = memoryShares({ hostMiB }).postgres;
+    const lines = bash(`stack_postgres_settings ${pg} ${hostMiB} ${cpus} ${appCpus}`).split(/\s+/).filter(Boolean);
     const rendered = Object.fromEntries(lines.map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)]));
-    const expected = Object.fromEntries(Object.entries(postgresProfile({ cpus, memoryBytes: kib * 1024, profile: 'colocated' })).filter(([k]) => !notRendered.has(k)));
-    assert.deepEqual(rendered, expected, `${kib} KiB, ${cpus} CPUs`);
+    const expected = Object.fromEntries(Object.entries(colocatedProfile({ pgMiB: pg, hostMiB, cpus, appCpus })).filter(([k]) => !notRendered.has(k)));
+    assert.deepEqual(rendered, expected, `${hostMiB} MiB, ${cpus} CPUs`);
   }
 });

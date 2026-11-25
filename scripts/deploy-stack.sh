@@ -14,27 +14,66 @@ stack_secrets() {
     done
 }
 
+# Host memory in MiB as Docker sees it (Docker Desktop: its VM), else /proc/meminfo.
+stack_host_memory_mib() {
+    local bytes kib
+    bytes=$(docker info --format '{{.MemTotal}}' 2>/dev/null)
+    if [[ $bytes =~ ^[0-9]+$ ]] && ((bytes > 0)); then echo $((bytes / 1048576)); return; fi
+    kib=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null)
+    [[ $kib =~ ^[0-9]+$ ]] && echo $((kib / 1024)) || echo 1024
+}
+
+# How one host's memory (MiB, $1) is divided, for stack $2 (full|single) with
+# Caddy run by deploy.sh or not ($3 = 1|0). Prints "app postgres valkey reserve
+# caddy" in MiB. A reserve for the OS and its page cache (10%, at least 256),
+# Caddy 64, Valkey's maxmemory (1/16 of the host, 32..256) plus 32 overhead;
+# PostgreSQL gets 35% of the rest on the full stack, the app the remainder.
+# scripts/perf/postgres-profile.mjs memoryShares holds the same arithmetic.
+stack_memory_shares() {
+    local host=$1 stack=$2 caddy=0 reserve valkey=0 overhead=0 rest postgres=0
+    ((${3:-0})) && caddy=64
+    reserve=$((host / 10)); ((reserve >= 256)) || reserve=256
+    if [[ $stack == full ]]; then
+        valkey=$((host / 16)); ((valkey >= 32)) || valkey=32; ((valkey <= 256)) || valkey=256
+        overhead=32
+    fi
+    rest=$((host - reserve - caddy - valkey - overhead))
+    [[ $stack == full ]] && postgres=$((rest * 35 / 100))
+    echo "$((rest - postgres)) $postgres $valkey $reserve $caddy"
+}
+
+# The app's memory limit for this host: MEMORY_LIMIT ($1, e.g. 4g or 768m),
+# lowered to the app's share of the host (stack_memory_shares) when the share is
+# smaller, so the app and the services beside it do not each size themselves
+# from the whole host. Empty in, empty out (no limit). Prints the limit.
+stack_app_memory_limit() {
+    local limit=$1 host=$2 stack=$3 caddy=$4 share wanted
+    [[ -n $limit ]] || return 0
+    read -r share _ < <(stack_memory_shares "$host" "$stack" "$caddy")
+    case $limit in *g) wanted=$((${limit%g} * 1024)) ;; *m) wanted=${limit%m} ;; *) echo "$limit"; return ;; esac
+    if ((share < wanted)); then echo "${share}m"; else echo "$limit"; fi
+}
+
 # PostgreSQL settings for the full stack, where PostgreSQL shares the host with
 # Mailwoman: the "colocated" profile of docs/admin/postgresql-tuning.md, sized
-# from this host's memory and CPUs (or the KiB and CPU count given as $1 and
-# $2) each time the stack is rendered. scripts/perf/postgres-profile.mjs holds
+# from PostgreSQL's OWN share of the host ($1, MiB, from stack_memory_shares),
+# the host's memory ($2, MiB) and CPUs ($3), and the CPUs the app may use ($4),
+# which decide how many connections the app opens (pool 4 per CPU, 4..64, plus
+# about 8 dedicated). scripts/perf/postgres-profile.mjs colocatedProfile holds
 # the same formulas and its test compares the two. Nothing here changes
 # durability: fsync, full_page_writes and synchronous_commit keep their
 # defaults (on). max_wal_size is disk space PostgreSQL may use for WAL.
 stack_postgres_settings() {
-    local kib cpus mb shared cache work maintenance autovac connections wal minwal workers parallel pmaint avworkers
-    kib=${1:-$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null)}
-    [[ $kib =~ ^[0-9]+$ ]] || kib=1048576
-    cpus=${2:-$(nproc 2>/dev/null)}
-    [[ $cpus =~ ^[0-9]+$ ]] && ((cpus >= 1)) || cpus=1
-    mb=$((kib / 1024))
-    shared=$((mb * 15 / 100)); ((shared >= 128)) || shared=128; ((shared <= 32768)) || shared=32768
-    cache=$((mb / 2)); ((cache >= 256)) || cache=256
-    connections=$((10 * cpus)); ((connections >= 100)) || connections=100; ((connections <= 400)) || connections=400
-    work=$(((mb - shared) / (4 * connections))); ((work >= 4)) || work=4; ((work <= 64)) || work=64
-    maintenance=$((mb / 16)); ((maintenance >= 64)) || maintenance=64; ((maintenance <= 2048)) || maintenance=2048
-    autovac=$((mb / 64)); ((autovac >= 64)) || autovac=64; ((autovac <= 1024)) || autovac=1024
-    if ((mb < 8192)); then wal=1GB; minwal=256MB; else wal=4GB; minwal=512MB; fi
+    local pg=$1 host=$2 cpus=$3 app_cpus=${4:-$3} pool active connections shared work maintenance autovac cache wal minwal workers parallel pmaint avworkers
+    pool=$((4 * app_cpus)); ((pool >= 4)) || pool=4; ((pool <= 64)) || pool=64
+    active=$((pool + 8))
+    connections=$((pool + 25)); ((connections >= 30)) || connections=30
+    shared=$((pg / 4)); ((shared >= 32)) || shared=32; ((shared <= 32768)) || shared=32768
+    work=$(( (pg - shared - active * 8) / (2 * active) )); ((work >= 4)) || work=4; ((work <= 64)) || work=64
+    cache=$((pg * 3 / 4)); ((cache >= 128)) || cache=128
+    maintenance=$((pg / 8)); ((maintenance >= 32)) || maintenance=32; ((maintenance <= 2048)) || maintenance=2048
+    autovac=$((pg / 32)); ((autovac >= 16)) || autovac=16; ((autovac <= 1024)) || autovac=1024
+    if ((host < 8192)); then wal=1GB; minwal=256MB; else wal=4GB; minwal=512MB; fi
     workers=$cpus; ((workers >= 8)) || workers=8
     parallel=$((cpus / 2)); ((parallel >= 2)) || parallel=2
     pmaint=$((cpus / 4)); ((pmaint >= 2)) || pmaint=2; ((pmaint <= 4)) || pmaint=4
@@ -52,15 +91,22 @@ stack_postgres_settings() {
 }
 
 stack_render() {
-    local directory=$1 db_password cache_password public_network=default extra_network='  default: {}' postgres_command setting
+    local directory=$1 db_password cache_password public_network=default extra_network='  default: {}' postgres_command setting host cpus app_cpus caddy=0 shares postgres_mib valkey_mib
     if [[ $EXPOSURE == network ]]; then public_network=proxy; extra_network=; fi
     [[ $STACK == full ]] || return 0
     db_password=$(sed -n 's/^MW_STACK_DB_PASSWORD=//p' "$directory/app.env")
     cache_password=$(sed -n 's/^MW_STACK_CACHE_PASSWORD=//p' "$directory/app.env")
     [[ $db_password =~ ^[0-9a-f]{64}$ && $cache_password =~ ^[0-9a-f]{64}$ ]] || die "Missing full-stack credentials; initialize them before rendering"
     [[ $POSTGRES_VOLUME =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]+$ ]] || die "Invalid PostgreSQL volume"
+    # PostgreSQL and Valkey are sized from their own shares of this host.
+    host=$(stack_host_memory_mib)
+    cpus=$(docker info --format '{{.NCPU}}' 2>/dev/null); [[ $cpus =~ ^[1-9][0-9]*$ ]] || cpus=$(nproc 2>/dev/null || echo 1)
+    app_cpus=${CPU_LIMIT%%.*}; [[ $app_cpus =~ ^[1-9][0-9]*$ ]] || app_cpus=$cpus; ((app_cpus <= cpus)) || app_cpus=$cpus
+    [[ $EXPOSURE == caddy ]] && caddy=1
+    shares=$(stack_memory_shares "$host" full "$caddy")
+    read -r _ postgres_mib valkey_mib _ <<< "$shares"
     postgres_command="[postgres"
-    while IFS= read -r setting; do postgres_command+=", -c, '$setting'"; done < <(stack_postgres_settings)
+    while IFS= read -r setting; do postgres_command+=", -c, '$setting'"; done < <(stack_postgres_settings "$postgres_mib" "$host" "$cpus" "$app_cpus")
     postgres_command+="]"
     cat > "$directory/stack.yaml" <<EOF
 services:
@@ -108,7 +154,7 @@ services:
       VALKEY_PASSWORD: '$cache_password'
     entrypoint: [/bin/sh, -ec]
     command:
-      - 'umask 077; printf "requirepass %s\nsave \"\"\nappendonly no\nmaxmemory 256mb\nmaxmemory-policy allkeys-lru\n" "\$\$VALKEY_PASSWORD" > /tmp/valkey.conf; exec valkey-server /tmp/valkey.conf'
+      - 'umask 077; printf "requirepass %s\nsave \"\"\nappendonly no\nmaxmemory ${valkey_mib}mb\nmaxmemory-policy allkeys-lru\n" "\$\$VALKEY_PASSWORD" > /tmp/valkey.conf; exec valkey-server /tmp/valkey.conf'
     networks: [store]
     healthcheck:
       test: [CMD-SHELL, 'test "\$\$(valkey-cli --no-auth-warning -a "\$\$VALKEY_PASSWORD" ping)" = PONG']

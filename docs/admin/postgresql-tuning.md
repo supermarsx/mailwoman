@@ -28,12 +28,12 @@ what Mailwoman does to the server (pools, locks, statements) is on
   `SELECT pg_reload_conf();`. Apply them with `ALTER SYSTEM SET name = 'value';`
   or in `postgresql.conf`, or as `-c name=value` arguments of `postgres`.
 
-Three profiles use the same formulas with different shares:
+Three profiles:
 
 | Profile | Use | Memory shares |
 |---|---|---|
 | dedicated | PostgreSQL alone on its machine or container limit | `shared_buffers` 25% of M, `effective_cache_size` 75% |
-| colocated | PostgreSQL beside Mailwoman on one host (`deploy.sh` full stack) | 15% and 50% |
+| colocated | PostgreSQL beside Mailwoman on one host (`deploy.sh` full stack) | from PostgreSQL's own share of the host and the connections the app opens (see [Small hosts](#small-hosts-and-the-colocated-profile)), not from the whole host |
 | benchmark | dedicated + diagnosis (`pg_stat_statements`, `track_io_timing`); for measurement runs, and every report must say it was used | as dedicated |
 
 No profile turns `fsync`, `full_page_writes` or `synchronous_commit` off, and
@@ -52,18 +52,95 @@ none sets `commit_delay`.
 
 | Setting | Value | Why | Risk | Durability |
 |---|---|---|---|---|
-| `shared_buffers` (restart) | dedicated `clamp(0.25 × M, 128 MB, 32 GB)`; colocated `0.15 × M` | PostgreSQL's own page cache; the stock 128 MB holds about 160,000 rows of `messages` (≈ 0.8 KB each) and is evicted constantly by list queries | too large starves the OS page cache (PostgreSQL then reads through two caches) and Mailwoman on a shared host; on Linux, sizes above about 8 GB want huge pages (below) | none |
-| `effective_cache_size` | dedicated `0.75 × M`; colocated `0.5 × M` | a planner estimate of total cache, makes index scans look as cheap as they are | none (allocates nothing) | none |
-| `work_mem` | `clamp((M − shared_buffers) / (4 × max_connections), 4 MB, 64 MB)` | per sort/hash node of one query; Mailwoman's hot statements use indexes and rarely sort, so the default is enough for them; the formula leaves room for list and search queries over large mailboxes | each query node may use it, several per query and per parallel worker: the formula assumes at most a quarter of the connections use one such node at a time | none |
+| `shared_buffers` (restart) | dedicated `clamp(0.25 × M, 128 MB, 32 GB)`; colocated: see [Small hosts](#small-hosts-and-the-colocated-profile) | PostgreSQL's own page cache; the stock 128 MB holds about 160,000 rows of `messages` (≈ 0.8 KB each) and is evicted constantly by list queries | too large starves the OS page cache (PostgreSQL then reads through two caches) and Mailwoman on a shared host; on Linux, sizes above about 8 GB want huge pages (below) | none |
+| `effective_cache_size` | dedicated `0.75 × M`; colocated `0.75 ×` its share | a planner estimate of total cache, makes index scans look as cheap as they are | none (allocates nothing) | none |
+| `work_mem` | dedicated `clamp((M − shared_buffers) / (4 × max_connections), 4 MB, 64 MB)`; colocated: see Small hosts | per sort/hash node of one query; Mailwoman's hot statements use indexes and rarely sort, so the default is enough for them; the formula leaves room for list and search queries over large mailboxes | each query node may use it, several per query and per parallel worker: the formula assumes at most a quarter of the connections use one such node at a time | none |
 | `maintenance_work_mem` | `clamp(M / 16, 64 MB, 2 GB)` | `CREATE INDEX` in migrations, `VACUUM` | one per maintenance operation | none |
 | `autovacuum_work_mem` | `clamp(M / 64, 64 MB, 1 GB)` | each autovacuum worker would otherwise take `maintenance_work_mem`; PostgreSQL 16 uses at most 1 GB of it per worker | none | none |
-| `huge_pages` (restart) | `try` (default); on Linux set `vm.nr_hugepages` ≥ `shared_buffers / 2 MB × 1.03` when `shared_buffers` ≥ 8 GB | fewer TLB misses, no page-table copy per backend | `on` refuses to start when the pages are missing; `try` falls back silently. In a container the host must provide them | none |
+| `huge_pages` (restart) | `try` (default) in every profile; `on` only as described in [Huge pages](#huge-pages) | fewer TLB misses, smaller page tables per backend | see that section | none |
+
+## Huge pages
+
+- `huge_pages = try` (the default): at start PostgreSQL asks the kernel for its
+  shared memory in 2 MB huge pages; if the kernel has none reserved, it uses
+  normal 4 KB pages and says nothing. Nothing breaks, but with a large
+  `shared_buffers` every backend then maps it in 4 KB pages: more page-table
+  memory per backend (about 2 MB of page tables per GB of shared memory a
+  backend touches) and more TLB misses.
+- `huge_pages = on`: PostgreSQL refuses to start when the reserved huge pages
+  do not cover its shared memory. Use it only together with a reservation, so a
+  missing reservation is a visible start failure instead of a silent slowdown.
+- When to set it: on a dedicated Linux server with `shared_buffers` of 8 GB or
+  more. Reserve `vm.nr_hugepages` = the value `postgres -C
+  shared_memory_size_in_huge_pages` prints (PostgreSQL 15+, run with the final
+  settings) in `/etc/sysctl.d`, apply it with `sysctl -p` or a reboot, then set
+  `on`. In a container the reservation is the host's, and Docker Desktop's VM
+  usually has none: keep `try` there. Below 8 GB, and on the `deploy.sh` full
+  stack, keep `try`.
+
+## Small hosts and the colocated profile
+
+On the `deploy.sh` full stack PostgreSQL, Mailwoman, Valkey and (with
+`EXPOSURE=caddy`) Caddy share one host. Each must be sized from its own share;
+if each takes its part of the whole host, together they overcommit it.
+`stack_memory_shares` in `scripts/deploy-stack.sh` divides the host's memory
+(as `docker info` reports it) like this, in MiB:
+
+- a reserve for the OS and its page cache: 10% of the host, at least 256;
+- Caddy: 64 when `deploy.sh` runs it;
+- Valkey: `maxmemory` = 1/16 of the host, 32–256, plus 32 of overhead;
+- PostgreSQL: 35% of what remains;
+- the app: the rest. Its container limit is `MEMORY_LIMIT` (4g for new
+  installations) or this share, whichever is smaller; `deploy.sh` logs a line
+  when it lowers it and leaves `MEMORY_LIMIT` in `deploy.env` unchanged.
+  Without the full stack the app gets everything but the reserve and Caddy.
+
+PostgreSQL's settings are then computed from its share `P` and from the
+connections the app opens, `A` = pool (4 per app CPU, 4–64) + 8 dedicated
+connections (authority mirror, maintenance pools):
+
+| Setting | Colocated formula |
+|---|---|
+| `max_connections` | pool + 25, at least 30. The app subtracts 20 reserved connections from `max_connections` before sizing its pool, so pool + 20 gives it its full pool; the other 5 are for `pg_dump` backups and an administrator |
+| `shared_buffers` | `P / 4`, 32 MB–32 GB |
+| `work_mem` | `(P − shared_buffers − A × 8 MB) / (2 × A)`, 4–64 MB |
+| `effective_cache_size` | `3P / 4`, at least 128 MB |
+| `maintenance_work_mem` | `P / 8`, 32 MB–2 GB |
+| `autovacuum_work_mem` | `P / 32`, 16 MB–1 GB |
+
+The 8 MB per busy backend covers the process (about 5 MB), its catalog caches
+and the prepared statements Mailwoman keeps: sqlx caches up to 100 statements
+per connection and PostgreSQL keeps a plan for each on that backend (measured
+on the [flag-update measurements](../perf/postgresql-flag-update-bench.md#prepared-statement-memory-per-backend)
+page). The worst case the formula allows is `shared_buffers + A × (8 MB +
+2 × work_mem)`: every connection the app opens busy with two sort or hash nodes
+at once.
+
+Worked values (full stack without Caddy; with Caddy the app gets 41 MiB less;
+in brackets the app's share without the full stack):
+
+| Host | Reserve | Valkey | PostgreSQL share | App share | `shared_buffers` | `work_mem` | `max_connections` | App connections | Worst case |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 GiB, 1 CPU | 256 | 64 | 235 MiB | 437 MiB (768) | 58 MB | 4 MB | 30 | 12 | 202–250 MB |
+| 2 GiB, 2 CPUs | 256 | 128 | 571 MiB | 1,061 MiB (1,792) | 142 MB | 9 MB | 33 | 16 | 414–558 MB |
+| 4 GiB, 2 CPUs | 409 | 256 | 1,189 MiB | 2,210 MiB (3,687) | 297 MB | 23 MB | 33 | 16 | 0.8–1.1 GB |
+| 16 GiB, 8 CPUs, app 4 | 1,638 | 256 | 5,060 MiB | 9,398 MiB, limit 4g | 1,265 MB | 64 MB | 41 | 24 | 3.0–4.4 GB |
+| 64 GiB, 16 CPUs, app 4 | 6,553 | 256 | 20,543 MiB | 38,152 MiB, limit 4g | 5,135 MB | 64 MB | 41 | 24 | 6.7–8.2 GB |
+
+"Worst case" is one, then two, `work_mem` nodes per app connection. On the
+1 GiB host the 4 MB floor of `work_mem` lets the two-node case exceed the
+235 MiB share by 15 MiB; the one-node case fits. There the app's share with the
+full stack (437 MiB) is close to what a server for one user uses (about 380 MiB,
+an estimate, not measured for one user); such a host is better served by the
+single-container SQLite stack (768 MiB for the app). Earlier profiles gave this
+host `shared_buffers` 153 MB and `max_connections` 100, sized from the whole
+host: up to 0.5–1 GiB for PostgreSQL alone.
 
 ## Connections and pools
 
 | Setting | Value | Why | Risk | Durability |
 |---|---|---|---|---|
-| `max_connections` (restart) | `clamp(10 × C, 100, 400)` | must cover Σ over Mailwoman processes of (pool maximum + about 8 dedicated connections) + `postgresReservedConnections` (20) + administration. Throughput is reached with active backends ≈ 2–4 × C; the rest are idle pool slack | each connection is a process (≈ 5–10 MB with its caches); hundreds of idle ones also cost snapshot time | none |
+| `max_connections` (restart) | dedicated `clamp(10 × C, 100, 400)`; colocated app pool + 25, at least 30 | must cover Σ over Mailwoman processes of (pool maximum + about 8 dedicated connections) + `postgresReservedConnections` (20) + administration. Throughput is reached with active backends ≈ 2–4 × C; the rest are idle pool slack | each connection is a process (≈ 5–10 MB with its caches); hundreds of idle ones also cost snapshot time | none |
 | Mailwoman pool | `cpus × 4` clamped 4..64 per process (application CPUs), then capped by the budget; set explicitly with `MW_DB_POOL='{"postgresMaxConnections":N}'` when the application and database have different sizes | pool size should follow the database's CPUs, not the application's, which Mailwoman cannot see. Measured on a 4-CPU database: flag-write throughput highest at 8 concurrent connections (2 × CPUs) and 30–45% lower at 32–64. Rule: 2–4 × database CPUs over all processes; for one process and a 16-CPU database, 32–64 | a pool far above 4 × C only adds queueing inside PostgreSQL | none |
 | Minimum connections | `MW_DB_POOL` `minimumConnections` ≈ steady busy count for high load (default 1) | the pool retires idle connections after 60 s and reconnects under the next burst; each new connection is a fork plus SCRAM authentication (measured cost on the measurement page) | idle connections held | none |
 
@@ -206,25 +283,21 @@ for each of these cases. It never refuses to start.
 
 This is the default; there is nothing to enable. The full stack
 (`STACK=full`) starts PostgreSQL with every setting of the colocated profile
-except the durability settings, `wal_level` and `huge_pages` (which keep their
-defaults), computed from the host's memory and CPU count each time the stack is
-rendered (`stack_postgres_settings` in `scripts/deploy-stack.sh`; a test keeps
-it equal to `scripts/perf/postgres-profile.mjs`). Re-running a deploy after
-resizing the host recomputes the values and restarts PostgreSQL with them.
+except the durability settings, `wal_level`, `huge_pages`, `wal_buffers`,
+`checkpoint_completion_target` and `autovacuum_naptime` (which keep their
+defaults). The values are computed each time the stack is rendered from
+PostgreSQL's share of the host, the host's CPU count and the app's CPU limit
+(`stack_postgres_settings` in `scripts/deploy-stack.sh`; a test keeps it equal
+to `scripts/perf/postgres-profile.mjs`). Valkey's `maxmemory` and the app's
+memory limit come from the same shares; see the worked table in
+[Small hosts](#small-hosts-and-the-colocated-profile). Re-running a deploy
+after resizing the host recomputes them and restarts the services with them.
 
-| Host | Main values |
-|---|---|
-| 1 CPU, 1 GiB | `shared_buffers` 153 MB, `effective_cache_size` 512 MB, `work_mem` 4 MB, `maintenance_work_mem` 64 MB, `max_connections` 100, `max_wal_size` 1 GB |
-| 2 CPUs, 4 GiB | 614 MB, 2 GB, 8 MB, 256 MB, 100, 1 GB |
-| 8 CPUs, 16 GiB | 2,457 MB, 8 GB, 34 MB, 1 GB, 100, 4 GB |
-| 16 CPUs, 64 GiB | 9,830 MB, 32 GB, 64 MB, 2 GB, 160, 4 GB |
-
-Plus on every host: `wal_compression` lz4, `checkpoint_timeout` 15 min,
-`jit` off, `default_toast_compression` lz4, the autovacuum settings above,
-`idle_in_transaction_session_timeout` 10 min and the log settings above. On a
-1 GB host the memory values stay close to the stock ones, so nothing here needs
-more memory than a stock server on a small VPS; `max_wal_size` stays at the
-stock 1 GB below 8 GB of memory so disk use for WAL does not grow there.
+On every host it also sets `wal_compression` lz4, `checkpoint_timeout` 15 min,
+`max_wal_size` 1 GB below 8 GiB of host memory and 4 GB from 8 GiB (disk the
+WAL may use), `jit` off, `default_toast_compression` lz4, the autovacuum
+settings above, `idle_in_transaction_session_timeout` 10 min and the log
+settings above.
 
 The Helm chart does not start PostgreSQL (its default database is SQLite);
 configure the server you point `MW_DB_PATH` at with this page, or start it

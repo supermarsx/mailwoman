@@ -167,6 +167,21 @@ client, 15 s, alternated twice:
   that shrinks after 60 s idle and regrows under a burst pays it per new
   connection.
 
+### Prepared-statement memory per backend
+
+One backend of the same server (2026-11-25), memory contexts from
+`pg_backend_memory_contexts`: 1.37 MB before; after preparing 100 distinct
+two-table statements (a join of `messages` and `mailboxes` with a filter, an
+order and a limit, the shape of the store's list reads) and executing each six
+times so PostgreSQL keeps a generic plan, 6.16 MB. The plan caches account for
+4.10 MB of it (`CachedPlan`, `CachedPlanSource`, `CachedPlanQuery`, 100 of
+each): about 41 KB per cached statement. sqlx keeps up to 100 statements per
+connection, so a long-lived app connection can hold about 4–5 MB of plans on
+its backend, more for larger statements. With the process itself (about 5 MB
+including catalog caches) that is the 8 MB per busy backend the colocated
+profile counts; the dedicated profile's `max_connections` × that is part of its
+arithmetic too (160 × 8 MB = 1.3 GB at 16 CPUs).
+
 ## Not measured here, and what a native run must repeat
 
 - **Cache size.** The data set fits in 128 MB, so `shared_buffers`,

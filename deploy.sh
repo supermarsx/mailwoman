@@ -1035,7 +1035,7 @@ pem_certificates() {
 }
 
 render() {
-    local directory=$1 secure=true trust='' upstream='' caddyfile caddy_env root_pem limits='' cpus=$CPU_LIMIT host_cpus
+    local directory=$1 secure=true trust='' upstream='' caddyfile caddy_env root_pem limits='' cpus=$CPU_LIMIT host_cpus memory
     local seed_env='' seed_volume='' seed_dir
     [[ $EXPOSURE != local ]] || secure=false
     # Client addresses come from the proxy network's peers unless app.env says otherwise.
@@ -1051,7 +1051,13 @@ render() {
         seed_env=$'\n'"      MW_GEOIP_SEED: /geoip-seed/$GEOIP_FILE"
         seed_volume=", '$seed_dir:/geoip-seed:ro'"
     fi
-    if [[ -n $MEMORY_LIMIT ]]; then limits+=$'\n'"    mem_limit: $MEMORY_LIMIT"; fi
+    if [[ -n $MEMORY_LIMIT ]]; then
+        # Lowered to the app's share of the host when that is smaller (a 1-2 GiB
+        # host may also run PostgreSQL, Valkey and Caddy; see stack_memory_shares).
+        memory=$(stack_app_memory_limit "$MEMORY_LIMIT" "$(stack_host_memory_mib)" "$STACK" "$([[ $EXPOSURE == caddy ]] && echo 1 || echo 0)")
+        [[ $memory == "$MEMORY_LIMIT" ]] || log "MEMORY_LIMIT=$MEMORY_LIMIT is more than the app's share of this host; the app is limited to $memory"
+        limits+=$'\n'"    mem_limit: $memory"
+    fi
     if [[ -n $cpus ]]; then
         # Docker refuses a CPU limit above the CPUs it can use.
         host_cpus=$(docker info --format '{{.NCPU}}')
