@@ -55,7 +55,7 @@ test('noisy numbers regress only beyond the threshold in every one of at least t
 test('summary rows map to the tracked numbers; plain rows only',()=>{
  const row={shape:'changes',instrumented:false,errors:0,throttled:2,timeouts:0,http503:4,acceptedRps:100,latencyMs:{p50:3,p99:9},usecCpuPerRequest:{server:900},rpsPerLogicalCpu:{consumedServer:111},contaminated:false,
   database:{available:true,source:'process',commitsAvailable:true,perRequest:{reads:5,writes:0,other:1,databaseCommits:0.2,upstreamCommands:0}}};
- assert.deepEqual(metricsOfRow(row),{source:'process',reads:5,writes:0,other:1,databaseCommits:0.2,upstreamCommands:0,errors:0,http503:4,http429:2,timeouts:0,usecCpuPerRequest:900,rps:100,rpsPerConsumedCpu:111,p50:3,p99:9,contaminated:false});
+ assert.deepEqual(metricsOfRow(row),{source:'process',reads:5,writes:0,other:1,databaseCommits:0.2,upstreamCommands:0,errors:0,http503:4,http429:2,timeouts:0,usecCpuPerRequest:900,rps:100,rpsPerConsumedCpu:111,p50:3,p99:9,appMemoryEndBytes:null,oomEvents:null,contaminated:false});
  const s=metricsOfSummary({backend:'postgres',rows:[row,{...row,instrumented:true,shape:'list-batch'}]});
  assert.deepEqual(Object.keys(s.postgres),['changes']);
 });

@@ -5,6 +5,7 @@ import {GOAL_MIX_TABLE,GOAL_MIX_NAME,upstreamReport} from './representative-work
 import {parseT34Selection} from './t34-modes.mjs';
 import {stageCpuCost,stageWindow} from './rig-cgroup.mjs';
 import {stageQuiet} from './rig-quiet.mjs';
+import {stageMemory} from './rig-memory.mjs';
 
 export const TRANSPORT_ENDPOINT='transport-healthz';
 export const SHAPE_PREFIX='goal-shape-';
@@ -107,6 +108,7 @@ export function legRows(report,{leg,samples,hostSamples,plan,labels,runContainer
    database:stageCounters(stage),cpu,
    usecCpuPerRequest:{server:cpu.server?.usecCpuPerRequest??null,generator:generatorLabel?cpu.containers?.[generatorLabel]?.usecCpuPerRequest??null:null},
    rpsPerLogicalCpu:cpu.rpsPerLogicalCpu??null,
+   memory:stageMemory(stage,samples,{labels,window}),
    quiet,contaminated:quiet.contaminated,
    ...(shape.kind==='transport'?{label:TRANSPORT_LABEL}:{}),
    ...(leg.instrumented?{label:'instrumented (sql-shape-diagnostics, request profile on): counts only; CPU and latency are not throughput numbers'}:{})};
@@ -125,17 +127,22 @@ export function weightedMix(rows){
   basis:'weights from GOAL_MIX_TABLE (per 100 requests); uncontaminated plain-release stages only'};
 }
 
+const mib=v=>Number.isFinite(v)?(v/1048576).toFixed(1):null;
+const appMem=row=>Object.values(row.memory?.containers??{}).find(c=>c.role==='app');
+const memCell=row=>{const m=appMem(row);return m?.available?`${mib(m.currentEndBytes)} (${mib(m.maxSampledBytes)??'–'})`:'–';};
+const eventsCell=row=>{const m=appMem(row);return m?.available?`${m.events.oom??'–'}/${m.events.max??'–'}`:'–';};
 const cell=value=>value===null||value===undefined?'–':String(value);
 export function markdownSummary(summary){
  const lines=[`# ${summary.run.toUpperCase()} summary (${summary.backend})`,'',summary.description,'',
-  `Host: ${summary.host.vmVcpus} VM vCPUs; cpusets ${Object.entries(summary.cpusets).map(([role,set])=>`${role} ${set}`).join(', ')}. VM vCPUs are not pinned to physical cores.`,''];
- lines.push('| Leg | Shape | Kind | W | C | Requests | Reads/req | Writes/req | Other/req | Commits/req (tx + autocommit) | Upstream cmds/req | Server µs CPU/req | Generator µs CPU/req | rps | rps/allotted server CPU | p50 ms | p99 ms | Errors | Quiet |');
- lines.push('| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |');
+  `Host: ${summary.host.vmVcpus} VM vCPUs; cpusets ${Object.entries(summary.cpusets).map(([role,set])=>`${role} ${set}`).join(', ')}. VM vCPUs are not pinned to physical cores.`,
+  `Fixture image runtime: ${summary.imageRuntime?`${summary.imageRuntime.libc}; allocator ${summary.imageRuntime.allocator}`:'not recorded'}.`,''];
+ lines.push('| Leg | Shape | Kind | W | C | Requests | Reads/req | Writes/req | Other/req | Commits/req (tx + autocommit) | Upstream cmds/req | Server µs CPU/req | Generator µs CPU/req | rps | rps/allotted server CPU | p50 ms | p99 ms | Errors | App MiB end (max) | App bytes/user | OOM/max events | Quiet |');
+ lines.push('| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |');
  for(const row of summary.rows){
   const p=row.database.available?row.database.perRequest:{};
   const commits=row.database.available&&row.database.commitsAvailable?`${p.databaseCommits} (${p.transactionCommits} + ${p.autocommitWrites})`:null;
   const fixed=v=>Number.isFinite(v)?v.toFixed(2):null;
-  lines.push(`| ${row.leg} | ${row.shape} | ${row.kind} | ${cell(row.weight)} | ${cell(row.concurrency)} | ${cell(row.requests)} | ${cell(p.reads)} | ${cell(p.writes)} | ${cell(p.other)} | ${cell(commits)} | ${cell(p.upstreamCommands)} | ${cell(row.usecCpuPerRequest.server)} | ${cell(row.usecCpuPerRequest.generator)} | ${cell(row.acceptedRps)} | ${cell(row.rpsPerLogicalCpu?.allottedServer)} | ${cell(fixed(row.latencyMs.p50))} | ${cell(fixed(row.latencyMs.p99))} | ${cell((row.errors??0)+(row.throttled??0)+(row.timeouts??0))} | ${row.contaminated?'CONTAMINATED: '+row.quiet.reasons.join('; '):'quiet'} |`);
+  lines.push(`| ${row.leg} | ${row.shape} | ${row.kind} | ${cell(row.weight)} | ${cell(row.concurrency)} | ${cell(row.requests)} | ${cell(p.reads)} | ${cell(p.writes)} | ${cell(p.other)} | ${cell(commits)} | ${cell(p.upstreamCommands)} | ${cell(row.usecCpuPerRequest.server)} | ${cell(row.usecCpuPerRequest.generator)} | ${cell(row.acceptedRps)} | ${cell(row.rpsPerLogicalCpu?.allottedServer)} | ${cell(fixed(row.latencyMs.p50))} | ${cell(fixed(row.latencyMs.p99))} | ${cell((row.errors??0)+(row.throttled??0)+(row.timeouts??0))} | ${memCell(row)} | ${cell(row.memory?.derived?.appBytesPerConnectedUser)} | ${eventsCell(row)} | ${row.contaminated?'CONTAMINATED: '+row.quiet.reasons.join('; '):'quiet'} |`);
  }
  lines.push('');
  if(summary.mix)lines.push(`Weighted server µs CPU per request from the shapes: ${cell(summary.mix.weightedServerUsecPerRequest)}${summary.mix.missingShapes.length?` (missing: ${summary.mix.missingShapes.join(', ')})`:''}; measured mix: ${cell(summary.mix.measuredMix?.usecCpuPerRequest)} µs at ${cell(summary.mix.measuredMix?.acceptedRps)} rps.`,'');

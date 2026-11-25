@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import os from 'node:os';
 import {execFile} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {parseArgs,buildPlan,legCommands,runLeg,analyseLeg,writeSummary} from './bench-rig.mjs';
+import {parseArgs,buildPlan,legCommands,runLeg,analyseLeg,writeSummary,imageRuntime} from './bench-rig.mjs';
 
 const ID=c=>c.repeat(64);
 
@@ -77,7 +77,8 @@ test('one leg end to end with a recorded Docker: order, cleanup, private files r
   const log=[];
   const legDir=await runLeg(plan,plan.legs[0],{runId:'t1',image:'img',reportDir:join(root,'out'),privateDir:join(root,'private'),docker:fakeDocker(log,{reportStages:[stage],samples:lines})});
   const verbs=log.map(a=>a[0]+(a[0]==='run'?(a[1]==='-d'?' -d '+a[a.indexOf('--name')+1].split('-').at(-1):' setup'):a[0]==='volume'||a[0]==='rm'?' '+a[1]:''));
-  assert.deepEqual(verbs.slice(0,8),['image','volume create','volume create','run setup','run -d app','run -d generator','run -d sampler','exec']);
+  assert.deepEqual(verbs.slice(0,9),['image','run setup','volume create','volume create','run setup','run -d app','run -d generator','run -d sampler','exec']);
+  assert.ok(log[1].includes('ldd --version 2>&1 | head -1; ldd /out/request-load-fixture 2>&1; grep PRETTY_NAME /etc/os-release'),'the image runtime is recorded');
   assert.ok(verbs.indexOf('wait')<verbs.indexOf('cp'));
   assert.deepEqual(log.at(-2).slice(0,2),['rm','-f']);assert.deepEqual(log.at(-1).slice(0,2),['volume','rm']);
   assert.deepEqual(await readdir(join(root,'private')),[],'the private env file is removed');
@@ -140,4 +141,13 @@ test('the default cpusets fit the 26-vCPU Docker VM for every run and backend (d
  }
  // The largest split allowed for M0-M3 fits: app 12, database 4, generator 8, rig 1 = CPUs 1-25.
  assert.equal(buildPlan(parseArgs(['plan','--run=r1','--backend=postgres','--app=12','--database=4','--generator=8']).args).cpus.roles.rig.cpuset,'25');
+});
+
+test('the image runtime record names the C library and the allocator from ldd',()=>{
+ const glibc=imageRuntime(['ldd (Debian GLIBC 2.36-9+deb12u14) 2.36','\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x1)','PRETTY_NAME="Debian GNU/Linux 12 (bookworm)"'].join('\n'));
+ assert.equal(glibc.libc,'glibc');assert.match(glibc.allocator,/glibc malloc/);assert.equal(glibc.ldd.length,3);
+ assert.equal(imageRuntime('musl libc (x86_64)\nVersion 1.2.5').libc,'musl');
+ assert.equal(imageRuntime('\tnot a dynamic executable').libc,'static (libc not visible to ldd)');
+ assert.equal(imageRuntime('libjemalloc.so.2 => /usr/lib/libjemalloc.so.2 GLIBC').allocator,'jemalloc (shared library)');
+ assert.equal(imageRuntime('').libc,'unknown');
 });

@@ -13,8 +13,10 @@
 import {readFile,writeFile} from 'node:fs/promises';
 
 export const DEFAULT_THRESHOLD=0.08;
-export const COUNTERS=Object.freeze(['reads','writes','other','databaseCommits','upstreamCommands','errors','http503','http429','timeouts']);
-export const NOISY=Object.freeze({usecCpuPerRequest:'higher-is-worse',rps:'lower-is-worse',rpsPerConsumedCpu:'lower-is-worse',p50:'higher-is-worse',p99:'higher-is-worse'});
+export const COUNTERS=Object.freeze(['reads','writes','other','databaseCommits','upstreamCommands','errors','http503','http429','timeouts','oomEvents']);
+export const NOISY=Object.freeze({usecCpuPerRequest:'higher-is-worse',rps:'lower-is-worse',rpsPerConsumedCpu:'lower-is-worse',p50:'higher-is-worse',p99:'higher-is-worse',appMemoryEndBytes:'higher-is-worse'});
+// Per-metric thresholds over the default: app memory at the stage end (steady state) 10% (t63 memory audit).
+export const METRIC_THRESHOLDS=Object.freeze({appMemoryEndBytes:0.10});
 const PER_REQUEST=new Set(['reads','writes','other','databaseCommits','upstreamCommands']);
 
 const num=v=>Number.isFinite(v)?v:null;
@@ -22,11 +24,12 @@ const num=v=>Number.isFinite(v)?v:null;
 export function metricsOfRow(row){
  const d=row.database?.available?row.database:null,p=d?.perRequest??{};
  const statuses=row.statuses??{};
+ const app=Object.values(row.memory?.containers??{}).find(c=>c.role==='app'&&c.available);
  return {source:d?.source??null,
   reads:num(p.reads),writes:num(p.writes),other:num(p.other),databaseCommits:d?.commitsAvailable?num(p.databaseCommits):null,upstreamCommands:num(p.upstreamCommands),
   errors:num(row.errors),http503:num(row.http503??statuses['503']??null),http429:num(row.throttled),timeouts:num(row.timeouts),
   usecCpuPerRequest:num(row.usecCpuPerRequest?.server),rps:num(row.acceptedRps),rpsPerConsumedCpu:num(row.rpsPerLogicalCpu?.consumedServer),
-  p50:num(row.latencyMs?.p50),p99:num(row.latencyMs?.p99),contaminated:row.contaminated===true};
+  p50:num(row.latencyMs?.p50),p99:num(row.latencyMs?.p99),appMemoryEndBytes:num(app?.currentEndBytes),oomEvents:app?num((app.events?.oom??0)+(app.events?.oom_kill??0)):null,contaminated:row.contaminated===true};
 }
 // summary.json -> {backend:{shape:metrics}}; plain (not instrumented) rows only, first row per shape.
 export function metricsOfSummary(summary){
@@ -68,7 +71,7 @@ export function compare(references,candidates,{threshold=DEFAULT_THRESHOLD}={}){
   for(const shape of Object.keys(candidates[0][backend])){
    const refs=references.map(r=>r[backend]?.[shape]).filter(Boolean),cands=candidates.map(c=>c[backend]?.[shape]).filter(Boolean);
    if(!refs.length){rows.push({backend,shape,verdict:'no-reference',checks:[]});continue;}
-   const checks=[...COUNTERS.map(name=>counterVerdict(name,refs[0],cands[0])),...Object.keys(NOISY).map(name=>noisyVerdict(name,refs,cands,threshold))];
+   const checks=[...COUNTERS.map(name=>counterVerdict(name,refs[0],cands[0])),...Object.keys(NOISY).map(name=>noisyVerdict(name,refs,cands,METRIC_THRESHOLDS[name]??threshold))];
    // A counter must not increase in ANY candidate repeat.
    for(const extra of cands.slice(1))for(const name of COUNTERS){const v=counterVerdict(name,refs[0],extra);if(v.verdict==='regression')checks.push({...v,repeat:cands.indexOf(extra)+1});}
    const verdict=checks.some(c=>c.verdict==='regression')?'REGRESSION':checks.some(c=>c.verdict==='unconfirmed')?'unconfirmed':checks.some(c=>c.verdict==='improved')?'improved':'same';
@@ -76,12 +79,12 @@ export function compare(references,candidates,{threshold=DEFAULT_THRESHOLD}={}){
   }
  }
  return {schema:1,threshold,repeats:candidates.length,rows,regressions:rows.filter(r=>r.verdict==='REGRESSION').length,
-  rule:'counters: any increase; noisy: worse than the threshold in every one of at least two alternating repeats'};
+  rule:'counters (including OOM events): any increase; noisy (including app memory at the stage end): worse than the threshold in every one of at least two alternating repeats'};
 }
 
 const fmt=v=>v===null||v===undefined?'–':Array.isArray(v)?v.map(fmt).join(' / '):typeof v==='number'?String(Number(v.toFixed(2))):String(v);
 export function markdownComparison(result){
- const lines=[`Comparison: ${result.repeats} candidate repeat(s); noisy threshold ${Math.round(result.threshold*100)}%; ${result.regressions} shape(s) regressed.`,'',
+ const lines=[`Comparison: ${result.repeats} candidate repeat(s); noisy threshold ${Math.round(result.threshold*100)}% (app memory at stage end ${Math.round(METRIC_THRESHOLDS.appMemoryEndBytes*100)}%); ${result.regressions} shape(s) regressed.`,'',
   '| Backend | Shape | Verdict | Regressed / unconfirmed metrics (reference -> candidate) |','| --- | --- | --- | --- |'];
  for(const row of result.rows){
   const flagged=row.checks.filter(c=>c.verdict==='regression'||c.verdict==='unconfirmed').map(c=>`${c.metric}${c.verdict==='unconfirmed'?' (unconfirmed)':''}${c.repeat?` [repeat ${c.repeat}]`:''}: ${fmt(c.reference)} -> ${fmt(c.candidate)}`);

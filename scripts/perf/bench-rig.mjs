@@ -123,6 +123,15 @@ export function realDocker(binary=dockerBinary()){
  }));
 }
 
+// The fixture image's C library and allocator, from ldd inside the image (the t63 audit: shipped installs are a musl
+// static image, the fixture image was never checked). A Rust #[global_allocator] would not show in ldd output.
+export function imageRuntime(text){
+ const out=String(text??'');
+ const libc=/GLIBC|GNU libc/i.test(out)?'glibc':/musl/i.test(out)?'musl':/not a dynamic executable|statically linked/i.test(out)?'static (libc not visible to ldd)':'unknown';
+ const allocator=/jemalloc/i.test(out)?'jemalloc (shared library)':/mimalloc/i.test(out)?'mimalloc (shared library)':libc==='glibc'?'glibc malloc unless the binary sets a Rust #[global_allocator] (none in the workspace at t62-n12)':'not determined';
+ return {libc,allocator,ldd:out.split(/\r?\n/).map(line=>line.trim()).filter(Boolean).slice(0,12)};
+}
+
 const exists=async path=>{try{await stat(path);return true;}catch{return false;}};
 
 async function clockOffsetMs(docker,sampler){
@@ -152,6 +161,7 @@ export async function runLeg(plan,leg,{runId,image,reportDir,privateDir,docker=r
  let hostSampler=null;
  try{
   infrastructure.imageId=await docker(['image','inspect','--format','{{.Id}}',image]);
+  infrastructure.imageRuntime=imageRuntime(await docker(['run','--rm','--network','none','--cpus','0.5','--entrypoint','sh',image,'-c','ldd --version 2>&1 | head -1; ldd /out/request-load-fixture 2>&1; grep PRETTY_NAME /etc/os-release'],{timeoutMs:60000}).catch(()=>''));
   for(const args of commands.volumes)await docker(args);
   if(commands.network)await docker(commands.network);
   await docker(commands.setup);
@@ -221,7 +231,7 @@ export async function analyseLeg(plan,leg,legDir){
  if(malformed)notes.push(`${leg.id}: ${malformed} malformed sampler lines ignored`);
  if(report.kind!=='coordinated-native-http-fixture')notes.push(`${leg.id}: report kind ${report.kind??'unknown'} (a failure report has no stages)`);
  if(!hostSamples.length)notes.push(`${leg.id}: Windows host processes were not sampled (--host-sampler not given): work outside the Docker VM is not in the quiet verdict`);
- return {rows,notes,judgedAgainst:report.judgedAgainst??null};
+ return {rows,notes,judgedAgainst:report.judgedAgainst??null,imageRuntime:infrastructure.imageRuntime??null};
 }
 
 export async function writeSummary(plan,dir,legResults){
@@ -229,6 +239,7 @@ export async function writeSummary(plan,dir,legResults){
  const summary={schema:1,run:plan.run,description:plan.description,backend:plan.backend,generatedAt:new Date().toISOString(),
   host:{vmVcpus:plan.cpus.vcpus,hostLogicalCpus:plan.hostLogicalCpus,note:'VM vCPUs float over host cores; cpusets pin containers to vCPUs, not to physical cores'},
   cpusets:Object.fromEntries(Object.entries(plan.cpus.roles).map(([role,v])=>[role,v.cpuset])),thresholds:plan.thresholds,
+  imageRuntime:legResults.find(result=>result.imageRuntime)?.imageRuntime??null,
   rows,...(plan.run==='r1'?{mix:weightedMix(rows)}:{}),notes:legResults.flatMap(result=>result.notes),
   reportFields:{usecCpuPerRequest:'per container and server total, from cgroup cpu.stat',rpsPerLogicalCpu:'accepted rps per allotted and per consumed server CPU',
    databaseCommitsPerRequest:'transaction commits + autocommit writes (mw-store pool telemetry commit counter)',contaminated:'quiet-host witness, plan section 8 rule 1'}};

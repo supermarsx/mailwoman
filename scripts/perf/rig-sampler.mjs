@@ -28,13 +28,30 @@ export async function discover(root,{maxDepth=4,list=readdir}={}){
  return found;
 }
 
+// cgroup v2 memory of one container: memory.current/peak, memory.events, the main memory.stat lines, pids.current
+// (tasks = threads of every process in the cgroup). Missing files (controller not enabled) are left out.
+export async function readMemory(dir,read=path=>readFile(path,'utf8')){
+ const out={};
+ const int=async name=>{try{const v=Number((await read(join(dir,name))).trim());return Number.isSafeInteger(v)?v:null;}catch{return null;}};
+ const current=await int('memory.current'),peak=await int('memory.peak'),pids=await int('pids.current');
+ if(current!==null)out.current=current;if(peak!==null)out.peak=peak;if(pids!==null)out.pids=pids;
+ try{out.events=parseKeyValues(await read(join(dir,'memory.events')),['low','high','max','oom','oom_kill']);}catch{}
+ try{out.stat=parseKeyValues(await read(join(dir,'memory.stat')),['anon','file','kernel','kernel_stack','sock','shmem','slab']);}catch{}
+ return Object.keys(out).length?out:null;
+}
+export function parseKeyValues(text,keys){
+ const out={};
+ for(const line of String(text).split(/\r?\n/)){const m=/^([a-z_]+) ([0-9]+)$/.exec(line.trim());if(m&&keys.includes(m[1])){const v=Number(m[2]);if(Number.isSafeInteger(v))out[m[1]]=v;}}
+ return out;
+}
 export async function sampleOnce({labels,discovered,procStatPath='/proc/stat',read=path=>readFile(path,'utf8'),now=Date.now}){
  const tMs=now(),containers={},others={};
  for(const [label,id] of Object.entries(labels)){
   const dir=discovered.get(id);
   if(!dir){containers[label]={id:id.slice(0,12),error:'cgroup not found'};continue;}
   try{containers[label]={id:id.slice(0,12),cpu:parseCpuStat(await read(join(dir,'cpu.stat')))};}
-  catch{containers[label]={id:id.slice(0,12),error:'cpu.stat unreadable'};}
+  catch{containers[label]={id:id.slice(0,12),error:'cpu.stat unreadable'};continue;}
+  const mem=await readMemory(dir,read);if(mem)containers[label].mem=mem;
  }
  const own=new Set(Object.values(labels));
  for(const [id,dir] of discovered){

@@ -217,3 +217,26 @@ file's `blessed` list.
 Basis difference to keep in mind: the 5717b070f rows divide CPU by completed requests and use ~1 s samples; the rig
 divides by requests accepted inside the window and samples every 250 ms. For a closed-loop stage the two counts differ
 by the requests in flight at the window end.
+
+## Memory per stage (t63 memory audit, section 6)
+
+Each stage row has `memory`:
+
+| Field | Source |
+| --- | --- |
+| `containers.<label>`: `currentStartBytes`, `currentEndBytes`, `maxSampledBytes`, `peakBytes`, `events` (high, max, oom, oom_kill increase), `statEnd` (anon, file, kernel, sock, shmem), `pidsEnd` (tasks = threads) | cgroup v2 `memory.current`, `memory.peak`, `memory.events`, `memory.stat`, `pids.current` of each run container, sampled with the CPU counters |
+| `server.process` (start, end): resident, anonymous, file-backed, shared, peak resident, threads | fixture diagnostics `processMemory` (`/proc/self/status`) |
+| `server.pool`, `server.sqlitePageCache`, `preparedMailChargedBytes`, `writeBehindPending`, `sessionTouchBuffer` (held, pending), `searchWriterMemoryBudgetBytes` | fixture diagnostics |
+| `derived.appBytesPerConnectedUser` | app cgroup memory at the stage end / users accepted in the window (one session per user in the fixture) |
+| `postgres.processes`, `postgres.memoryCurrentEndBytes` | the database container's `pids.current` (backends plus auxiliary processes) and `memory.current` |
+
+Not exposed by the fixture today, so not reported: the mail cache layer's weighted size and the public asset cache.
+The table shows app memory at the stage end (largest sampled inside), bytes per user and OOM/max events.
+
+`compare` adds `appMemoryEndBytes` (regression beyond 10% in every one of two repeats) and `oomEvents` (any increase).
+The 5717b070f baseline has no memory numbers; they are compared after the first bless that includes them.
+
+Every summary records the fixture image's C library and allocator (`imageRuntime`, from `ldd` inside the image).
+Checked on 2026-11-25 for `t62-fixture:5717b070f`: Debian 12, glibc 2.36, dynamically linked `x86_64-unknown-linux-gnu`,
+no `#[global_allocator]` in the workspace, so glibc malloc. Shipped installs use the musl static image (t63 audit), so
+memory and allocator numbers from the fixture do not transfer to them as they are.

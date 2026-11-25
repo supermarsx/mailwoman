@@ -31,6 +31,8 @@ mod native_enforced_policy;
 mod t34_modes;
 #[path = "common/process_cpu.rs"]
 mod process_cpu;
+#[path = "common/process_memory.rs"]
+mod process_memory;
 #[cfg(feature = "sql-shape-diagnostics")]
 #[path = "common/native_sql_shapes.rs"]
 mod native_sql_shapes;
@@ -1289,6 +1291,9 @@ async fn run(workers: usize) {
                 snapshot["httpTelemetry"] = mw_server::http_telemetry_snapshot();
                 snapshot["realtime"] = mw_server::push::metrics_snapshot();
                 snapshot["processCpuSeconds"] = json!(process_cpu::process_cpu_seconds());
+                // t62-n12: memory at each stage boundary (bench rig).
+                snapshot["processMemory"] = process_memory::process_memory().unwrap_or(Value::Null);
+                snapshot["sessionTouchBuffer"] = serde_json::to_value(store.session_touch_buffer_stats()).unwrap_or(Value::Null);
                 snapshot["upstreamCommands"] = representative::upstream_commands();
                 snapshot["searchIndex"] = json!({
                     "storage":fixture_storage_proof(&engine,index_mode),

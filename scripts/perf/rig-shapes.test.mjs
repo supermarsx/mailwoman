@@ -74,7 +74,7 @@ test('rows, weighted mix and the summary table carry the plan columns and the la
  assert.equal(mix.weightedServerUsecPerRequest,10000);assert.deepEqual(mix.missingShapes,[]);assert.equal(mix.measuredMix.usecCpuPerRequest,10000);
  const md=markdownSummary({run:'r1',backend:'sqlite',description:'d',host:{vmVcpus:26},cpusets:{app:'1-4'},rows,mix,notes:['n']});
  assert.match(md,/\| Leg \| Shape \| Kind \| W \| C \| Requests \| Reads\/req \| Writes\/req \| Other\/req \| Commits\/req \(tx \+ autocommit\) \| Upstream cmds\/req \| Server µs CPU\/req/);
- assert.match(md,/\| release-shapes \| list-batch \| read \| 15 \| 32 \| 1000 \| 5 \| 1 \| 0.5 \| 0.4 \(0.3 \+ 0.1\) \| 0.2 \| 10000 \| 5000 \| 200 \| 50 \| 2.00 \| 6.00 \| 0 \| quiet \|/);
+ assert.match(md,/\| release-shapes \| list-batch \| read \| 15 \| 32 \| 1000 \| 5 \| 1 \| 0.5 \| 0.4 \(0.3 \+ 0.1\) \| 0.2 \| 10000 \| 5000 \| 200 \| 50 \| 2.00 \| 6.00 \| 0 \| – \| – \| – \| quiet \|/);
  assert.match(md,/Weighted server µs CPU per request from the shapes: 10000/);
  const transport=legRows({stages:[stageFor('transport-healthz',1)]},{leg:{id:'transport',instrumented:false},samples,hostSamples:[],plan,labels:{app:'app'}});
  assert.match(transport[0].label,/transport control only/);
