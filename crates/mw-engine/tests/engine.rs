@@ -2334,3 +2334,37 @@ async fn sending_a_draft_leaves_no_upstream_draft_copy() {
     h.engine.resync(&h.account_id).await.unwrap();
     assert_eq!(cached_drafts(&h).await, 0);
 }
+
+/// t55 (RFC 8621 §4.2): `maxBodyValueBytes` truncates each returned body
+/// value and flags it; a value within the limit is untouched; a non-integer
+/// argument is refused.
+#[tokio::test]
+async fn max_body_value_bytes_truncates_and_flags_body_values() {
+    let h = setup().await;
+    h.engine.resync(&h.account_id).await.unwrap();
+    let mb = jmap(&h, json!([["Mailbox/get", {}, "mb"]])).await;
+    let inbox = mailbox_id(&mb, "inbox");
+    let q = jmap(&h, json!([["Email/query", { "filter": { "inMailbox": inbox } }, "q"]])).await;
+    let ids = method_result(&q, "q")["ids"].clone();
+    let full = jmap(&h, json!([["Email/get", { "ids": ids, "properties": ["bodyValues"], "fetchAllBodyValues": true }, "g"]])).await;
+    let cut = jmap(&h, json!([["Email/get", { "ids": ids, "properties": ["bodyValues"], "fetchAllBodyValues": true, "maxBodyValueBytes": 3 }, "g"]])).await;
+    let full_list = method_result(&full, "g")["list"].as_array().unwrap().clone();
+    let cut_list = method_result(&cut, "g")["list"].as_array().unwrap().clone();
+    let mut truncated = 0;
+    for (whole, short) in full_list.iter().zip(&cut_list) {
+        for (part, value) in whole["bodyValues"].as_object().unwrap() {
+            let text = value["value"].as_str().unwrap();
+            let got = &short["bodyValues"][part];
+            if text.len() > 3 {
+                assert!(got["value"].as_str().unwrap().len() <= 3, "{got}");
+                assert_eq!(got["isTruncated"], true, "{got}");
+                truncated += 1;
+            } else {
+                assert_eq!(got["value"], value["value"]);
+            }
+        }
+    }
+    assert!(truncated > 0, "the fixture has a body longer than 3 bytes: {full}");
+    let bad = jmap(&h, json!([["Email/get", { "ids": ids, "maxBodyValueBytes": "big" }, "g"]])).await;
+    assert_eq!(method_result(&bad, "g")["type"], "invalidArguments", "{bad}");
+}
