@@ -1622,7 +1622,7 @@ impl Store {
     ) -> Result<Vec<(ProtectionOutcome, Option<StoredProtection>)>, StoreError> {
         if !self.uses_sqlite() || requests.len() > 64 { return Err(corrupt()); }
         let marks = self.writer_marks().await;
-        self.sqlite_batch(requests, marks, crate::WriteLane::Priority).await
+        self.sqlite_batch(requests, marks, crate::WriteLane::Priority.into()).await
     }
     /// `request_protection_sqlite_batch_with_state` for a write-behind
     /// participant, which joined when it was created.
@@ -1641,9 +1641,9 @@ impl Store {
     /// nothing: the group is its own transaction, as before.
     pub async fn request_protection_sqlite_batch_in(
         &self, writer: &ProtectionParticipant, requests: &[ProtectionObservation<'_>],
-        lane: crate::WriteLane,
+        lane: impl Into<crate::WriteLaneRequest>,
     ) -> Result<Vec<(ProtectionOutcome, Option<StoredProtection>)>, StoreError> {
-        self.sqlite_batch(requests, !writer.acknowledged(), lane).await
+        self.sqlite_batch(requests, !writer.acknowledged(), lane.into()).await
     }
 
     /// When every subject of the group has a row, the group is applied set-based:
@@ -1654,7 +1654,7 @@ impl Store {
     /// lock and capacity check. Decisions, rows and audit events are the same
     /// either way.
     async fn sqlite_batch(
-        &self, requests: &[ProtectionObservation<'_>], marks: bool, lane: crate::WriteLane,
+        &self, requests: &[ProtectionObservation<'_>], marks: bool, lane: crate::WriteLaneRequest,
     ) -> Result<Vec<(ProtectionOutcome, Option<StoredProtection>)>, StoreError> {
         if !self.uses_sqlite() || requests.len() > 64 { return Err(corrupt()); }
         let keyer = self.request_protection_keyer();

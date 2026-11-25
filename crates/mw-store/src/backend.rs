@@ -95,10 +95,11 @@ impl Backend {
     #[track_caller]
     pub(crate) fn write_lease(
         &self,
-        lane: WriteLane,
+        lane: impl Into<LaneRequest>,
         solo: bool,
     ) -> impl std::future::Future<Output = Result<WriteLease, sqlx::Error>> + '_ {
         let at = std::panic::Location::caller();
+        let lane = lane.into();
         async move {
             match self {
                 Backend::Sqlite(live) if live.group_writer().is_some() && !solo => {
@@ -110,7 +111,7 @@ impl Backend {
     }
 }
 
-pub(crate) use crate::sqlite_live::sqlite_writer::{Finished, Lane as WriteLane, WriteLease};
+pub(crate) use crate::sqlite_live::sqlite_writer::{Finished, Lane as WriteLane, LaneRequest, WriteLease};
 
 /// Run one write job: `write_job!(backend, lane, |tx| async { … })`.
 ///
@@ -125,8 +126,9 @@ pub(crate) use crate::sqlite_live::sqlite_writer::{Finished, Lane as WriteLane, 
 macro_rules! write_job {
     ($backend:expr, $lane:expr, |$tx:ident| $body:expr) => {{
         let mut solo = false;
+        let lane_request: $crate::backend::LaneRequest = ($lane).into();
         loop {
-            let mut lease = $backend.write_lease($lane, solo).await?;
+            let mut lease = $backend.write_lease(lane_request.clone(), solo).await?;
             let outcome = {
                 let $tx: &mut $crate::backend::Tx = lease.tx();
                 $body.await
@@ -948,6 +950,20 @@ impl Tx {
     }
     pub(crate) async fn rollback(self) -> Result<(), sqlx::Error> {
         match self { Self::Sqlite(tx) => tx.rollback().await, Self::Postgres(tx) => tx.rollback().await }
+    }
+    /// The group writer's broken batches: close the connection on drop.
+    pub(crate) fn close_on_drop(&mut self) {
+        if let Tx::Sqlite(t) = self {
+            t.close_on_drop();
+        }
+    }
+    /// `commit` for the group writer's batch: a failed COMMIT closes the
+    /// SQLite connection instead of returning it to the pool.
+    pub(crate) async fn commit_or_close(self) -> Result<(), sqlx::Error> {
+        match self {
+            Tx::Sqlite(t) => t.commit_or_close().await,
+            Tx::Postgres(t) => t.commit().await,
+        }
     }
     pub(crate) async fn commit(self) -> Result<(), sqlx::Error> {
         use crate::pool_telemetry::{CommitBackend, CommitTimer};

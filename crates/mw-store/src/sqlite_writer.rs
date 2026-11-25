@@ -23,12 +23,17 @@
 //!   transaction (cancelled future, panic), is undone with `ROLLBACK TO
 //!   mw_job`; the other jobs of the batch are not touched. A ticket whose caller
 //!   went away before its turn is skipped: it never starts.
+//! - Lanes are served by weighted alternation: priority tickets first, but
+//!   after [`PRIORITY_RUN`] priority grants in a row a waiting normal ticket gets
+//!   the next turn, so neither lane can starve the other.
 //! - The batch ends when no ticket is waiting, after [`MAX_BATCH_JOBS`] jobs,
-//!   once [`MAX_BATCH_TIME`] has passed since `BEGIN`, or right after a
-//!   [`Lane::Priority`] job. Then ONE `COMMIT`, and only after it succeeded is
-//!   every caller of the batch told so: a caller sees `Ok` only for a committed
-//!   job. There is no waiting window: a lone job commits at once, batches form
-//!   only while jobs queue behind a running one.
+//!   or once [`MAX_BATCH_TIME`] has passed since `BEGIN`. A batch that holds a
+//!   priority job takes no further normal tickets except the guaranteed share,
+//!   and ends as soon as no priority ticket is waiting: priority work is grouped
+//!   with other priority work and committed promptly. Then ONE `COMMIT`, and
+//!   only after it succeeded is every caller of the batch told so: a caller
+//!   sees `Ok` only for a committed job. There is no waiting window: a lone job
+//!   commits at once, batches form only while jobs queue behind a running one.
 //! - If anything fails at batch level (the `COMMIT` itself, for example a
 //!   deferred foreign key of one job, or a savepoint statement after SQLite
 //!   aborted the transaction), the whole batch is rolled back and every caller
@@ -42,17 +47,45 @@
 //! - Visibility: readers on other connections see the job once the caller has
 //!   its answer (the WAL commit happened before it).
 //! - Order: FIFO per lane; a later job of a batch sees the earlier ones.
+//! - Runtime: the writer task is spawned on the runtime that created the
+//!   writer (the store's), not on the first caller's.
 //! - Bounded: [`QUEUE_JOBS`] normal and [`QUEUE_PRIORITY_JOBS`] priority
 //!   tickets. A caller waits at most [`WAIT_LIMIT`] (5 s, the foreground
 //!   `busy_timeout`) for its turn, then gets the same `database is locked`
 //!   error a locked database gives.
-//! - Priority lane delay: a priority ticket is granted when the job that holds
-//!   the transaction now hands it back (priority tickets are taken first), and
-//!   its batch commits right after it. Its delay is therefore one running job
-//!   plus one commit, independent of how many normal tickets are queued. A
-//!   writer that does not use the writer (`begin()`, autocommit writes) waits in
-//!   the write gate for at most one batch: [`MAX_BATCH_TIME`] plus the job
-//!   running at that moment plus the commit.
+//! - Priority lane delay: a priority ticket is granted after the job that holds
+//!   the transaction now (and at most one normal job of the guaranteed share);
+//!   its batch then ends when no priority ticket is waiting, at the latest
+//!   [`MAX_BATCH_TIME`] after `BEGIN`. Bound: [`MAX_BATCH_TIME`] + two jobs +
+//!   one COMMIT, independent of how many normal tickets are queued.
+//! - Normal lane under a sustained priority stream: at least one grant in
+//!   every `PRIORITY_RUN + 1` goes to a waiting normal ticket, so the normal
+//!   lane keeps at least that share of the writer.
+//! - A normal-lane wait can be escalated ([`WriteEscalation`]): while anyone
+//!   raises it, the waiter moves to the priority lane (its normal ticket is
+//!   withdrawn before its turn, never half-run). Used by a lock holder that
+//!   others with priority work queue behind.
+//! - A writer that does not use the writer (`begin()`, autocommit writes) waits
+//!   in the write gate for at most one batch per batch ahead of it:
+//!   [`MAX_BATCH_TIME`] plus the job running at that moment plus the commit.
+//!
+//! Rules for job bodies (every future conversion must follow them)
+//! - SQL on the given transaction only: no pool access, no `begin()`, no second
+//!   lease, no network or file I/O, no other side effect before the result is
+//!   returned. A body can run twice (a failed batch re-runs it alone).
+//! - Never swallow a statement error (`let _ =`, `.ok()`, `unwrap_or`): return
+//!   it. If SQLite aborted the transaction (SQLITE_FULL, IOERR, ...) and a body
+//!   continued, its later statements would run in autocommit outside the batch.
+//!   The writer's next statement after such a job (`RELEASE` of its savepoint,
+//!   or the batch `COMMIT`) fails with "no such savepoint" / "no transaction is
+//!   active"; the writer then fails that job (its caller gets an error, it is
+//!   not re-run, so its stray statements are not applied twice), re-runs the
+//!   other members alone, closes the connection instead of pooling it, and
+//!   panics in debug builds so tests catch the body. Reviewers of a conversion
+//!   check the body against these rules.
+//! - Post-commit bookkeeping that must happen once the job committed belongs in
+//!   a task that owns its completion (`tokio::spawn`), not in a request future
+//!   that a disconnecting client can drop between the commit and the bookkeeping.
 //!
 //! Writes that do not use the writer still work and stay correct: `begin()`
 //! and autocommit writes take the write gate, and the writer takes the same
@@ -91,6 +124,9 @@ pub(crate) const QUEUE_JOBS: usize = 1024;
 /// Queue bound of the priority lane.
 pub(crate) const QUEUE_PRIORITY_JOBS: usize = 256;
 
+/// Priority grants in a row after which a waiting normal ticket is served.
+pub(crate) const PRIORITY_RUN: u32 = 3;
+
 const SAVEPOINT: &str = "SAVEPOINT mw_job";
 /// The previous job's savepoint is released before the next one opens (one
 /// statement round trip): nested savepoints would make every page write of a
@@ -102,11 +138,69 @@ const ROLLBACK_TO: &str = "ROLLBACK TO mw_job";
 /// Which queue a write job waits in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Lane {
-    /// Sign-in, revocation, audit, throttle transitions (A2 tier T0): served
-    /// before every normal ticket, and its batch commits right after it.
+    /// Real T0 writes only (throttle and block transitions, administrative
+    /// clears): served before normal tickets (with the normal lane's guaranteed
+    /// share), grouped with other priority work and committed promptly.
     Priority,
     /// Acknowledged-after-commit writes (T1) and background flushes (T3).
     Normal,
+}
+
+/// A request for a lane, optionally escalatable (see [`WriteEscalation`]).
+#[derive(Clone, Debug)]
+pub struct LaneRequest {
+    pub(crate) lane: Lane,
+    pub(crate) escalation: Option<WriteEscalation>,
+}
+impl From<Lane> for LaneRequest {
+    fn from(lane: Lane) -> Self {
+        Self { lane, escalation: None }
+    }
+}
+impl LaneRequest {
+    /// A normal-lane wait that moves to the priority lane while `escalation`
+    /// is raised.
+    pub fn escalatable(escalation: &WriteEscalation) -> Self {
+        Self { lane: Lane::Normal, escalation: Some(escalation.clone()) }
+    }
+}
+
+/// Moves normal-lane waits to the priority lane while raised. For a lock
+/// holder (for example the accounting timer flush) that callers with priority
+/// work queue behind: they raise it before taking the lock, so the holder's
+/// wait no longer depends on the normal lane's backlog.
+#[derive(Clone, Default)]
+pub struct WriteEscalation(Arc<EscalationInner>);
+#[derive(Default)]
+struct EscalationInner {
+    raised: AtomicUsize,
+    notify: Notify,
+}
+impl fmt::Debug for WriteEscalation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WriteEscalation").field("raised", &self.0.raised.load(Ordering::Relaxed)).finish()
+    }
+}
+impl WriteEscalation {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    /// Raise until the returned guard drops.
+    pub fn raise(&self) -> EscalationGuard {
+        self.0.raised.fetch_add(1, Ordering::AcqRel);
+        self.0.notify.notify_waiters();
+        EscalationGuard(self.clone())
+    }
+    pub fn raised(&self) -> bool {
+        self.0.raised.load(Ordering::Acquire) > 0
+    }
+}
+/// Keeps a [`WriteEscalation`] raised.
+pub struct EscalationGuard(WriteEscalation);
+impl Drop for EscalationGuard {
+    fn drop(&mut self) {
+        self.0.0.raised.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 /// Counters of one writer. Times in microseconds.
@@ -148,6 +242,17 @@ pub struct SqliteWriterStats {
     pub commit_micros_total: u64,
     /// Longest wait of a priority ticket for its grant.
     pub priority_wait_micros_max: u64,
+    /// Normal tickets served as the guaranteed share while priority waited.
+    pub normal_share_grants: u64,
+    /// Normal-lane waits moved to the priority lane by an escalation.
+    pub escalations: u64,
+    /// Callers that ran alone because the batch broke before their turn.
+    pub solo_fallbacks: u64,
+    /// Jobs that returned `Ok` with the connection outside the batch
+    /// transaction (a swallowed fatal error); failed, not re-run.
+    pub left_transaction: u64,
+    /// Writer tasks started (1 per database unless its runtime ended).
+    pub writer_starts: u64,
 }
 
 #[derive(Default)]
@@ -171,6 +276,11 @@ struct Counters {
     begin_micros_total: AtomicU64,
     commit_micros_total: AtomicU64,
     priority_wait_micros_max: AtomicU64,
+    normal_share_grants: AtomicU64,
+    escalations: AtomicU64,
+    solo_fallbacks: AtomicU64,
+    left_transaction: AtomicU64,
+    writer_starts: AtomicU64,
 }
 impl Counters {
     const fn new() -> Self {
@@ -194,6 +304,11 @@ impl Counters {
             begin_micros_total: AtomicU64::new(0),
             commit_micros_total: AtomicU64::new(0),
             priority_wait_micros_max: AtomicU64::new(0),
+            normal_share_grants: AtomicU64::new(0),
+            escalations: AtomicU64::new(0),
+            solo_fallbacks: AtomicU64::new(0),
+            left_transaction: AtomicU64::new(0),
+            writer_starts: AtomicU64::new(0),
         }
     }
     fn snapshot(&self) -> SqliteWriterStats {
@@ -218,6 +333,11 @@ impl Counters {
             begin_micros_total: load(&self.begin_micros_total),
             commit_micros_total: load(&self.commit_micros_total),
             priority_wait_micros_max: load(&self.priority_wait_micros_max),
+            normal_share_grants: load(&self.normal_share_grants),
+            escalations: load(&self.escalations),
+            solo_fallbacks: load(&self.solo_fallbacks),
+            left_transaction: load(&self.left_transaction),
+            writer_starts: load(&self.writer_starts),
         }
     }
 }
@@ -274,6 +394,12 @@ struct Shared {
     in_flight: AtomicUsize,
     idle: Notify,
     closing: AtomicBool,
+    /// The runtime the writer task runs on: the store's (G6).
+    runtime: Mutex<Option<tokio::runtime::Handle>>,
+    /// Test hook: the next SAVEPOINT statement fails as if SQLite had ended
+    /// the transaction.
+    #[cfg(test)]
+    fail_next_savepoint: AtomicBool,
 }
 impl Shared {
     fn each(&self, update: impl Fn(&Counters)) {
@@ -313,8 +439,16 @@ impl Drop for InFlight {
     }
 }
 
+/// Why a ticket got no grant.
+enum Refused {
+    /// The batch could not start (gate wait limit, closed pool).
+    Error(sqlx::Error),
+    /// The batch broke before this ticket's turn: run the job alone.
+    Solo,
+}
+
 struct Ticket {
-    grant: oneshot::Sender<Result<Grant, sqlx::Error>>,
+    grant: oneshot::Sender<Result<Grant, Refused>>,
     lane: Lane,
     queued_at: Instant,
     flight: InFlight,
@@ -338,6 +472,9 @@ enum Outcome {
     Committed,
     /// The batch was rolled back as a whole: run the job again alone.
     Rerun,
+    /// The job left the batch transaction (a swallowed fatal error): it is
+    /// not re-run; its statements outside the batch may have been applied.
+    LeftTransaction,
 }
 
 struct Member {
@@ -427,6 +564,10 @@ impl WriteLease {
                 match done.await {
                     Ok(Outcome::Committed) => Finished::Done(result),
                     Ok(Outcome::Rerun) => Finished::Rerun,
+                    Ok(Outcome::LeftTransaction) => Finished::Done(Err(sqlx::Error::Protocol(
+                        "write job returned Ok after its statements left the batch transaction (a swallowed SQLite error)".into(),
+                    )
+                    .into())),
                     Err(_) => Finished::Done(Err(writer_stopped().into())),
                 }
             }
@@ -472,6 +613,9 @@ impl GroupWriter {
                 in_flight: AtomicUsize::new(0),
                 idle: Notify::new(),
                 closing: AtomicBool::new(false),
+                runtime: Mutex::new(tokio::runtime::Handle::try_current().ok()),
+                #[cfg(test)]
+                fail_next_savepoint: AtomicBool::new(false),
             }),
             channels: Mutex::new(None),
         })
@@ -484,25 +628,24 @@ impl GroupWriter {
     /// Wait for a turn in the batch transaction. Cancel-safe: a dropped future
     /// either never gets a turn (its ticket is skipped) or, if the grant was
     /// already sent, returns it unused (the writer undoes the empty savepoint).
-    pub(crate) async fn lease(&self, live: &LiveSqlite, lane: Lane) -> Result<WriteLease, sqlx::Error> {
+    /// A ticket whose batch broke before its turn runs alone (`Refused::Solo`).
+    pub(crate) async fn lease(
+        &self,
+        live: &LiveSqlite,
+        request: LaneRequest,
+        at: &'static std::panic::Location<'static>,
+    ) -> Result<WriteLease, sqlx::Error> {
         if self.shared.closing.load(Ordering::Acquire) {
             return Err(sqlx::Error::PoolClosed);
         }
-        let (grant, granted) = oneshot::channel();
-        let ticket = Ticket {
-            grant,
-            lane,
-            queued_at: Instant::now(),
-            flight: InFlight::enter(&self.shared),
-        };
-        let waited = tokio::time::timeout(self.shared.limits.wait_limit, async {
-            self.submit(live, ticket).await?;
-            granted.await.map_err(|_| writer_stopped())?
-        })
-        .await;
+        let waited = tokio::time::timeout(self.shared.limits.wait_limit, self.wait_turn(live, request)).await;
         match waited {
             Ok(Ok(grant)) => Ok(WriteLease(LeaseKind::Grouped(grant))),
-            Ok(Err(error)) => Err(error),
+            Ok(Err(Refused::Solo)) => {
+                self.shared.add(|c| &c.solo_fallbacks, 1);
+                Ok(WriteLease::solo(Tx::Sqlite(live.begin_at(at).await?)))
+            }
+            Ok(Err(Refused::Error(error))) => Err(error),
             Err(_) => {
                 self.shared.add(|c| &c.refusals, 1);
                 Err(super::write_gate::locked())
@@ -510,11 +653,53 @@ impl GroupWriter {
         }
     }
 
+    /// One ticket on the requested lane; a normal-lane wait moves to the
+    /// priority lane when its escalation is raised (before or while waiting).
+    async fn wait_turn(&self, live: &LiveSqlite, request: LaneRequest) -> Result<Grant, Refused> {
+        let escalation = match (request.lane, &request.escalation) {
+            (Lane::Normal, Some(escalation)) => Some(escalation.clone()),
+            _ => None,
+        };
+        let mut lane = request.lane;
+        loop {
+            if lane == Lane::Normal && escalation.as_ref().is_some_and(WriteEscalation::raised) {
+                self.shared.add(|c| &c.escalations, 1);
+                lane = Lane::Priority;
+            }
+            let (grant, mut granted) = oneshot::channel();
+            let ticket = Ticket {
+                grant,
+                lane,
+                queued_at: Instant::now(),
+                flight: InFlight::enter(&self.shared),
+            };
+            self.submit(live, ticket).await.map_err(Refused::Error)?;
+            let Some(escalation) = escalation.as_ref().filter(|_| lane == Lane::Normal) else {
+                return granted.await.map_err(|_| Refused::Error(writer_stopped()))?;
+            };
+            let raised = escalation.0.notify.notified();
+            tokio::pin!(raised);
+            raised.as_mut().enable();
+            if !escalation.raised() {
+                tokio::select! {
+                    biased;
+                    result = &mut granted => return result.map_err(|_| Refused::Error(writer_stopped()))?,
+                    _ = &mut raised => {}
+                }
+            }
+            // Withdraw the normal ticket: dropping its receiver makes the writer
+            // skip it, or (if its grant was already sent) return the unused
+            // grant, whose empty savepoint is undone. Then wait on priority.
+            drop(granted);
+        }
+    }
+
     async fn submit(&self, live: &LiveSqlite, mut ticket: Ticket) -> Result<(), sqlx::Error> {
         // A writer task ends with the runtime that spawned it (tests, and a
-        // store reused by a later runtime); its closed queue is replaced once.
-        for _ in 0..2 {
-            let sender = self.sender(live, ticket.lane);
+        // store reused by a later runtime); its closed queue is replaced once,
+        // then on the caller's runtime.
+        for attempt in 0..2 {
+            let sender = self.sender(live, ticket.lane, attempt > 0);
             match sender.send(ticket).await {
                 Ok(()) => return Ok(()),
                 Err(mpsc::error::SendError(returned)) => {
@@ -526,7 +711,7 @@ impl GroupWriter {
         Err(writer_stopped())
     }
 
-    fn sender(&self, live: &LiveSqlite, lane: Lane) -> mpsc::Sender<Ticket> {
+    fn sender(&self, live: &LiveSqlite, lane: Lane, on_current_runtime: bool) -> mpsc::Sender<Ticket> {
         let mut channels = self.channels.lock().unwrap_or_else(|p| p.into_inner());
         if channels
             .as_ref()
@@ -534,13 +719,18 @@ impl GroupWriter {
         {
             let (priority, priority_rx) = mpsc::channel(self.shared.limits.queue_priority.max(1));
             let (normal, normal_rx) = mpsc::channel(self.shared.limits.queue.max(1));
-            let task = tokio::spawn(run(
-                Arc::downgrade(&live.inner),
-                self.shared.clone(),
-                priority_rx,
-                normal_rx,
-            ))
-            .abort_handle();
+            let task = run(Arc::downgrade(&live.inner), self.shared.clone(), priority_rx, normal_rx);
+            // The store's runtime (captured when the writer was created), so a
+            // caller on a short-lived secondary runtime cannot take the writer
+            // down with it. If that runtime has ended, the caller's runtime.
+            let mut runtime = self.shared.runtime.lock().unwrap_or_else(|p| p.into_inner());
+            if on_current_runtime || runtime.is_none() {
+                *runtime = tokio::runtime::Handle::try_current().ok();
+            }
+            let handle = runtime.clone().unwrap_or_else(tokio::runtime::Handle::current);
+            drop(runtime);
+            self.shared.add(|c| &c.writer_starts, 1);
+            let task = handle.spawn(task).abort_handle();
             *channels = Some(Channels { priority, normal, task });
         }
         let channels = channels.as_ref().expect("channels just ensured");
@@ -611,24 +801,71 @@ async fn run(
     mut priority: mpsc::Receiver<Ticket>,
     mut normal: mpsc::Receiver<Ticket>,
 ) {
+    let mut turns = Turns::default();
     loop {
-        let first = tokio::select! {
-            biased;
-            ticket = priority.recv() => ticket,
-            ticket = normal.recv() => ticket,
+        let first = match turns.pick(&mut priority, &mut normal, false) {
+            Some(ticket) => Some(ticket),
+            None => {
+                let ticket = tokio::select! {
+                    biased;
+                    ticket = priority.recv() => ticket,
+                    ticket = normal.recv() => ticket,
+                };
+                if let Some(ticket) = &ticket {
+                    turns.granted(ticket.lane);
+                }
+                ticket
+            }
         };
         let Some(first) = first else { break };
         let Some(inner) = weak.upgrade() else {
-            let _ = first.grant.send(Err(sqlx::Error::PoolClosed));
+            let _ = first.grant.send(Err(Refused::Error(sqlx::Error::PoolClosed)));
             break;
         };
         let live = LiveSqlite { inner };
-        batch(&live, &shared, first, &mut priority, &mut normal).await;
+        batch(&live, &shared, first, &mut priority, &mut normal, &mut turns).await;
     }
 }
 
-fn next_ticket(priority: &mut mpsc::Receiver<Ticket>, normal: &mut mpsc::Receiver<Ticket>) -> Option<Ticket> {
-    priority.try_recv().ok().or_else(|| normal.try_recv().ok())
+/// Weighted alternation between the lanes (G2): priority first, but after
+/// [`PRIORITY_RUN`] priority grants in a row a waiting normal ticket is next.
+#[derive(Default)]
+struct Turns {
+    priority_run: u32,
+    shared_turn: bool,
+}
+impl Turns {
+    fn granted(&mut self, lane: Lane) {
+        self.shared_turn = false;
+        match lane {
+            Lane::Priority => self.priority_run += 1,
+            Lane::Normal => self.priority_run = 0,
+        }
+    }
+    /// The next ticket without waiting. `priority_only`: the batch already
+    /// holds priority work, so normal tickets come only as the guaranteed share.
+    fn pick(
+        &mut self,
+        priority: &mut mpsc::Receiver<Ticket>,
+        normal: &mut mpsc::Receiver<Ticket>,
+        priority_only: bool,
+    ) -> Option<Ticket> {
+        if self.priority_run >= PRIORITY_RUN {
+            if let Ok(ticket) = normal.try_recv() {
+                self.granted(Lane::Normal);
+                self.shared_turn = true;
+                return Some(ticket);
+            }
+        }
+        if let Ok(ticket) = priority.try_recv() {
+            self.granted(Lane::Priority);
+            return Some(ticket);
+        }
+        if priority_only {
+            return None;
+        }
+        normal.try_recv().ok().inspect(|_| self.granted(Lane::Normal))
+    }
 }
 
 async fn execute(tx: &mut Tx, sql: &'static str) -> Result<(), sqlx::Error> {
@@ -637,6 +874,24 @@ async fn execute(tx: &mut Tx, sql: &'static str) -> Result<(), sqlx::Error> {
         Tx::Postgres(_) => Err(sqlx::Error::Protocol("group writer is SQLite only".into())),
     }
 }
+
+/// G5: the error SQLite gives the writer's next statement when the previous
+/// job swallowed a fatal error and returned `Ok` (the batch transaction, and
+/// with it the job savepoint, no longer exists).
+fn left_transaction(error: &sqlx::Error) -> bool {
+    let text = error.to_string();
+    text.contains("no such savepoint") || text.contains("no transaction is active")
+}
+
+fn note_left(shared: &Shared) {
+    shared.add(|c| &c.left_transaction, 1);
+    debug_assert!(
+        cfg!(test) && TOLERATE_LEFT_TRANSACTION.load(Ordering::Relaxed),
+        "group writer: a write job returned Ok after its statements left the batch transaction (a swallowed SQLite error in the job body)"
+    );
+}
+/// Test builds: the G5 test provokes the condition on purpose.
+static TOLERATE_LEFT_TRANSACTION: AtomicBool = AtomicBool::new(false);
 
 #[track_caller]
 fn here() -> &'static std::panic::Location<'static> {
@@ -649,6 +904,7 @@ async fn batch(
     first: Ticket,
     priority: &mut mpsc::Receiver<Ticket>,
     normal: &mut mpsc::Receiver<Ticket>,
+    turns: &mut Turns,
 ) {
     // Skip callers that left before BEGIN: an empty batch is not opened.
     let mut next = Some(first);
@@ -658,7 +914,7 @@ async fn batch(
             break;
         }
         shared.add(|c| &c.skipped, 1);
-        next = next_ticket(priority, normal);
+        next = turns.pick(priority, normal, false);
     }
     let Some(first) = next else { return };
 
@@ -668,13 +924,18 @@ async fn batch(
         Err(error) => {
             // Gate wait limit, closed pool: this caller alone hears it; the
             // queued tickets get their own attempt in the next round.
-            let _ = first.grant.send(Err(error));
+            let _ = first.grant.send(Err(Refused::Error(error)));
             return;
         }
     };
     shared.add(|c| &c.begin_micros_total, micros(begun.elapsed()));
     let mut members: Vec<Member> = Vec::new();
+    // The member whose job left the transaction (failed, never re-run).
+    let mut left: Option<Member> = None;
     let mut broken = false;
+    let mut holds_priority = false;
+    // Whether the last member's job returned Ok (G5 attribution).
+    let mut last_done = false;
     // Whether a job's savepoint is still open (released before the next opens;
     // COMMIT releases the last one).
     let mut open = false;
@@ -686,18 +947,36 @@ async fn batch(
             queued_at,
             flight,
         } = ticket;
+        if turns.shared_turn {
+            shared.add(|c| &c.normal_share_grants, 1);
+        }
         if grant.is_closed() {
             shared.add(|c| &c.skipped, 1);
         } else {
             let mut current = tx.take().expect("batch transaction present");
             let savepoint_at = Instant::now();
-            let opened = execute(&mut current, if open { RELEASE_AND_SAVEPOINT } else { SAVEPOINT }).await;
+            #[cfg(test)]
+            let injected = shared.fail_next_savepoint.swap(false, Ordering::AcqRel);
+            #[cfg(not(test))]
+            let injected = false;
+            let opened = if injected {
+                Err(sqlx::Error::Protocol("injected savepoint failure".into()))
+            } else {
+                execute(&mut current, if open { RELEASE_AND_SAVEPOINT } else { SAVEPOINT }).await
+            };
             open = true;
             shared.add(|c| &c.savepoint_micros_total, micros(savepoint_at.elapsed()));
-            if opened.is_err() {
-                // SQLite ended the transaction: nothing of this batch is kept.
+            if let Err(error) = &opened {
+                // The batch is lost; this caller did nothing wrong: it runs
+                // alone (G4), the earlier members re-run alone. If the previous
+                // job left the transaction (G5), it alone is failed, not re-run.
+                if last_done && left_transaction(error) {
+                    note_left(shared);
+                    left = members.pop();
+                }
                 broken = true;
-                let _ = grant.send(Err(writer_stopped()));
+                let _ = grant.send(Err(Refused::Solo));
+                current.close_on_drop();
                 drop(current);
                 break;
             }
@@ -732,6 +1011,7 @@ async fn batch(
                             shared.max(|c| &c.job_hold_micros_max, held);
                             shared.add(|c| &c.job_hold_micros_total, held);
                             let mut back_tx = back_tx;
+                            last_done = status == Status::Done;
                             if status != Status::Done {
                                 shared.add(
                                     |c| {
@@ -749,6 +1029,7 @@ async fn batch(
                                 if undone.is_err() {
                                     broken = true;
                                     members.push(member);
+                                    back_tx.close_on_drop();
                                     drop(back_tx);
                                     break;
                                 }
@@ -756,6 +1037,7 @@ async fn batch(
                             tx = Some(back_tx);
                             if lane == Lane::Priority {
                                 shared.add(|c| &c.priority_jobs, 1);
+                                holds_priority = true;
                             }
                             members.push(member);
                         }
@@ -770,27 +1052,36 @@ async fn batch(
                     }
                 }
             }
-            if lane == Lane::Priority {
-                break;
-            }
         }
         if members.len() >= shared.limits.max_jobs || begun.elapsed() >= shared.limits.max_time {
             break;
         }
-        next = next_ticket(priority, normal);
+        next = turns.pick(priority, normal, holds_priority);
     }
 
     let committed = match (broken, tx) {
-        // Tx::commit: one COMMIT per batch, counted by the pool telemetry's
-        // commit counter like any other transaction's.
+        // One COMMIT per batch.
         (false, Some(tx)) => {
             let commit_at = Instant::now();
-            let committed = tx.commit().await.is_ok();
+            // A failed COMMIT leaves SQLite's state unknown to SQLx (G5: no
+            // transaction at all): the connection is then closed, not pooled.
+            let result = tx.commit_or_close().await;
             shared.add(|c| &c.commit_micros_total, micros(commit_at.elapsed()));
-            committed
+            if let Err(error) = &result
+                && last_done
+                && left_transaction(error)
+            {
+                note_left(shared);
+                left = members.pop();
+            }
+            result.is_ok()
         }
-        // A broken batch: dropping the transaction rolls it back.
-        (_, tx) => {
+        // A broken batch: dropping the transaction rolls it back; the
+        // connection is closed, not pooled (its state is unknown).
+        (_, mut tx) => {
+            if let Some(tx) = tx.as_mut() {
+                tx.close_on_drop();
+            }
             drop(tx);
             false
         }
@@ -798,6 +1089,9 @@ async fn batch(
     let elapsed = micros(begun.elapsed());
     shared.add(|c| &c.batch_micros_total, elapsed);
     shared.max(|c| &c.batch_micros_max, elapsed);
+    if let Some(member) = left {
+        let _ = member.done.send(Outcome::LeftTransaction);
+    }
     if committed {
         shared.add(|c| &c.commits, 1);
         shared.add(|c| &c.jobs, members.len() as u64);

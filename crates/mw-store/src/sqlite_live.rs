@@ -27,7 +27,7 @@ pub(crate) mod write_gate;
 use write_gate::{Site, WriteGate, WritePermit};
 #[path = "sqlite_writer.rs"]
 pub(crate) mod sqlite_writer;
-use sqlite_writer::{GroupWriter, Lane, WriteLease};
+use sqlite_writer::{GroupWriter, LaneRequest, WriteLease};
 
 /// How often the background checkpointer looks at the active WAL.
 pub(crate) const WAL_CHECKPOINT_TICK: Duration = Duration::from_millis(250);
@@ -239,12 +239,12 @@ impl LiveSqlite {
     /// transaction of its own (exactly `begin_at`).
     pub(crate) async fn write_lease(
         &self,
-        lane: Lane,
+        lane: LaneRequest,
         solo: bool,
         at: &'static std::panic::Location<'static>,
     ) -> Result<WriteLease, Error> {
         match (&self.inner.writer, solo) {
-            (Some(writer), false) => writer.lease(self, lane).await,
+            (Some(writer), false) => writer.lease(self, lane, at).await,
             _ => Ok(WriteLease::solo(crate::backend::Tx::Sqlite(self.begin_at(at).await?))),
         }
     }
@@ -757,6 +757,27 @@ impl LiveTransaction {
         self.open = false;
         self.pin._owner.wal.note_write();
         Ok(())
+    }
+    /// Close the connection instead of returning it to the pool when this
+    /// transaction drops: for a batch whose SQLite transaction state is unknown
+    /// (the group writer's broken batches), so SQLx's transaction depth can
+    /// never leak into the pool out of step with SQLite.
+    pub(crate) fn close_on_drop(&mut self) {
+        self.connection.close_on_drop();
+    }
+    /// `commit`, but a failed COMMIT closes the connection instead of pooling it.
+    pub(crate) async fn commit_or_close(mut self) -> Result<(), Error> {
+        match <Sqlite as sqlx::Database>::TransactionManager::commit(&mut *self.connection).await {
+            Ok(()) => {
+                self.open = false;
+                self.pin._owner.wal.note_write();
+                Ok(())
+            }
+            Err(error) => {
+                self.connection.close_on_drop();
+                Err(error)
+            }
+        }
     }
     pub(crate) async fn rollback(mut self) -> Result<(), Error> {
         <Sqlite as sqlx::Database>::TransactionManager::rollback(&mut *self.connection).await?;

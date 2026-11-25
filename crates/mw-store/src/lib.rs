@@ -126,7 +126,7 @@ mod sqlite_live;
 /// `MW_SQLITE_WRITER` (in-process SQLite write gate), for the startup check.
 pub use sqlite_live::write_gate::{Mode as SqliteWriterMode, parse_mode as parse_sqlite_writer_mode};
 /// Queue of a write job in the SQLite group-commit writer (`MW_SQLITE_WRITER=group`).
-pub use sqlite_live::sqlite_writer::Lane as WriteLane;
+pub use sqlite_live::sqlite_writer::{EscalationGuard, Lane as WriteLane, LaneRequest as WriteLaneRequest, WriteEscalation};
 mod sqlite_startup;
 mod generation_files;
 pub use generation_files::retirement::{RetainedDatabase, RetainedDatabaseReport, RetireDatabaseRequest, RetiredDatabase};

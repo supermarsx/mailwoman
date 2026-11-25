@@ -7,6 +7,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePo
 use std::future::{Future, poll_fn};
 use std::path::Path;
 use std::task::Poll;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 fn limits() -> Limits {
     Limits::default()
@@ -903,4 +904,333 @@ async fn request_protection_groups_run_as_writer_jobs_with_equal_decisions() {
     };
     live.close().await;
     managed.close().await;
+}
+
+// ---- review t50hp-e15b: G1, G2, G4, G5, G6, fairness, latency, kill -9 -----------------
+
+/// G1 (store side): a normal-lane wait behind a congested lane moves to the
+/// priority lane when its escalation is raised, and is then served within the
+/// priority bound instead of after the backlog.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn g1_an_escalated_normal_wait_is_served_within_the_priority_bound() {
+    let f = fixture(limits()).await;
+    const SLOW: Duration = Duration::from_millis(5);
+    let mut backlog = Vec::new();
+    for worker in 0..256i64 {
+        let backend = f.backend.clone();
+        backlog.push(tokio::spawn(async move {
+            write_job!(backend, Lane::Normal, |tx| async {
+                q("INSERT INTO t(id, v) VALUES(?1, 'slow')").bind(10_000 + worker).execute_tx(tx).await?;
+                tokio::time::sleep(SLOW).await;
+                Ok::<_, StoreError>(())
+            })
+        }));
+    }
+    until_in_flight(&f.writer, 200).await;
+    let escalation = WriteEscalation::new();
+    let backend = f.backend.clone();
+    let request = LaneRequest::escalatable(&escalation);
+    let started = Instant::now();
+    let waiter = tokio::spawn(async move {
+        write_job!(backend, request.clone(), |tx| async {
+            q("INSERT INTO t(id, v) VALUES(1, 'escalated')").execute_tx(tx).await?;
+            Ok::<_, StoreError>(Instant::now())
+        })
+    });
+    // Let it queue on the normal lane, then raise (as a transition would).
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    let raised_at = Instant::now();
+    let _urgent = escalation.raise();
+    let done_at = waiter.await.unwrap().unwrap();
+    let after_raise = done_at.duration_since(raised_at);
+    let pending = f.writer.stats().in_flight;
+    assert!(pending >= 100, "the backlog drained first: {pending}");
+    assert!(after_raise < Duration::from_millis(250), "escalated wait {after_raise:?}");
+    assert_eq!(f.writer.stats().escalations, 1);
+    eprintln!("G1: escalated after {after_raise:?} (total {:?}), backlog still {pending}", started.elapsed());
+    for task in backlog {
+        task.await.unwrap().unwrap();
+    }
+}
+
+/// G1: an escalation raised before the wait starts goes to priority at once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn g1_an_escalation_raised_before_the_wait_uses_the_priority_lane() {
+    let f = fixture(limits()).await;
+    let escalation = WriteEscalation::new();
+    let _urgent = escalation.raise();
+    let request = LaneRequest::escalatable(&escalation);
+    let backend = f.backend.clone();
+    let result: Result<(), StoreError> = async move {
+        write_job!(backend, request.clone(), |tx| async {
+            q("INSERT INTO t(id, v) VALUES(1, 'x')").execute_tx(tx).await?;
+            Ok::<_, StoreError>(())
+        })
+    }
+    .await;
+    result.unwrap();
+    let stats = f.writer.stats();
+    assert_eq!((stats.escalations, stats.priority_jobs), (1, 1), "{stats:?}");
+}
+
+/// G2: a sustained priority stream cannot starve the normal lane: normal jobs
+/// get at least one grant in every PRIORITY_RUN + 1 and finish within a bound.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn g2_sustained_priority_load_does_not_starve_the_normal_lane() {
+    let f = fixture(limits()).await;
+    let stop = Arc::new(AtomicBool::new(false));
+    let mut flood = Vec::new();
+    for worker in 0..32i64 {
+        let (backend, stop) = (f.backend.clone(), stop.clone());
+        flood.push(tokio::spawn(async move {
+            let mut n = 0i64;
+            while !stop.load(Ordering::Relaxed) {
+                insert(&backend, Lane::Priority, 1_000_000 + worker * 100_000 + n).await.unwrap();
+                n += 1;
+            }
+            n
+        }));
+    }
+    until_in_flight(&f.writer, 24).await;
+    let mut worst = Duration::ZERO;
+    for id in 0..40 {
+        let started = Instant::now();
+        insert(&f.backend, Lane::Normal, id).await.unwrap();
+        worst = worst.max(started.elapsed());
+    }
+    stop.store(true, Ordering::Relaxed);
+    let mut priority_done = 0;
+    for task in flood {
+        priority_done += task.await.unwrap();
+    }
+    let stats = f.writer.stats();
+    // 32 priority writers keep the priority lane non-empty; each normal job
+    // waits at most PRIORITY_RUN priority jobs plus one commit.
+    assert!(worst < Duration::from_millis(500), "normal wait under priority flood {worst:?}");
+    assert!(stats.normal_share_grants >= 1, "{stats:?}");
+    assert!(priority_done > 40, "the priority lane kept running: {priority_done}");
+    // Priority work is grouped: fewer commits than priority jobs.
+    assert!(stats.commits < stats.jobs, "{stats:?}");
+    eprintln!("G2: normal worst {worst:?} under {priority_done} priority jobs; {stats:?}");
+}
+
+/// G4: a batch broken at the savepoint step: the caller in hand runs alone
+/// (not an error), the earlier member re-runs alone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn g4_a_broken_savepoint_runs_the_caller_in_hand_alone() {
+    let f = fixture(wide()).await;
+    let (first, entered, release) = held(&f, 1);
+    entered.notified().await;
+    let second = spawn_insert(&f, Lane::Normal, 2);
+    until_in_flight(&f.writer, 2).await;
+    f.writer.shared.fail_next_savepoint.store(true, Ordering::Release);
+    release.notify_one();
+    first.await.unwrap().unwrap();
+    second.await.unwrap().unwrap();
+    assert_eq!(ids(&f).await, vec![1, 2]);
+    let stats = f.writer.stats();
+    assert_eq!((stats.batch_failures, stats.solo_fallbacks), (1, 1), "{stats:?}");
+}
+
+/// G5: a body that loses the batch transaction (here: ends it itself, as a
+/// swallowed SQLITE_FULL would) and still returns Ok is failed, not re-run;
+/// the other members re-run alone and commit once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn g5_a_job_that_left_the_transaction_is_failed_not_rerun() {
+    TOLERATE_LEFT_TRANSACTION.store(true, Ordering::Relaxed);
+    let f = fixture(wide()).await;
+    let (first, entered, release) = held(&f, 1);
+    entered.notified().await;
+    let backend = f.backend.clone();
+    let rogue = tokio::spawn(async move {
+        write_job!(backend, Lane::Normal, |tx| async {
+            // Leaves the transaction, then writes in autocommit and hides it.
+            let _ = q("ROLLBACK").execute_tx(tx).await;
+            q("INSERT INTO seq(who, seen) VALUES(7, 0)").execute_tx(tx).await?;
+            Ok::<_, StoreError>(())
+        })
+    });
+    until_in_flight(&f.writer, 2).await;
+    let after = spawn_insert(&f, Lane::Normal, 3);
+    until_in_flight(&f.writer, 3).await;
+    release.notify_one();
+    first.await.unwrap().unwrap();
+    assert!(rogue.await.unwrap().is_err(), "the rogue job's caller gets an error");
+    after.await.unwrap().unwrap();
+    // The rogue's autocommit row exists exactly once (it was not re-run).
+    let rogue_rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM seq WHERE who=7").fetch_one(&f.reader).await.unwrap();
+    assert_eq!(rogue_rows, 1);
+    assert_eq!(ids(&f).await, vec![1, 3]);
+    assert_eq!(f.writer.stats().left_transaction, 1);
+    TOLERATE_LEFT_TRANSACTION.store(false, Ordering::Relaxed);
+}
+
+/// G6: the writer runs on the runtime that created it; a caller on a
+/// short-lived secondary runtime neither hosts nor takes it down.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn g6_the_writer_runs_on_the_store_runtime_not_the_callers() {
+    let f = fixture(limits()).await;
+    let backend = f.backend.clone();
+    std::thread::spawn(move || {
+        let secondary = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        secondary.block_on(async move { insert(&backend, Lane::Normal, 1).await.unwrap() });
+        drop(secondary);
+    })
+    .join()
+    .unwrap();
+    insert(&f.backend, Lane::Normal, 2).await.unwrap();
+    assert_eq!(ids(&f).await, vec![1, 2]);
+    assert_eq!(f.writer.stats().writer_starts, 1, "one writer task, on the store runtime");
+}
+
+/// No regression at low concurrency: a lone write never waits for the batch
+/// window (here 30 s), it commits at once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_lone_write_does_not_wait_for_the_batch_window() {
+    let f = fixture(wide()).await;
+    let mut worst = Duration::ZERO;
+    for id in 0..20 {
+        let started = Instant::now();
+        insert(&f.backend, Lane::Normal, id).await.unwrap();
+        worst = worst.max(started.elapsed());
+    }
+    assert!(worst < Duration::from_millis(500), "lone write {worst:?} with a 30 s window");
+    assert_eq!(f.writer.stats().commits, 20);
+}
+
+/// Review question 7 (characterisation): the normal lane is FIFO with no
+/// per-account fairness, as the gate is. One submitter's backlog delays
+/// another's single write by the queue ahead of it, and the write succeeds
+/// while that backlog stays under the queue and wait bounds. A backlog longer
+/// than the 5 s wait limit makes the other submitter's write fail with
+/// `database is locked` (seen with 400 x 1 ms jobs in a debug build): per-account
+/// caps are not implemented.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn one_submitters_backlog_delays_another_by_the_queue_ahead_of_it() {
+    let f = fixture(limits()).await;
+    let mut flood = Vec::new();
+    for n in 0..150i64 {
+        let backend = f.backend.clone();
+        flood.push(tokio::spawn(async move {
+            write_job!(backend, Lane::Normal, |tx| async {
+                q("INSERT INTO t(id, v) VALUES(?1, 'a')").bind(100_000 + n).execute_tx(tx).await?;
+                tokio::time::sleep(Duration::from_millis(1)).await;
+                Ok::<_, StoreError>(())
+            })
+        }));
+    }
+    until_in_flight(&f.writer, 120).await;
+    let ahead = f.writer.stats().in_flight;
+    let started = Instant::now();
+    insert(&f.backend, Lane::Normal, 1).await.unwrap();
+    let waited = started.elapsed();
+    for task in flood {
+        task.await.unwrap().unwrap();
+    }
+    assert!(waited < WAIT_LIMIT, "{waited:?}");
+    eprintln!("fairness: one write behind {ahead} queued jobs of another submitter waited {waited:?}");
+}
+
+// ---- real process killed mid-batch --------------------------------------------------
+
+const KILL_CHILD: &str = "sqlite_live::sqlite_writer::tests::writer_child_process";
+
+/// Child entry point (a no-op unless started by the kill test): 16 tasks
+/// write jobs of two rows each through the group writer and print every
+/// answered id.
+#[test]
+fn writer_child_process() {
+    let Ok(path) = std::env::var("MW_E19_CHILD_DB") else { return };
+    let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+    runtime.block_on(async move {
+        let pool = file_pool(Path::new(&path), 4).await;
+        let writer = GroupWriter::with_limits(limits());
+        let backend = Backend::Sqlite(LiveSqlite::unmanaged_with_writer(pool, writer));
+        let mut tasks = Vec::new();
+        for worker in 0..16i64 {
+            let backend = backend.clone();
+            tasks.push(tokio::spawn(async move {
+                for n in 0.. {
+                    let id = worker * 1_000_000 + n;
+                    let result: Result<(), StoreError> = async {
+                        write_job!(backend, Lane::Normal, |tx| async {
+                            q("INSERT INTO t(id, v) VALUES(?1, 'a')").bind(id).execute_tx(tx).await?;
+                            q("INSERT INTO seq(who, seen) VALUES(?1, 1)").bind(id).execute_tx(tx).await?;
+                            Ok::<_, StoreError>(())
+                        })
+                    }
+                    .await;
+                    result.unwrap();
+                    use std::io::Write;
+                    let mut out = std::io::stdout().lock();
+                    let _ = writeln!(out, "E19CHILD ANSWERED {id}");
+                    let _ = out.flush();
+                }
+            }));
+        }
+        for task in tasks {
+            task.await.unwrap();
+        }
+    });
+}
+
+/// kill -9 of a real process mid-batch: every job the child reported answered
+/// is stored, and no job is half-applied (both rows or neither).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_killed_process_loses_no_answered_job_and_half_applies_none() {
+    use std::io::BufRead;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("killed.db");
+    let pool = file_pool(&path, 1).await;
+    sqlx::raw_sql(
+        "CREATE TABLE t(id INTEGER PRIMARY KEY, v TEXT NOT NULL);
+         CREATE TABLE seq(n INTEGER PRIMARY KEY AUTOINCREMENT, who INTEGER NOT NULL, seen INTEGER NOT NULL);",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    pool.close().await;
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", KILL_CHILD, "--nocapture", "--test-threads=1"])
+        .env("MW_E19_CHILD_DB", &path)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let (lines, receiver) = std::sync::mpsc::channel::<i64>();
+    std::thread::spawn(move || {
+        for line in std::io::BufReader::new(stdout).lines().map_while(Result::ok) {
+            if let Some(id) = line.strip_prefix("E19CHILD ANSWERED ") {
+                if lines.send(id.trim().parse().unwrap()).is_err() {
+                    break;
+                }
+            }
+        }
+    });
+    let mut answered = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while answered.len() < 400 && Instant::now() < deadline {
+        if let Ok(id) = receiver.recv_timeout(Duration::from_millis(100)) {
+            answered.push(id);
+        }
+    }
+    assert!(answered.len() >= 400, "child answered {} jobs", answered.len());
+    // Kill by the child's own handle (TerminateProcess / SIGKILL), mid-stream.
+    child.kill().unwrap();
+    let _ = child.wait();
+    while let Ok(id) = receiver.try_recv() {
+        answered.push(id);
+    }
+    let pool = file_pool(&path, 1).await;
+    let stored: std::collections::BTreeSet<i64> =
+        sqlx::query_scalar("SELECT id FROM t").fetch_all(&pool).await.unwrap().into_iter().collect();
+    let paired: std::collections::BTreeSet<i64> =
+        sqlx::query_scalar("SELECT who FROM seq").fetch_all(&pool).await.unwrap().into_iter().collect();
+    for id in &answered {
+        assert!(stored.contains(id), "answered job {id} lost");
+    }
+    assert_eq!(stored, paired, "a job is stored with both rows or not at all");
+    eprintln!("kill -9: {} answered, {} stored", answered.len(), stored.len());
+    pool.close().await;
 }
