@@ -912,35 +912,7 @@ impl Store {
         if ids.is_empty() {
             return self.current_state(account_id, kind).await;
         }
-        let now = chrono::Utc::now().to_rfc3339();
-        let sql = match self.backend.dialect() {
-            Dialect::Sqlite => {
-                "INSERT INTO changes (account_id, type, state, stable_id, op, at)
-                 SELECT ?1, ?2, s.next, j.value, ?4, ?5
-                 FROM (SELECT COALESCE(MAX(state), 0) + 1 AS next FROM (
-                       SELECT MAX(state) AS state FROM changes WHERE account_id=?1 AND type=?2
-                       UNION ALL SELECT head_state AS state FROM change_log_checkpoint WHERE account_id=?1 AND type=?2
-                       ) heads) s,
-                      json_each(?3) j
-                 RETURNING state"
-            }
-            Dialect::Postgres => {
-                "INSERT INTO changes (account_id, type, state, stable_id, op, at)
-                 SELECT ?1, ?2, s.next, j.value, ?4, ?5
-                 FROM (SELECT COALESCE(MAX(state), 0) + 1 AS next FROM (
-                       SELECT MAX(state) AS state FROM changes WHERE account_id=?1 AND type=?2
-                       UNION ALL SELECT head_state AS state FROM change_log_checkpoint WHERE account_id=?1 AND type=?2
-                       ) heads) s,
-                      json_array_elements_text(?3::json) j
-                 RETURNING state"
-            }
-        };
-        let insert = q(sql)
-            .bind(account_id)
-            .bind(kind)
-            .bind(id_list_json(&ids))
-            .bind(op)
-            .bind(&now);
+        let insert = record_changes_insert(self.backend.dialect(), account_id, kind, &ids, op);
         let rows = append_changes(&self.backend, ChangeLog::Mail, account_id, insert).await?;
         // Every row carries the same state by construction; read it off the
         // first rather than trusting the caller's arithmetic.
@@ -1139,6 +1111,48 @@ pub(crate) async fn lock_change_log(
         ChangeLog::Pim | ChangeLog::Crypto => {}
     }
     Ok(())
+}
+
+/// The `record_changes` INSERT: N rows at ONE new state (`MAX+1` evaluated
+/// once), `RETURNING state`. The caller holds the change-log serialisation
+/// (SQLite single writer; PostgreSQL `lock_change_log` / lock_body_account).
+pub(crate) fn record_changes_insert(
+    dialect: Dialect,
+    account_id: &str,
+    kind: &str,
+    ids: &[String],
+    op: &str,
+) -> crate::backend::Sql {
+    let now = chrono::Utc::now().to_rfc3339();
+        let sql = match dialect {
+            Dialect::Sqlite => {
+                "INSERT INTO changes (account_id, type, state, stable_id, op, at)
+                 SELECT ?1, ?2, s.next, j.value, ?4, ?5
+                 FROM (SELECT COALESCE(MAX(state), 0) + 1 AS next FROM (
+                       SELECT MAX(state) AS state FROM changes WHERE account_id=?1 AND type=?2
+                       UNION ALL SELECT head_state AS state FROM change_log_checkpoint WHERE account_id=?1 AND type=?2
+                       ) heads) s,
+                      json_each(?3) j
+                 RETURNING state"
+            }
+            Dialect::Postgres => {
+                "INSERT INTO changes (account_id, type, state, stable_id, op, at)
+                 SELECT ?1, ?2, s.next, j.value, ?4, ?5
+                 FROM (SELECT COALESCE(MAX(state), 0) + 1 AS next FROM (
+                       SELECT MAX(state) AS state FROM changes WHERE account_id=?1 AND type=?2
+                       UNION ALL SELECT head_state AS state FROM change_log_checkpoint WHERE account_id=?1 AND type=?2
+                       ) heads) s,
+                      json_array_elements_text(?3::json) j
+                 RETURNING state"
+            }
+        };
+        let insert = q(sql)
+            .bind(account_id)
+            .bind(kind)
+            .bind(id_list_json(&ids))
+            .bind(op)
+            .bind(&now);
+    insert
 }
 
 /// Run a change-log `INSERT … MAX(state)+1 … RETURNING state` so concurrent

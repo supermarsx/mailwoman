@@ -1692,8 +1692,32 @@ impl Store {
         &self,
         updates: &[(String, String)],
     ) -> Result<Vec<bool>, StoreError> {
+        Ok(self.set_flags_batch_inner(updates, None).await?.0)
+    }
+
+    /// [`Store::set_flags_batch`] for ids of one account, with the Email change
+    /// rows of the written ids appended IN THE SAME TRANSACTION (W11): N rows at
+    /// one new state, as [`Store::record_changes`] writes them, so no other
+    /// device can see the flags without their change, and a cancelled caller
+    /// cannot leave one without the other. Returns the per-id result and the
+    /// new Email state (`None` when no id was written, so nothing was
+    /// recorded). Ids of another account are reported as not written.
+    pub async fn set_flags_batch_recorded(
+        &self,
+        account_id: &str,
+        updates: &[(String, String)],
+        op: &str,
+    ) -> Result<(Vec<bool>, Option<u64>), StoreError> {
+        self.set_flags_batch_inner(updates, Some((account_id, op))).await
+    }
+
+    async fn set_flags_batch_inner(
+        &self,
+        updates: &[(String, String)],
+        record: Option<(&str, &str)>,
+    ) -> Result<(Vec<bool>, Option<u64>), StoreError> {
         if updates.is_empty() {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), None));
         }
         // Last-wins, and the ids in request order for the id-list parameter.
         let mut desired: HashMap<&str, &str> = HashMap::with_capacity(updates.len());
@@ -1704,6 +1728,9 @@ impl Store {
 
         // One write job (a savepoint in the group writer's batch with
         // MW_SQLITE_WRITER=group, otherwise its own transaction, as before).
+        if self.backend.dialect() == Dialect::Postgres {
+            return self.set_flags_batch_pg(updates, &desired, &ids, record).await;
+        }
         crate::backend::write_job!(self.backend, crate::backend::WriteLane::Normal, |tx| async {
         // PostgreSQL follows the same account -> mailbox -> message lock order
         // as source-CAS moves/deletes. Discovery is only a lock plan: recheck it
@@ -1769,8 +1796,32 @@ impl Store {
             }
             present.insert(stable_id);
         }
+        if let Some((account_id, _)) = record {
+            // Only this account's rows: a foreign id is not written.
+            let foreign: HashSet<String> = rows
+                .iter()
+                .filter(|r| r.get_string("account_id") != account_id)
+                .map(|r| r.get_string("stable_id"))
+                .collect();
+            if !foreign.is_empty() {
+                present.retain(|id| !foreign.contains(id));
+                delta.clear();
+                for r in &rows {
+                    let stable_id = r.get_string("stable_id");
+                    let Some(flags) = desired.get(stable_id.as_str()) else { continue };
+                    if !present.contains(&stable_id) {
+                        continue;
+                    }
+                    match (flags_json_is_unread(&r.get_string("flags_json")), flags_json_is_unread(flags)) {
+                        (true, false) => *delta.entry(r.get_string("mailbox_id")).or_default() -= 1,
+                        (false, true) => *delta.entry(r.get_string("mailbox_id")).or_default() += 1,
+                        _ => {}
+                    }
+                }
+            }
+        }
         if present.is_empty() {
-            return Ok(updates.iter().map(|_| false).collect());
+            return Ok((updates.iter().map(|_| false).collect(), None));
         }
 
         // (2) one UPDATE for the whole page, joined against the pairs encoded as
@@ -1821,10 +1872,135 @@ impl Store {
             .await?;
         }
 
-        Ok::<_, StoreError>(updates
+        // W11: the change rows of the written ids, same transaction. On
+        // PostgreSQL the per-account lock that serialises the change log
+        // (lock_body_account, 719304) is already held above.
+        let state = match record {
+            Some((account_id, op)) => {
+                let mut written: Vec<String> = Vec::with_capacity(present.len());
+                let mut seen = HashSet::with_capacity(present.len());
+                for (id, _) in updates {
+                    if present.contains(id.as_str()) && seen.insert(id.as_str()) {
+                        written.push(id.clone());
+                    }
+                }
+                let rows = crate::v2::record_changes_insert(self.backend.dialect(), account_id, "Email", &written, op)
+                    .fetch_all_tx(tx)
+                    .await?;
+                rows.first().map(|r| r.get_i64_idx(0) as u64)
+            }
+            None => None,
+        };
+        Ok::<_, StoreError>((updates
             .iter()
             .map(|(id, _)| present.contains(id.as_str()))
-            .collect())
+            .collect(), state))
+        })
+    }
+
+    /// PostgreSQL form of `set_flags_batch_inner`: the same locks in the same
+    /// order and the same writes, in two statements inside one transaction
+    /// (round trips: BEGIN, lock, write, COMMIT).
+    /// 1. Lock: the location of every id (the lock plan), the per-account
+    ///    advisory lock (also the change-log lock), the accounts FOR KEY SHARE,
+    ///    the planned mailboxes FOR UPDATE, then the messages FOR UPDATE with
+    ///    their current flags. Each step runs as an InitPlan of the next, so the
+    ///    order is account -> mailbox -> message as in source-CAS moves and
+    ///    deletes. A message whose current mailbox is not among the locked ones
+    ///    (moved since the plan) fails the call with `SourceChanged` before any
+    ///    write, as the separate-statement form did.
+    /// 2. Write: one statement with the flag UPDATE, the unread counter UPDATE
+    ///    and (W11) the change rows, `RETURNING` the new state. Its snapshot is
+    ///    taken after the locks of statement 1, so `MAX(state)+1` sees every
+    ///    earlier writer of the account.
+    async fn set_flags_batch_pg(
+        &self,
+        updates: &[(String, String)],
+        desired: &HashMap<&str, &str>,
+        ids: &[String],
+        record: Option<(&str, &str)>,
+    ) -> Result<(Vec<bool>, Option<u64>), StoreError> {
+        crate::backend::write_job!(self.backend, crate::backend::WriteLane::Normal, |tx| async {
+            let rows = q("WITH ids AS (SELECT value AS id FROM json_array_elements_text(?1::json)),
+                 loc AS MATERIALIZED (SELECT stable_id, account_id, mailbox_id FROM messages WHERE stable_id IN (SELECT id FROM ids)),
+                 adv AS MATERIALIZED (SELECT pg_advisory_xact_lock(hashtextextended(a.account_id,719304)) FROM (SELECT DISTINCT account_id FROM loc ORDER BY account_id) a),
+                 acc AS MATERIALIZED (SELECT id FROM accounts WHERE id IN (SELECT account_id FROM loc) AND (SELECT count(*) FROM adv) >= 0 ORDER BY id FOR KEY SHARE),
+                 mb AS MATERIALIZED (SELECT id FROM mailboxes WHERE (account_id, id) IN (SELECT account_id, mailbox_id FROM loc) AND (SELECT count(*) FROM acc) >= 0 ORDER BY id FOR UPDATE)
+                 SELECT m.stable_id, m.account_id, m.mailbox_id, m.flags_json,
+                        CAST(CASE WHEN m.mailbox_id IN (SELECT id FROM mb) THEN 1 ELSE 0 END AS BIGINT) AS planned
+                 FROM messages m WHERE m.stable_id IN (SELECT id FROM ids) AND (SELECT count(*) FROM mb) >= 0
+                 ORDER BY m.stable_id FOR UPDATE OF m")
+                .bind(id_list_json(ids))
+                .fetch_all_tx(tx)
+                .await?;
+            if rows.iter().any(|r| r.get_i64("planned") != 1) {
+                return Err(StoreError::SourceChanged);
+            }
+            let mut delta: HashMap<String, i64> = HashMap::new();
+            let mut present: HashSet<String> = HashSet::with_capacity(rows.len());
+            for r in &rows {
+                let stable_id = r.get_string("stable_id");
+                let Some(flags) = desired.get(stable_id.as_str()) else { continue };
+                if record.is_some_and(|(account_id, _)| r.get_string("account_id") != account_id) {
+                    continue;
+                }
+                match (flags_json_is_unread(&r.get_string("flags_json")), flags_json_is_unread(flags)) {
+                    (true, false) => *delta.entry(r.get_string("mailbox_id")).or_default() -= 1,
+                    (false, true) => *delta.entry(r.get_string("mailbox_id")).or_default() += 1,
+                    _ => {}
+                }
+                present.insert(stable_id);
+            }
+            if present.is_empty() {
+                return Ok((updates.iter().map(|_| false).collect(), None));
+            }
+            let mut emitted: HashSet<&str> = HashSet::with_capacity(present.len());
+            let mut pairs: Vec<[&str; 2]> = Vec::with_capacity(present.len());
+            for (id, flags) in updates.iter().rev() {
+                if present.contains(id.as_str()) && emitted.insert(id.as_str()) {
+                    pairs.push([id.as_str(), flags.as_str()]);
+                }
+            }
+            let mut written: Vec<String> = Vec::with_capacity(present.len());
+            let mut seen: HashSet<&str> = HashSet::with_capacity(present.len());
+            for (id, _) in updates {
+                if present.contains(id.as_str()) && seen.insert(id.as_str()) {
+                    written.push(id.clone());
+                }
+            }
+            let deltas: Vec<(String, i64)> = delta.into_iter().filter(|(_, d)| *d != 0).collect();
+            let payload = serde_json::to_string(&pairs).expect("pairs always serialize");
+            let deltas = serde_json::to_string(&deltas).expect("deltas always serialize");
+            let now = chrono::Utc::now().to_rfc3339();
+            let (account_id, op) = record.unwrap_or(("", ""));
+            let row = q("WITH j AS (SELECT x ->> 0 AS id, x ->> 1 AS f FROM json_array_elements(?1::json) x),
+                 upd AS (UPDATE messages SET flags_json = j.f FROM j WHERE messages.stable_id = j.id RETURNING messages.stable_id),
+                 cnt AS (UPDATE mailboxes SET unread = CASE WHEN unread + d.delta < 0 THEN 0 ELSE unread + d.delta END
+                         FROM (SELECT x ->> 0 AS id, CAST(x ->> 1 AS BIGINT) AS delta FROM json_array_elements(?2::json) x) d
+                         WHERE mailboxes.id = d.id RETURNING 1),
+                 ch AS (INSERT INTO changes (account_id, type, state, stable_id, op, at)
+                        SELECT ?3, 'Email', s.next, w.value, ?5, ?6
+                        FROM (SELECT COALESCE(MAX(state), 0) + 1 AS next FROM (
+                              SELECT MAX(state) AS state FROM changes WHERE account_id=?3 AND type='Email'
+                              UNION ALL SELECT head_state AS state FROM change_log_checkpoint WHERE account_id=?3 AND type='Email'
+                              ) heads) s,
+                             json_array_elements_text(?4::json) w
+                        WHERE ?7 = 1
+                        RETURNING state)
+                 SELECT CAST((SELECT count(*) FROM upd) AS BIGINT) AS n,
+                        CAST((SELECT count(*) FROM cnt) AS BIGINT) AS c,
+                        (SELECT MAX(state) FROM ch) AS state")
+                .bind(payload)
+                .bind(deltas)
+                .bind(account_id)
+                .bind(id_list_json(&written))
+                .bind(op)
+                .bind(now)
+                .bind(i64::from(record.is_some()))
+                .fetch_all_tx(tx)
+                .await?;
+            let state = row.first().and_then(|r| r.get_opt_i64("state")).map(|s| s as u64);
+            Ok::<_, StoreError>((updates.iter().map(|(id, _)| present.contains(id.as_str())).collect(), state))
         })
     }
 

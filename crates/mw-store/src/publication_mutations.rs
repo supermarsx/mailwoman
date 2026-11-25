@@ -111,6 +111,29 @@ impl Store {
         uid: u32,
         uidvalidity: u32,
     ) -> Result<bool, StoreError> {
+        self.relocate_inner(expected, destination, uid, uidvalidity, false).await
+    }
+    /// [`Store::relocate_message_if_current`] with its change rows in the SAME
+    /// transaction (W11): an Email row for the message and one Mailbox row each
+    /// for the source and the destination (one state per type). Nothing is
+    /// recorded when the source has changed (`Ok(false)`).
+    pub async fn relocate_message_if_current_recorded(
+        &self,
+        expected: &Message,
+        destination: &str,
+        uid: u32,
+        uidvalidity: u32,
+    ) -> Result<bool, StoreError> {
+        self.relocate_inner(expected, destination, uid, uidvalidity, true).await
+    }
+    async fn relocate_inner(
+        &self,
+        expected: &Message,
+        destination: &str,
+        uid: u32,
+        uidvalidity: u32,
+        record: bool,
+    ) -> Result<bool, StoreError> {
         // One write job: a savepoint in the group writer's batch with
         // MW_SQLITE_WRITER=group, otherwise its own transaction, as before.
         crate::backend::write_job!(self.backend, crate::backend::WriteLane::Normal, |tx| async {
@@ -150,6 +173,21 @@ impl Store {
                     .execute_tx(tx)
                     .await?;
             }
+        }
+        if record {
+            // On PostgreSQL lock_mailboxes already holds the per-account
+            // change-log lock (lock_body_account).
+            let dialect = self.backend.dialect();
+            crate::v2::record_changes_insert(dialect, &expected.account_id, "Email", std::slice::from_ref(&expected.stable_id), "updated")
+                .fetch_all_tx(tx)
+                .await?;
+            let mut boxes = vec![expected.mailbox_id.clone()];
+            if expected.mailbox_id != destination {
+                boxes.push(destination.to_owned());
+            }
+            crate::v2::record_changes_insert(dialect, &expected.account_id, "Mailbox", &boxes, "updated")
+                .fetch_all_tx(tx)
+                .await?;
         }
         Ok::<_, StoreError>(true)
         })

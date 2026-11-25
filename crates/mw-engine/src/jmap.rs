@@ -2376,6 +2376,8 @@ impl Engine {
         // (RFC 8620 §5.3), and a failed id contributes no patch — so the index
         // can never publish an update the store rejected.
         let mut patches: Vec<IndexPatch> = Vec::new();
+        // Ids whose Email change row was written with their flags (W11).
+        let mut recorded_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
         // The ids `destroy` names (26.20 t28-e17, D-20). Read before the update
         // loop so an id named by both is refused as `willDestroy` there.
         let destroys: Vec<String> = args
@@ -2557,13 +2559,20 @@ impl Engine {
                 // move from `updated` to `notUpdated` and lose their index patch, which
                 // is what keeps RFC 8620 §5.3's per-id semantics intact.
                 if !pending_flags.is_empty() {
+                    // W11: the Email change rows of the written ids commit in the
+                    // same transaction as the flags (one state for the batch).
                     let (failed, why): (Vec<&String>, Value) =
-                        match self.store().set_flags_batch(&pending_flags).await {
-                            Ok(written) => (
+                        match self.store().set_flags_batch_recorded(account_id, &pending_flags, ChangeOp::Updated.as_str()).await {
+                            Ok((written, _state)) => (
                                 pending_flags
                                     .iter()
                                     .zip(written)
-                                    .filter(|(_, ok)| !ok)
+                                    .filter(|(item, ok)| {
+                                        if *ok {
+                                            recorded_ids.insert(item.0.clone());
+                                        }
+                                        !ok
+                                    })
                                     .map(|((id, _), _)| id)
                                     .collect(),
                                 set_error(&EngineError::Store(mw_store::StoreError::NotFound)),
@@ -2620,7 +2629,13 @@ impl Engine {
             .filter(|p| !p.moved)
             .map(|p| p.stable_id.clone())
             .collect();
+        // Ids already recorded with their flags; the rest (pin, snooze,
+        // follow-up only) get their rows here, as before.
+        let unrecorded: Vec<String> = changed.iter().filter(|id| !recorded_ids.contains(*id)).cloned().collect();
         if !changed.is_empty() {
+            self.emit_event(crate::change::EventKind::MessageFlags, account_id, &changed);
+        }
+        if !unrecorded.is_empty() {
             // **One state increment, but a row per id.** `Email/changes` returns
             // rows with `state > since`, so N rows all sharing state `S+1` give
             // the single state bump this batching is for *and* a truthful change
@@ -2632,14 +2647,13 @@ impl Engine {
                 .record_changes(
                     account_id,
                     ChangeType::Email.as_str(),
-                    &changed,
+                    &unrecorded,
                     ChangeOp::Updated.as_str(),
                 )
                 .await
             {
                 tracing::warn!("recording the batched Email/set changes failed: {e}");
             }
-            self.emit_event(crate::change::EventKind::MessageFlags, account_id, &changed);
         }
 
         // Destroy (26.20 t28-e17, D-20): the message leaves the mail server,
@@ -3138,7 +3152,6 @@ impl Engine {
             .get_message(id)
             .await
             .map_err(EngineError::Store)?;
-        let source_mailbox_id = msg.mailbox_id.clone();
         let dest = self
             .store()
             .get_mailbox(target_mailbox_id)
@@ -3169,7 +3182,8 @@ impl Engine {
             }
         }
 
-        if !self.store().relocate_message_if_current(&msg, target_mailbox_id, new_uid, new_uidvalidity).await? {
+        // W11: the Email row and both Mailbox rows commit with the relocation.
+        if !self.store().relocate_message_if_current_recorded(&msg, target_mailbox_id, new_uid, new_uidvalidity).await? {
             return Err(EngineError::Store(mw_store::StoreError::NotFound));
         }
         // Re-key the search index onto the destination mailbox (preserves every
@@ -3177,23 +3191,6 @@ impl Engine {
         if let Some(ticket) = publication {
             ticket.submit(vec![id.to_string()], crate::index_publication::PublicationMode::Metadata)?.await?;
         }
-
-        self.record_change(&msg.account_id, ChangeType::Email, id, ChangeOp::Updated)
-            .await?;
-        self.record_change(
-            &msg.account_id,
-            ChangeType::Mailbox,
-            &source_mailbox_id,
-            ChangeOp::Updated,
-        )
-        .await?;
-        self.record_change(
-            &msg.account_id,
-            ChangeType::Mailbox,
-            target_mailbox_id,
-            ChangeOp::Updated,
-        )
-        .await?;
         self.emit_event(
             crate::change::EventKind::MessageMoved,
             &msg.account_id,
