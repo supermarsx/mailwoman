@@ -52,7 +52,8 @@ export const row = style({
   minBlockSize: `max(2rem, ${vars.a11y.touchTarget})`,
   paddingInline: `calc(${vars.space[2]} - 2px) ${vars.space[1]}`,
   minInlineSize: 0,
-  '@media': { '(pointer: coarse)': {minBlockSize:'44px'} },
+  selectors:{[`${root}[data-density="compact"] &`]:{minBlockSize:`max(1.5rem, ${vars.a11y.touchTarget})`}},
+  '@media': { '(pointer: coarse)': {minBlockSize:'44px',selectors:{[`${root}[data-density="compact"] &`]:{minBlockSize:'44px'}}} },
 });
 
 /** A row that toggles when clicked anywhere (the attachments bar): a pointer

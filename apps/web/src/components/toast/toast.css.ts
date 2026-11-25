@@ -115,6 +115,10 @@ export const message = style({
   flex: '1 1 auto',
   minWidth: 0,
   overflowWrap: 'anywhere',
+  whiteSpace:'nowrap',
+  overflow:'hidden',
+  textOverflow:'ellipsis',
+  selectors:{'[data-expanded="true"] &':{whiteSpace:'normal',overflow:'visible'}},
 });
 
 export const countdown = style({
@@ -166,4 +170,11 @@ export const close = style([
 export const closeIcon = style({
   width: '12px',
   height: '12px',
+});
+
+export const toolbar=style({
+  display:'flex',alignItems:'center',justifyContent:'space-between',gap:vars.space[3],
+  pointerEvents:'auto',maxWidth:'100%',marginBlockEnd:vars.space[2],
+  paddingInline:vars.space[3],borderRadius:vars.radius.md,
+  background:vars.color.surface,color:vars.color.textDim,fontSize:vars.fontSize.base,
 });

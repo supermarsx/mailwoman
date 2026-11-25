@@ -44,6 +44,12 @@ beforeEach(() => { downloadOne.mockClear(); downloadZip.mockClear(); });
 afterEach(() => { cleanup(); clearSettings(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('attachments bar toggle', () => {
+  it('uses the compact row for inline-only messages and expands on demand',async()=>{
+    const {view}=await setup([INLINE]);
+    expect(view.getByTestId('reader-attachments-bar')).toHaveAttribute('data-density','compact');
+    expect(expanded(view)).toBe('false');
+    fireEvent.click(view.getByTestId('reader-attachments-toggle'));expect(expanded(view)).toBe('true');
+  });
   it('updates an already expanded attachment list without toggling the bar',async()=>{
     const {view,setParts}=await setup([PDF],open);
     await waitFor(()=>expect(view.container.querySelector('[data-policy="ready"]')).not.toBeNull());

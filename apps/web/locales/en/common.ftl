@@ -81,6 +81,11 @@ common-rate-limited = The server is busy. Wait a few seconds and try again.
 # -- Toasts (components/toast/ToastRegion.tsx), in the webmail and the admin
 #    console. The seconds are the time left on an undo window. -----------------
 common-toast-close = Close notification
+common-toast-expand = Expand notification
+common-toast-collapse = Collapse notification
+common-toast-count = { $count } notifications
+common-toast-dismiss-all = Dismiss all
+common-toast-dismiss-all-label = Dismiss all notifications
 common-toast-seconds = { $seconds } s
 
 # -- New-mail notification (App.tsx). The native desktop or mobile notification

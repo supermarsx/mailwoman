@@ -33,6 +33,16 @@ it('honours regional administrator locks',async()=>{
  data.values['time.dateFormat']!.locked=true;render(()=><TimeZones navigation={createSettingsNavigation({section:'time'})}/>);
  expect(await screen.findByLabelText('Date format')).toBeDisabled();expect(data.save).not.toHaveBeenCalled();
 });
+it('saves message date choices and honours their administrator locks',async()=>{
+ data.values['time.messageYear']={value:'auto',locked:false};data.values['time.messageShowTime']={value:true,locked:false};
+ const view=render(()=><TimeZones navigation={createSettingsNavigation({section:'time'})}/>);
+ const year=await screen.findByLabelText('Year in message dates');fireEvent.focus(year);fireEvent.keyDown(year,{key:'End'});fireEvent.keyDown(year,{key:'Enter'});
+ expect(data.save).toHaveBeenCalledWith('time.messageYear','never');
+ fireEvent.click(screen.getByLabelText('Show time in message dates'));expect(data.save).toHaveBeenCalledWith('time.messageShowTime',false);
+ view.unmount();data.values['time.messageYear']!.locked=true;data.values['time.messageShowTime']!.locked=true;
+ render(()=><TimeZones navigation={createSettingsNavigation({section:'time'})}/>);
+ expect(screen.getByLabelText('Year in message dates')).toBeDisabled();expect(screen.getByLabelText('Show time in message dates')).toBeDisabled();
+});
 
 it('keeps language in Regional settings and indexes it under the same section',()=>{
  render(()=><TimeZones navigation={createSettingsNavigation({section:'time'})}/>);

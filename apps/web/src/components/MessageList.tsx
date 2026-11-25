@@ -26,7 +26,7 @@ import { createMemo, createSignal, createEffect, on, For, onCleanup, Show, type 
 import { useApp } from '../state/context.ts';
 import { t, isolate } from '../i18n/index.ts';
 import {displayText} from '../i18n/presentation.ts';
-import { formatDateWith } from '../i18n/format.ts';
+import { formatMessageDate } from './messageDate.ts';
 import { messageTimeZone } from './TimeHelpers.tsx';
 import { useActions } from '../keymap/index.ts';
 import {modifierSelectionEnabled,dragToFolderEnabled} from './mailInteractions.ts';
@@ -139,7 +139,7 @@ export function senderLabel(from: EmailAddress[] | null): string {
 }
 
 function formatDate(iso: string): string {
-  return formatDateWith(iso, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: messageTimeZone() });
+  return formatMessageDate(iso,messageTimeZone());
 }
 
 /** What a click did to the row, for the list to act on. */

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {parseQuery} from '../../search/searchQuery.ts';
-import {toasts} from '../../components/toast/toast.ts';
+import {toasts,toast as notices,observeToastEvents} from '../../components/toast/toast.ts';
 import { createRoot } from 'solid-js';
 import { createMailSlice, type MailSlice } from './mail.ts';
 import type { SliceContext } from './context.ts';
@@ -22,6 +22,7 @@ const BOXES: Mailbox[] = [
   { id: 'archive', name: 'Archive', parentId: null, role: 'archive', sortOrder: 1, totalEmails: 0, unreadEmails: 0 },
   { id: 'trash', name: 'Trash', parentId: null, role: 'trash', sortOrder: 2, totalEmails: 0, unreadEmails: 0 },
   { id: 'work', name: 'Work', parentId: null, role: null, sortOrder: 3, totalEmails: 0, unreadEmails: 0 },
+  { id: 'junk', name: 'Spam', parentId: null, role: 'junk', sortOrder: 4, totalEmails: 0, unreadEmails: 0 },
 ];
 
 const SESSION: JmapSession = {
@@ -259,6 +260,76 @@ describe('decideMarkRead', () => {
 });
 
 describe('bulk actions are one request', () => {
+  for(const [action,verb,destination] of [['archive','Archiving','archive'],['delete','Deleting','trash'],['move','Moving','work'],['spam','Marking','junk']] as const){
+    it(`rapid individual ${action} actions update one cumulative notice and undo every success`,async()=>{
+      await withSlice([msg('a'),msg('b'),msg('c')],async(mail,server)=>{
+        const progress:{id:string;message:string}[]=[];
+        const stop=observeToastEvents(event=>{if(event.kind==='show'&&event.item.testId==='mail-move-progress')progress.push(event.item);});
+        try{
+          for(const id of ['a','b','c']){
+            if(action==='archive')await mail.archiveMessage(id);
+            else if(action==='delete')await mail.trashMessage(id);
+            else if(action==='spam')await mail.markSpam(id);
+            else await mail.moveMessage(id,destination);
+          }
+          expect(progress).toHaveLength(3);expect(new Set(progress.map(item=>item.id)).size).toBe(1);
+          expect(progress[0]!.message).toContain(verb);
+          expect(progress[1]!.message).toContain('2 messages');expect(progress[2]!.message).toContain('3 messages');
+          expect(toasts().filter(item=>item.id===progress[0]!.id)).toHaveLength(1);
+          expect(mail.pendingUndo()?.label).toContain('3');
+          for(const id of ['a','b','c'])expect(server.stored(id).mailboxIds).toEqual({[destination]:true});
+          await mail.undoNow();
+          for(const id of ['a','b','c'])expect(server.stored(id).mailboxIds).toEqual({inbox:true});
+        }finally{stop();}
+      });
+    });
+  }
+  it('keeps overlapping requests busy until all settle and counts only successes',async()=>{
+    await withSlice([msg('a'),msg('b')],async(mail,server)=>{
+      const original=server.jmap.getMockImplementation()!;
+      let release:(()=>void)|undefined;
+      server.jmap.mockImplementation(async request=>{
+        if(request.methodCalls.some(([method,args]:[string,Record<string,unknown>])=>method==='Email/set'&&Object.hasOwn(args['update']??{},'a')))await new Promise<void>(resolve=>{release=resolve;});
+        return original(request);
+      });
+      const first=mail.archiveMessage('a');
+      await vi.waitFor(()=>expect(release).toBeDefined());
+      const id=toasts().find(item=>item.testId==='mail-move-progress')!.id;
+      server.refuse.add('b');await mail.archiveMessage('b');
+      expect(toasts().find(item=>item.id===id)).toMatchObject({busy:true});
+      expect(mail.pendingUndo()).toBeNull();
+      release!();await first;
+      expect(toasts().find(item=>item.id===id)).toMatchObject({busy:false,tone:'warning'});
+      expect(mail.pendingUndo()?.label).toContain('1 of 2');
+      server.jmap.mockImplementation(original);
+      await mail.undoNow();expect(server.stored('a').mailboxIds).toEqual({inbox:true});expect(server.stored('b').mailboxIds).toEqual({inbox:true});
+    });
+  });
+  it('starts a new group after dismissal and keeps different destinations separate',async()=>{
+    await withSlice([msg('a'),msg('b'),msg('c')],async(mail)=>{
+      await mail.archiveMessage('a');const first=toasts().find(item=>item.message===mail.pendingUndo()?.label)!;
+      notices.dismiss(first.id);await mail.archiveMessage('b');
+      const second=toasts().find(item=>item.message===mail.pendingUndo()?.label)!;expect(second.id).not.toBe(first.id);
+      await mail.trashMessage('c');expect(toasts().filter(item=>item.countdown)).toHaveLength(2);
+    });
+  });
+  it('does not recreate a cumulative notice dismissed while the operation is running',async()=>{
+    await withSlice([msg('a')],async(mail,server)=>{
+      const original=server.jmap.getMockImplementation()!;let release:(()=>void)|undefined;
+      server.jmap.mockImplementation(async request=>{await new Promise<void>(resolve=>{release=resolve;});return original(request);});
+      const moving=mail.archiveMessage('a');await vi.waitFor(()=>expect(release).toBeDefined());
+      notices.clear();release!();await moving;
+      expect(server.stored('a').mailboxIds).toEqual({archive:true});expect(toasts()).toHaveLength(0);expect(mail.pendingUndo()).toBeNull();
+    });
+  });
+  it('starts a new count after a pause between gestures',async()=>{
+    await withSlice([msg('a'),msg('b')],async(mail)=>{
+      await mail.archiveMessage('a');const first=toasts().find(item=>item.message===mail.pendingUndo()?.label)!;
+      const clock=vi.spyOn(Date,'now').mockReturnValue(Date.now()+1600);
+      try{await mail.archiveMessage('b');expect(toasts().filter(item=>item.countdown)).toHaveLength(2);expect(toasts().find(item=>item.id!==first.id&&item.countdown)?.message).toBe('Archived');}
+      finally{clock.mockRestore();}
+    });
+  });
   it('labels a selection in one request, preserves existing labels on undo and reports partial refusal',async()=>{
     await withSlice([msg('a'),msg('b',{keywords:{work:true}}),msg('c')],async(mail,server,toast)=>{
       server.refuse.add('c');server.jmap.mockClear();

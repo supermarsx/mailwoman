@@ -1,14 +1,17 @@
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {test,expect,type Locator} from '@playwright/test';
-import {build,preview,type PreviewServer} from 'vite';
+import {build,preview,loadConfigFromFile,type PreviewServer} from 'vite';
 
 test.describe('floating controls above native dialogs and popovers',()=>{
  let server:PreviewServer,origin:string;
- test.beforeAll(async()=>{
+ test.beforeAll(async({browserName})=>{
   test.setTimeout(180000);
-  const buildOptions={outDir:'.orchestration/floating-browser-build',emptyOutDir:true};
-  await build({logLevel:'warn',build:buildOptions,plugins:[{name:'floating-layer-fixture',transformIndexHtml:{order:'pre',handler:()=>'<html data-theme="dark"><body><div id="root"></div><script type="module" src="/e2e/floatingLayerHarness.tsx"></script></body></html>'}}]});
+  const buildOptions={outDir:`.orchestration/floating-${browserName}-build`,emptyOutDir:true};
+  const config=(await loadConfigFromFile({command:'build',mode:'production'}))!.config;
+  // This component harness has no mailbox/login preload graph or app offline tiers.
+  const plugins=(config.plugins??[]).flat().filter(plugin=>!(plugin&&typeof plugin==='object'&&'name' in plugin&&['mw-boot-script','mw-asset-integrity'].includes(String(plugin.name))));
+  await build({...config,configFile:false,logLevel:'warn',build:{...config.build,...buildOptions},plugins:[...plugins,{name:'floating-layer-fixture',transformIndexHtml:{order:'pre',handler:()=>'<html data-theme="dark"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/e2e/floatingLayerHarness.tsx"></script></body></html>'}}]});
   server=await preview({build:buildOptions,preview:{host:'127.0.0.1',port:0}});origin=server.resolvedUrls!.local[0]!;
  });
  test.afterAll(async()=>{await new Promise<void>((resolve,reject)=>server?.httpServer.close(error=>error?reject(error):resolve())??resolve());});
@@ -16,6 +19,31 @@ test.describe('floating controls above native dialogs and popovers',()=>{
   await expect(element).toBeVisible();
   await expect.poll(()=>element.evaluate(node=>{const rect=node.getBoundingClientRect();return node.contains(node.ownerDocument.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2));})).toBe(true);
  }
+ test('notifications stay on one line, expand with pointer and keyboard, and dismiss the whole queue',async({page,browserName})=>{
+  for(const width of [1280,390]){
+   await page.setViewportSize({width,height:900});await page.goto(origin+'?settings');
+   const inlineBar=page.getByTestId('compact-inline-bar');await expect(inlineBar).toBeVisible();expect((await inlineBar.boundingBox())!.height).toBeLessThanOrEqual(30);
+   await page.getByRole('button',{name:'Show detailed notification',exact:true}).click();
+   const row=page.getByTestId('toast');const message=row.locator('span[id]');
+   await expect(row).toHaveAttribute('data-expanded','false');
+   await expect.poll(()=>message.evaluate(node=>node.scrollWidth>node.clientWidth)).toBe(true);
+   const compact=(await row.boundingBox())!.height;
+   await row.getByRole('button',{name:'Expand notification'}).click();
+   await expect(row).toHaveAttribute('data-expanded','true');
+   await expect.poll(async()=>(await row.boundingBox())!.height).toBeGreaterThan(compact);
+   expect(await message.evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
+   await page.getByRole('button',{name:'Update detailed notification',exact:true}).click();
+   await expect(row).toHaveAttribute('data-expanded','true');await expect(message).toContainText('Updated.');
+   await page.screenshot({path:`.orchestration/notifications-expanded-${browserName}-${width}.png`});
+   await row.getByRole('button',{name:'Collapse notification'}).press('Space');
+   await expect(row).toHaveAttribute('data-expanded','false');
+   expect(await row.evaluate(node=>{const box=node.getBoundingClientRect();return box.left>=0&&box.right<=innerWidth;})).toBe(true);
+   await page.getByRole('button',{name:'Show notification burst',exact:true}).click();
+   await expect(page.getByText('5 notifications',{exact:true})).toBeVisible();
+   await page.getByRole('button',{name:'Dismiss all notifications'}).click();
+   await expect(page.getByTestId('toast')).toHaveCount(0);await expect(page.getByText('5 notifications',{exact:true})).toHaveCount(0);
+  }
+ });
  test('privacy action floats below the unchanged login card and opens a themed readable policy',async({page,context})=>{
   const script=readFileSync('../../crates/mw-server/src/public-policy-theme.js','utf8').replaceAll('\r\n','\n');
   const source=readFileSync('../../crates/mw-server/src/compliance.rs','utf8');const css=/const PAGE_CSS: &str = r#"([\s\S]*?)"#;/.exec(source)![1]!;

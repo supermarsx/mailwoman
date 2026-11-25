@@ -41,6 +41,26 @@ afterEach(() => {
 });
 
 describe('toast store', () => {
+  it('starts each notification collapsed and preserves expansion when its count updates',()=>{
+    render(()=><ToastRegion/>);
+    toast.info('Deleting 1 message',{id:'deleting',duration:Infinity});
+    expect(screen.getByRole('button',{name:'Expand notification'})).toHaveAttribute('aria-expanded','false');
+    fireEvent.click(screen.getByRole('button',{name:'Expand notification'}));
+    expect(screen.getByRole('button',{name:'Collapse notification'})).toHaveAttribute('aria-expanded','true');
+    toast.info('Deleting 2 messages',{id:'deleting',duration:Infinity});
+    expect(screen.getByText('Deleting 2 messages')).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'Collapse notification'})).toHaveAttribute('aria-expanded','true');
+    fireEvent.click(screen.getByRole('button',{name:'Collapse notification'}));
+    expect(screen.getByRole('button',{name:'Expand notification'})).toHaveAttribute('aria-expanded','false');
+  });
+  it('dismisses visible and queued notifications together without running actions',()=>{
+    render(()=><ToastRegion/>);const run=vi.fn(),closed=vi.fn();
+    for(let index=0;index<5;index++)toast.info(`Event ${index}`,{action:{label:'Undo',run},onClose:closed});
+    expect(screen.getByText('5 notifications')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'Dismiss all notifications'}));
+    expect(toasts()).toHaveLength(0);expect(closed).toHaveBeenCalledTimes(5);expect(run).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(60000);expect(toasts()).toHaveLength(0);
+  });
   it('keeps identical completed actions separate and queues bursts for their full visible duration',()=>{
     const ids=Array.from({length:5},()=>toast.success('Moved 1 message'));
     expect(new Set(ids).size).toBe(5);expect(toasts().map(row=>row.id)).toEqual(ids.slice(0,3));

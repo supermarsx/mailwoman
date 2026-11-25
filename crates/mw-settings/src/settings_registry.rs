@@ -2431,6 +2431,22 @@ pub static REGISTRY: &[SettingDef] = &[
         "12-hour or 24-hour clock; auto follows regional defaults and explicit pattern tokens take precedence"
     ),
     def!(
+        "time.messageYear",
+        Kind::Enum(&["auto", "always", "never"]),
+        "\"auto\"",
+        GDU,
+        "time",
+        "year in automatic message dates: auto for different years, always to include, never to omit; an explicit regional date format takes precedence"
+    ),
+    def!(
+        "time.messageShowTime",
+        Kind::Bool,
+        "true",
+        GDU,
+        "time",
+        "include the time of day in message-list timestamps"
+    ),
+    def!(
         "time.firstDayOfWeek",
         Kind::Enum(&["auto", "0", "1", "2", "3", "4", "5", "6"]),
         "\"auto\"",
@@ -11584,5 +11600,23 @@ mod feature_inputs_resolution_tests {
         assert_eq!(prepared.iter().map(|e|e.key.as_str()).collect::<Vec<_>>(), vec!["mail.allowSend", "serverText.a-first", "serverText.z-last"]);
         assert_eq!(prepared[0].value, json!(false));
         assert!(prepared[0].locked());
+    }
+}
+
+#[cfg(test)]
+mod message_date_policy_tests {
+    use super::*;
+    #[test]
+    fn message_date_preferences_support_user_and_admin_policy() {
+        let year=lookup("time.messageYear").unwrap();
+        assert_eq!(year.scopes,GDU);
+        assert_eq!(year.default_value(),serde_json::json!("auto"));
+        for value in ["auto","always","never"] { assert!(validate(year,&serde_json::json!(value),"value").is_ok()); }
+        assert!(validate(year,&serde_json::json!("sometimes"),"value").is_err());
+        let clock=lookup("time.messageShowTime").unwrap();
+        assert_eq!(clock.scopes,GDU);
+        assert_eq!(clock.default_value(),serde_json::json!(true));
+        assert!(validate(clock,&serde_json::json!(false),"value").is_ok());
+        assert!(validate(clock,&serde_json::json!("false"),"value").is_err());
     }
 }

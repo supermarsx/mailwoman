@@ -1055,7 +1055,7 @@ describe('mail slice — archive / trash / spam / move', () => {
       const moving=mail.trashMessage(['a','b']);
       const progress=toasts().find(item=>item.testId==='mail-move-progress')!;
       expect(progress).toMatchObject({busy:true,persistent:true,duration:Infinity});
-      expect(progress.message).toContain('2 messages');expect(progress.message).toContain('Trash');
+      expect(progress.message).toBe('Deleting 2 messages…');
       finish({methodResponses:[['Email/set',{accountId:'acct1',updated:{a:null,b:null}},'set']],sessionState:'s'});
       await moving;
       expect(toasts()).toHaveLength(1);

@@ -111,6 +111,8 @@ let seq = 0;
 const idPrefix=Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 let waiting:ToastItem[]=[];
 const MAX_WAITING=200;
+/** Includes queued notifications so Dismiss all describes the entire stack. */
+export function toastCount():number{return items().length+waiting.length;}
 export type ToastEvent={kind:'show';item:ToastItem;options:ToastOptions}|{kind:'dismiss';id:string;reason:ToastCloseReason}|{kind:'clear'};
 const observers=new Set<(event:ToastEvent)=>void>();
 export function observeToastEvents(listener:(event:ToastEvent)=>void):()=>void{observers.add(listener);return()=>observers.delete(listener);}

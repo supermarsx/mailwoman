@@ -21,7 +21,7 @@ import {alertValue} from '../../api/notificationControls.ts';
 // The clocks stop while the pointer rests on a toast, while focus is inside the
 // region and while the window is hidden (setToastPause).
 
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from 'solid-js';
+import { For, Show, createEffect, createMemo, createSignal, createUniqueId, onCleanup, onMount, type JSX } from 'solid-js';
 import { t } from '../../i18n/index.ts';
 import {
   registerToastRegion,
@@ -30,6 +30,7 @@ import {
   toastTimeLeft,
   toastObstacles,
   toasts,
+  toastCount,
   toastsPaused,
   type ToastItem,
   type ToastTone,
@@ -202,6 +203,15 @@ export function ToastRegion(): JSX.Element {
 
   return (
     <div ref={regionEl} class={css.region} data-testid="toast-region">
+      <Show when={toastCount()>1}>
+        <div class={css.toolbar}>
+          <span>{t('common-toast-count',{count:toastCount()})}</span>
+          <button type="button" class={css.close} aria-label={t('common-toast-dismiss-all-label')} onClick={()=>{
+            const hadFocus=inRegion(document.activeElement);toast.clear();
+            if(hadFocus&&returnFocus instanceof HTMLElement&&returnFocus.isConnected)returnFocus.focus();
+          }}>{t('common-toast-dismiss-all')}</button>
+        </div>
+      </Show>
       <div class={css.stack}>
         <For each={alertIds()}>{renderToast}</For>
       </div>
@@ -220,6 +230,8 @@ function Toast(props: {
   onClose: (reason: 'dismiss' | 'action') => void;
 }): JSX.Element {
   const toastId=props.item.id;
+  const messageId=createUniqueId();
+  const [expanded,setExpanded]=createSignal(false);
   let element!:HTMLDivElement;
   let gesture:{id:number;x:number;y:number;active:boolean}|undefined;
   const [offset,setOffset]=createSignal(0);
@@ -258,12 +270,13 @@ function Toast(props: {
       data-tone={props.item.tone}
       data-busy={props.item.busy ? 'true' : undefined}
       data-toast-id={props.item.id}
+      data-expanded={expanded()?'true':'false'}
       data-paused={toastsPaused() && props.item.pausable ? 'true' : undefined}
     >
       <Show when={props.item.busy} fallback={<ToneIcon tone={props.item.tone} />}>
         <Spinner class={css.iconTone[props.item.tone]} attr="" />
       </Show>
-      <span class={css.message}>{props.item.message}</span>
+      <span id={messageId} class={css.message}>{props.item.message}</span>
       <Show when={props.item.countdown && Number.isFinite(props.item.duration)}>
         <span class={css.countdown} aria-hidden="true">
           {t('common-toast-seconds', { seconds: seconds() })}
@@ -304,6 +317,9 @@ function Toast(props: {
           </button>
         )}
       </Show>
+      <button type="button" class={css.close} aria-label={t(expanded()?'common-toast-collapse':'common-toast-expand')} aria-expanded={expanded()} aria-controls={messageId} onClick={()=>setExpanded(value=>!value)}>
+        <svg class={css.closeIcon} viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d={expanded()?'M2 8l4-4 4 4':'M2 4l4 4 4-4'} /></svg>
+      </button>
       <button
         type="button"
         class={css.close}

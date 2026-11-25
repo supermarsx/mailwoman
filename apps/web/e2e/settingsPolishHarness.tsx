@@ -11,6 +11,15 @@ import {MessageActions} from '../src/components/MessageActions.tsx';
 import {ThemedSelects} from '../src/components/ThemedSelects.tsx';
 import {ToastRegion} from '../src/components/toast/ToastRegion.tsx';
 import {toast} from '../src/components/toast/toast.ts';
+import {ReaderNoticeBar,NoticeButton} from '../src/components/ReaderNoticeBar.tsx';
+const notificationDetails='Archived 3 messages. You can undo this action to restore every message to its previous folder, including messages from the selected conversation.';
+const notificationControls=document.createElement('div');document.body.append(notificationControls);
+render(()=><>
+ <button onClick={()=>toast.info(notificationDetails,{id:'detail',duration:Infinity})}>Show detailed notification</button>
+ <button onClick={()=>toast.info(notificationDetails+' Updated.',{id:'detail',duration:Infinity})}>Update detailed notification</button>
+ <button onClick={()=>{toast.clear();for(let index=1;index<=5;index++)toast.info(`Notification ${index}`,{duration:Infinity});}}>Show notification burst</button>
+ <ReaderNoticeBar label="Inline images" testid="compact-inline-bar" icon="attachment" compact tooltip="1 inline image"><span>1 inline image</span><NoticeButton icon="chevronDown" iconOnly label="Show inline images" onClick={()=>{}}/></ReaderNoticeBar>
+</>,notificationControls);
 import {loadSettings} from '../src/api/settings.ts';
 import type {PrivacyOverview} from '../src/api/privacy.ts';
 import * as css from '../src/screens/Settings/styles.css.ts';

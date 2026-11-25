@@ -26,6 +26,8 @@ export interface ReaderNoticeBarProps {
   testid: string;
   /** Free-form state for tests and styling hooks (`data-state`). */
   state?: string;
+  /** Smaller informational row for resources already displayed in the message. */
+  compact?: boolean;
   /** `warning` adds the warning rule and icon colour (remote images blocked). */
   tone?: 'warning' | 'neutral';
   icon: IconName;
@@ -75,6 +77,7 @@ export function ReaderNoticeBar(props: ReaderNoticeBarProps): JSX.Element {
       data-testid={props.testid}
       data-notice-bar=""
       data-state={props.state}
+      data-density={props.compact?'compact':undefined}
       data-tone={props.tone ?? 'neutral'}
     >
       <div

@@ -452,6 +452,7 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
         label={t('mail-attachments')}
         testid="reader-attachments-bar"
         state={collapsed() ? 'collapsed' : 'expanded'}
+        compact={inlineOnly()}
         icon="attachment"
         tooltip={tooltip()}
         {...(clickToToggle() ? { onToggle: toggle } : {})}

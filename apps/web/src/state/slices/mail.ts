@@ -806,9 +806,9 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     ttlMs = 10_000,
     actionLabel = t('mail-undo-action'),
     hardDeadline = false,
-    notice: {id?:string;tone?:'info'|'warning';secondary?:{label:string;run:()=>void|Promise<void>}} = {},
+    notice: {id?:string;tone?:'info'|'warning';secondary?:{label:string;run:()=>void|Promise<void>};defer?:boolean} = {},
     redo?: () => Promise<void>,
-  ): void {
+  ): PendingUndo | undefined {
     // A replay from the global history raises no toast of its own and records nothing.
     if (undoReplaying()) return;
     if (redo !== undefined) void loadCatalog('undo');
@@ -820,17 +820,23 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       onSettled: () => toast.dismiss(id),
     });
     if (recorded !== null) entry.historyId = recorded.id;
+    if(notice.defer)return entry;
+    displayUndo(entry,id,ttlMs,hardDeadline,notice);
+    return entry;
+  }
+  function displayUndo(entry:PendingUndo,id:string,ttlMs=10_000,hardDeadline=false,notice:{tone?:'info'|'warning';secondary?:{label:string;run:()=>void|Promise<void>};closed?:()=>void}={}):void {
     setPendingUndo(entry);
     undoNotices.set(id,entry);
     undoToastId=id;
-    toast[notice.tone??'info'](label, {
+    toast[notice.tone??'info'](entry.label, {
       id,
       duration: ttlMs,
       countdown: true,
       pausable: !hardDeadline,
-      action: { label: actionLabel, run: () => runUndo(entry) },
+      action: { label: entry.actionLabel, run: () => runUndo(entry) },
       ...(notice.secondary?{secondaryAction:notice.secondary}:{}),
       onClose: () => {
+        notice.closed?.();
         undoNotices.delete(id);
         if(pendingUndo()===entry){const latest=[...undoNotices].at(-1);undoToastId=latest?.[0];setPendingUndo(latest?.[1]??null);}
       },
@@ -839,7 +845,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   function dismissUndo(): void {
     if(undoToastId)toast.dismiss(undoToastId);
   }
-  function clearUndoNotices():void{for(const id of [...undoNotices.keys()])toast.dismiss(id);undoNotices.clear();undoToastId=undefined;setPendingUndo(null);}
+  function clearUndoNotices():void{for(const group of moveNotices.values())toast.dismiss(group.id);moveNotices.clear();for(const id of [...undoNotices.keys()])toast.dismiss(id);undoNotices.clear();undoToastId=undefined;setPendingUndo(null);}
   onCleanup(clearUndoNotices);
   async function undoNow(): Promise<void> {
     const p = pendingUndo();
@@ -1418,6 +1424,23 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   }
 
   // ── archive / trash / move / spam ─────────────────────────────────────────
+  interface MoveNotice {id:string;at:number;pending:number;total:number;completed:number;entries:PendingUndo[];closed:boolean}
+  const moveNotices=new Map<string,MoveNotice>();
+  /** Rapid gestures share a notice, but keep their independent server writes and history entries. */
+  function beginMoveNotice(key:string,count:number,message:(count:number)=>string):MoveNotice {
+    let group=moveNotices.get(key);
+    if(!group||group.closed||Date.now()-group.at>1500){
+      group={id:`mail-move:${newIdempotencyKey()}`,at:Date.now(),pending:0,total:0,completed:0,entries:[],closed:false};
+      moveNotices.set(key,group);
+    }
+    group.at=Date.now();group.pending++;group.total+=count;
+    const active=group;
+    // An older Undo must not remain active while this group is still changing.
+    const previous=undoNotices.get(group.id);undoNotices.delete(group.id);
+    if(previous&&pendingUndo()===previous){const latest=[...undoNotices].at(-1);undoToastId=latest?.[0];setPendingUndo(latest?.[1]??null);}
+    toast.info(message(group.total),{id:group.id,busy:true,persistent:true,duration:Infinity,testId:'mail-move-progress',onClose:()=>{active.closed=true;if(moveNotices.get(key)===active)moveNotices.delete(key);}});
+    return group;
+  }
   /**
    * Move `ids` to `targetMailboxId` with the shared undo. Online, every id goes
    * in ONE `Email/set` (t28-e16); offline, each is queued as its own move (the
@@ -1466,8 +1489,15 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     };
     const total=taken.length;
     const folder=isolate(mailboxes().find(box=>box.id===targetMailboxId)?.name??t('mail-folder-fallback'));
-    const progressId=progress?`mail-move:${newIdempotencyKey()}`:undefined;
-    let finished=false,refusedCount=0;
+    const noticeKey=JSON.stringify([acct,preferenceAccount()?.generation,origin,targetMailboxId,label(1)]);
+    const role=mailboxes().find(box=>box.id===targetMailboxId)?.role;
+    const noticeGroup=undoReplaying()?undefined:beginMoveNotice(noticeKey,total,count=>t(offlineNoticeKey(),{count,folder}));
+    function offlineNoticeKey():string {
+      if(isOffline()&&ctx.enqueueOffline)return 'mail-toast-move-queueing';
+      return role==='trash'?'mail-toast-deleting':role==='archive'?'mail-toast-archiving':role==='junk'?'mail-toast-marking-spam':'mail-toast-moving';
+    }
+    const progressId=noticeGroup?.id;
+    let refusedCount=0;
     const offline=isOffline()&&!!ctx.enqueueOffline;
     const token=Symbol();
     if(!offline)for(const {email} of taken)relocations.set(email.id,{token,mailboxIds:{[targetMailboxId]:true},sourceKey:origin,throughGeneration:null});
@@ -1478,8 +1508,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     };
     const queuedOffline=new Set<Id>();
     const stopObserving=progressId?observePreferenceAccount(()=>{if(!current())toast.dismiss(progressId);}):()=>{};
-    const fail=(message:string):void=>{if(progressId){finished=true;toast.error(message,{id:progressId,testId:'mail-move-result'});}else showToast('error',message);};
-    if(progressId)toast.info(t(offline?'mail-toast-move-queueing':'mail-toast-moving',{count:total,folder}),{id:progressId,busy:true,persistent:true,duration:Infinity,testId:'mail-move-progress'});
+    const fail=(message:string):void=>{if(progress)toast.error(message,{testId:'mail-move-result'});else showToast('error',message);};
     try {
     const queue = ctx;
     // The id of each queued move, when the move was queued and the queue says
@@ -1547,8 +1576,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const moved = taken;
     onMoved?.(moved.map(item=>item.email.id));
     const completed=progressId&&refusedCount>0?t('mail-toast-move-partial',{count:moved.length,total,failed:refusedCount,folder}):progressId&&offline?t('mail-toast-move-queued',{count:moved.length,folder}):label(moved.length);
-    finished=true;
-    showUndo(completed, async () => {
+    const undoEntry=showUndo(completed, async () => {
       if (!current()) return;
       // Still waiting in the offline queue: take it out, and the server never
       // hears of the move.
@@ -1591,13 +1619,26 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       }
       clearProjection([...back,...reverse]);
       restore([...back, ...reverse]);
-    },10_000,t('mail-undo-action'),false,progressId?{id:progressId,tone:refusedCount>0?'warning':'info'}:{},async()=>{if(!current())throw new UndoUnavailable();await moveIdsAgain(moved.map(item=>item.email.id),targetMailboxId,markMovedRead);});
+    },10_000,t('mail-undo-action'),false,progressId?{id:progressId,defer:true,tone:refusedCount>0?'warning':'info'}:{},async()=>{if(!current())throw new UndoUnavailable();await moveIdsAgain(moved.map(item=>item.email.id),targetMailboxId,markMovedRead);});
+    if(noticeGroup&&undoEntry){noticeGroup.entries.push(undoEntry);noticeGroup.completed+=moved.length;}
     } catch(error) {
       if(!progressId)throw error;
       if(current()){if(offline)restore(taken.filter(item=>!queuedOffline.has(item.email.id)));fail(t('mail-toast-move-failed'));}
     } finally {
       stopObserving();
-      if(progressId&&(!current()||!finished))toast.dismiss(progressId);
+      if(noticeGroup){
+        noticeGroup.pending--;
+        if(!current())toast.dismiss(noticeGroup.id);
+        else if(noticeGroup.pending===0){
+          if(!noticeGroup.entries.length)toast.dismiss(noticeGroup.id);
+          else if(!noticeGroup.closed){
+            const failed=noticeGroup.total-noticeGroup.completed;
+            const labelText=failed?t('mail-toast-move-partial',{count:noticeGroup.completed,total:noticeGroup.total,failed,folder}):offline?t('mail-toast-move-queued',{count:noticeGroup.completed,folder}):label(noticeGroup.completed);
+            const entries=[...noticeGroup.entries];
+            displayUndo({label:labelText,actionLabel:t('mail-undo-action'),expiresAt:Date.now()+10_000,run:async()=>{for(const entry of entries.reverse())await runUndo(entry);}},noticeGroup.id,10_000,false,{tone:failed?'warning':'info',closed:()=>{noticeGroup.closed=true;if(moveNotices.get(noticeKey)===noticeGroup)moveNotices.delete(noticeKey);}});
+          }
+        }
+      }
     }
   }
   /** Repeat a move for the undo history's Redo: straight to the server (the messages may be in another folder's list now), leaving the rows of the current list. */
