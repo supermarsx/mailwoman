@@ -489,34 +489,35 @@ async fn second_account(f: &Fixture, engine: &Engine) -> (String, String) {
 async fn concurrent_read_after_write_for_one_account_never_times_out() {
     let f = fixture(journal_options()).await;
     let mut ids = vec![f.id.clone()];
+    // Each message's own body term: the queries below carry it so they read
+    // the index and pass the fence (a flag-only query is SQL since t50hp-e31).
+    let mut terms = vec!["uniquejournalbody".to_owned()];
     for uid in 2..=8u32 {
         ids.push(add_message(&f.store, &f.account, &f.inbox, uid, &format!("uniqueconcurrent{uid}")).await);
+        terms.push(format!("uniqueconcurrent{uid}"));
     }
     f.engine.publish_current_index(&f.account, ids.clone(), PublicationMode::Rebuild).await.unwrap();
     let account = f.account.clone();
     let engine = Arc::new(f.engine);
     let started = std::time::Instant::now();
     let mut tasks = tokio::task::JoinSet::new();
-    for id in ids.clone() {
+    for (id, term) in ids.clone().into_iter().zip(terms) {
         let engine = engine.clone(); let account = account.clone();
         tasks.spawn(async move {
             for round in 0..4 {
                 let flag = round % 2 == 0;
                 let out = jmap(&engine, &account, json!([
                     set_call(&id, json!({"keywords/$flagged": if flag { json!(true) } else { Value::Null }})),
-                    query_call(json!({"hasKeyword": "$flagged"})),
+                    query_call(json!({"hasKeyword": "$flagged", "text": term})),
                 ])).await;
                 updated(&out[0], &id);
                 assert_eq!(ids_of(&out[1]).contains(&id), flag, "read-after-write in one batch: {out:?}");
-                let again = jmap(&engine, &account, json!([query_call(json!({"hasKeyword": "$flagged"}))])).await;
+                let again = jmap(&engine, &account, json!([query_call(json!({"hasKeyword": "$flagged", "text": term}))])).await;
                 assert_eq!(ids_of(&again[0]).contains(&id), flag, "read-after-write across requests: {again:?}");
             }
         });
     }
     while let Some(done) = tasks.join_next().await { done.unwrap(); }
-    // The flag queries above are answered from SQL since t50hp-e31 and do not
-    // wait for publication; wait for it here before counting journal rows.
-    engine.index_read_fence(&account).await.unwrap();
     let status = engine.index_publication_status();
     assert_eq!((status.read_fence_timeouts, status.read_fence_refusals), (0, 0), "{status:?}");
     assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
