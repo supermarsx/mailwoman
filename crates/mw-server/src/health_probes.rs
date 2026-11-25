@@ -478,6 +478,8 @@ async fn probe_sync(state: &AppState) -> Value {
     let mut never = 0u64;
     let mut not_watching = 0u64;
     let mut errors = Vec::new();
+    // t63 F2: messages not downloaded because they exceed the size limit.
+    let skipped_too_large: u64 = snap.accounts.iter().map(|a| a.skipped_too_large).sum();
     for a in &snap.accounts {
         match a.state() {
             "syncing" => syncing += 1,
@@ -524,6 +526,7 @@ async fn probe_sync(state: &AppState) -> Value {
         "errorsLastHour": snap.sync_errors_last_hour,
         "byKind": by_kind.iter().map(|(k, (n, w, s))| (k.to_string(), json!({"accounts":n,"watchConnections":w,"syncing":s}))).collect::<Map<_, _>>(),
         "recentErrors": errors,
+        "skippedTooLarge": skipped_too_large,
     });
     let thresholds = json!({"erroringFailRatio":SYNC_ERRORING_FAIL_RATIO});
     let (status, reason) = if total == 0 {
@@ -541,6 +544,13 @@ async fn probe_sync(state: &AppState) -> Value {
         (
             "warn",
             format!("{erroring} of {total} mailbox(es) are failing to sync."),
+        )
+    } else if skipped_too_large > 0 {
+        (
+            "warn",
+            format!(
+                "{skipped_too_large} message(s) were not downloaded because they exceed the upstream message size limit (MW_UPSTREAM_MAX_MESSAGE_MIB)."
+            ),
         )
     } else if not_watching > 0 {
         (

@@ -696,6 +696,28 @@ impl Session {
     }
 
     /// Fetch full raw RFC822 bytes for a set of UIDs in an already-known mailbox.
+    /// `RFC822.SIZE` of each UID (t63: the sync skips messages above the
+    /// limit before downloading them and sizes its batches by bytes).
+    pub async fn fetch_sizes(
+        &mut self,
+        mailbox: &RawMailboxRef,
+        uids: &[u32],
+    ) -> ImapResult<std::collections::HashMap<u32, u64>> {
+        let mut out = std::collections::HashMap::new();
+        if uids.is_empty() {
+            return Ok(out);
+        }
+        self.ensure_selected_ref(mailbox).await?;
+        let set = format_uid_set(uids);
+        let tagged = self.conn.execute(&format!("UID FETCH {set} (UID RFC822.SIZE)")).await?.ok()?;
+        for item in collect_fetches(tagged) {
+            if let (Some(uid), Some(size)) = (item.uid, item.size) {
+                out.insert(uid, u64::from(size));
+            }
+        }
+        Ok(out)
+    }
+
     pub async fn fetch_raw(
         &mut self,
         mailbox: &RawMailboxRef,

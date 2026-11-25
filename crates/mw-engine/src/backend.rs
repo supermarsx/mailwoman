@@ -92,6 +92,19 @@ pub trait AccountBackend: Send + Sync {
     /// (handed to `mw-mime` for parsing inside the render jail).
     async fn fetch_raw(&self, refs: &[MessageRef]) -> Result<Vec<RawMessage>>;
 
+    /// The size in bytes of each message, in `refs` order (`None`: unknown).
+    /// Lets the sync size its fetch batches and skip messages above
+    /// [`AccountBackend::max_message_bytes`] before downloading them (t63).
+    async fn message_sizes(&self, refs: &[MessageRef]) -> Result<Vec<Option<u64>>> {
+        Ok(vec![None; refs.len()])
+    }
+
+    /// Largest message this backend accepts from its server; a larger one
+    /// fails with an error whose text starts with [`MESSAGE_TOO_LARGE`].
+    fn max_message_bytes(&self) -> u64 {
+        u64::MAX
+    }
+
     /// Flag/keyword changes (server-authoritative per SPEC §15.2).
     async fn store_flags(&self, refs: &[MessageRef], add: &[Flag], remove: &[Flag]) -> Result<()>;
 
@@ -561,6 +574,10 @@ pub enum MoveOutcome {
     /// messages' destination refs by Message-ID.
     RederiveByMessageId,
 }
+
+/// Start of the error text a backend returns for a message or response above
+/// its size limit (t63). The sync reports such a message and skips it.
+pub const MESSAGE_TOO_LARGE: &str = "upstream message exceeds the size limit";
 
 /// A change event emitted by a backend `watch` loop into the engine.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -681,6 +681,7 @@ fn a_silent_upstream_is_bounded_and_holds_no_permit() {
             greeting: Duration::from_millis(300),
             read: Duration::from_millis(500),
             min_rate: 16 * 1024,
+            ..Default::default()
         };
         mw_net::with_upstream_timeouts(small, async {
             let started = std::time::Instant::now();

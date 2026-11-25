@@ -98,6 +98,13 @@ mod followup_index_patch_tests {
     }
 }
 
+/// t63: most messages per sync fetch command.
+const FETCH_BATCH_MESSAGES: usize = 64;
+/// t63: most bytes (of reported size) per sync fetch command.
+const FETCH_BATCH_BYTES: u64 = 32 * 1024 * 1024;
+/// t63: what a message of unreported size counts toward FETCH_BATCH_BYTES.
+const FETCH_UNKNOWN_SIZE_COST: u64 = 256 * 1024;
+
 /// The engine: one local store plus a registry of live account backends.
 ///
 /// Cloneable-by-`Arc` at the call sites that need `'static` tasks (change
@@ -484,6 +491,18 @@ impl Engine {
             .is_some_and(|saved| saved == revision)
     }
 
+    /// A message the sync does not download because it exceeds the size limit
+    /// (t63): counted in the sync health (admin Health panel) and logged.
+    fn report_too_large(&self, account_id: &str, reference: &MessageRef, size: u64) {
+        let mailbox = match reference {
+            MessageRef::Imap { mailbox, .. } => mailbox.name.as_str(),
+            MessageRef::Pop3 { .. } => "INBOX",
+            MessageRef::Plugin { .. } => "",
+        };
+        tracing::warn!("account {account_id}: a message in {mailbox:?} of about {size} bytes exceeds the upstream message size limit and was not downloaded");
+        self.sync_health.record_skipped_too_large(account_id, size, mailbox);
+    }
+
     /// Whether an account is currently connected in this engine.
     pub fn is_registered(&self, account_id: &str) -> bool {
         self.accounts
@@ -843,12 +862,61 @@ impl Engine {
             }
         }
 
-        // New messages: fetch raw bytes, parse in one pass, ingest.
-        for references in delta.added.chunks(64) {
-            let raws = rt.backend.fetch_raw(references).await?;
-            // Never advance a checkpoint over a message that was not fetched.
+        // New messages: fetch raw bytes, parse in one pass, ingest. t63:
+        // batches are sized by bytes (at most FETCH_BATCH_MESSAGES messages and
+        // FETCH_BATCH_BYTES of known size), and a message above the backend's
+        // size limit is reported in the sync health and skipped (never
+        // downloaded, never stalling the folder).
+        let limit = rt.backend.max_message_bytes();
+        let sizes = match rt.backend.message_sizes(&delta.added).await {
+            Ok(sizes) if sizes.len() == delta.added.len() => sizes,
+            _ => vec![None; delta.added.len()],
+        };
+        let mut batches: Vec<Vec<&MessageRef>> = Vec::new();
+        let (mut batch, mut batch_bytes) = (Vec::new(), 0u64);
+        for (reference, size) in delta.added.iter().zip(&sizes) {
+            if let Some(size) = size.filter(|size| *size > limit) {
+                self.report_too_large(account_id, reference, size);
+                continue;
+            }
+            let cost = size.unwrap_or(FETCH_UNKNOWN_SIZE_COST);
+            if !batch.is_empty() && (batch.len() >= FETCH_BATCH_MESSAGES || batch_bytes + cost > FETCH_BATCH_BYTES) {
+                batches.push(std::mem::take(&mut batch));
+                batch_bytes = 0;
+            }
+            batch.push(reference);
+            batch_bytes += cost;
+        }
+        if !batch.is_empty() {
+            batches.push(batch);
+        }
+        for references in batches {
+            let owned: Vec<MessageRef> = references.iter().map(|r| (*r).clone()).collect();
+            let mut skipped: Vec<MessageRef> = Vec::new();
+            let raws = match rt.backend.fetch_raw(&owned).await {
+                Err(EngineError::Protocol(message)) if message.starts_with(crate::backend::MESSAGE_TOO_LARGE) => {
+                    // A size the server did not report up front: one at a time,
+                    // skipping (and reporting) the ones above the limit.
+                    let mut raws = Vec::new();
+                    for reference in &owned {
+                        match rt.backend.fetch_raw(std::slice::from_ref(reference)).await {
+                            Ok(one) => raws.extend(one),
+                            Err(EngineError::Protocol(message)) if message.starts_with(crate::backend::MESSAGE_TOO_LARGE) => {
+                                self.report_too_large(account_id, reference, limit.saturating_add(1));
+                                skipped.push(reference.clone());
+                            }
+                            Err(error) => return Err(error),
+                        }
+                    }
+                    raws
+                }
+                other => other?,
+            };
+            // Never advance a checkpoint over a message that was not fetched
+            // (a skipped too-large message is reported, not fetched).
             // Retrying safely reuses stable IDs for already ingested chunks.
-            let expected: std::collections::HashSet<_> = references.iter().collect();
+            let expected: std::collections::HashSet<_> =
+                owned.iter().filter(|r| !skipped.contains(*r)).collect();
             let received: std::collections::HashSet<_> = raws.iter().map(|raw| &raw.message_ref).collect();
             if expected != received { return Err(EngineError::Protocol("incomplete mailbox fetch".into())); }
             for raw in &raws {

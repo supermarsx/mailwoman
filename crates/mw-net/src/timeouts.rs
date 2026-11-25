@@ -30,6 +30,10 @@ pub struct UpstreamTimeouts {
     pub read: Duration,
     /// Bytes per second a long answer must keep up to extend its bound.
     pub min_rate: u64,
+    /// Largest message (and largest single response) accepted from an
+    /// upstream: `MW_UPSTREAM_MAX_MESSAGE_MIB` (1–1024), default 64 MiB, the
+    /// import limit. Larger messages are reported and skipped by the sync.
+    pub max_message: u64,
 }
 
 impl Default for UpstreamTimeouts {
@@ -39,6 +43,7 @@ impl Default for UpstreamTimeouts {
             greeting: Duration::from_secs(15),
             read: Duration::from_secs(60),
             min_rate: 16 * 1024,
+            max_message: 64 * 1024 * 1024,
         }
     }
 }
@@ -46,6 +51,7 @@ impl Default for UpstreamTimeouts {
 pub const CONNECT_VAR: &str = "MW_UPSTREAM_CONNECT_TIMEOUT_SECS";
 pub const GREETING_VAR: &str = "MW_UPSTREAM_GREETING_TIMEOUT_SECS";
 pub const READ_VAR: &str = "MW_UPSTREAM_READ_TIMEOUT_SECS";
+pub const MAX_MESSAGE_VAR: &str = "MW_UPSTREAM_MAX_MESSAGE_MIB";
 
 /// Parse the three variables; an unset or empty one keeps its default.
 pub fn parse_upstream_timeouts(var: impl Fn(&str) -> Option<String>) -> Result<UpstreamTimeouts, String> {
@@ -64,6 +70,15 @@ pub fn parse_upstream_timeouts(var: impl Fn(&str) -> Option<String>) -> Result<U
     field(CONNECT_VAR, 1, 120, &mut out.connect)?;
     field(GREETING_VAR, 1, 120, &mut out.greeting)?;
     field(READ_VAR, 5, 600, &mut out.read)?;
+    if let Some(raw) = var(MAX_MESSAGE_VAR).filter(|raw| !raw.trim().is_empty()) {
+        let mib = raw
+            .trim()
+            .parse::<u64>()
+            .ok()
+            .filter(|mib| (1..=1024).contains(mib))
+            .ok_or_else(|| format!("{MAX_MESSAGE_VAR} must be a whole number of MiB from 1 to 1024, got {raw:?}"))?;
+        out.max_message = mib * 1024 * 1024;
+    }
     Ok(out)
 }
 

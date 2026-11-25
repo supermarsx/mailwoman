@@ -208,6 +208,28 @@ impl AccountBackend for ImapBackend {
         Ok(out)
     }
 
+    async fn message_sizes(&self, refs: &[MessageRef]) -> Result<Vec<Option<u64>>> {
+        let groups = group_imap_refs(refs)?;
+        let mut session = self.ready_session().await?;
+        let mut sizes = std::collections::HashMap::new();
+        for (mailbox, uids) in groups {
+            for (uid, size) in session.fetch_sizes(&mailbox, &uids).await? {
+                sizes.insert((mailbox.name.clone(), uid), size);
+            }
+        }
+        Ok(refs
+            .iter()
+            .map(|r| match r {
+                MessageRef::Imap { mailbox, uid, .. } => sizes.get(&(mailbox.name.clone(), *uid)).copied(),
+                _ => None,
+            })
+            .collect())
+    }
+
+    fn max_message_bytes(&self) -> u64 {
+        mw_net::upstream_timeouts().max_message
+    }
+
     async fn store_flags(&self, refs: &[MessageRef], add: &[Flag], remove: &[Flag]) -> Result<()> {
         let groups = group_imap_refs(refs)?;
         let mut session = self.ready_session().await?;

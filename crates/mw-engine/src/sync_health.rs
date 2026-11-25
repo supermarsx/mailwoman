@@ -40,6 +40,9 @@ struct AccountSync {
     last_duration: Option<Duration>,
     last_error: Option<(Instant, String)>,
     consecutive_failures: u32,
+    /// t63: messages the sync skipped because they exceed the size limit.
+    skipped_too_large: u64,
+    last_skipped: Option<(u64, String)>,
 }
 
 /// What one submission attempt ended in.
@@ -78,6 +81,19 @@ pub struct AccountSyncSnapshot {
     pub last_error: Option<String>,
     /// Failed resyncs since the last one that completed.
     pub consecutive_failures: u32,
+    /// Messages not downloaded because they exceed the upstream message size
+    /// limit (`MW_UPSTREAM_MAX_MESSAGE_MIB`), since this process started.
+    pub skipped_too_large: u64,
+    /// The latest such message: its size in bytes and folder.
+    pub last_skipped_too_large: Option<SkippedMessage>,
+}
+
+/// One message skipped for its size.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkippedMessage {
+    pub size_bytes: u64,
+    pub mailbox: String,
 }
 
 impl AccountSyncSnapshot {
@@ -211,6 +227,14 @@ impl SyncHealth {
     }
 
     /// Forget an account that is no longer registered.
+    /// A message the sync did not download because of its size (t63).
+    pub(crate) fn record_skipped_too_large(&self, account: &str, size: u64, mailbox: &str) {
+        let mut inner = self.lock();
+        let entry = inner.accounts.entry(account.to_string()).or_default();
+        entry.skipped_too_large = entry.skipped_too_large.saturating_add(1);
+        entry.last_skipped = Some((size, mailbox.chars().take(MAX_ERROR_CHARS).collect()));
+    }
+
     pub(crate) fn forget(&self, account: &str) {
         self.lock().accounts.remove(account);
     }
@@ -241,6 +265,8 @@ impl SyncHealth {
                     last_error_age_secs: entry.last_error.as_ref().map(|(t, _)| age(*t)),
                     last_error: entry.last_error.map(|(_, e)| e),
                     consecutive_failures: entry.consecutive_failures,
+                    skipped_too_large: entry.skipped_too_large,
+                    last_skipped_too_large: entry.last_skipped.map(|(size_bytes, mailbox)| SkippedMessage { size_bytes, mailbox }),
                 }
             })
             .collect();

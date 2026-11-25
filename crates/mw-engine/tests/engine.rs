@@ -50,6 +50,12 @@ struct FakeBackend {
     held_draft_append: Mutex<Option<Arc<HeldDraftAppend>>>,
     held_sync:Mutex<Option<(String,Arc<HeldDraftAppend>)>>,
     watch_sink:Mutex<Option<ChangeSink>>,
+    /// t63: the backend's message size limit and whether it reports sizes.
+    max_message: std::sync::atomic::AtomicU64,
+    sizes_unreported: AtomicBool,
+    /// When non-zero, the size reported for every message (bodies stay small).
+    reported_size: std::sync::atomic::AtomicU64,
+    fetch_commands: AtomicUsize,
 }
 struct HeldDraftAppend {
     entered: tokio::sync::Notify,
@@ -95,6 +101,10 @@ impl FakeBackend {
             expunge_fails: AtomicBool::new(false),
             held_draft_append: Mutex::new(None),
             held_sync:Mutex::new(None),watch_sink:Mutex::new(None),
+            max_message: std::sync::atomic::AtomicU64::new(u64::MAX),
+            sizes_unreported: AtomicBool::new(false),
+            reported_size: std::sync::atomic::AtomicU64::new(0),
+            fetch_commands: AtomicUsize::new(0),
         }
     }
 }
@@ -199,8 +209,44 @@ impl AccountBackend for FakeBackend {
         })
     }
 
-    async fn fetch_raw(&self, refs: &[MessageRef]) -> Result<Vec<RawMessage>> {
+    async fn message_sizes(&self, refs: &[MessageRef]) -> Result<Vec<Option<u64>>> {
+        if self.sizes_unreported.load(Ordering::SeqCst) {
+            return Ok(vec![None; refs.len()]);
+        }
+        let reported = self.reported_size.load(Ordering::SeqCst);
+        if reported > 0 {
+            return Ok(vec![Some(reported); refs.len()]);
+        }
         let st = self.state.lock().unwrap();
+        Ok(refs
+            .iter()
+            .map(|r| match r {
+                MessageRef::Imap { mailbox, uid, .. } => st
+                    .messages
+                    .get(&mailbox.name)
+                    .and_then(|msgs| msgs.iter().find(|(u, ..)| u == uid))
+                    .map(|(_, raw, ..)| raw.len() as u64),
+                _ => None,
+            })
+            .collect())
+    }
+
+    fn max_message_bytes(&self) -> u64 {
+        self.max_message.load(Ordering::SeqCst)
+    }
+
+    async fn fetch_raw(&self, refs: &[MessageRef]) -> Result<Vec<RawMessage>> {
+        self.fetch_commands.fetch_add(1, Ordering::SeqCst);
+        let st = self.state.lock().unwrap();
+        let limit = self.max_message.load(Ordering::SeqCst);
+        for r in refs {
+            if let MessageRef::Imap { mailbox, uid, .. } = r
+                && st.messages.get(&mailbox.name).and_then(|msgs| msgs.iter().find(|(u, ..)| u == uid))
+                    .is_some_and(|(_, raw, ..)| raw.len() as u64 > limit)
+            {
+                return Err(mw_engine::backend::EngineError::Protocol(mw_engine::backend::MESSAGE_TOO_LARGE.into()));
+            }
+        }
         let mut out = Vec::new();
         for r in refs {
             let MessageRef::Imap { mailbox, uid, .. } = r else {
@@ -2367,4 +2413,46 @@ async fn max_body_value_bytes_truncates_and_flags_body_values() {
     assert!(truncated > 0, "the fixture has a body longer than 3 bytes: {full}");
     let bad = jmap(&h, json!([["Email/get", { "ids": ids, "maxBodyValueBytes": "big" }, "g"]])).await;
     assert_eq!(method_result(&bad, "g")["type"], "invalidArguments", "{bad}");
+}
+
+/// t63 F2: a message above the backend's size limit is reported in the sync
+/// health and skipped, with or without a size reported up front; the other
+/// messages are ingested and the sync completes (the folder does not stall).
+#[tokio::test]
+async fn an_oversized_message_is_reported_and_skipped() {
+    for unreported in [false, true] {
+        let big = plain_msg("big@example.org", "a@example.org", "Big", &"x".repeat(20_000));
+        let backend = Arc::new(FakeBackend::with_inbox(vec![
+            (1, plain_msg("one@example.org", "a@example.org", "One", "small"), vec![], "2026-07-01T09:00:00Z".into()),
+            (2, big, vec![], "2026-07-02T09:00:00Z".into()),
+            (3, plain_msg("three@example.org", "a@example.org", "Three", "small"), vec![], "2026-07-03T09:00:00Z".into()),
+        ]));
+        backend.max_message.store(10_000, Ordering::SeqCst);
+        backend.sizes_unreported.store(unreported, Ordering::SeqCst);
+        let h = setup_with(backend).await;
+        h.engine.resync(&h.account_id).await.expect("the sync completes");
+        let query = jmap(&h, json!([["Email/query", {"accountId": h.account_id, "filter": {}}, "q"]])).await;
+        let ids = query["methodResponses"][0][1]["ids"].as_array().unwrap().len();
+        assert_eq!(ids, 2, "unreported={unreported}: the two small messages are there: {query}");
+        let health = h.engine.sync_health();
+        let account = health.accounts.iter().find(|a| a.account_id == h.account_id).unwrap();
+        assert_eq!(account.skipped_too_large, 1, "unreported={unreported}");
+        assert_eq!(account.last_skipped_too_large.as_ref().unwrap().mailbox, "INBOX");
+        // A second sync does not stall on it either.
+        h.engine.resync(&h.account_id).await.expect("again");
+    }
+}
+
+/// t63 F2: fetch batches are sized by bytes as well as by count.
+#[tokio::test]
+async fn fetch_batches_are_sized_by_bytes() {
+    let inbox: Vec<ScriptMsg> = (1..=8u32)
+        .map(|n| (n, plain_msg(&format!("m{n}@example.org"), "a@example.org", "M", "body"), vec![], "2026-07-01T09:00:00Z".into()))
+        .collect();
+    let backend = Arc::new(FakeBackend::with_inbox(inbox));
+    backend.reported_size.store(12 * 1024 * 1024, Ordering::SeqCst);
+    let h = setup_with(backend.clone()).await;
+    h.engine.resync(&h.account_id).await.unwrap();
+    // 8 x 12 MiB with a 32 MiB batch: at least 4 fetch commands (was 1).
+    assert!(backend.fetch_commands.load(Ordering::SeqCst) >= 4, "{}", backend.fetch_commands.load(Ordering::SeqCst));
 }

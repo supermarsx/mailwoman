@@ -311,6 +311,13 @@ impl Connection {
                     }
                 }
             }
+            // t63: one response (a whole message literal included) is
+            // bounded by the upstream message limit plus 64 KiB of framing.
+            if self.buf.len() as u64 > mw_net::upstream_timeouts().max_message.saturating_add(64 * 1024) {
+                self.stream = None;
+                self.buf.clear();
+                return Err(ImapError::Protocol(mw_engine::backend::MESSAGE_TOO_LARGE.into()));
+            }
             let stream = self.stream.as_mut().ok_or(ImapError::Eof)?;
             let read = match &mut self.deadline {
                 Some(deadline) => deadline.read(stream.read_buf(&mut self.buf)).await,
@@ -580,6 +587,13 @@ impl Connection {
                 self.buf.advance(2); // consume the CRLF
                 return Ok(String::from_utf8_lossy(&line).into_owned());
             }
+            // t63: one response (a whole message literal included) is
+            // bounded by the upstream message limit plus 64 KiB of framing.
+            if self.buf.len() as u64 > mw_net::upstream_timeouts().max_message.saturating_add(64 * 1024) {
+                self.stream = None;
+                self.buf.clear();
+                return Err(ImapError::Protocol(mw_engine::backend::MESSAGE_TOO_LARGE.into()));
+            }
             let stream = self.stream.as_mut().ok_or(ImapError::Eof)?;
             let read = match &mut self.deadline {
                 Some(deadline) => deadline.read(stream.read_buf(&mut self.buf)).await,
@@ -811,6 +825,7 @@ mod upstream_timeout_tests {
             greeting: Duration::from_millis(300),
             read: Duration::from_millis(400),
             min_rate: 16 * 1024,
+            ..Default::default()
         }
     }
 
@@ -858,6 +873,50 @@ mod upstream_timeout_tests {
                 assert!(started.elapsed() < bound * 3, "{mode}: {:?}", started.elapsed());
                 server.abort();
             }
+        })
+        .await;
+    }
+}
+
+#[cfg(test)]
+mod upstream_size_tests {
+    use super::*;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::net::TcpListener;
+
+    /// t63 F2: a response larger than the upstream message limit ends the
+    /// connection with MESSAGE_TOO_LARGE instead of growing the buffer.
+    #[tokio::test]
+    async fn a_response_above_the_limit_is_refused() {
+        let limits = mw_net::UpstreamTimeouts { max_message: 128 * 1024, ..Default::default() };
+        mw_net::with_upstream_timeouts(limits, async {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (sock, _) = listener.accept().await.unwrap();
+                let (rd, mut wr) = sock.into_split();
+                let mut reader = BufReader::new(rd);
+                wr.write_all(b"* OK ready\r\n").await.unwrap();
+                let mut line = String::new();
+                let _ = reader.read_line(&mut line).await;
+                let size = 1024 * 1024;
+                let _ = wr.write_all(format!("* 1 FETCH (UID 1 BODY[] {{{size}}}\r\n").as_bytes()).await;
+                let chunk = vec![b'x'; 64 * 1024];
+                for _ in 0..(size / chunk.len()) {
+                    if wr.write_all(&chunk).await.is_err() {
+                        break;
+                    }
+                }
+            });
+            let (mut conn, _) = Connection::connect_via_with_tls(
+                None, "127.0.0.1", addr.port(), TlsMode::Plaintext, &mw_net::TlsOptions::default(),
+            )
+            .await
+            .unwrap();
+            let error = conn.execute("UID FETCH 1 (BODY[])").await.unwrap_err();
+            assert!(error.to_string().contains(mw_engine::backend::MESSAGE_TOO_LARGE), "{error}");
+            assert!(conn.buf.len() <= 128 * 1024 + 64 * 1024 + 64 * 1024, "buffer bounded");
+            server.abort();
         })
         .await;
     }

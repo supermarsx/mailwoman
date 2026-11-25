@@ -271,6 +271,33 @@ impl AccountBackend for Pop3Backend {
         })
     }
 
+    async fn message_sizes(&self, refs: &[MessageRef]) -> Result<Vec<Option<u64>>> {
+        if refs.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut conn = self.open().await?;
+        let present = conn.uidl_all().await?;
+        let sizes: std::collections::HashMap<u32, u64> = conn
+            .list_all()
+            .await?
+            .into_iter()
+            .filter_map(|(num, size)| size.trim().parse::<u64>().ok().map(|size| (num, size)))
+            .collect();
+        let by_uidl: std::collections::HashMap<&str, u32> =
+            present.iter().map(|(n, u)| (u.as_str(), *n)).collect();
+        Ok(refs
+            .iter()
+            .map(|r| match r {
+                MessageRef::Pop3 { uidl } => by_uidl.get(uidl.as_str()).and_then(|num| sizes.get(num)).copied(),
+                _ => None,
+            })
+            .collect())
+    }
+
+    fn max_message_bytes(&self) -> u64 {
+        mw_net::upstream_timeouts().max_message
+    }
+
     async fn fetch_raw(&self, refs: &[MessageRef]) -> Result<Vec<RawMessage>> {
         if refs.is_empty() {
             return Ok(Vec::new());

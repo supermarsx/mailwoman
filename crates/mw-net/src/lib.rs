@@ -23,7 +23,7 @@ mod auth;
 pub use auth::{AuthMechanism, AuthProtocol, PasswordAuthPolicy};
 mod timeouts;
 pub use timeouts::{
-    CONNECT_VAR, GREETING_VAR, READ_VAR, ReadDeadline, UpstreamTimeouts, parse_upstream_timeouts,
+    CONNECT_VAR, GREETING_VAR, MAX_MESSAGE_VAR, READ_VAR, ReadDeadline, UpstreamTimeouts, parse_upstream_timeouts,
     upstream_timeouts, with_upstream_timeouts, within,
 };
 use std::future::Future;

@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as B64;
 use mw_engine::backend::EngineError;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio_rustls::TlsConnector;
 
 use crate::backend::{Pop3Auth, Pop3Config, TlsMode};
@@ -168,11 +168,16 @@ impl Pop3Conn {
 
     async fn read_line_raw(&mut self) -> Result<Vec<u8>> {
         let mut buf = Vec::new();
+        // t63: a line is bounded by the upstream message limit (+64 KiB).
+        let limit = mw_net::upstream_timeouts().max_message.saturating_add(64 * 1024);
         let n = self
             .deadline
-            .read(self.stream.read_until(b'\n', &mut buf))
+            .read((&mut self.stream).take(limit).read_until(b'\n', &mut buf))
             .await
             .map_err(transport)?;
+        if n as u64 >= limit && !buf.ends_with(b"\n") {
+            return Err(EngineError::Protocol(mw_engine::backend::MESSAGE_TOO_LARGE.into()));
+        }
         if n == 0 {
             return Err(EngineError::Transport("connection closed by server".into()));
         }
@@ -193,6 +198,9 @@ impl Pop3Conn {
                 break;
             }
             raw.extend_from_slice(&line);
+            if raw.len() as u64 > mw_net::upstream_timeouts().max_message.saturating_add(64 * 1024) {
+                return Err(EngineError::Protocol(mw_engine::backend::MESSAGE_TOO_LARGE.into()));
+            }
         }
         Ok(dot_unstuff(&raw))
     }
@@ -1142,6 +1150,7 @@ mod upstream_timeout_tests {
             greeting: Duration::from_millis(300),
             read: Duration::from_millis(400),
             min_rate: 16 * 1024,
+            ..Default::default()
         }
     }
 
@@ -1186,6 +1195,50 @@ mod upstream_timeout_tests {
                 assert!(result.is_err(), "{mode}: must fail");
                 let bound = if mode == "silent" { small().greeting } else { small().read };
                 assert!(started.elapsed() < bound * 3, "{mode}: {:?}", started.elapsed());
+                server.abort();
+            }
+        })
+        .await;
+    }
+}
+
+#[cfg(test)]
+mod upstream_size_tests {
+    use super::*;
+    use tokio::io::AsyncWriteExt;
+    use tokio::net::{TcpListener, TcpStream};
+
+    /// t63 F2: a RETR body (or a line) larger than the upstream message limit
+    /// fails with MESSAGE_TOO_LARGE instead of growing without bound.
+    #[tokio::test]
+    async fn a_body_above_the_limit_is_refused() {
+        let limits = mw_net::UpstreamTimeouts { max_message: 128 * 1024, ..Default::default() };
+        mw_net::with_upstream_timeouts(limits, async {
+            for one_line in [false, true] {
+                let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let addr = listener.local_addr().unwrap();
+                let server = tokio::spawn(async move {
+                    let (sock, _) = listener.accept().await.unwrap();
+                    let (rd, mut wr) = sock.into_split();
+                    let mut reader = BufReader::new(rd);
+                    wr.write_all(b"+OK ready\r\n").await.unwrap();
+                    let mut line = String::new();
+                    let _ = reader.read_line(&mut line).await;
+                    let _ = wr.write_all(b"+OK message follows\r\n").await;
+                    for _ in 0..32 {
+                        let chunk: Vec<u8> = if one_line { vec![b'x'; 64 * 1024] } else { [vec![b'x'; 1000], b"\r\n".to_vec()].concat() };
+                        for _ in 0..(if one_line { 1 } else { 64 }) {
+                            if wr.write_all(&chunk).await.is_err() {
+                                return;
+                            }
+                        }
+                    }
+                });
+                let tcp = TcpStream::connect(addr).await.unwrap();
+                let mut conn = Pop3Conn::new(Box::new(tcp));
+                conn.read_greeting().await.unwrap();
+                let error = conn.retr(1).await.unwrap_err();
+                assert!(error.to_string().contains(mw_engine::backend::MESSAGE_TOO_LARGE), "one_line={one_line}: {error}");
                 server.abort();
             }
         })
