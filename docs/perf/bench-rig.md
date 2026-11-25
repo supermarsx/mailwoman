@@ -260,9 +260,13 @@ node scripts/perf/bench-rig.mjs m3 --run=m3 --run-id=m3-1 --arm-image-glibc=rig-
 Arms: `glibc` (default), `glibc-arena` (`MALLOC_ARENA_MAX`, `--arena-max`, default 2: a commonly used setting, not
 derived from a measurement here), `musl` (as shipped), `jemalloc`, `mimalloc`. An arm runs only when its image is
 given; the jemalloc and mimalloc arms need images built with allocator features that do not exist yet (they need
-new crates from crates.io; waiting for approval). Stages per arm: idle 60 s after seeding with every session open
-(`MW_LOAD_FIXTURE_IDLE_BEFORE_SECONDS`), the goal mix at C32 for 120 s, idle 300 s
-(`MW_LOAD_FIXTURE_IDLE_AFTER_SECONDS`; both 0–900, default 0). The fixture writes the idle windows to
-`idle-windows.jsonl`; `<run-id>-m3.md` has per arm the app memory at the end of each window, the largest value
-inside the mix, µs CPU per request and p99. Not built: the audit's "1,000 users open / close / reopen" stage
+new crates from crates.io; waiting for approval). Order: `--repeat` (default 2, at most 6) runs the arms forward,
+then reversed (A B C, C B A, ...). Stages per arm: idle 60 s after seeding with every session open
+(`MW_LOAD_FIXTURE_IDLE_BEFORE_SECONDS`); identity, flag-and-restore and the goal mix, each at C32 and C64 for 120 s;
+idle 300 s (`MW_LOAD_FIXTURE_IDLE_AFTER_SECONDS`; both 0–900, default 0) with readings at +60 s and at the end
+(+300 s). The fixture writes the idle windows to `idle-windows.jsonl`. `<run-id>-m3.md` has one row per arm repeat
+and stage. Memory cells are "anonymous / total": anonymous = the app container's cgroup `memory.stat` `anon`
+(private memory such as the heap, no page cache); total = `memory.current` (page cache included). The fixture
+process's own RSS split (`/proc/self/status`: resident, anonymous, file-backed) is in each stage row under
+`memory.server.process`, at the stage edges only. Not built: the audit's "1,000 users open / close / reopen" stage
 (the fixture seeds its sessions once; the generator has no close/reopen phase).

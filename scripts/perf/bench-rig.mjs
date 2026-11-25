@@ -32,7 +32,7 @@ import {randomBytes} from 'node:crypto';
 import os from 'node:os';
 import {allocate,validatePlan,dockerCpuArgs,hostEnv,ROLES} from './rig-cpuset.mjs';
 import {parseSamples} from './rig-cgroup.mjs';
-import {containerMemory} from './rig-memory.mjs';
+import {containerMemory,memoryAt} from './rig-memory.mjs';
 import {DEFAULT_THRESHOLDS} from './rig-quiet.mjs';
 import {runDefinition,legRows,weightedMix,markdownSummary} from './rig-shapes.mjs';
 import {compare,markdownComparison,metricsOfSummary,readBaseline,writeBaseline,bless,DEFAULT_THRESHOLD} from './rig-compare.mjs';
@@ -47,7 +47,7 @@ export function parseArgs(argv){
  for(const arg of rest){
   if(!arg.startsWith('--'))throw new Error('Use --name=value');
   const at=arg.indexOf('=');const key=at<0?arg.slice(2):arg.slice(2,at),value=at<0?true:arg.slice(at+1);
-  if(!['run','run-id','image','diagnostics-image','report-root','private-root','confirm-bench-slot','backend','vcpus','app','database','generator','upstream','rig','cpuset-app','cpuset-database','cpuset-generator','cpuset-upstream','cpuset-rig','app-memory','transport-concurrency','principals','smoke','host-sampler','host-logical-cpus','legs','dir','generator-impl','native-generator-bin','parent-image','candidate-image','parent-diagnostics-image','candidate-diagnostics-image','candidate','reference','baseline','threshold','bless','reason','out','arm-image-glibc','arm-image-musl','arm-image-jemalloc','arm-image-mimalloc','arena-max'].includes(key))throw new Error('Unknown option --'+key);
+  if(!['run','run-id','image','diagnostics-image','report-root','private-root','confirm-bench-slot','backend','vcpus','app','database','generator','upstream','rig','cpuset-app','cpuset-database','cpuset-generator','cpuset-upstream','cpuset-rig','app-memory','transport-concurrency','principals','smoke','host-sampler','host-logical-cpus','legs','dir','generator-impl','native-generator-bin','parent-image','candidate-image','parent-diagnostics-image','candidate-diagnostics-image','candidate','reference','baseline','threshold','bless','reason','out','arm-image-glibc','arm-image-musl','arm-image-jemalloc','arm-image-mimalloc','arena-max','repeat'].includes(key))throw new Error('Unknown option --'+key);
   args[key]=value;
  }
  return {command,args};
@@ -222,7 +222,7 @@ export async function analyseLeg(plan,leg,legDir){
  for(const sample of samples)for(const [id,row] of Object.entries(sample.others??{}))if(names[id])row.name=names[id];
  const {samples:hostSamples,excludePids}=await readHostSamples(join(legDir,'host-samples.jsonl'),infrastructure.clock?.offsetMs);
  const idleText=await readFile(join(legDir,'reports','idle-windows.jsonl'),'utf8').catch(()=>'');
- const idleWindows=idleText.split(/\r?\n/).filter(Boolean).flatMap(line=>{try{const w=JSON.parse(line);return Number.isFinite(w.startMs)&&Number.isFinite(w.endMs)?[{phase:String(w.phase),startMs:w.startMs,endMs:w.endMs,app:containerMemory(samples,'app',{startMs:w.startMs,endMs:w.endMs})}]:[];}catch{return [];}});
+ const idleWindows=idleText.split(/\r?\n/).filter(Boolean).flatMap(line=>{try{const w=JSON.parse(line);return Number.isFinite(w.startMs)&&Number.isFinite(w.endMs)?[{phase:String(w.phase),startMs:w.startMs,endMs:w.endMs,app:containerMemory(samples,'app',{startMs:w.startMs,endMs:w.endMs}),at60:w.endMs-w.startMs>=60000?memoryAt(samples,'app',w.startMs+60000):null}]:[];}catch{return [];}});
  const reportsDir=join(legDir,'reports');
  const files=(await readdir(reportsDir).catch(()=>[])).filter(name=>/^native-[0-9]+\.json$/.test(name));
  if(files.length!==1)return {rows:[],notes:[`${leg.id}: expected one native-<users>.json report, found ${files.length}`]};
@@ -290,6 +290,12 @@ export function m3Arms(args){
  return {run,skipped};
 }
 
+// Arm order for M3: repeat r runs the arms forward when r is even and reversed when r is odd (A B C, C B A, ...).
+export function m3Order(arms,repeat=2){
+ if(!Number.isInteger(repeat)||repeat<1||repeat>6)throw new Error('Invalid --repeat (1 to 6)');
+ return Array.from({length:repeat},(_,r)=>(r%2?[...arms].reverse():arms).map(arm=>({...arm,repeat:r+1}))).flat();
+}
+
 export function abOrder(runId,{parent,candidate}){
  return [['a1',parent],['b1',candidate],['b2',candidate],['a2',parent]].map(([tag,images])=>({runId:`${runId}-${tag}`,tag,...images}));
 }
@@ -303,18 +309,23 @@ export async function runAb(order,runOne,{threshold=DEFAULT_THRESHOLD}={}){
 // M3 table: per arm, app memory at each boundary, µs CPU per request and p99 of the mix.
 export function m3Table(byArm,skipped=[]){
  const mib=v=>Number.isFinite(v)?(v/1048576).toFixed(1):'–';
- const lines=['| Arm | libc / allocator | App MiB end of idle before | App MiB end of mix (max inside) | App MiB end of idle after | µs CPU/req (server) | p99 ms | Quiet |','| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |'];
+ const pair=(anon,current)=>`${mib(anon)} / ${mib(current)}`;
+ const lines=['Memory cells: anonymous / total, MiB. Anonymous = cgroup memory.stat anon of the app container (heap and other private memory, no page cache); total = memory.current (includes page cache). Process RSS from /proc/self/status is in each stage row (memory.server.process).','',
+  '| Arm (repeat) | libc / allocator | Idle before: end | Stage | Stage end (max inside) | µs CPU/req | p99 ms | Idle after: +60 s | Idle after: end (+300 s) | Quiet |',
+  '| --- | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | --- |'];
  for(const [arm,summary] of Object.entries(byArm)){
-  const row=summary.rows.find(r=>r.kind==='mix')??summary.rows[0];
-  const app=Object.values(row?.memory?.containers??{}).find(c=>c.role==='app');
-  const idle=phase=>summary.idleWindows?.find(w=>w.phase===phase)?.app?.currentEndBytes;
-  lines.push(`| ${arm} | ${summary.imageRuntime?summary.imageRuntime.libc+' / '+summary.imageRuntime.allocator:'not recorded'} | ${mib(idle('before'))} | ${mib(app?.currentEndBytes)} (${mib(app?.maxSampledBytes)}) | ${mib(idle('after'))} | ${row?.usecCpuPerRequest?.server??'–'} | ${row?.latencyMs?.p99??'–'} | ${row?.contaminated?'CONTAMINATED':'quiet'} |`);
+  const runtime=summary.imageRuntime?summary.imageRuntime.libc+' / '+summary.imageRuntime.allocator:'not recorded';
+  const before=summary.idleWindows?.find(w=>w.phase==='before')?.app,after=summary.idleWindows?.find(w=>w.phase==='after');
+  const at60=after?.at60;
+  for(const row of summary.rows.filter(r=>!r.instrumented)){
+   const app=Object.values(row.memory?.containers??{}).find(c=>c.role==='app');
+   lines.push(`| ${arm} | ${runtime} | ${pair(before?.anonEndBytes,before?.currentEndBytes)} | ${row.shape} C${row.concurrency} | ${pair(app?.anonEndBytes,app?.currentEndBytes)} (${pair(app?.anonMaxSampledBytes,app?.maxSampledBytes)}) | ${row.usecCpuPerRequest?.server??'–'} | ${row.latencyMs?.p99??'–'} | ${pair(at60?.anonBytes,at60?.currentBytes)} | ${pair(after?.app?.anonEndBytes,after?.app?.currentEndBytes)} | ${row.contaminated?'CONTAMINATED':'quiet'} |`);
+  }
  }
- for(const s of skipped)lines.push(`| ${s.id} | – | not run: ${s.reason} | | | | | |`);
+ for(const s of skipped)lines.push(`| ${s.id} | – | not run: ${s.reason} | | | | | | | |`);
  lines.push('','Not built: 1,000 users open / close / reopen (the fixture seeds sessions once; the generator has no close/reopen phase).');
  return lines.join('\n')+'\n';
 }
-
 async function summaries(list){return Promise.all(String(list).split(',').map(async dir=>JSON.parse(await readFile(join(resolve(dir),'summary.json'),'utf8'))));}
 
 export async function compareCommand(args,{baselinePath=resolve(String(args.baseline??join(HERE,'rig-baseline.json'))),write=process.stdout.write.bind(process.stdout)}={}){
@@ -363,9 +374,9 @@ async function main(){
  if(command==='m3'){
   if(plan.run!=='m3')throw new Error('m3 needs --run=m3');
   const {run,skipped}=m3Arms(args),summaries={};
-  for(const arm of run){
-   const armPlan={...plan,legs:plan.legs.map(leg=>({...leg,env:{...leg.env,...arm.env}})),arm:{id:arm.id,describe:arm.describe,env:arm.env}};
-   summaries[arm.id]=(await runOnce(armPlan,{runId:`${runId}-${arm.id}`,image:arm.image,...roots})).summary;
+  for(const arm of m3Order(run,args.repeat===undefined?2:Number(args.repeat))){
+   const armPlan={...plan,legs:plan.legs.map(leg=>({...leg,env:{...leg.env,...arm.env}})),arm:{id:arm.id,describe:arm.describe,env:arm.env,repeat:arm.repeat}};
+   summaries[`${arm.id} r${arm.repeat}`]=(await runOnce(armPlan,{runId:`${runId}-${arm.id}-r${arm.repeat}`,image:arm.image,...roots})).summary;
   }
   const table=m3Table(summaries,skipped);
   await writeFile(join(resolve(roots.reportRoot),`${runId}-m3.md`),table);process.stdout.write(table);return;

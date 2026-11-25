@@ -16,6 +16,12 @@ function around(samples,read,t){
  for(const s of samples){const v=read(s);if(!Number.isFinite(v))continue;if(s.tMs<=t)before={t:s.tMs,v};if(s.tMs>=t){after={t:s.tMs,v};break;}}
  return {before,after};
 }
+// Memory of one container at startMs + offsetMs (last sample at or before it): current and anon.
+export function memoryAt(samples,label,tMs){
+ const current=around(samples,s=>s.containers?.[label]?.mem?.current,tMs).before?.v??null;
+ const anon=around(samples,s=>s.containers?.[label]?.mem?.stat?.anon,tMs).before?.v??null;
+ return {tMs,currentBytes:current,anonBytes:anon};
+}
 export function containerMemory(samples,label,{startMs,endMs}){
  const read=key=>s=>s.containers?.[label]?.mem?.[key];
  const readEvent=key=>s=>s.containers?.[label]?.mem?.events?.[key];
@@ -29,7 +35,9 @@ export function containerMemory(samples,label,{startMs,endMs}){
   events[key]=Number.isFinite(a)&&Number.isFinite(b)?b-a:null;
  }
  const end=key=>num(around(samples,readStat(key),endMs).before?.v);
+ const anonInside=samples.filter(s=>s.tMs>=startMs&&s.tMs<=endMs).map(readStat('anon')).filter(Number.isFinite);
  return {available:true,currentStartBytes:atStart,currentEndBytes:atEnd,maxSampledBytes:inside.length?Math.max(...inside):null,
+  anonStartBytes:num(around(samples,readStat('anon'),startMs).before?.v),anonEndBytes:end('anon'),anonMaxSampledBytes:anonInside.length?Math.max(...anonInside):null,
   peakBytes:num(around(samples,read('peak'),endMs).before?.v),events,
   statEnd:{anon:end('anon'),file:end('file'),kernel:end('kernel'),sock:end('sock'),shmem:end('shmem')},
   pidsEnd:num(around(samples,read('pids'),endMs).before?.v)};
