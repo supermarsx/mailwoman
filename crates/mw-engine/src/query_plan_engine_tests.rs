@@ -349,7 +349,12 @@ async fn metadata_routes_refuse(w: &World, context: &str, unread_id_reads_it: bo
     // No metadata condition: since slice 2 the index's hits are confirmed as
     // the account's in SQL, so this refuses too when SQL is broken.
     let resp = query(w, acct, json!({"text": "alpha"}), false).await;
-    assert!(is_error(&resp, "serverFail"), "{context}: {resp}");
+    if context.contains("keyword table") {
+        // The confirmation reads message_state only: still answered, right.
+        assert_eq!(resp[0], json!("Email/query"), "{context}: {resp}");
+    } else {
+        assert!(is_error(&resp, "serverFail"), "{context}: {resp}");
+    }
 }
 
 #[tokio::test]
@@ -1012,9 +1017,9 @@ async fn statements_with_hits(store: Store, backend: &str) {
         ("unread + text account-wide", vec![q(json!({"notKeyword": "$seen", "text": "alpha"}), 50)], 2),
         ("single request: text in folder, limit 5", vec![q(json!({"inMailbox": inbox, "text": "alpha"}), 5)], 2),
         ("is:unread OR from: in folder", vec![q(json!({"inMailbox": inbox, "text": "is:unread OR from:s3"}), 50)], 3),
-        // Master: 2. Slice 2 adds the SQL confirmation of the hits as the
-        // account's (no top-level SQL set; isolation), the one trade.
-        ("is:unread OR from: account-wide (+1: account confirmation)", vec![q(json!({"text": "is:unread OR from:s3"}), 50)], 3),
+        // The SQL confirmation of the hits as the account's (no top-level SQL
+        // set) rides on the response's state read: no extra statement.
+        ("is:unread OR from: account-wide", vec![q(json!({"text": "is:unread OR from:s3"}), 50)], 2),
     ];
     for (name, calls, master) in shapes {
         let mut counts = Vec::new();

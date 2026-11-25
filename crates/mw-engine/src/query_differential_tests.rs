@@ -25,13 +25,17 @@
 //! and the SQL folder list by uid. A compound sort breaks ties by stable id in
 //! both and is compared exactly.
 //!
-//! Modelled pre-existing behaviour (not a difference between the paths): a user
-//! keyword whose name has a derived prefix (`$list:`, `$supersedes:`,
-//! `$mw-mention:`, `$priority-high/low`) stays in the index once set, because
-//! `index_publication::patch_current` keeps every derived-prefix value of the
-//! stored document; only a rebuild from source drops it. The oracle therefore
-//! treats such a keyword as present from the first time it was set until the
-//! message is destroyed. Decision P2 (union of index and SQL) keeps this.
+//! Every matrix run first rebuilds the account's index from SQL (design part
+//! 11: the old path runs over a freshly rebuilt index), because since slice
+//! 1's write side flag, pin and follow-up writes no longer reach the index.
+//!
+//! Modelled behaviour (not a difference between the paths): a keyword whose
+//! name has a derived prefix (`$list:`, `$supersedes:`, `$mw-mention:`,
+//! `$priority-high/low`) is in the index from the document's last build
+//! (ingest or rebuild) onwards: `patch_current` keeps such values, and flag
+//! writes may not publish at all. The oracle treats it as present when it was
+//! in the flags at the last build or is in them now (decision P2: union of
+//! index and SQL).
 //!
 //! Accepted differences (declared up front, design part 11), none of which this
 //! corpus can reach, so none is tolerated by the comparison:
@@ -519,6 +523,35 @@ impl World {
             r["methodResponses"][0][1]["updated"].get(id).is_some(),
             "update {id}: {r}"
         );
+    }
+
+    /// Rebuild the account's index documents from SQL (design part 11: the old
+    /// path runs over an index freshly rebuilt from current SQL, so its
+    /// mutable fields are current; since slice 1's write side, flag, pin and
+    /// follow-up writes no longer reach the index). The derived-prefix record
+    /// becomes what the rebuilt documents hold: the current flags.
+    pub(crate) async fn rebuild_index(&self, acct: &Account) {
+        let store = self.engine.store();
+        let mut ids = Vec::new();
+        for (_, mb) in &acct.folders {
+            ids.extend(store.list_message_ids(mb, i64::MAX, 0).await.unwrap());
+        }
+        if ids.is_empty() {
+            return;
+        }
+        self.engine
+            .publish_current_index(&acct.id, ids.clone(), crate::index_publication::PublicationMode::Rebuild)
+            .await
+            .unwrap();
+        let messages = store.get_messages(&ids).await.unwrap();
+        let mut sticky = self.sticky.lock().unwrap();
+        for m in messages.into_iter().flatten() {
+            let derived: BTreeSet<String> = crate::mapping::flags_to_keywords(&crate::mapping::flags_from_json(&m.flags_json))
+                .into_keys()
+                .filter(|k| derived_name(k))
+                .collect();
+            sticky.insert(m.stable_id, derived);
+        }
     }
 
     /// The current rows of an account, from SQL.
@@ -1476,6 +1509,7 @@ fn ids_len_of(body: &Value) -> usize {
 /// otherwise the singles and text forms with the first window.
 pub(crate) async fn run_matrix(w: &World, which: char, full: bool, context: &str) -> usize {
     let acct = w.account(which);
+    w.rebuild_index(acct).await;
     let rows = w.rows(acct).await;
     let mut n = 0;
     let mut filters: Vec<String> = singles().into_iter().map(str::to_owned).collect();

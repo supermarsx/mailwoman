@@ -1295,6 +1295,36 @@ impl Engine {
             .map_err(|e| EngineError::Protocol(format!("search: {e}")))?)
     }
 
+    /// The members of `ids` that are this account's messages, from SQL: the
+    /// confirmation of index hits selected under the bare account term. When
+    /// the request has not read its session state counters yet, both come
+    /// from one statement and the counters are kept in the request frame, so
+    /// the response's state read costs nothing (the confirmation is free).
+    async fn confirm_owned(
+        &self,
+        account_id: &str,
+        ids: &[String],
+    ) -> std::result::Result<std::collections::HashSet<String>, QueryFail> {
+        if ids.is_empty() {
+            return Ok(std::collections::HashSet::new());
+        }
+        self.projection_ready().await?;
+        if ids.len() <= crate::query_plan::FILTER_CHUNK
+            && let Some(frame) = crate::request_scope::RequestFrame::current(account_id)
+            && frame.get().is_none()
+        {
+            let (counters, owned) = self.store().session_state_counters_with_owned(account_id, ids).await?;
+            frame.put(std::sync::Arc::new(counters));
+            return Ok(owned.into_iter().collect());
+        }
+        let query = mw_store::message_projection::ProjectionQuery::account(account_id);
+        let mut own = std::collections::HashSet::new();
+        for chunk in ids.chunks(crate::query_plan::FILTER_CHUNK) {
+            own.extend(self.store().projection_filter_ids(&query, chunk).await?);
+        }
+        Ok(own)
+    }
+
     /// The account term and every node of a combined query as index
     /// conditions, each nested metadata subtree resolved in SQL (t49pg-e5b F2:
     /// at most MAX_META_NODES, equal subtrees once, one id budget).
@@ -1384,12 +1414,13 @@ impl Engine {
             _ => None,
         };
         let mut clauses = self.resolve_nodes(account_id, &nodes, &mut budget).await?;
+        let confirm_only = top.is_none();
         let filter = match (top, top_ids) {
             // No top-level set: the hits are confirmed in SQL as the
             // account's messages (as on R2), so a document the index still
             // holds for a row that left the account is never returned or
             // counted (a NOT of a set alone selects such documents).
-            (None, _) => Some(crate::query_plan::MetaConj::default()),
+            (None, _) => None,
             (Some(_), Some(ids)) => {
                 clauses.push(id_set(ids));
                 None
@@ -1399,6 +1430,10 @@ impl Engine {
         taken(if filter.is_some() { Taken::Filter } else { Taken::Inject });
         let sq = search_index::from_clauses(clauses, sort);
         let mut hits = self.index_hits(account_id, sq, tie_breakers).await?;
+        if confirm_only {
+            let own = self.confirm_owned(account_id, &hits.ids).await?;
+            hits.ids.retain(|id| own.contains(id));
+        }
         if let Some(conj) = filter {
             // The index's hits are in the query's order; keeping those that
             // match in SQL keeps that order. A truncated hit list is still a
@@ -1478,15 +1513,8 @@ impl Engine {
                 }
                 let sq = search_index::from_clauses(clauses, sort);
                 let mut hits = self.index_hits(account_id, sq, tie_breakers).await?;
-                if !hits.ids.is_empty() {
-                    self.projection_ready().await?;
-                    let query = mw_store::message_projection::ProjectionQuery::account(account_id);
-                    let mut own = std::collections::HashSet::new();
-                    for chunk in hits.ids.chunks(crate::query_plan::FILTER_CHUNK) {
-                        own.extend(self.store().projection_filter_ids(&query, chunk).await?);
-                    }
-                    hits.ids.retain(|id| own.contains(id));
-                }
+                let own = self.confirm_owned(account_id, &hits.ids).await?;
+                hits.ids.retain(|id| own.contains(id));
                 hits
             }
             Route::Combined { top, nodes } => {

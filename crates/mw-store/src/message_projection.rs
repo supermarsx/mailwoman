@@ -628,6 +628,54 @@ impl Store {
         Ok(statement.fetch_all_scalar_string(&self.backend).await?)
     }
 
+    /// The account's session state counters (as
+    /// `try_session_state_counters`) and, in the same statement, the members
+    /// of `ids` that are the account's messages (slice 2: the confirmation of
+    /// index hits rides on the state read the response makes anyway).
+    pub async fn session_state_counters_with_owned(
+        &self,
+        account_id: &str,
+        ids: &[String],
+    ) -> Result<(crate::SessionStateCounters, Vec<String>), StoreError> {
+        static TEXTS: OnceLock<[&'static str; 2]> = OnceLock::new();
+        let texts = TEXTS.get_or_init(|| {
+            let text = |list: &str| -> &'static str {
+                Box::leak(
+                    format!(
+                        "{} UNION ALL SELECT 'owned' AS family, s.stable_id AS type, CAST(0 AS BIGINT) AS state FROM message_state s WHERE s.account_id=?1 AND s.stable_id IN {list}",
+                        crate::state_counters::session_states_sql()
+                    )
+                    .into_boxed_str(),
+                )
+            };
+            [
+                text("(SELECT value FROM json_each(?2))"),
+                text("(SELECT value FROM json_array_elements_text(?2::json))"),
+            ]
+        });
+        let sql = match self.backend.dialect() {
+            Dialect::Sqlite => texts[0],
+            Dialect::Postgres => texts[1],
+        };
+        let ids_json = serde_json::to_string(ids).unwrap_or_else(|_| "[]".to_owned());
+        let mut counters = crate::SessionStateCounters { mail: HashMap::new(), pim: HashMap::new(), crypto: HashMap::new() };
+        let mut owned = Vec::new();
+        for row in q(sql).bind(account_id).bind(ids_json).fetch_all(&self.backend).await? {
+            let map = match row.get_string("family").as_str() {
+                "owned" => {
+                    owned.push(row.get_string("type"));
+                    continue;
+                }
+                "mail" => &mut counters.mail,
+                "pim" => &mut counters.pim,
+                "crypto" => &mut counters.crypto,
+                other => return Err(StoreError::Invalid(if other.is_empty() { "counter family" } else { "unknown counter family" })),
+            };
+            map.insert(row.get_string("type"), row.get_i64("state").max(0) as u64);
+        }
+        Ok((counters, owned))
+    }
+
     /// The owner of folder `mailbox_id` (`None`: no such folder) and, in the
     /// same statement, the members of `ids` that are messages of `account_id`
     /// in that folder, in no particular order (slice 2: a content search in a

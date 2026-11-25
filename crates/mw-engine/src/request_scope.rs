@@ -94,11 +94,11 @@ impl RequestFrame {
         self.open.store(true, Ordering::Release);
     }
 
-    fn get(&self) -> Option<Arc<mw_store::SessionStateCounters>> {
+    pub(crate) fn get(&self) -> Option<Arc<mw_store::SessionStateCounters>> {
         self.counters.lock().expect("request frame lock").clone()
     }
 
-    fn put(&self, counters: Arc<mw_store::SessionStateCounters>) {
+    pub(crate) fn put(&self, counters: Arc<mw_store::SessionStateCounters>) {
         *self.counters.lock().expect("request frame lock") = Some(counters);
     }
 

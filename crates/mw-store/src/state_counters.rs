@@ -46,7 +46,7 @@ pub struct SessionStateCounters {
     pub crypto: HashMap<String, u64>,
 }
 
-fn session_states_sql() -> &'static str {
+pub(crate) fn session_states_sql() -> &'static str {
     static SQL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     SQL.get_or_init(|| format!(
         "SELECT 'mail' AS family,type,state FROM ({CORE_MAIL_STATES_SQL}) mail_counters
