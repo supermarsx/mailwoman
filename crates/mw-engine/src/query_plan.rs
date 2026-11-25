@@ -67,6 +67,23 @@ pub(crate) const COMBINE_CAP: usize = mw_search::MAX_HITS;
 pub(crate) const FILTER_CHUNK: usize = 5_000;
 /// The `unsupportedFilter` description for a set above the cap.
 pub(crate) const TOO_BROAD: &str = "filter too broad to combine";
+/// Metadata subtrees one query may resolve (t49pg-e5b F2: each is an id set
+/// held in memory and compiled into the index query).
+pub(crate) const MAX_META_NODES: usize = 8;
+/// The unsupportedFilter description for too many metadata subtrees.
+pub(crate) const TOO_MANY: &str = "too many metadata conditions to combine";
+
+static IDS_MATERIALISED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Id rows the planner has read from SQL for id sets, process-wide (tests and
+/// diagnostics: the F2 memory bound).
+pub(crate) fn ids_materialised() -> u64 {
+    IDS_MATERIALISED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub(crate) fn note_materialised(n: usize) {
+    IDS_MATERIALISED.fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
+}
 
 /// Where a leaf condition is answered. See the module note.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -953,34 +970,40 @@ impl crate::Engine {
     }
 
     /// The ids of `conj` in the account, or `None` when there are more than
-    /// [`COMBINE_CAP`]. One statement (LIMIT cap+1).
-    pub(crate) async fn meta_ids(
+    /// `limit`. One statement (LIMIT limit+1); the rows read are counted.
+    pub(crate) async fn meta_ids_within(
         &self,
         account_id: &str,
         conj: &MetaConj,
+        limit: usize,
     ) -> Result<Option<Vec<String>>, PlanFail> {
         if conj.nothing {
             return Ok(Some(Vec::new()));
         }
-        let cap = combine_cap();
         let q = conj.projection(account_id, ProjectionSort::ReceivedDesc);
-        let ids = self.store().projection_ids(&q, cap as i64 + 1, 0).await?;
-        Ok((ids.len() <= cap).then_some(ids))
+        let ids = self.store().projection_ids(&q, limit as i64 + 1, 0).await?;
+        note_materialised(ids.len());
+        Ok((ids.len() <= limit).then_some(ids))
     }
 
     /// A nested metadata condition as an index condition: its id set, or the
-    /// negation of its complement's, whichever is within the cap.
+    /// negation of its complement's, whichever fits the query's remaining id
+    /// `budget` (shared by every set of the query, t49pg-e5b F2), which it
+    /// spends.
     pub(crate) async fn resolve_meta(
         &self,
         account_id: &str,
         conj: &MetaConj,
+        budget: &mut usize,
     ) -> Result<Expr, PlanFail> {
-        if let Some(ids) = self.meta_ids(account_id, conj).await? {
+        if let Some(ids) = self.meta_ids_within(account_id, conj, *budget).await? {
+            *budget -= ids.len();
             return Ok(id_set(ids));
         }
         if let Some(complement) = conj.complement()
-            && let Some(ids) = self.meta_ids(account_id, &complement).await?
+            && let Some(ids) = self.meta_ids_within(account_id, &complement, *budget).await?
         {
+            *budget -= ids.len();
             return Ok(complement_expr(conj, ids));
         }
         taken(Taken::TooBroad);

@@ -814,3 +814,45 @@ async fn nested_folder_complement_keeps_the_folder() {
     CAP.with(|c| c.set(COMBINE_CAP));
     assert!(answered >= 4, "the complement branch must answer, not refuse: {answered}");
 }
+
+/// t49pg-e5b F2: one request must not materialise unbounded id sets. More
+/// metadata subtrees than the per-query limit is unsupportedFilter before any
+/// SQL; identical subtrees are fetched once; all sets of one query share one
+/// id budget. `ids_materialised` counts every id row the planner reads.
+#[tokio::test]
+async fn metadata_subtrees_are_bounded_per_query() {
+    let w = World::new(Store::open_in_memory(ServerKey::generate()).await.unwrap(), 48).await;
+    let acct = &w.a;
+    let rows = w.rows(acct).await;
+    let read = rows.iter().filter(|r| r.keywords.contains("$seen")).count();
+    let unread = rows.len() - read;
+    let materialised = crate::query_plan::ids_materialised;
+    // 64 copies of a subtree that matches most of the account.
+    let adversarial = "(pinned:false OR zz) ".repeat(64);
+    let before = materialised();
+    let started = std::time::Instant::now();
+    let resp = query(&w, acct, json!({"text": adversarial}), false).await;
+    assert!(is_error(&resp, "unsupportedFilter"), "{resp}");
+    assert_eq!(materialised() - before, 0, "refused before any id set was read");
+    assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
+    // Up to the limit, distinct subtrees answer (= oracle).
+    let eight = (0..crate::query_plan::MAX_META_NODES).map(|i| format!("(pinned:false OR zz{i})")).collect::<Vec<_>>().join(" OR ");
+    check_path(&w, acct, &rows, &text_filter(&eight), &plain_sort(), WINDOWS[0], "eight subtrees", false, false).await.unwrap();
+    // Identical subtrees are read once.
+    let before = materialised();
+    check_path(&w, acct, &rows, &text_filter("(is:unread OR zz) (is:unread OR zz) (is:unread OR zz) alpha"), &plain_sort(), WINDOWS[0], "duplicates", false, false)
+        .await
+        .unwrap();
+    assert!(materialised() - before <= unread as u64 + 1, "one fetch for three equal subtrees: {}", materialised() - before);
+    // One id budget per query: two sets that each fit the cap but not together.
+    CAP.with(|c| c.set(read.max(unread) + 2));
+    let before = materialised();
+    let r = check_path(&w, acct, &rows, &text_filter("(is:read OR zz) (is:unread OR zz2) OR from:s3"), &plain_sort(), WINDOWS[0], "budget", false, true).await;
+    let used = materialised() - before;
+    CAP.with(|c| c.set(COMBINE_CAP));
+    // The budget, plus one look-ahead row per refused attempt (a set and its
+    // complement per subtree) and one for the prefetch.
+    let bound = (read.max(unread) + 2 + 2 * 2 + 1) as u64;
+    assert!(used <= bound, "budget exceeded: {used} > {bound}");
+    eprintln!("t49pg-e5b F2 budget case: answered {}, {used} ids read", r.is_some());
+}

@@ -1148,31 +1148,25 @@ impl Engine {
         sql_limit: i64,
         want_total: bool,
     ) -> std::result::Result<QueryPage, QueryFail> {
-        use crate::query_plan::{COMBINE_CAP, Taken, taken};
+        use crate::query_plan::{Taken, taken};
         self.projection_ready().await?;
         taken(Taken::Sql);
         let query = conj.projection(account_id, order);
         let store = self.store();
         if let Some(anchor) = anchor {
-            let all = store.projection_ids(&query, COMBINE_CAP as i64 + 1, 0).await?;
-            let within = &all[..all.len().min(COMBINE_CAP)];
-            let at = within
-                .iter()
-                .position(|id| id == anchor)
+            // t49pg-e5b F2: the anchor's index by one counting statement (rows
+            // before it in the order), then the page from there; no id list.
+            let at = store
+                .projection_anchor_position(&query, anchor)
+                .await?
                 .ok_or(QueryFail::AnchorNotFound)?;
-            let start = (at as u64).saturating_add_signed(anchor_offset);
-            let ids = within
-                .iter()
-                .skip(usize::try_from(start).unwrap_or(usize::MAX))
-                .take(usize::try_from(sql_limit).unwrap_or(usize::MAX))
-                .cloned()
-                .collect();
-            let total = if !want_total {
-                None
-            } else if all.len() <= COMBINE_CAP {
-                Some(all.len() as u64)
+            let start = at.saturating_add_signed(anchor_offset);
+            let offset = start.min(i64::MAX as u64) as i64;
+            let (ids, total) = if want_total {
+                let (ids, total) = store.projection_page_counted(&query, sql_limit, offset).await?;
+                (ids, Some(total))
             } else {
-                Some(store.projection_count(&query).await?)
+                (store.projection_ids(&query, sql_limit, offset).await?, None)
             };
             return Ok(QueryPage { ids, position: start, total, total_truncated: false });
         }
@@ -1235,19 +1229,34 @@ impl Engine {
         for node in &nodes {
             meta_nodes(node, &mut metas);
         }
+        // t49pg-e5b F2: every metadata subtree is an id set held in memory and
+        // compiled into the index query; bound how many one query may have
+        // (refused before any id is read), resolve each distinct one once,
+        // and give all of them one id budget.
+        if metas.len() > crate::query_plan::MAX_META_NODES {
+            taken(Taken::TooBroad);
+            return Err(QueryFail::Unsupported(crate::query_plan::TOO_MANY));
+        }
+        let mut distinct: Vec<&crate::query_plan::MetaConj> = Vec::new();
+        for conj in &metas {
+            if !distinct.contains(conj) {
+                distinct.push(conj);
+            }
+        }
+        let mut budget = combine_cap();
         // The first SQL set (the top-level one, else the first nested one) is
         // read in the same statement as the account's folders the index scope
         // needs; a verified one-folder query needs no folder list at all.
-        let first = top.as_ref().or(metas.first().copied()).filter(|c| !c.nothing);
-        let cap = combine_cap();
+        let first = top.as_ref().or(distinct.first().copied()).filter(|c| !c.nothing);
         let (mailbox_ids, mut prefetched) = match (folder_only, scope, first) {
             (true, Some(mb), _) => (vec![mb.to_owned()], None),
             (_, _, Some(conj)) => {
                 let query = conj.projection(account_id, mw_store::message_projection::ProjectionSort::ReceivedDesc);
                 let (boxes, ids) = self
                     .store()
-                    .projection_ids_with_mailboxes(account_id, &query, cap as i64 + 1)
+                    .projection_ids_with_mailboxes(account_id, &query, budget as i64 + 1)
                     .await?;
+                crate::query_plan::note_materialised(ids.len());
                 (boxes, Some(ids))
             }
             _ => (
@@ -1258,35 +1267,52 @@ impl Engine {
         let Some(scope) = search_index::scope_expr(&mailbox_ids, scope) else {
             return Ok(mw_search::SearchHits::default());
         };
-        // `prefetched` belongs to `top` when there is one, else to metas[0].
-        let mut top_ids = if top.is_some() { prefetched.take() } else { None };
-        let mut resolved = Vec::with_capacity(metas.len());
-        for conj in metas {
-            match prefetched.take() {
-                Some(ids) if ids.len() <= cap => resolved.push(id_set(ids)),
-                _ => resolved.push(self.resolve_meta(account_id, conj).await?),
+        // `prefetched` belongs to `top` when there is one, else to distinct[0].
+        let top_ids = match &top {
+            None => None,
+            Some(conj) => {
+                let ids = match prefetched.take() {
+                    Some(ids) => (ids.len() <= budget).then_some(ids),
+                    None => self.meta_ids_within(account_id, conj, budget).await?,
+                };
+                if let Some(ids) = &ids {
+                    budget -= ids.len();
+                }
+                ids
             }
+        };
+        let mut resolved_distinct: Vec<mw_search::Expr> = Vec::with_capacity(distinct.len());
+        for conj in &distinct {
+            let expr = match prefetched.take() {
+                Some(ids) if ids.len() <= budget => {
+                    budget -= ids.len();
+                    id_set(ids)
+                }
+                _ => self.resolve_meta(account_id, conj, &mut budget).await?,
+            };
+            resolved_distinct.push(expr);
         }
+        // One expression per occurrence; equal subtrees share the id set (an
+        // Arc), so a duplicate costs no memory.
+        let resolved: Vec<mw_search::Expr> = metas
+            .iter()
+            .map(|conj| {
+                let at = distinct.iter().position(|d| d == conj).expect("distinct holds every subtree");
+                resolved_distinct[at].clone()
+            })
+            .collect();
         let mut resolved = resolved.into_iter();
         let mut clauses = vec![scope];
         for node in &nodes {
             clauses.push(assemble(node, &mut resolved));
         }
-        let filter = match top {
-            None => None,
-            Some(conj) => {
-                let ids = match top_ids.take() {
-                    Some(ids) => (ids.len() <= cap).then_some(ids),
-                    None => self.meta_ids(account_id, &conj).await?,
-                };
-                match ids {
-                    Some(ids) => {
-                        clauses.push(id_set(ids));
-                        None
-                    }
-                    None => Some(conj),
-                }
+        let filter = match (top, top_ids) {
+            (None, _) => None,
+            (Some(_), Some(ids)) => {
+                clauses.push(id_set(ids));
+                None
             }
+            (Some(conj), None) => Some(conj),
         };
         taken(if filter.is_some() { Taken::Filter } else { Taken::Inject });
         let sq = search_index::from_clauses(clauses, sort);

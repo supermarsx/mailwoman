@@ -164,6 +164,10 @@ pub(crate) enum ProjectionOp {
     /// A page whose every row also carries the total (`COUNT(*) OVER ()`):
     /// the page and `calculateTotal` in one statement (t50hp-e31).
     PageCounted,
+    /// The number of matching rows ordered before an anchor, and whether the
+    /// anchor matches (t49pg-e5b F2: an anchored page without reading the ids
+    /// before it). The anchor id is the last parameter.
+    AnchorPosition,
 }
 
 /// Bits that change the statement text. Everything else is a parameter.
@@ -345,12 +349,18 @@ fn build(
         ProjectionOp::PageCounted => {
             "SELECT s.stable_id, CAST(COUNT(*) OVER () AS BIGINT) AS n FROM "
         }
+        ProjectionOp::AnchorPosition => {
+            "SELECT CAST(COUNT(*) AS BIGINT) AS n, CAST(COALESCE(SUM(CASE WHEN s.stable_id=a.ai THEN 1 ELSE 0 END),0) AS BIGINT) AS present FROM "
+        }
     });
     b.sql.push_str(if via_messages {
         "messages m JOIN message_state s ON s.stable_id=m.stable_id"
     } else {
         "message_state s"
     });
+    if op == ProjectionOp::AnchorPosition {
+        b.sql.push_str(" CROSS JOIN (SELECT x.internaldate AS ad, x.uid AS au, x.size AS az, x.stable_id AS ai FROM message_state x WHERE x.stable_id=__ANCHOR__) a");
+    }
     b.sql.push_str(" WHERE ");
     match scope {
         1 => {
@@ -452,7 +462,25 @@ fn build(
         let list = b.list(&ids);
         b.sql.push_str(&format!(" AND s.stable_id IN {list}"));
     }
-    if op != ProjectionOp::Count {
+    if op == ProjectionOp::AnchorPosition {
+        // Rows strictly before the anchor in the query's order, plus the
+        // anchor itself (counted separately as `present`).
+        let tie_desc = "(s.uid > a.au OR (s.uid = a.au AND s.stable_id < a.ai))";
+        let tie_asc = "(s.uid < a.au OR (s.uid = a.au AND s.stable_id > a.ai))";
+        let before = match query.sort {
+            ProjectionSort::ReceivedDesc => format!(
+                "((a.ad IS NULL AND (s.internaldate IS NOT NULL OR {tie_desc})) OR (a.ad IS NOT NULL AND s.internaldate IS NOT NULL AND (s.internaldate > a.ad OR (s.internaldate = a.ad AND {tie_desc}))))"
+            ),
+            ProjectionSort::ReceivedAsc => format!(
+                "((a.ad IS NULL AND s.internaldate IS NULL AND {tie_asc}) OR (a.ad IS NOT NULL AND (s.internaldate IS NULL OR s.internaldate < a.ad OR (s.internaldate = a.ad AND {tie_asc}))))"
+            ),
+            ProjectionSort::SizeDesc => format!("(s.size > a.az OR (s.size = a.az AND {tie_desc}))"),
+            ProjectionSort::SizeAsc => format!("(s.size < a.az OR (s.size = a.az AND {tie_asc}))"),
+        };
+        b.sql.push_str(&format!(" AND (s.stable_id = a.ai OR {before})"));
+        let anchor = b.arg(Arg::Text(String::new()));
+        b.sql = b.sql.replace("__ANCHOR__", &anchor);
+    } else if op != ProjectionOp::Count {
         let t = order_table;
         b.sql.push_str(&match query.sort {
             ProjectionSort::ReceivedDesc => {
@@ -588,6 +616,32 @@ impl Store {
             statement = statement.bind(arg);
         }
         Ok(statement.fetch_all_scalar_string(&self.backend).await?)
+    }
+
+    /// The index of `anchor` in the order of `query`, or `None` when the
+    /// anchor does not match it; one statement that counts the matching rows
+    /// before the anchor (t49pg-e5b F2: no id list is read).
+    pub async fn projection_anchor_position(
+        &self,
+        query: &ProjectionQuery<'_>,
+        anchor: &str,
+    ) -> Result<Option<u64>, StoreError> {
+        let Some((sql, mut args)) =
+            projection_statement(query, ProjectionOp::AnchorPosition, self.backend.dialect())?
+        else {
+            return Ok(None);
+        };
+        let n = args.len();
+        args[n - 1] = Arg::Text(anchor.to_owned());
+        let mut statement = q(sql);
+        for arg in args {
+            statement = statement.bind(arg);
+        }
+        let row = statement.fetch_one(&self.backend).await?;
+        if row.get_i64("present") == 0 {
+            return Ok(None);
+        }
+        Ok(Some(u64::try_from(row.get_i64("n") - 1).unwrap_or(0)))
     }
 
     /// The page of `query` and, in the same statement, the number of messages

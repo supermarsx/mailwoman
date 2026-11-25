@@ -1497,6 +1497,14 @@ async fn builders_contract(s: Store) {
                 "{name}: counted page at {limit}/{offset}"
             );
         }
+        // t49pg-e5b F2: the anchor's position without reading the ids.
+        for (i, anchor) in expected.iter().enumerate().step_by(7) {
+            assert_eq!(s.projection_anchor_position(query, anchor).await.unwrap(), Some(i as u64), "{name}: anchor {i}");
+        }
+        if let Some(outside) = ids.iter().find(|id| !expected.contains(id)) {
+            assert_eq!(s.projection_anchor_position(query, outside).await.unwrap(), None, "{name}: non-member anchor");
+        }
+        assert_eq!(s.projection_anchor_position(query, "no-such-id").await.unwrap(), None, "{name}: unknown anchor");
         // t50hp-e31: the account's folders and the ids in one statement.
         let (boxes, ids) = s
             .projection_ids_with_mailboxes(query.account_id, query, 1000)
