@@ -68,7 +68,7 @@
 //! one process is seen by the others within one interval. The default `synchronous`
 //! mode keeps exact serialization across processes.
 use mw_store::{
-    Store, StoreError, WriteLane,
+    EscalationGuard, Store, StoreError, WriteEscalation, WriteLane, WriteLaneRequest,
     request_protection::{
         Ownership, PreparedProtection, ProtectionObservation, ProtectionOutcome,
         ProtectionParticipant, ProtectionSource, SUBJECT_CAPACITY, StoredProtection,
@@ -331,9 +331,27 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// A group handed to its own task (see `WriteBehind::store_group`).
+struct Orphan {
+    batch: Vec<Arc<Pending>>,
+    task: tokio::task::JoinHandle<Result<Vec<(ProtectionOutcome, Option<StoredProtection>)>, StoreError>>,
+}
+/// Keeps a group whose caller is cancelled mid-wait for the next drain.
+struct OrphanGuard<'a> {
+    owner: &'a WriteBehind,
+    orphan: Option<Orphan>,
+}
+impl Drop for OrphanGuard<'_> {
+    fn drop(&mut self) {
+        if let Some(orphan) = self.orphan.take() {
+            *lock(&self.owner.orphan) = Some(orphan);
+        }
+    }
+}
+
 enum Recorded {
     Full(Decision),
-    Queued { pending: Arc<Pending>, decision: Decision, through: bool, full: bool, queued: usize },
+    Queued { pending: Arc<Pending>, decision: Decision, through: bool, transition: bool, full: bool, queued: usize },
 }
 
 pub(crate) struct WriteBehind {
@@ -348,6 +366,15 @@ pub(crate) struct WriteBehind {
     next_seq: AtomicU64,
     /// One flusher at a time, so committed order is queue order.
     flushing: tokio::sync::Mutex<()>,
+    /// SQLite group writer (`MW_SQLITE_WRITER=group`): raised by a transition
+    /// write-through or an admin clear before it takes `flushing`, so a timer
+    /// flush holding `flushing` moves its normal-lane wait to the priority lane
+    /// instead of keeping them behind the normal backlog (review G1).
+    escalation: WriteEscalation,
+    /// A group whose store call was handed to a task and whose caller was
+    /// cancelled before it could book the result (review G3): the next drain
+    /// books it first, so no observation is written twice.
+    orphan: Mutex<Option<Orphan>>,
     /// This instance's witness participant (joined on first use), shared by the
     /// flusher and the ownership checker, which never waits for a flush.
     participant: Mutex<Option<Arc<ProtectionParticipant>>>,
@@ -380,6 +407,8 @@ impl WriteBehind {
             queue: Mutex::new(VecDeque::new()),
             next_seq: AtomicU64::new(1),
             flushing: tokio::sync::Mutex::new(()),
+            escalation: WriteEscalation::new(),
+            orphan: Mutex::new(None),
             participant: Mutex::new(None),
             joining: tokio::sync::Mutex::new(()),
             ownership: true,
@@ -696,22 +725,23 @@ impl WriteBehind {
                     pending,
                     decision: step.decision,
                     through: step.transition || new_row || typed || full,
+                    transition: step.transition,
                     full,
                     queued: queue.len(),
                 }
             })
             .await;
-        let (pending, decision, through, queued) = match recorded {
+        let (pending, decision, through, transition, queued) = match recorded {
             Err(_) => return Answer::failed(Decision::default()),
             Ok(Recorded::Full(decision)) => {
                 bump(&self.counters.dropped, 1);
                 return Answer::failed(decision);
             }
-            Ok(Recorded::Queued { pending, decision, through, full, queued }) => {
+            Ok(Recorded::Queued { pending, decision, through, transition, full, queued }) => {
                 if full {
                     bump(&self.counters.backpressure_writes, 1);
                 }
-                (pending, decision, through, queued)
+                (pending, decision, through, transition, queued)
             }
         };
         if queued >= BATCH {
@@ -719,7 +749,16 @@ impl WriteBehind {
         }
         if through {
             bump(&self.counters.write_throughs, 1);
-            let flushed = self.drain(pending.seq, WriteLane::Priority).await;
+            // Only a transition (throttle, block, stage change) is T0 and uses
+            // the group writer's priority lane; first rows and typed rejections,
+            // which anonymous traffic can produce at will, wait on the normal
+            // lane (review G2). Without the group writer the lane changes nothing.
+            let (lane, _urgent): (WriteLaneRequest, Option<EscalationGuard>) = if transition {
+                (WriteLane::Priority.into(), Some(self.escalation.raise()))
+            } else {
+                (WriteLane::Normal.into(), None)
+            };
+            let flushed = self.drain(pending.seq, lane).await;
             return match (flushed, pending.durable.get()) {
                 (Ok(()), Some(durable)) => Answer::ok(*durable),
                 _ => {
@@ -769,12 +808,13 @@ impl WriteBehind {
     /// priority for a write-through (a transition answered to a client) and an
     /// administrative clear, normal for the timer and shutdown flushes. Without
     /// the writer it changes nothing.
-    async fn drain(&self, target: u64, lane: WriteLane) -> Result<(), StoreError> {
+    async fn drain(&self, target: u64, lane: WriteLaneRequest) -> Result<(), StoreError> {
         let _flushing = self.flushing.lock().await;
         self.drain_locked(target, lane).await
     }
     /// `drain` for a caller that already holds `flushing`.
-    async fn drain_locked(&self, target: u64, lane: WriteLane) -> Result<(), StoreError> {
+    async fn drain_locked(&self, target: u64, lane: WriteLaneRequest) -> Result<(), StoreError> {
+        self.settle_orphan().await;
         loop {
             let front = lock(&self.queue).front().map(|pending| pending.seq);
             match front {
@@ -783,7 +823,7 @@ impl WriteBehind {
                         Ok(participant) => participant,
                         Err(error) => return Err(self.degrade(error)),
                     };
-                    self.flush_batch(&participant, lane).await?
+                    self.flush_batch(&participant, lane.clone()).await?
                 }
                 _ => return Ok(()),
             }
@@ -795,7 +835,9 @@ impl WriteBehind {
         let Some(last) = lock(&self.queue).back().map(|pending| pending.seq) else {
             return Ok(());
         };
-        self.drain(last, WriteLane::Normal).await
+        // Normal lane, escalated to priority while a transition or an admin
+        // clear waits for `flushing` (review G1).
+        self.drain(last, WriteLaneRequest::escalatable(&self.escalation)).await
     }
 
     /// Graceful shutdown: commit everything queued before `deadline`.
@@ -810,13 +852,12 @@ impl WriteBehind {
 
     /// One group of at most 64 from the front of the queue, one writer transaction
     /// (set-based in the store when every subject has a row). Caller holds `flushing`.
-    async fn flush_batch(&self, participant: &ProtectionParticipant, lane: WriteLane) -> Result<(), StoreError> {
+    async fn flush_batch(&self, participant: &Arc<ProtectionParticipant>, lane: WriteLaneRequest) -> Result<(), StoreError> {
         let batch: Vec<Arc<Pending>> = lock(&self.queue).iter().take(BATCH).cloned().collect();
         if batch.is_empty() {
             return Ok(());
         }
-        let observations: Vec<_> = batch.iter().map(|pending| pending.observation()).collect();
-        match self.store.request_protection_sqlite_batch_in(participant, &observations, lane).await {
+        match self.store_group(participant, batch.clone(), lane.clone()).await {
             Ok(results) => {
                 self.committed(&batch, results);
                 Ok(())
@@ -825,11 +866,7 @@ impl WriteBehind {
             // same group forever. Isolate it so the rest of the queue still commits.
             Err(StoreError::Corrupt(_)) => {
                 for pending in &batch {
-                    match self
-                        .store
-                        .request_protection_sqlite_batch_in(participant, &[pending.observation()], lane)
-                        .await
-                    {
+                    match self.store_group(participant, vec![pending.clone()], lane.clone()).await {
                         Ok(results) => self.committed(std::slice::from_ref(pending), results),
                         Err(StoreError::Corrupt(_)) => self.rejected(pending),
                         Err(error) => return Err(self.degrade(error)),
@@ -838,6 +875,47 @@ impl WriteBehind {
                 Ok(())
             }
             Err(error) => Err(self.degrade(error)),
+        }
+    }
+
+    /// The store call for one group, run by a task that owns it (review G3):
+    /// if this caller is cancelled while the group waits in the group writer,
+    /// the task still finishes, and its result is booked by the next drain
+    /// (`settle_orphan`) instead of being lost, so the group is not written
+    /// again. Caller holds `flushing`.
+    async fn store_group(
+        &self,
+        participant: &Arc<ProtectionParticipant>,
+        batch: Vec<Arc<Pending>>,
+        lane: WriteLaneRequest,
+    ) -> Result<Vec<(ProtectionOutcome, Option<StoredProtection>)>, StoreError> {
+        let (store, participant) = (self.store.clone(), participant.clone());
+        let group = batch.clone();
+        // The request's statement measurement follows the group into its task.
+        let task = tokio::spawn(mw_store::pool_telemetry::in_current_measurement(async move {
+            let observations: Vec<_> = group.iter().map(|pending| pending.observation()).collect();
+            store.request_protection_sqlite_batch_in(&participant, &observations, lane).await
+        }));
+        let mut guard = OrphanGuard { owner: self, orphan: Some(Orphan { batch, task }) };
+        let orphan = guard.orphan.as_mut().expect("orphan present");
+        let joined = (&mut orphan.task).await;
+        guard.orphan = None;
+        joined.unwrap_or_else(|_| Err(StoreError::Db(sqlx::Error::WorkerCrashed)))
+    }
+
+    /// Book a group whose caller was cancelled after handing it to its task.
+    /// Caller holds `flushing`, so no other group of the queue is in flight.
+    async fn settle_orphan(&self) {
+        let orphan = lock(&self.orphan).take();
+        let Some(Orphan { batch, task }) = orphan else { return };
+        match task.await {
+            Ok(Ok(results)) => self.committed(&batch, results),
+            // Not stored: the observations stay queued and the next group
+            // writes them, as after any failed flush.
+            Ok(Err(error)) => {
+                self.degrade(error);
+            }
+            Err(_) => {}
         }
     }
 
@@ -917,11 +995,15 @@ impl WriteBehind {
     /// Administrative clear: commit what is pending, clear the row with its
     /// expected revision, then restart the cached subject from an absent row.
     pub(crate) async fn clear(&self, key: &str, expected: &str, now: i64) -> Result<bool, StoreError> {
+        // An admin clear is T0: a timer flush holding `flushing` escalates.
+        let _urgent = self.escalation.raise();
         // Hold the flusher out until the cached subject matches the cleared row.
         let _flushing = self.flushing.lock().await;
         let last = lock(&self.queue).back().map(|pending| pending.seq);
         if let Some(last) = last {
-            self.drain_locked(last, WriteLane::Priority).await?;
+            self.drain_locked(last, WriteLane::Priority.into()).await?;
+        } else {
+            self.settle_orphan().await;
         }
         let participant = self.participant().await?;
         let cleared = self.store.clear_request_protection_as(&participant, key, expected, now).await?;
@@ -999,3 +1081,7 @@ pub fn fixture_snapshot() -> serde_json::Value {
 #[cfg(test)]
 #[path = "write_behind_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "write_behind_writer_tests.rs"]
+mod writer_tests;

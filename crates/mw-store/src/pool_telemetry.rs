@@ -164,6 +164,15 @@ pub async fn measure_queries<F: Future>(future: F) -> (F::Output, QuerySnapshot)
     let output = REQUEST.scope(counters.clone(), future).await;
     (output, counters.snapshot())
 }
+/// Carry the caller's per-request measurement (if any) into a future that will
+/// run on another task (`tokio::spawn`), so its statements still count for the
+/// request that caused them.
+pub fn in_current_measurement<F: Future>(future: F) -> impl Future<Output = F::Output> {
+    match REQUEST.try_with(Arc::clone) {
+        Ok(counters) => futures_util::future::Either::Left(REQUEST.scope(counters, future)),
+        Err(_) => futures_util::future::Either::Right(future),
+    }
+}
 /// Process-wide aggregate across configured stores. This is not per-tenant data.
 pub fn process_snapshot() -> QuerySnapshot {
     let mut snapshot = PROCESS.snapshot();
