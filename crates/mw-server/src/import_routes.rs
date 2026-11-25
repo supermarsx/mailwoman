@@ -147,7 +147,7 @@ fn declared_length(request: &axum::extract::Request) -> Option<u64> {
 ///   not bounded, and such a client may still see a reset.
 ///
 /// The response carries `Connection: close` either way.
-async fn refuse_before_body(request: axum::extract::Request, mut response: Response) -> Response {
+pub(crate) async fn refuse_before_body(request: axum::extract::Request, mut response: Response) -> Response {
     use futures_util::StreamExt;
     response.headers_mut().insert(
         axum::http::header::CONNECTION,

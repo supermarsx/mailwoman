@@ -56,6 +56,7 @@ pub mod hardening;
 pub mod holidays;
 pub mod http_metrics;
 mod idempotency;
+mod request_bytes;
 mod inbound_allowlist;
 pub mod inbound_http;
 pub mod knobs;
@@ -1837,6 +1838,9 @@ fn router(
         // t91: innermost, so it sees only requests every guard below admitted.
         // A request without `Idempotency-Key` passes through untouched.
         .layer(shared_route::wrap(middleware::from_fn(idempotency::layer)))
+        // t55: charge large request bodies against the byte budget before they
+        // are buffered (outside idempotency, whose key hash buffers the body).
+        .layer(shared_route::wrap(middleware::from_fn(request_bytes::layer)))
         // t50hp-e9: inside every guard: one source observation for the
         // decisions the guards deferred (request_inputs::decision_boundary),
         // before the inner layers and the handler. No-op without a frame.
@@ -3497,13 +3501,10 @@ async fn jmap_session(
 
 async fn jmap_session_document(state: &AppState, session: mw_store::Session, scripts_only: bool) -> Response {
     if let Some(engine) = &state.engine {
-        if let Err(e) = engine_mode::ensure_account_for_request(engine, &session.account_id).await {
+        if let Err(e) = engine_mode::ensure_account(engine, &session.account_id).await {
             // A changed published source is classified (refused) here, as in
             // `jmap_api`, not reported as an upstream error; else a no-op.
             if let Err(response) = request_inputs::seal().await { return response; }
-            if matches!(e, engine_mode::EnsureError::NotReady) {
-                return engine_mode::not_ready_response();
-            }
             tracing::warn!("engine account not available: {e}");
             return upstream_error();
         }
@@ -3712,11 +3713,7 @@ async fn jmap_api(
             };
         }
     };
-    // t63 item 0: the JMAP permit is taken after the account is ready (below),
-    // so a request waiting for an upstream holds no permit. The knob inputs are
-    // still read here, in their original order.
-    enum PermitPlan { Knobs(rate_leeway::Knobs), Default }
-    let permit_plan = if state.engine.is_some() {
+    let _native_request_permit = if state.engine.is_some() {
         if let Err(problem) = mw_engine::jmap::core::validate(&request, body.len(), true) {
             return jmap_limits::problem(problem, StatusCode::BAD_REQUEST);
         }
@@ -3725,9 +3722,12 @@ async fn jmap_api(
             // comparison at this restarted read's LAST full source observation.
             let knobs=rate_leeway::knobs(&state.store,rate_leeway::domain_of(&session.username)).await;
             if let Err(response)=observer.record_knobs(knobs) {return response;}
-            Some(PermitPlan::Knobs(knobs))
+            match jmap_limits::request_with_knobs(&session.account_id,knobs).await {Ok(permit)=>Some(permit),Err(response)=>return response}
         } else {
-            Some(PermitPlan::Default)
+            match jmap_limits::request(&state, &session.account_id, &session.username).await {
+                Ok(permit) => Some(permit),
+                Err(response) => return response,
+            }
         }
     } else {
         None
@@ -3756,27 +3756,12 @@ async fn jmap_api(
         if retry_initial_sync {
             engine_mode::redial_failed_initial_sync(engine, &session.account_id).await;
         }
-        if !echo_only && let Err(e) = engine_mode::ensure_account_for_request(engine, &session.account_id).await
+        if !echo_only && let Err(e) = engine_mode::ensure_account(engine, &session.account_id).await
         {
             if let Err(response) = request_inputs::seal().await { return response; }
-            if matches!(e, engine_mode::EnsureError::NotReady) {
-                return engine_mode::not_ready_response();
-            }
             tracing::warn!("engine account not available: {e}");
             return upstream_error();
         }
-        // t63 item 0: taken now that the account is ready (see permit_plan).
-        let _native_request_permit = match permit_plan {
-            Some(PermitPlan::Knobs(knobs)) => match jmap_limits::request_with_knobs(&session.account_id, knobs).await {
-                Ok(permit) => Some(permit),
-                Err(response) => return response,
-            },
-            Some(PermitPlan::Default) => match jmap_limits::request(&state, &session.account_id, &session.username).await {
-                Ok(permit) => Some(permit),
-                Err(response) => return response,
-            },
-            None => None,
-        };
         // Dispatch the request the policy hooks above edited, never a fresh parse
         // of the raw body (t51).
         let has_sieve = request
@@ -4289,6 +4274,13 @@ async fn jmap_download(
                 } else {
                     &name
                 };
+                // t55: the bytes are held until they are sent; charge them.
+                let Some(held) = request_bytes::budget()
+                    .admit(blob.bytes.len() as u64, request_bytes::ADMIT_WAIT)
+                    .await
+                else {
+                    return request_bytes::busy();
+                };
                 // The part's type is the sender's word for it, reduced the same
                 // way as a proxied download's (t32-h4).
                 let mut response = blob_response(
@@ -4298,7 +4290,7 @@ async fn jmap_download(
                     &headers,
                 );
                 attachment_policy::response_headers(&mut response, &decision);
-                response
+                request_bytes::hold(response, held)
             }
             Ok(None) => (
                 StatusCode::NOT_FOUND,
