@@ -970,7 +970,168 @@ struct BackendTransport {
 }
 
 /// Dial + authenticate the account backend for a stored account row.
+/// t63 item 0: how long a request waits for its account to be connected:
+/// the connect and greeting bounds plus up to 5 s (35 s by default). A connection that takes longer
+/// continues in the background (one per account) and the request is answered
+/// "not ready, retry" instead of holding its worker, and no JMAP permit is
+/// taken until the account is ready.
+pub(crate) fn ensure_wait() -> Duration {
+    let t = mw_net::upstream_timeouts();
+    t.connect + t.greeting + t.greeting.min(Duration::from_secs(5))
+}
+
+/// Outcome of [`ensure_account_for_request`].
+#[derive(Debug)]
+pub(crate) enum EnsureError {
+    /// Still connecting after [`ensure_wait`]; continues in the background.
+    NotReady,
+    /// The account cannot be used (the original error).
+    Failed(String),
+}
+impl std::fmt::Display for EnsureError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotReady => f.write_str("account still connecting"),
+            Self::Failed(error) => f.write_str(error),
+        }
+    }
+}
+
+/// [`ensure_account`] for a request, bounded by [`ensure_wait`]. The common
+/// case (already registered) runs inline exactly as before.
+pub(crate) async fn ensure_account_for_request(engine: &Arc<Engine>, account_id: &str) -> Result<(), EnsureError> {
+    match tokio::time::timeout(ensure_wait(), ensure_account(engine, account_id)).await {
+        Ok(result) => result.map_err(EnsureError::Failed),
+        Err(_) => {
+            connect_in_background(engine, account_id);
+            Err(EnsureError::NotReady)
+        }
+    }
+}
+
+/// Finish connecting `account_id` without a waiting request (at most one task
+/// per account; the connect lock still serialises it with everyone else).
+fn connect_in_background(engine: &Arc<Engine>, account_id: &str) {
+    static RUNNING: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    let running = RUNNING.get_or_init(Default::default);
+    if !running.lock().unwrap_or_else(|poison| poison.into_inner()).insert(account_id.to_owned()) {
+        return;
+    }
+    let engine = engine.clone();
+    let account = account_id.to_owned();
+    tokio::spawn(async move {
+        if let Err(error) = ensure_account(&engine, &account).await {
+            tracing::warn!("background connect of {account} failed: {error}");
+        }
+        running.lock().unwrap_or_else(|poison| poison.into_inner()).remove(&account);
+    });
+}
+
+/// The answer to a request whose account is still connecting: 503, retry.
+pub(crate) fn not_ready_response() -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let mut response = (
+        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+        axum::Json(serde_json::json!({"error": "the mail server is not answering yet; retry shortly", "code": "upstreamNotReady"})),
+    )
+        .into_response();
+    response.headers_mut().insert(axum::http::header::RETRY_AFTER, axum::http::HeaderValue::from_static("5"));
+    response.headers_mut().insert(axum::http::header::CACHE_CONTROL, axum::http::HeaderValue::from_static("no-store"));
+    response
+}
+
+/// t63 item 0: per upstream host, consecutive connection failures (connect,
+/// TLS, greeting or read timeouts, refused, reset) open a back-off of
+/// 2 s, 4 s, ... up to [`BREAKER_MAX`]; while it is open a connection to that
+/// host fails at once instead of waiting for the full timeouts again. A
+/// success closes it. Authentication and policy refusals do not count.
+/// At most [`BREAKER_HOSTS`] hosts are tracked (expired ones first, then the
+/// oldest failure).
+const BREAKER_MAX: Duration = Duration::from_secs(60);
+const BREAKER_HOSTS: usize = 4096;
+
+#[derive(Clone, Copy)]
+struct Breaker {
+    failures: u32,
+    open_until: std::time::Instant,
+}
+
+fn breakers() -> &'static Mutex<HashMap<String, Breaker>> {
+    static BREAKERS: OnceLock<Mutex<HashMap<String, Breaker>>> = OnceLock::new();
+    BREAKERS.get_or_init(Default::default)
+}
+
+fn breaker_key(kind: AccountKind, host: &str, port: u16) -> String {
+    format!("{kind:?}:{}:{port}", host.to_ascii_lowercase())
+}
+
+/// Whether a connection to the host is held back now (and until when).
+pub(crate) fn upstream_held_back(kind: AccountKind, host: &str, port: u16) -> Option<std::time::Instant> {
+    let breakers = breakers().lock().unwrap_or_else(|poison| poison.into_inner());
+    breakers
+        .get(&breaker_key(kind, host, port))
+        .map(|breaker| breaker.open_until)
+        .filter(|until| *until > std::time::Instant::now())
+}
+
+fn record_upstream(kind: AccountKind, host: &str, port: u16, failed: bool) {
+    let key = breaker_key(kind, host, port);
+    let mut breakers = breakers().lock().unwrap_or_else(|poison| poison.into_inner());
+    if !failed {
+        breakers.remove(&key);
+        return;
+    }
+    let now = std::time::Instant::now();
+    if !breakers.contains_key(&key) && breakers.len() >= BREAKER_HOSTS {
+        breakers.retain(|_, breaker| breaker.open_until > now);
+        crate::hardening::make_room_by(&mut breakers, BREAKER_HOSTS, |breaker| Some(breaker.open_until));
+    }
+    let entry = breakers.entry(key).or_insert(Breaker { failures: 0, open_until: now });
+    entry.failures = entry.failures.saturating_add(1);
+    let backoff = Duration::from_secs(1u64 << entry.failures.min(6)).min(BREAKER_MAX);
+    entry.open_until = now + backoff;
+}
+
+/// (hosts tracked, hosts held back now) for diagnostics and tests.
+pub(crate) fn upstream_breaker_counts() -> (usize, usize) {
+    let breakers = breakers().lock().unwrap_or_else(|poison| poison.into_inner());
+    let now = std::time::Instant::now();
+    (breakers.len(), breakers.values().filter(|breaker| breaker.open_until > now).count())
+}
+
+fn connection_failure(failure: &LoginFailure) -> bool {
+    matches!(
+        failure.reason,
+        LoginFailureReason::Transport
+            | LoginFailureReason::Dns
+            | LoginFailureReason::Connect
+            | LoginFailureReason::Timeout
+            | LoginFailureReason::Tls
+    )
+}
+
 async fn connect_backend(
+    kind: AccountKind,
+    host: &str,
+    port: u16,
+    tls: &str,
+    credentials: (&str, &str),
+    policy: &AccountPolicy,
+    transport: BackendTransport,
+) -> Result<Arc<dyn AccountBackend>, LoginFailure> {
+    if upstream_held_back(kind, host, port).is_some() {
+        return Err(LoginFailure::new(LoginFailureReason::Connect));
+    }
+    let result = connect_backend_unguarded(kind, host, port, tls, credentials, policy, transport).await;
+    match &result {
+        Ok(_) => record_upstream(kind, host, port, false),
+        Err(failure) if connection_failure(failure) => record_upstream(kind, host, port, true),
+        Err(_) => {}
+    }
+    result
+}
+
+async fn connect_backend_unguarded(
     kind: AccountKind,
     host: &str,
     port: u16,
@@ -1945,5 +2106,48 @@ mod connect_lock_bound_tests {
         drop((first, second));
         let third = connect_lock(&key);
         assert!(third.try_lock().is_ok());
+    }
+}
+
+#[cfg(test)]
+mod upstream_breaker_tests {
+    use super::*;
+
+    /// t63 item 0: a host that failed is held back with a growing back-off
+    /// (capped), a success clears it, and a held-back host fails at once.
+    #[tokio::test]
+    async fn failures_hold_a_host_back_and_success_clears_it() {
+        let host = format!("breaker-{}.invalid", uuid::Uuid::new_v4().simple());
+        assert!(upstream_held_back(AccountKind::Imap, &host, 993).is_none());
+        record_upstream(AccountKind::Imap, &host, 993, true);
+        let first = upstream_held_back(AccountKind::Imap, &host, 993).expect("held back");
+        record_upstream(AccountKind::Imap, &host, 993, true);
+        let second = upstream_held_back(AccountKind::Imap, &host, 993).expect("held back");
+        assert!(second > first, "the back-off grows");
+        for _ in 0..20 {
+            record_upstream(AccountKind::Imap, &host, 993, true);
+        }
+        let capped = upstream_held_back(AccountKind::Imap, &host, 993).unwrap();
+        assert!(capped <= std::time::Instant::now() + BREAKER_MAX);
+        // Another port of the same host is its own entry.
+        assert!(upstream_held_back(AccountKind::Imap, &host, 143).is_none());
+        let started = std::time::Instant::now();
+        let failed = connect_backend(
+            AccountKind::Imap, &host, 993, "implicit", ("u", "p"), &AccountPolicy::default(),
+            BackendTransport { dialer: None, tls_options: Default::default(), observation: Arc::new(Mutex::new(None)), auth_policy: None },
+        )
+        .await;
+        assert!(matches!(failed, Err(failure) if failure.reason == LoginFailureReason::Connect));
+        assert!(started.elapsed() < Duration::from_millis(100), "no dial while held back");
+        record_upstream(AccountKind::Imap, &host, 993, false);
+        assert!(upstream_held_back(AccountKind::Imap, &host, 993).is_none());
+    }
+
+    #[test]
+    fn tracked_hosts_are_bounded() {
+        for n in 0..(BREAKER_HOSTS + 500) {
+            record_upstream(AccountKind::Pop3, &format!("bound-{n}.invalid"), 995, true);
+        }
+        assert!(upstream_breaker_counts().0 <= BREAKER_HOSTS);
     }
 }

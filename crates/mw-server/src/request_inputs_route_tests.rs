@@ -637,3 +637,82 @@ fn bootstrap_after_password_change_is_bounded() {
     run_fixture(|| async { bootstrap_after_revocation("password-change").await });
 }
 
+
+/// t63 item 0: an account whose mail server accepts the connection and never
+/// greets is answered "not ready, retry" within the bound; requests for it
+/// hold no JMAP permit while they wait (two at once with a per-account limit
+/// of 1 both get 503, not 429); another account is answered meanwhile.
+#[test]
+fn a_silent_upstream_is_bounded_and_holds_no_permit() {
+    run_fixture(|| async {
+        let f = Fixture::new().await;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let silent = tokio::spawn(async move {
+            let mut held = Vec::new();
+            loop {
+                let Ok((socket, _)) = listener.accept().await else { break };
+                held.push(socket); // accepted, never written to
+            }
+        });
+        let user = "stalled@stall.test";
+        let credentials = Credentials { username: user.into(), password: "fixture-secret".into() };
+        f.writer.put_domain_config(&DomainConfigRow { name: "stall.test".into(), upstream_json: json!({"imap":{"host":"127.0.0.1","port":port,"tls":"starttls","auth":"password","allowPrivate":true}}).to_string(), allowlist_json: "[]".into(), blocklist_json: "[]".into(), enabled: true, preferred: false, settings_json: "{}".into(), updated_at: 1 }).await.unwrap();
+        let account = f.writer.create_account(&NewAccount { kind: AccountKind::Imap, host: "127.0.0.1", port, tls: "starttls", username: user, sync_policy_json: "{}" }, &credentials).await.unwrap();
+        f.writer.remember_account_names(&account, &[user]).await.unwrap();
+        let session = f.writer.create_session(&account, user, "engine", "engine", &credentials).await.unwrap();
+        f.writer.set_session_authentication(&session, "password").await.unwrap();
+        f.writer.bind_verified_primary(&session, mw_store::identity_principal::VerifiedPrimary {
+            account_id: &account, kind: "mailbox", authority: "fixture-native", subject: user,
+        }, chrono::Utc::now().timestamp()).await.unwrap().unwrap();
+        let jmap = |cookie: &str, account: &str| {
+            let csrf = f.writer.session_csrf_token(cookie);
+            let mut request = Request::builder().method("POST").uri("/jmap/api")
+                .header("host", "localhost").header("origin", "http://localhost")
+                .header("user-agent", "Mozilla/5.0").header("content-type", "application/json")
+                .header("cookie", format!("mw_session={cookie}; mw_csrf={csrf}")).header("x-csrf-token", csrf)
+                .body(Body::from(serde_json::to_vec(&json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail"],
+                    "methodCalls":[["Mailbox/get",{"accountId":account},"m"]]})).unwrap())).unwrap();
+            request.extensions_mut().insert(axum::extract::ConnectInfo(PEER.parse::<SocketAddr>().unwrap()));
+            request
+        };
+        let small = mw_net::UpstreamTimeouts {
+            connect: Duration::from_millis(500),
+            greeting: Duration::from_millis(300),
+            read: Duration::from_millis(500),
+            min_rate: 16 * 1024,
+        };
+        mw_net::with_upstream_timeouts(small, async {
+            let started = std::time::Instant::now();
+            let stalled_a = f.router.clone().oneshot(jmap(&session, &account));
+            let stalled_b = f.router.clone().oneshot(jmap(&session, &account));
+            let other = async {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                let t = std::time::Instant::now();
+                let response = f.router.clone().oneshot(jmap(&f.session, &f.account)).await.unwrap();
+                (response.status(), t.elapsed())
+            };
+            let (a, b, (other_status, other_elapsed)) = tokio::join!(stalled_a, stalled_b, other);
+            let elapsed = started.elapsed();
+            let (a, b) = (a.unwrap(), b.unwrap());
+            // The greeting bound ends the dial (502 upstream error) or the wait
+            // bound ends the request (503 not ready); never a permit refusal.
+            for response in [&a, &b] {
+                assert!(matches!(response.status(), StatusCode::BAD_GATEWAY | StatusCode::SERVICE_UNAVAILABLE),
+                    "{}: no JMAP permit is held while the account connects", response.status());
+            }
+            let ceiling = crate::engine_mode::ensure_wait() * 2 + Duration::from_secs(2);
+            assert!(elapsed < ceiling, "{elapsed:?} > {ceiling:?}");
+            assert_eq!(other_status, StatusCode::OK, "another account is answered meanwhile");
+            assert!(other_elapsed < Duration::from_secs(2), "{other_elapsed:?}");
+            // The host is now held back: the next request fails without a dial.
+            let t = std::time::Instant::now();
+            let again = f.router.clone().oneshot(jmap(&session, &account)).await.unwrap();
+            assert!(again.status().is_server_error());
+            assert!(t.elapsed() < Duration::from_millis(500), "held back: {:?}", t.elapsed());
+            assert!(crate::engine_mode::upstream_held_back(AccountKind::Imap, "127.0.0.1", port).is_some());
+        })
+        .await;
+        silent.abort();
+    });
+}
