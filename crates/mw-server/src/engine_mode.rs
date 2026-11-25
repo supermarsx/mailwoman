@@ -649,17 +649,64 @@ async fn register_one(
 /// An account a bridge serves is registered by `v7_mount::load_plugin_backends`
 /// and not under this lock; nothing here says when its first sync has run.
 pub(crate) fn connect_lock(account_id: &str) -> Arc<tokio::sync::Mutex<()>> {
-    static LOCKS: OnceLock<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> = OnceLock::new();
-    let mut locks = LOCKS
-        .get_or_init(Default::default)
-        .lock()
-        .expect("connect locks");
-    // Every request for the account comes through here, so the common case
-    // (the lock exists) does not allocate a key.
-    if let Some(lock) = locks.get(account_id) {
-        return lock.clone();
+    let mut locks = connect_locks().lock().unwrap_or_else(|poison| poison.into_inner());
+    // A key longer than CONNECT_LOCK_KEY_MAX (an EWS login key carries the
+    // typed user name) is stored by its SHA-256: same exclusion, bounded size.
+    let hashed;
+    let key = if account_id.len() > CONNECT_LOCK_KEY_MAX {
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::digest(account_id.as_bytes());
+        hashed = digest.iter().fold(String::with_capacity(71), |mut out, byte| {
+            use std::fmt::Write as _;
+            let _ = write!(out, "{byte:02x}");
+            out
+        });
+        hashed.as_str()
+    } else {
+        account_id
+    };
+    // The map holds the lock weakly: the lock lives as long as a caller holds
+    // it or waits for it, which is all the exclusion needs, and an entry nobody
+    // holds is replaced in place (no key allocation on the common path).
+    if let Some(slot) = locks.entries.get_mut(key) {
+        if let Some(lock) = slot.upgrade() {
+            return lock;
+        }
+        let lock = Arc::new(tokio::sync::Mutex::new(()));
+        *slot = Arc::downgrade(&lock);
+        return lock;
     }
-    locks.entry(account_id.to_string()).or_default().clone()
+    if locks.entries.len() >= locks.sweep_at {
+        locks.entries.retain(|_, lock| lock.strong_count() > 0);
+        locks.sweep_at = (locks.entries.len() * 2).max(CONNECT_LOCK_SWEEP_FLOOR);
+    }
+    let lock = Arc::new(tokio::sync::Mutex::new(()));
+    locks.entries.insert(key.to_owned(), Arc::downgrade(&lock));
+    lock
+}
+
+/// Longest key stored as is (t63: keys could carry an unchecked user name).
+const CONNECT_LOCK_KEY_MAX: usize = 256;
+/// Entries kept before dead ones are swept; afterwards twice the live count.
+/// Live entries are bounded by the callers holding or waiting (each is a
+/// request, a login or a start-up registration), so the map stays within
+/// max(4096, 2 x concurrent holders).
+const CONNECT_LOCK_SWEEP_FLOOR: usize = 4096;
+
+struct ConnectLocks {
+    entries: HashMap<String, std::sync::Weak<tokio::sync::Mutex<()>>>,
+    sweep_at: usize,
+}
+fn connect_locks() -> &'static Mutex<ConnectLocks> {
+    static LOCKS: OnceLock<Mutex<ConnectLocks>> = OnceLock::new();
+    LOCKS.get_or_init(|| Mutex::new(ConnectLocks { entries: HashMap::new(), sweep_at: CONNECT_LOCK_SWEEP_FLOOR }))
+}
+
+/// (entries in the map, of which held or awaited) for diagnostics and tests.
+pub(crate) fn connect_lock_entries() -> (usize, usize) {
+    let locks = connect_locks().lock().unwrap_or_else(|poison| poison.into_inner());
+    let live = locks.entries.values().filter(|lock| lock.strong_count() > 0).count();
+    (locks.entries.len(), live)
 }
 
 /// A parsed mail server URL, as the upstream resolver supplies it.
@@ -1861,5 +1908,42 @@ mod tests {
         restrict_to_owner(&dir).unwrap();
         assert_eq!(mode(&dir), 0o700);
         let _ = std::fs::remove_dir_all(&base);
+    }
+}
+
+#[cfg(test)]
+mod connect_lock_bound_tests {
+    use super::*;
+
+    /// t63 (1): keys a client can choose (the EWS login key carries the typed
+    /// user name, before the password is checked) do not accumulate: an entry
+    /// nobody holds is swept, a long key is stored by its digest.
+    #[test]
+    fn unheld_connect_locks_do_not_accumulate_and_long_keys_are_bounded() {
+        let long = "x".repeat(4096);
+        for n in 0..20_000 {
+            drop(connect_lock(&format!("ews-login:t63-bound:{n}:{long}")));
+        }
+        let (entries, live) = connect_lock_entries();
+        assert_eq!(live, 0);
+        assert!(entries <= 2 * CONNECT_LOCK_SWEEP_FLOOR, "{entries} entries after 20,000 distinct keys");
+        let longest = connect_locks().lock().unwrap().entries.keys().map(String::len).max().unwrap_or(0);
+        assert!(longest <= CONNECT_LOCK_KEY_MAX, "longest stored key {longest}");
+    }
+
+    /// The exclusion is unchanged: callers holding or awaiting the lock of one
+    /// key share one mutex; a long key and its digest are the same lock.
+    #[tokio::test]
+    async fn holders_of_one_key_share_one_lock() {
+        let key = format!("t63-share-{}", "y".repeat(CONNECT_LOCK_KEY_MAX + 1));
+        let first = connect_lock(&key);
+        let held = first.lock().await;
+        let second = connect_lock(&key);
+        assert!(Arc::ptr_eq(&first, &second));
+        assert!(second.try_lock().is_err(), "held by the first caller");
+        drop(held);
+        drop((first, second));
+        let third = connect_lock(&key);
+        assert!(third.try_lock().is_ok());
     }
 }
