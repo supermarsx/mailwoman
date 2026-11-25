@@ -146,3 +146,77 @@ async fn write_route_inventory_postgres() {
     };
     inventory(hot, "postgres").await;
 }
+
+/// Report-only cost run (ignored): `MW_E19_PG_COST=1`, PostgreSQL only.
+/// 200 single-id keyword Email/set requests (toggling $seen over 20 ids) and
+/// 100 single-id moves (alternating Sent/INBOX), each through handle_jmap.
+/// Prints WAL bytes per request; database CPU is read outside (container
+/// cgroup cpu.stat before/after).
+#[tokio::test]
+#[ignore = "explicit PostgreSQL cost run; set MW_E19_PG_COST=1"]
+async fn write_route_pg_cost() {
+    assert_eq!(std::env::var("MW_E19_PG_COST").as_deref(), Ok("1"));
+    let Some(hot) = Hot::pg().await else { panic!("DATABASE_URL_PG required") };
+    for account in [&hot.a, &hot.b] {
+        hot.engine.register_backend(
+            account.clone(),
+            crate::account::AccountRuntime::new(
+                Arc::new(WriteBackend(AtomicU32::new(10_000))) as Arc<dyn AccountBackend>,
+                Arc::new(NoSubmit) as Arc<dyn crate::MailSubmitter>,
+                "owner@hot.invalid",
+            ),
+        );
+    }
+    let a = hot.a.clone();
+    let inbox = mailbox(&hot, "inbox").await;
+    let sent = mailbox(&hot, "sent").await;
+    let raw = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&mw_test_gate::pg_dsn().unwrap())
+        .await
+        .unwrap();
+    let lsn = || async {
+        sqlx::query_scalar::<_, i64>("SELECT CAST(pg_current_wal_lsn() - '0/0'::pg_lsn AS BIGINT)")
+            .fetch_one(&raw)
+            .await
+            .unwrap()
+    };
+    // Database CPU of the server container (MW_E19_PG_CONTAINER), from its cgroup.
+    let cpu = || -> i64 {
+        let Ok(name) = std::env::var("MW_E19_PG_CONTAINER") else { return 0 };
+        let out = std::process::Command::new("docker").args(["exec", &name, "cat", "/sys/fs/cgroup/cpu.stat"]).env("MSYS_NO_PATHCONV", "1").output().unwrap();
+        String::from_utf8_lossy(&out.stdout).lines().find_map(|l| l.strip_prefix("usage_usec ").map(|v| v.trim().parse().unwrap())).unwrap_or(0)
+    };
+    let ids: Vec<String> = hot.a_ids[..20].to_vec();
+    let cpu0 = cpu();
+    let start = lsn().await;
+    let started = std::time::Instant::now();
+    for n in 0..200usize {
+        let id = &ids[n % ids.len()];
+        let on = (n / ids.len()) % 2 == 0;
+        let r = hot.send(&a, vec![json!(["Email/set", {"accountId": a, "update": {id.clone(): {"keywords/$seen": if on { json!(true) } else { Value::Null }}}}, "s"])]).await;
+        assert!(method_responses(&r)[0][1]["updated"].get(id).is_some(), "{r}");
+    }
+    let keywords_elapsed = started.elapsed();
+    let mid = lsn().await;
+    let cpu1 = cpu();
+    let started = std::time::Instant::now();
+    for n in 0..100usize {
+        let id = &ids[n % ids.len()];
+        let to = if (n / ids.len()) % 2 == 0 { &sent } else { &inbox };
+        let r = hot.send(&a, vec![json!(["Email/set", {"accountId": a, "update": {id.clone(): {"mailboxIds": {to.clone(): true}}}}, "s"])]).await;
+        assert!(method_responses(&r)[0][1]["updated"].get(id).is_some(), "{r}");
+    }
+    let moves_elapsed = started.elapsed();
+    let end = lsn().await;
+    let cpu2 = cpu();
+    println!(
+        "WRITE_COST {}",
+        json!({"keywordRequests": 200, "keywordWalBytesPerRequest": (mid - start) as f64 / 200.0,
+               "keywordMicrosPerRequest": keywords_elapsed.as_micros() as f64 / 200.0,
+               "moveRequests": 100, "moveWalBytesPerRequest": (end - mid) as f64 / 100.0,
+               "moveMicrosPerRequest": moves_elapsed.as_micros() as f64 / 100.0,
+               "keywordDbCpuMicrosPerRequest": (cpu1 - cpu0) as f64 / 200.0,
+               "moveDbCpuMicrosPerRequest": (cpu2 - cpu1) as f64 / 100.0})
+    );
+}
