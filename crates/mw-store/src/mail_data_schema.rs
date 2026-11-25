@@ -4,9 +4,12 @@
 use super::*;
 use std::sync::OnceLock;
 fn invalid(message:&'static str)->StoreError { StoreError::Invalid(message) }
-const SQLITE_SQL: &str = concat!(include_str!("../migrations/0109_message_list_envelope.sql"),"\n",include_str!("../migrations/0110_verdict_source.sql"),"\n",include_str!("../migrations/0113_mail_data_publication.sql"));
+const SQLITE_SQL: &str = concat!(include_str!("../migrations/0109_message_list_envelope.sql"),"\n",include_str!("../migrations/0110_verdict_source.sql"),"\n",include_str!("../migrations/0113_mail_data_publication.sql"),"
+",include_str!("../migrations/0131_mail_data_seq_lock_order.sql"));
 const PG_SQL: &str = concat!(include_str!("../migrations_pg/0109_message_list_envelope.sql"),"\n",include_str!("../migrations_pg/0110_verdict_source.sql"),"\n",include_str!("../migrations_pg/0113_mail_data_publication.sql"),"
-",include_str!("../migrations_pg/0129_mail_data_statement_triggers.sql"));
+",include_str!("../migrations_pg/0129_mail_data_statement_triggers.sql"),"
+",include_str!("../migrations_pg/0131_mail_data_seq_lock_order.sql"),"
+",include_str!("../migrations_pg/0132_flag_write_trigger_columns.sql"));
 const TABLES: &[&str] = &["accounts","messages","message_meta","message_list_envelope","bodies","mailboxes","address_books","contacts","zeroaccess_accounts","security_verdicts","mail_data_accounts","mail_data_rows","mail_data_outbox","changes","change_log_checkpoint","pim_changes","crypto_changes"];
 pub(crate) fn stamp_expression(dialect: Dialect) -> &'static str {
     static SQL: OnceLock<[String; 2]> = OnceLock::new();
@@ -134,6 +137,7 @@ fn triggers(pg: bool) -> Vec<Trigger> {
             .and_then(|s| s.split('(').next())
             .unwrap_or("")
             .to_owned();
+        out.retain(|t| t.name != words[0]);
         out.push(Trigger {
             name: words[0].to_owned(),
             table: words[on + 1].to_owned(),
@@ -150,7 +154,9 @@ fn triggers(pg: bool) -> Vec<Trigger> {
 }
 fn functions() -> Vec<Function> {
     let mut out: Vec<Function> = Vec::new();
-    for (create, chunk) in statements(PG_SQL, "CREATE FUNCTION ", "DROP FUNCTION ") {
+    // A later CREATE OR REPLACE (0131) replaces the earlier definition.
+    let source = PG_SQL.replace("CREATE OR REPLACE FUNCTION ", "CREATE FUNCTION ");
+    for (create, chunk) in statements(&source, "CREATE FUNCTION ", "DROP FUNCTION ") {
         if !create {
             let name = dropped_name(chunk);
             out.retain(|f| f.name != name);
@@ -178,7 +184,10 @@ fn functions() -> Vec<Function> {
                 body,
             })
         })();
-        out.extend(parsed);
+        if let Some(parsed) = parsed {
+            out.retain(|f| f.name != parsed.name);
+            out.push(parsed);
+        }
     }
     out
 }

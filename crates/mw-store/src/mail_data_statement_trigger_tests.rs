@@ -12,6 +12,13 @@ use std::collections::BTreeMap;
 
 const OLD_0113: &str = include_str!("../migrations_pg/0113_mail_data_publication.sql");
 const NEW_0129: &str = include_str!("../migrations_pg/0129_mail_data_statement_triggers.sql");
+const NEW_0131: &str = include_str!("../migrations_pg/0131_mail_data_seq_lock_order.sql");
+const SEQ_TABLES: [&str; 4] = [
+    "changes",
+    "pim_changes",
+    "crypto_changes",
+    "change_log_checkpoint",
+];
 const REPLACED: [&str; 4] = [
     "mail_data_message_insert",
     "mail_data_message_update",
@@ -33,14 +40,18 @@ fn between<'a>(sql: &'a str, start: &str, end: &str) -> &'a str {
     &sql[a..b]
 }
 
-/// SQL that turns a schema at 0129 back into the 0113 messages triggers.
+/// SQL that turns a schema at 0131 back into the 0113 messages triggers, with
+/// 0131's one textual change to them (the ensure advances `seq`).
 fn restore_0113(schema: &str) -> String {
     let mut sql = String::new();
     for name in ADDED {
         sql += &format!("DROP TRIGGER {name} ON messages;DROP FUNCTION {name}_fn();\n");
     }
     for name in REPLACED {
-        sql += between(OLD_0113, &format!("CREATE FUNCTION {name}_fn()"), "END $$;");
+        sql += &between(OLD_0113, &format!("CREATE FUNCTION {name}_fn()"), "END $$;").replace(
+            "ON CONFLICT(account_id) DO NOTHING",
+            "ON CONFLICT(account_id) DO UPDATE SET seq=mail_data_accounts.seq+1",
+        );
         sql += "\n";
         sql += between(OLD_0113, &format!("CREATE TRIGGER {name} "), ";");
         sql +=
@@ -102,7 +113,7 @@ fn required_set_is_0113_with_0129_replacements() {
     );
     assert!(
         pg.iter()
-            .filter(|t| !ADDED.contains(&t.name.as_str()))
+            .filter(|t| !ADDED.contains(&t.name.as_str()) && !t.name.starts_with("mail_data_seq_"))
             .all(|t| t.kind & 1 == 1
                 && t.when.is_empty()
                 && t.old_table.is_empty()
@@ -124,6 +135,40 @@ fn required_set_is_0113_with_0129_replacements() {
     for name in REPLACED {
         assert!(lite.iter().any(|t| t.name == name));
     }
+    // 0131: every ensure advances seq (both dialects), seq triggers on the logs.
+    for (pg, set) in [(true, &pg), (false, &lite)] {
+        for table in SEQ_TABLES {
+            for event in ["insert", "update", "delete"] {
+                let t = set
+                    .iter()
+                    .find(|t| t.name == format!("mail_data_seq_{table}_{event}"))
+                    .unwrap_or_else(|| panic!("seq trigger on {table} {event}"));
+                assert_eq!(t.table, table);
+                if pg {
+                    assert_eq!(t.kind & 1, 0, "statement level on PostgreSQL");
+                }
+            }
+        }
+        assert!(
+            set.iter()
+                .all(|t| !t.sql.contains("ON CONFLICT(account_id) DO NOTHING")),
+            "no ensure left that locks nothing"
+        );
+    }
+    assert!(
+        functions()
+            .iter()
+            .all(|f| !f.body.contains("ON CONFLICT(account_id) DO NOTHING"))
+    );
+    // 0132: column lists keep two triggers from firing on a flag change.
+    assert_eq!(
+        find("mail_data_mailbox_update").columns,
+        "role,account_id,id"
+    );
+    assert_eq!(
+        find("verdict_content_revision").columns,
+        "account_id,stable_id,blob_ref"
+    );
 }
 
 struct Pg {
@@ -219,10 +264,14 @@ async fn postgres_validator_requires_0129_and_restamps_once_at_upgrade() {
             .unwrap(),
         "0113's row triggers are not the required set any more"
     );
-    // The upgrade itself: 0129 as the migrator runs it.
-    raw(&mut conn, &format!("BEGIN;{NEW_0129};COMMIT"))
-        .await
-        .unwrap();
+    // The upgrade itself: 0129, then 0131's function definitions (its table and
+    // seq-trigger parts are already in place in this schema).
+    raw(
+        &mut conn,
+        &format!("BEGIN;{NEW_0129};{};COMMIT", replay_0131_functions()),
+    )
+    .await
+    .unwrap();
     assert!(
         !store
             .validate_mail_data_schema(&before_upgrade)
@@ -257,7 +306,9 @@ async fn postgres_validator_requires_0129_and_restamps_once_at_upgrade() {
         ("rekey trigger with another WHEN", format!("DROP TRIGGER mail_data_message_rekey ON messages;{}", rekey.replace("OLD.stable_id IS DISTINCT FROM NEW.stable_id", "OLD.uid IS DISTINCT FROM NEW.uid")), format!("DROP TRIGGER mail_data_message_rekey ON messages;{rekey}")),
         ("update trigger per row", format!("DROP TRIGGER mail_data_messages_updated ON messages;{}", updated.replace("REFERENCING OLD TABLE AS mail_data_old NEW TABLE AS mail_data_new FOR EACH STATEMENT", "FOR EACH ROW")), format!("DROP TRIGGER mail_data_messages_updated ON messages;{updated}")),
         ("insert trigger with other transition name", format!("DROP TRIGGER mail_data_messages_inserted ON messages;{}", inserted.replace("AS mail_data_new", "AS other_new")), format!("DROP TRIGGER mail_data_messages_inserted ON messages;{inserted}")),
-        ("statement function body changed", "CREATE OR REPLACE FUNCTION mail_data_messages_deleted_fn() RETURNS TRIGGER LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END $$".into(), format!("CREATE OR REPLACE {};ALTER FUNCTION mail_data_messages_deleted_fn() SET search_path = pg_catalog, \"{schema}\"", between(NEW_0129, "FUNCTION mail_data_messages_deleted_fn()", "END $$;"))),
+        ("statement function body changed", "CREATE OR REPLACE FUNCTION mail_data_messages_deleted_fn() RETURNS TRIGGER LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END $$".into(), format!("CREATE OR REPLACE {};ALTER FUNCTION mail_data_messages_deleted_fn() SET search_path = pg_catalog, \"{schema}\"", between(NEW_0131, "FUNCTION mail_data_messages_deleted_fn()", "END $$;"))),
+        ("seq trigger missing", "DROP TRIGGER mail_data_seq_changes_insert ON changes".into(), between(NEW_0131, "CREATE TRIGGER mail_data_seq_changes_insert ", ";").into()),
+        ("0113 function without the seq bump", format!("CREATE OR REPLACE {};ALTER FUNCTION mail_data_mailbox_insert_fn() SET search_path = pg_catalog, \"{schema}\"", between(OLD_0113, "FUNCTION mail_data_mailbox_insert_fn()", "END $$;")), format!("CREATE OR REPLACE {};ALTER FUNCTION mail_data_mailbox_insert_fn() SET search_path = pg_catalog, \"{schema}\"", between(NEW_0131, "FUNCTION mail_data_mailbox_insert_fn()", "END $$;"))),
     ];
     for (what, break_sql, repair_sql) in cases {
         raw(&mut conn, &break_sql)
@@ -286,12 +337,25 @@ async fn postgres_validator_requires_0129_and_restamps_once_at_upgrade() {
     pg.cleanup().await;
 }
 
+fn replay_0131_functions() -> String {
+    let mut sql = String::new();
+    let mut rest = NEW_0131;
+    while let Some(at) = rest.find("CREATE OR REPLACE FUNCTION ") {
+        let block = between(&rest[at..], "CREATE OR REPLACE FUNCTION ", "END $$;");
+        sql += block;
+        sql += "
+";
+        rest = &rest[at + block.len()..];
+    }
+    sql + between(NEW_0131, "DO $$ DECLARE function_name", "END $$;")
+}
+
 // ---- differential test ----
 
 #[derive(Default, Clone, PartialEq, Debug)]
 struct Snap {
     messages: BTreeMap<String, (String, String, String, String, String)>,
-    accounts: BTreeMap<String, (String, String, String)>,
+    accounts: BTreeMap<String, (String, String, String, i64)>,
     rows: BTreeMap<String, (String, String, String, String)>,
     outbox: BTreeMap<String, String>,
 }
@@ -301,13 +365,14 @@ async fn snap(conn: &mut PgConnection) -> Snap {
         s.messages.insert(r.get(0), (r.get(1), r.get(2), r.get(3), r.get(4), r.get(5)));
     }
     for r in sqlx::query(
-        "SELECT account_id,incarnation,focus_revision,policy_revision FROM mail_data_accounts",
+        "SELECT account_id,incarnation,focus_revision,policy_revision,seq FROM mail_data_accounts",
     )
     .fetch_all(&mut *conn)
     .await
     .unwrap()
     {
-        s.accounts.insert(r.get(0), (r.get(1), r.get(2), r.get(3)));
+        s.accounts
+            .insert(r.get(0), (r.get(1), r.get(2), r.get(3), r.get(4)));
     }
     for r in sqlx::query("SELECT stable_id,account_id,data_revision,cache_revision,content_revision FROM mail_data_rows").fetch_all(&mut *conn).await.unwrap() {
         s.rows.insert(r.get(0), (r.get(1), r.get(2), r.get(3), r.get(4)));
@@ -325,7 +390,7 @@ async fn snap(conn: &mut PgConnection) -> Snap {
 #[derive(PartialEq, Debug)]
 struct Seen {
     messages: BTreeMap<String, (String, String, String)>,
-    accounts: BTreeMap<String, (bool, bool, bool, bool)>,
+    accounts: BTreeMap<String, (bool, bool, bool, bool, bool)>,
     rows: BTreeMap<String, (String, bool, bool, bool, bool)>,
     outbox: BTreeMap<String, (bool, bool)>,
 }
@@ -348,6 +413,7 @@ fn seen(before: &Snap, after: &Snap) -> Seen {
                         old.is_some_and(|o| o.0 != v.0),
                         old.is_some_and(|o| o.1 != v.1),
                         old.is_some_and(|o| o.2 != v.2),
+                        old.is_some_and(|o| o.3 != v.3),
                     ),
                 )
             })
@@ -841,5 +907,213 @@ async fn postgres_0129_statement_triggers_equal_0113_row_triggers() {
             "the sequence must hold enough messages to compare (peak {peak})"
         );
     }
+    pg.cleanup().await;
+}
+
+// ---- 0131: seq and lock order ----
+
+async fn seq(store: &Store, account: &str) -> i64 {
+    q("SELECT COALESCE((SELECT seq FROM mail_data_accounts WHERE account_id=?1),-1)")
+        .bind(account)
+        .fetch_scalar_i64(&store.backend)
+        .await
+        .unwrap()
+}
+
+async fn seq_contract(store: Store) {
+    let leak = |sql: String| -> &'static str { Box::leak(sql.into_boxed_str()) };
+    for sql in account_sql("sq")
+        .split(';')
+        .filter(|s| !s.trim().is_empty())
+    {
+        q(leak(sql.to_owned()))
+            .execute(&store.backend)
+            .await
+            .unwrap();
+    }
+    let steps: [(&str, bool); 14] = [
+        (
+            "INSERT INTO messages(stable_id,account_id,mailbox_id,uid,uidvalidity,flags_json) VALUES('sq1','sq','sq_inbox',1,1,'[]')",
+            true,
+        ),
+        (
+            "UPDATE messages SET flags_json='[\"Seen\"]' WHERE stable_id='sq1'",
+            true,
+        ),
+        (
+            "UPDATE messages SET flags_json=flags_json WHERE stable_id='sq1'",
+            false,
+        ),
+        (
+            "UPDATE messages SET mailbox_id='sq_trash' WHERE stable_id='sq1'",
+            true,
+        ),
+        (
+            "INSERT INTO message_meta(stable_id,pinned) VALUES('sq1',1)",
+            true,
+        ),
+        (
+            "INSERT INTO changes(account_id,type,state,stable_id,op,at) VALUES('sq','Email',1,'sq1','updated','2026-01-01T00:00:00Z')",
+            true,
+        ),
+        (
+            "UPDATE changes SET at='2026-01-02T00:00:00Z' WHERE account_id='sq'",
+            true,
+        ),
+        ("DELETE FROM changes WHERE account_id='sq'", true),
+        (
+            "INSERT INTO pim_changes(account_id,type,state,object_id,op,at) VALUES('sq','Contact',1,'c1','created','2026-01-01T00:00:00Z')",
+            true,
+        ),
+        (
+            "INSERT INTO crypto_changes(account_id,type,state,object_id,op,at) VALUES('sq','Key',1,'k1','created','2026-01-01T00:00:00Z')",
+            true,
+        ),
+        (
+            "INSERT INTO change_log_checkpoint(account_id,type,head_state,pruned_through) VALUES('sq','Email',1,0)",
+            true,
+        ),
+        (
+            "UPDATE change_log_checkpoint SET pruned_through=1 WHERE account_id='sq'",
+            true,
+        ),
+        ("UPDATE mailboxes SET role='sent' WHERE id='sq_arch'", true),
+        ("DELETE FROM messages WHERE stable_id='sq1'", true),
+    ];
+    let mut last = seq(&store, "sq").await;
+    for (sql, advances) in steps {
+        q(sql).execute(&store.backend).await.unwrap();
+        let now = seq(&store, "sq").await;
+        if advances {
+            assert!(now > last, "{sql}: seq {last} -> {now}");
+        } else {
+            assert_eq!(now, last, "{sql}: no covered change, seq must stay");
+        }
+        last = now;
+    }
+    store.close().await;
+}
+
+#[tokio::test]
+async fn sqlite_seq_advances_for_every_covered_write() {
+    seq_contract(Store::open_in_memory(ServerKey::generate()).await.unwrap()).await;
+}
+
+#[tokio::test]
+async fn postgres_seq_advances_for_every_covered_write() {
+    let Some(mut pg) = Pg::new().await else {
+        return;
+    };
+    let (_, store) = pg.schema("n15_seq").await;
+    seq_contract(store).await;
+    pg.cleanup().await;
+}
+
+/// Two connections write the same account with the statement mixes that
+/// deadlocked before 0131 (mailbox upsert against message insert/update/delete).
+/// Single statements run alone; a transaction of several statements follows the
+/// store's rule (t54 advisory lock, then the mailbox and message rows it will
+/// write, locked before its first write; publication_mutations::lock_mailboxes,
+/// set_flags_batch). No 40P01 may occur. Before 0131 single statements alone
+/// deadlocked (mailbox upsert against message writes).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn postgres_two_writers_of_one_account_do_not_deadlock() {
+    let Some(mut pg) = Pg::new().await else {
+        return;
+    };
+    let iterations: usize = std::env::var("MW_N15_LOCK_ITERS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(400);
+    let (schema, store) = pg.schema("n15_lock").await;
+    store.close().await;
+    let mut setup = pg.connect(&schema).await;
+    raw(&mut setup, &account_sql("lk")).await.unwrap();
+    let ids = (0..40).map(|i| format!("lk{i}")).collect::<Vec<_>>();
+    let rows = ids
+        .iter()
+        .enumerate()
+        .map(|(i, id)| format!("('{id}','lk','lk_inbox',{i},1,'[]')"))
+        .collect::<Vec<_>>()
+        .join(",");
+    raw(&mut setup, &format!("INSERT INTO messages(stable_id,account_id,mailbox_id,uid,uidvalidity,flags_json) VALUES {rows}")).await.unwrap();
+    let worker = move |seed: u64, conn: PgConnection| {
+        let ids = ids.clone();
+        async move {
+            let mut conn = conn;
+            let mut rng = Rng(seed);
+            let mut fresh = 0u64;
+            let mut deadlocks = 0usize;
+            for _ in 0..iterations {
+                let statements = 1 + rng.below(3);
+                let mut tx = String::new();
+                let mut touched = Vec::new();
+                for _ in 0..statements {
+                    let id = rng.pick(&ids).clone();
+                    fresh += 1;
+                    // A move changes a foreign key and takes the mailbox row's
+                    // key-share lock: the store only moves inside a transaction
+                    // that locked its mailboxes first (lock_mailboxes).
+                    let op = match rng.below(8) {
+                        3 if statements == 1 => 2,
+                        op => op,
+                    };
+                    tx += &match op {
+                        0 | 1 => format!(
+                            "INSERT INTO mailboxes(id,account_id,name,role,uidvalidity) VALUES('lk_x{seed}','lk','x{seed}',NULL,1) ON CONFLICT(account_id,name,uidvalidity) DO UPDATE SET role=CASE WHEN mailboxes.role IS NULL THEN 'sent' ELSE NULL END;"
+                        ),
+                        2 => format!(
+                            "UPDATE messages SET flags_json='[\"Seen\",\"{fresh}\"]' WHERE stable_id='{id}';"
+                        ),
+                        3 => format!(
+                            "UPDATE messages SET mailbox_id=CASE WHEN mailbox_id='lk_inbox' THEN 'lk_sent' ELSE 'lk_inbox' END WHERE stable_id='{id}';"
+                        ),
+                        4 => format!(
+                            "INSERT INTO messages(stable_id,account_id,mailbox_id,uid,uidvalidity,flags_json) VALUES('lk_n{seed}_{fresh}','lk','lk_inbox',{},1,'[]');",
+                            1_000_000 * seed + fresh
+                        ),
+                        5 => format!(
+                            "DELETE FROM messages WHERE stable_id LIKE 'lk_n{seed}_%' AND stable_id<>'lk_n{seed}_{fresh}';"
+                        ),
+                        6 => format!(
+                            "UPDATE messages SET thread_id='t{fresh}' WHERE stable_id='{id}';"
+                        ),
+                        _ => format!(
+                            "INSERT INTO changes(account_id,type,state,stable_id,op,at) VALUES('lk','Email',{fresh},'{id}','updated','2026-01-01T00:00:00Z');"
+                        ),
+                    };
+                    touched.push(id);
+                }
+                if statements > 1 {
+                    touched.sort();
+                    let list = touched
+                        .iter()
+                        .map(|i| format!("'{i}'"))
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    tx = format!(
+                        "BEGIN;SELECT pg_advisory_xact_lock(hashtextextended('lk',719304));SELECT id FROM mailboxes WHERE account_id='lk' ORDER BY id FOR UPDATE;SELECT stable_id FROM messages WHERE stable_id IN({list}) OR stable_id LIKE 'lk_n{seed}_%' ORDER BY stable_id FOR UPDATE;{tx}"
+                    );
+                } else {
+                    tx = format!("BEGIN;{tx}");
+                }
+                tx += "COMMIT;";
+                if let Err(e) = raw(&mut conn, &tx).await {
+                    let _ = raw(&mut conn, "ROLLBACK").await;
+                    assert!(e.contains("deadlock"), "unexpected error: {e}");
+                    deadlocks += 1;
+                }
+            }
+            deadlocks
+        }
+    };
+    let (c1, c2) = (pg.connect(&schema).await, pg.connect(&schema).await);
+    let (a, b) = tokio::join!(worker(1, c1), worker(2, c2));
+    let deadlocks = a + b;
+    assert_eq!(
+        deadlocks, 0,
+        "{deadlocks} transactions of {iterations} x 2 deadlocked"
+    );
+    drop(setup);
     pg.cleanup().await;
 }
