@@ -419,9 +419,12 @@ impl Engine {
         senders: &HashSet<String>,
     ) -> HashSet<String> {
         let mut candidates: Vec<(&String, Vec<String>)> = Vec::new();
+        // Slice 2 (t50hp-e31): the scanned Sent ids from SQL are the scope,
+        // with the account term; the index's mailbox field is not read.
+        let _ = sent_mailbox;
+        let scanned_set = mw_search::IdSet::new(scanned.iter().cloned().collect());
         for addr in senders {
-            let hits = self.sent_hits(sent_mailbox, addr);
-            let hits: Vec<String> = hits.into_iter().filter(|id| scanned.contains(id)).collect();
+            let hits = self.sent_hits(account_id, &scanned_set, addr);
             if !hits.is_empty() {
                 candidates.push((addr, hits));
             }
@@ -449,9 +452,11 @@ impl Engine {
             .collect()
     }
 
-    /// The top 20 Sent ids whose To or Cc phrase-matches `addr` (empty on an
-    /// index error).
-    fn sent_hits(&self, sent_mailbox: &str, addr: &str) -> Vec<String> {
+    /// The top 20 of the scanned Sent ids whose To or Cc phrase-matches `addr`
+    /// (empty on an index error). Accepted difference 2 of the design: the top
+    /// 20 are taken within the scanned set, where they were taken over the
+    /// whole Sent folder and then filtered.
+    fn sent_hits(&self, account_id: &str, scanned: &mw_search::IdSet, addr: &str) -> Vec<String> {
         let text = |field| {
             Expr::Clause(Clause::Text {
                 field,
@@ -462,7 +467,8 @@ impl Engine {
         let query = SearchQuery {
             raw: String::new(),
             expr: Expr::And(vec![
-                Expr::Clause(Clause::Mailbox(sent_mailbox.to_string())),
+                Expr::Clause(Clause::Account(account_id.to_string())),
+                Expr::Clause(Clause::IdSet(scanned.clone())),
                 Expr::Or(vec![text(TextField::To), text(TextField::Cc)]),
             ]),
             sort: Sort::default(),
