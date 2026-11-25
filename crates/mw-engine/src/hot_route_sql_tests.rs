@@ -930,3 +930,6 @@ async fn planner_route_statements_postgres() {
     };
     planner_route_statements(&hot, "postgres").await;
 }
+
+#[path = "write_route_inventory_tests.rs"]
+mod write_route_inventory;
