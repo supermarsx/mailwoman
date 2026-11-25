@@ -1100,31 +1100,47 @@ mod hydration_tests {
         store
     }
 
-    fn state() -> (bool, bool, bool) {
+    /// The table's state, or `None` when another test's background task (a
+    /// server spawned earlier in this process) adopted the table for its own
+    /// store in the meantime; the attempt is then repeated.
+    fn state(store: &mw_store::Store) -> Option<(bool, bool, bool)> {
         let k = lock();
-        (k.hydrated, k.hydrating, k.hydrate_after.is_some())
+        (k.owner == Some(store.instance_id()))
+            .then(|| (k.hydrated, k.hydrating, k.hydrate_after.is_some()))
     }
 
     #[tokio::test]
     async fn a_cancelled_hydration_is_not_marked_done_and_the_next_call_completes_it() {
-        let store = adopted_store().await;
         let policy = Policy::default();
-        // Polled once (the store read is pending), then dropped.
-        let _ = tokio::time::timeout(Duration::ZERO, hydrate_once(&store, &policy)).await;
-        assert_eq!(state(), (false, false, false), "a dropped hydration must not count as done");
-        hydrate_once(&store, &policy).await;
-        assert_eq!(state(), (true, false, false));
+        for _ in 0..5 {
+            let store = adopted_store().await;
+            // Polled once (the store read is pending), then dropped.
+            let _ = tokio::time::timeout(Duration::ZERO, hydrate_once(&store, &policy)).await;
+            let Some(after_drop) = state(&store) else { continue };
+            assert_eq!(after_drop, (false, false, false), "a dropped hydration must not count as done");
+            hydrate_once(&store, &policy).await;
+            let Some(done) = state(&store) else { continue };
+            assert_eq!(done, (true, false, false));
+            return;
+        }
+        panic!("the table never stayed with this test's store");
     }
 
     #[tokio::test]
     async fn a_failed_store_read_leaves_the_table_unhydrated_with_a_retry_time() {
-        let store = adopted_store().await;
-        store.close().await;
         let policy = Policy { persist: true, ..Policy::default() };
-        hydrate_once(&store, &policy).await;
-        assert_eq!(state(), (false, false, true), "a store error must not count as hydrated");
-        // Within the retry delay a later request does not hammer the store.
-        hydrate_once(&store, &policy).await;
-        assert_eq!(state(), (false, false, true));
+        for _ in 0..5 {
+            let store = adopted_store().await;
+            store.close().await;
+            hydrate_once(&store, &policy).await;
+            let Some(failed) = state(&store) else { continue };
+            assert_eq!(failed, (false, false, true), "a store error must not count as hydrated");
+            // Within the retry delay a later request does not hammer the store.
+            hydrate_once(&store, &policy).await;
+            let Some(again) = state(&store) else { continue };
+            assert_eq!(again, (false, false, true));
+            return;
+        }
+        panic!("the table never stayed with this test's store");
     }
 }
