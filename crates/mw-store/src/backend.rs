@@ -959,11 +959,18 @@ impl Tx {
     }
     /// `commit` for the group writer's batch: a failed COMMIT closes the
     /// SQLite connection instead of returning it to the pool.
+    /// Counted by the pool telemetry's commit counter like `commit` (one per
+    /// group-writer batch).
     pub(crate) async fn commit_or_close(self) -> Result<(), sqlx::Error> {
-        match self {
-            Tx::Sqlite(t) => t.commit_or_close().await,
-            Tx::Postgres(t) => t.commit().await,
+        use crate::pool_telemetry::{CommitBackend, CommitTimer};
+        let (mut timer, result) = match self {
+            Tx::Sqlite(t) => (CommitTimer::start(CommitBackend::Sqlite), t.commit_or_close().await),
+            Tx::Postgres(t) => (CommitTimer::start(CommitBackend::Postgres), t.commit().await),
+        };
+        if result.is_ok() {
+            timer.success();
         }
+        result
     }
     pub(crate) async fn commit(self) -> Result<(), sqlx::Error> {
         use crate::pool_telemetry::{CommitBackend, CommitTimer};

@@ -143,6 +143,7 @@ fn spawn_insert(f: &Fixture, lane: Lane, id: i64) -> tokio::task::JoinHandle<Res
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn queued_jobs_share_one_commit() {
     let f = fixture(wide()).await;
+    let commits_before = crate::pool_telemetry::process_snapshot().commits.sqlite.calls;
     let (first, entered, release) = held(&f, 0);
     entered.notified().await;
     let mut tasks = Vec::new();
@@ -160,6 +161,9 @@ async fn queued_jobs_share_one_commit() {
     assert_eq!(stats.commits, 1, "{stats:?}");
     assert_eq!(stats.jobs, 64);
     assert_eq!(stats.batch_jobs_max, 64);
+    // The pool telemetry's commit counter counts the batch once.
+    let commits = crate::pool_telemetry::process_snapshot().commits.sqlite.calls - commits_before;
+    assert_eq!(commits, 1, "64 grouped jobs are one counted commit");
     assert_eq!(stats.in_flight, 0);
 }
 
