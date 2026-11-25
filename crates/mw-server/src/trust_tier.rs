@@ -244,6 +244,11 @@ pub(crate) struct KnownStore {
     /// Country -> time of the latest successful sign-in from it.
     countries: HashMap<String, i64>,
     hydrated: bool,
+    /// A hydration is running (t55): one at a time; cleared when it ends,
+    /// however it ends.
+    hydrating: bool,
+    /// After a failed hydration, the next attempt waits until this instant.
+    hydrate_after: Option<Instant>,
     /// The store this table belongs to. A process has one; a test process with
     /// several servers starts a fresh table when the store changes.
     owner: Option<uuid::Uuid>,
@@ -285,6 +290,8 @@ impl KnownStore {
             entries: HashMap::new(),
             countries: HashMap::new(),
             hydrated: false,
+            hydrating: false,
+            hydrate_after: None,
             owner: None,
             dirty: false,
             cleared_at: 0,
@@ -574,15 +581,49 @@ pub(crate) async fn policy_at_revision(
     value
 }
 
+/// How long a failed hydration waits before the next request retries it.
+const HYDRATE_RETRY: Duration = Duration::from_secs(30);
+
+/// Load the known-source table once: the saved snapshot, then the successful
+/// sign-ins the authentication log still holds. The table is marked hydrated
+/// only when both reads completed (t55); a failed read is retried by a later
+/// request after [`HYDRATE_RETRY`], and a cancelled one by the next request.
+/// It used to be marked first, so one store error or a dropped first request
+/// left previously known sources treated as unknown until restart.
 async fn hydrate_once(store: &mw_store::Store, policy: &Policy) {
     {
         let mut k = lock();
-        if k.hydrated {
+        if k.hydrated
+            || k.hydrating
+            || k.hydrate_after.is_some_and(|after| Instant::now() < after)
+        {
             return;
         }
-        k.hydrated = true;
+        k.hydrating = true;
     }
-    persist::restore(store, policy).await;
+    struct Claim;
+    impl Drop for Claim {
+        fn drop(&mut self) {
+            lock().hydrating = false;
+        }
+    }
+    let _claim = Claim;
+    let complete = hydrate(store, policy).await;
+    let mut k = lock();
+    if complete {
+        k.hydrated = true;
+        k.hydrate_after = None;
+    } else {
+        k.hydrate_after = Some(Instant::now() + HYDRATE_RETRY);
+        tracing::warn!(target: "trust_tier", "known sources not fully loaded; retrying in {}s", HYDRATE_RETRY.as_secs());
+    }
+}
+
+/// One hydration attempt; `false` when a store read failed.
+async fn hydrate(store: &mw_store::Store, policy: &Policy) -> bool {
+    if !persist::restore(store, policy).await {
+        return false;
+    }
     let cleared_at = lock().cleared_at;
     let mut before = None;
     for _ in 0..5 {
@@ -595,10 +636,10 @@ async fn hydrate_once(store: &mw_store::Store, policy: &Policy) {
             })
             .await
         else {
-            return;
+            return false;
         };
         let Some(last) = rows.last() else {
-            return;
+            return true;
         };
         before = Some((last.last_seen, last.event.id.clone()));
         for row in &rows {
@@ -614,9 +655,10 @@ async fn hydrate_once(store: &mw_store::Store, policy: &Policy) {
             }
         }
         if rows.len() < 100 {
-            return;
+            return true;
         }
     }
+    true
 }
 
 fn country_of(ip: IpAddr) -> Option<String> {
@@ -1041,5 +1083,48 @@ mod policy_cache_tests {
                 .known_percent,
             Policy::default().known_percent
         );
+    }
+}
+
+#[cfg(test)]
+mod hydration_tests {
+    //! t55: the known-source table is marked hydrated only after its reads
+    //! completed; a failed or cancelled hydration is retried.
+    use super::*;
+
+    async fn adopted_store() -> mw_store::Store {
+        let store = mw_store::Store::open_in_memory(mw_store::ServerKey::generate())
+            .await
+            .unwrap();
+        lock().adopt(store.instance_id(), persist::salt(&store));
+        store
+    }
+
+    fn state() -> (bool, bool, bool) {
+        let k = lock();
+        (k.hydrated, k.hydrating, k.hydrate_after.is_some())
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_hydration_is_not_marked_done_and_the_next_call_completes_it() {
+        let store = adopted_store().await;
+        let policy = Policy::default();
+        // Polled once (the store read is pending), then dropped.
+        let _ = tokio::time::timeout(Duration::ZERO, hydrate_once(&store, &policy)).await;
+        assert_eq!(state(), (false, false, false), "a dropped hydration must not count as done");
+        hydrate_once(&store, &policy).await;
+        assert_eq!(state(), (true, false, false));
+    }
+
+    #[tokio::test]
+    async fn a_failed_store_read_leaves_the_table_unhydrated_with_a_retry_time() {
+        let store = adopted_store().await;
+        store.close().await;
+        let policy = Policy { persist: true, ..Policy::default() };
+        hydrate_once(&store, &policy).await;
+        assert_eq!(state(), (false, false, true), "a store error must not count as hydrated");
+        // Within the retry delay a later request does not hammer the store.
+        hydrate_once(&store, &policy).await;
+        assert_eq!(state(), (false, false, true));
     }
 }

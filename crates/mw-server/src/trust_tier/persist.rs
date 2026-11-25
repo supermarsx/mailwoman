@@ -291,16 +291,18 @@ pub(super) fn open(raw: &str, key: &[u8; 32]) -> Result<Restored, Reject> {
 }
 
 /// Load the stored snapshot into the table. Never fails startup.
-pub(super) async fn restore(store: &mw_store::Store, policy: &Policy) {
+/// Merge the saved snapshot into the table. `false` only when the store could
+/// not be read (worth a retry); an absent, foreign or broken snapshot is done.
+pub(super) async fn restore(store: &mw_store::Store, policy: &Policy) -> bool {
     if !policy.persist {
-        return;
+        return true;
     }
     let raw = match store.get_setting(SETTING_KEY).await {
         Ok(Some(raw)) => raw,
-        Ok(None) => return,
+        Ok(None) => return true,
         Err(e) => {
             tracing::warn!(target: "trust_tier", "saved known sources not read: {e}");
-            return;
+            return false;
         }
     };
     let now = chrono::Utc::now().timestamp();
@@ -308,7 +310,7 @@ pub(super) async fn restore(store: &mw_store::Store, policy: &Policy) {
         Ok(r) => {
             let mut k = lock();
             if k.owner != Some(store.instance_id()) {
-                return;
+                return true;
             }
             let n = k.merge_restored(r, now, policy.known_ttl_secs, policy.capacity);
             k.restored = n;
@@ -320,6 +322,7 @@ pub(super) async fn restore(store: &mw_store::Store, policy: &Policy) {
             tracing::warn!(target: "trust_tier", "saved known sources ignored: {}", why.text());
         }
     }
+    true
 }
 
 static IN_FLIGHT: AtomicBool = AtomicBool::new(false);
