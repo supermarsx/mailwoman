@@ -100,3 +100,18 @@ async fn a_mostly_unique_working_set_keeps_the_memory_layer_working() {
     cache.mem_put(&key, b"value".to_vec(), 0).await;
     assert!(cache.inner.memory_get(Layer::General, &key).await.is_some());
 }
+
+
+/// The moka overflow is handled by building moka (only moka) without overflow
+/// checks; every other package keeps them in release.
+#[test]
+fn moka_alone_is_built_without_overflow_checks() {
+    let manifest = include_str!("../../../Cargo.toml").replace("\r\n", "\n");
+    assert!(manifest.contains("[profile.release]\noverflow-checks = true"), "release hardening kept");
+    for profile in ["release", "dev"] {
+        let block = format!("[profile.{profile}.package.moka]\noverflow-checks = false");
+        assert!(manifest.contains(&block), "missing {block}");
+    }
+    let overrides = manifest.matches("overflow-checks = false").count();
+    assert_eq!(overrides, 2, "no other package loses its overflow checks");
+}

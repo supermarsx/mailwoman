@@ -548,6 +548,21 @@ opt-level = 3
 
 [profile.release]
 overflow-checks = true
+
+# t55: moka (0.12.15, also 0.12.16) computes its frequency-sketch reset as
+# `(size >> 1) - (count >> 2)` (src/common/frequency_sketch.rs:177; Caffeine,
+# which it ports, does `(size - (count >>> 2)) >>> 1`). The subtraction can go
+# below zero; moka's own builds wrap there, but with the workspace's
+# `overflow-checks = true` it panicked inside moka's maintenance task in a
+# production-like PostgreSQL run, and moka keeps that task poisoned (mw-cache
+# now contains such panics: crates/mw-cache/src/panic_tests.rs). Overflow
+# checks stay on for every other package; moka gets the arithmetic it was
+# written for, in release and in dev/test alike. Remove when a moka release
+# fixes the reset (not yet reported upstream from here: no network).
+[profile.release.package.moka]
+overflow-checks = false
+[profile.dev.package.moka]
+overflow-checks = false
 # 1.0 hardening (§23 size budget): strip debug symbols from the release binary
 # (~104MB → ~80MB, zero runtime cost). This is the safe autonomous size win; the
 # residual gap to the §23 45MB-binary / 30MB-image budgets is structural — the
