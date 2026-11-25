@@ -52,6 +52,19 @@ use crate::v7_mount::{self, PluginRole, TrustPolicy};
 /// host — it is a transparent alias for `Arc<Mutex<mw_plugin::PluginHost>>`.
 pub type PluginRegistry = Arc<Mutex<PluginHost>>;
 
+/// Lock the plugin registry, recovering it if a panic poisoned it (t55). The
+/// registry's own operations are single `Vec` pushes and field writes, so the
+/// data is valid whatever was interrupted; without this, one panic while the
+/// lock was held turned every later plugin, provider-OAuth and EWS activation
+/// request into a 500 until restart.
+pub(crate) fn lock_registry(reg: &Mutex<PluginHost>) -> std::sync::MutexGuard<'_, PluginHost> {
+    reg.lock().unwrap_or_else(|poisoned| {
+        tracing::error!("plugin registry lock was poisoned by an earlier panic; recovered");
+        reg.clear_poison();
+        poisoned.into_inner()
+    })
+}
+
 /// The KV key both spam classifiers read their daemon address from.
 const ENDPOINT_KEY: &str = "endpoint";
 
@@ -558,9 +571,7 @@ async fn register(
     if let Err(e) = state.store.put_plugin(&row).await {
         return store_error("write", &e);
     }
-    reg.lock()
-        .expect("plugin registry lock")
-        .register(manifest.clone());
+    lock_registry(&reg).register(manifest.clone());
     audit(
         &state,
         &admin,
@@ -592,10 +603,7 @@ async fn approve(
     if let Err(e) = state.store.set_plugin_approved(&id, &admin).await {
         return store_error("approve", &e);
     }
-    let _ = reg
-        .lock()
-        .expect("plugin registry lock")
-        .approve(&id, &admin);
+    let _ = lock_registry(&reg).approve(&id, &admin);
     audit(&state, &admin, &id, "plugin-approved", json!({})).await;
     applied(&state, &reg, &id, StatusCode::OK).await
 }
@@ -633,7 +641,7 @@ async fn enable(
     if let Err(e) = state.store.set_plugin_enabled(&id, true).await {
         return store_error("enable", &e);
     }
-    let _ = reg.lock().expect("plugin registry lock").enable(&id);
+    let _ = lock_registry(&reg).enable(&id);
     audit(
         &state,
         &admin,
@@ -660,7 +668,7 @@ async fn disable(
     if let Err(e) = state.store.set_plugin_enabled(&id, false).await {
         return store_error("disable", &e);
     }
-    let _ = reg.lock().expect("plugin registry lock").disable(&id);
+    let _ = lock_registry(&reg).disable(&id);
     audit(&state, &admin, &id, "plugin-disabled", json!({})).await;
     applied(&state, &reg, &id, StatusCode::OK).await
 }
@@ -1094,5 +1102,46 @@ mod tests {
             grantable(&third, &names(&["net"])).unwrap(),
             vec![Capability::Net]
         );
+    }
+}
+
+#[cfg(test)]
+mod registry_lock_tests {
+    //! t55: a panic while the plugin registry lock is held no longer turns
+    //! every later plugin request into a 500.
+    use super::*;
+
+    #[test]
+    fn a_poisoned_registry_is_recovered_and_usable() {
+        let reg: PluginRegistry = Arc::new(Mutex::new(PluginHost::new()));
+        let poisoner = reg.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = poisoner.lock().unwrap();
+            panic!("injected panic while holding the registry lock");
+        })
+        .join();
+        assert!(reg.is_poisoned());
+        let id = "fixture-plugin";
+        lock_registry(&reg).register(mw_plugin::PluginManifest {
+            id: id.into(),
+            name: "Fixture".into(),
+            version: "0".into(),
+            signature: None,
+            capabilities: vec![],
+            net_allowlist: vec![],
+            limits: Default::default(),
+        });
+        assert!(!reg.is_poisoned(), "the poison flag is cleared once recovered");
+        assert!(lock_registry(&reg).approve(id, "admin").is_ok());
+        assert!(lock_registry(&reg).list().iter().any(|e| e.manifest.id == id));
+    }
+
+    #[test]
+    fn a_load_needs_no_registry_lock() {
+        let reg: PluginRegistry = Arc::new(Mutex::new(PluginHost::new()));
+        let loader = lock_registry(&reg).loader();
+        // The registry stays usable while a loader is out (no lock held).
+        let _held = reg.try_lock().expect("the registry lock is free while loading");
+        drop(loader);
     }
 }

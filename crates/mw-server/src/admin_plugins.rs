@@ -248,7 +248,7 @@ async fn revoke_digest(
     // Disable the plugin so it is not loaded again, and stop it now if it is running.
     let _ = state.store.set_plugin_enabled(&plugin_id, false).await;
     {
-        let mut host = reg.lock().expect("plugin registry lock");
+        let mut host = crate::plugins::lock_registry(&reg);
         let _ = host.disable(&plugin_id);
     }
     super::sync_plugins(state.engine.as_ref(), &reg, &state.store).await;
@@ -294,7 +294,7 @@ async fn uninstall_plugin(
     });
     {
         // `PluginHost` cannot drop a registry entry; nothing reads that registry.
-        let mut host = reg.lock().expect("plugin registry lock");
+        let mut host = crate::plugins::lock_registry(&reg);
         let _ = host.disable(&id);
     }
     super::sync_plugins(state.engine.as_ref(), &reg, &state.store).await;

@@ -2108,14 +2108,17 @@ async fn load_planned(
     let Some(bytes) = resolve_component(id, store).await else {
         return Err(NotLoaded::ComponentUnavailable);
     };
-    let host = host.lock().expect("plugin registry lock");
-    let loaded = match account {
+    // The compile runs outside the registry lock (t55): it is slow, and a panic
+    // inside it used to poison the registry for every later plugin request.
+    let loader = crate::plugins::lock_registry(host).loader();
+    let loaded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match account {
         // Bind the account to the instance so the guest's per-account host imports
         // (`basic-credentials`/`oauth-token`), which pass an empty handle, resolve to
         // this account's sealed credentials host-side.
-        Some(account) => host.load_for_account(&bytes, &plan.manifest, &plan.grant, account),
-        None => host.load(&bytes, &plan.manifest, &plan.grant),
-    };
+        Some(account) => loader.load_for_account(&bytes, &plan.manifest, &plan.grant, account),
+        None => loader.load(&bytes, &plan.manifest, &plan.grant),
+    }))
+    .unwrap_or_else(|_| Err(mw_plugin::PluginError::Load("the component load panicked".into())));
     loaded.map_err(|e| {
         tracing::error!("plugin '{id}' load failed: {e}");
         NotLoaded::LoadFailed

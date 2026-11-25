@@ -393,57 +393,16 @@ fn reset_operation_budget(
         .map_err(|e| PluginError::Load(format!("set operation fuel: {e}")))
 }
 
-/// The plugin host + in-memory registry (plan §2.1). Consumed by e8 (engine) +
-/// e14 (mount). Owns the wasmtime `Engine`, the epoch ticker, the injected host
-/// services, and the signing trust root.
-pub struct PluginHost {
+/// The part of a [`PluginHost`] a load reads, detached from its registry
+/// ([`PluginHost::loader`]).
+#[derive(Clone)]
+pub struct PluginLoader {
     engine: Engine,
-    _epoch: engine::EpochTicker,
     services: Arc<HostServices>,
     trust: TrustRoot,
-    registry: Vec<RegistryEntry>,
 }
 
-impl Default for PluginHost {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl PluginHost {
-    /// Construct a host with default (deny-leaning) services and an empty trust
-    /// root. Panics only if the wasmtime engine cannot initialize (effectively
-    /// never); use [`PluginHost::try_new`] to handle that explicitly.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::try_new(HostServices::default(), TrustRoot::empty())
-            .expect("wasmtime engine initialization")
-    }
-
-    /// Fallible constructor with explicit services + trust root.
-    pub fn try_new(services: HostServices, trust: TrustRoot) -> Result<Self> {
-        let engine = engine::build_engine()?;
-        let epoch = engine::EpochTicker::spawn(engine.clone());
-        Ok(Self {
-            engine,
-            _epoch: epoch,
-            services: Arc::new(services),
-            trust,
-            registry: Vec::new(),
-        })
-    }
-
-    /// Replace the injected host services (HTTP/OAuth/KV/clock/rng). `mw-server`
-    /// calls this at mount to wire its `reqwest`(rustls) client + OAuth store (e14).
-    pub fn set_services(&mut self, services: HostServices) {
-        self.services = Arc::new(services);
-    }
-
-    /// Set the signing trust root used to verify component signatures.
-    pub fn set_trust_root(&mut self, trust: TrustRoot) {
-        self.trust = trust;
-    }
-
+impl PluginLoader {
     /// Load + verify a component under a capability grant (plan §2.1).
     ///
     /// Verifies the detached signature (or requires `grant.allow_unsigned`),
@@ -523,6 +482,93 @@ impl PluginHost {
             bound_account,
         });
         Ok(PluginHandle { ctx })
+    }
+}
+
+/// The plugin host + in-memory registry (plan §2.1). Consumed by e8 (engine) +
+/// e14 (mount). Owns the wasmtime `Engine`, the epoch ticker, the injected host
+/// services, and the signing trust root.
+pub struct PluginHost {
+    engine: Engine,
+    _epoch: engine::EpochTicker,
+    services: Arc<HostServices>,
+    trust: TrustRoot,
+    registry: Vec<RegistryEntry>,
+}
+
+impl Default for PluginHost {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PluginHost {
+    /// Construct a host with default (deny-leaning) services and an empty trust
+    /// root. Panics only if the wasmtime engine cannot initialize (effectively
+    /// never); use [`PluginHost::try_new`] to handle that explicitly.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::try_new(HostServices::default(), TrustRoot::empty())
+            .expect("wasmtime engine initialization")
+    }
+
+    /// Fallible constructor with explicit services + trust root.
+    pub fn try_new(services: HostServices, trust: TrustRoot) -> Result<Self> {
+        let engine = engine::build_engine()?;
+        let epoch = engine::EpochTicker::spawn(engine.clone());
+        Ok(Self {
+            engine,
+            _epoch: epoch,
+            services: Arc::new(services),
+            trust,
+            registry: Vec::new(),
+        })
+    }
+
+    /// Replace the injected host services (HTTP/OAuth/KV/clock/rng). `mw-server`
+    /// calls this at mount to wire its `reqwest`(rustls) client + OAuth store (e14).
+    pub fn set_services(&mut self, services: HostServices) {
+        self.services = Arc::new(services);
+    }
+
+    /// Set the signing trust root used to verify component signatures.
+    pub fn set_trust_root(&mut self, trust: TrustRoot) {
+        self.trust = trust;
+    }
+
+    /// What a load needs from this host (engine, services, trust root), as a
+    /// cheap clone. A caller that keeps the host behind a lock takes the loader
+    /// under the lock and compiles outside it (t55): a compile is slow and must
+    /// not hold the lock, and a panic in it must not poison the registry.
+    #[must_use]
+    pub fn loader(&self) -> PluginLoader {
+        PluginLoader {
+            engine: self.engine.clone(),
+            services: self.services.clone(),
+            trust: self.trust.clone(),
+        }
+    }
+
+    /// Load + verify a component under a capability grant; see
+    /// [`PluginLoader::load`].
+    pub fn load(
+        &self,
+        component_bytes: &[u8],
+        manifest: &PluginManifest,
+        grant: &Grant,
+    ) -> Result<PluginHandle> {
+        self.loader().load(component_bytes, manifest, grant)
+    }
+
+    /// Load bound to an account; see [`PluginLoader::load_for_account`].
+    pub fn load_for_account(
+        &self,
+        component_bytes: &[u8],
+        manifest: &PluginManifest,
+        grant: &Grant,
+        account_id: &str,
+    ) -> Result<PluginHandle> {
+        self.loader().load_for_account(component_bytes, manifest, grant, account_id)
     }
 
     /// Registry: enumerate known plugins.
