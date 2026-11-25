@@ -778,3 +778,39 @@ async fn user_keyword_with_a_derived_prefix_leaves_the_index_when_removed() {
     let resp = query(&w, acct, json!({"hasKeyword": "$list:x"}), false).await;
     assert!(id_set(&resp).is_empty(), "{resp}");
 }
+
+/// t49pg-e5b F1: a nested metadata subtree with its own folder (`in:M`) in an
+/// account-wide query, under OR / NOT / double NOT, with the cap set so that
+/// the subtree's set is above it and its complement within it: the
+/// complement must keep the folder condition. Every answer equals the
+/// oracle (or is unsupportedFilter).
+#[tokio::test]
+async fn nested_folder_complement_keeps_the_folder() {
+    let w = World::new(Store::open_in_memory(ServerKey::generate()).await.unwrap(), 48).await;
+    let acct = &w.a;
+    let rows = w.rows(acct).await;
+    let archive = acct.folder("Archive").to_owned();
+    let in_archive = |seen: bool| rows.iter().filter(|r| r.mailbox == archive && r.keywords.contains("$seen") == seen).count();
+    let (read, unread) = (in_archive(true), in_archive(false));
+    assert!(read > unread && unread > 0, "corpus: Archive read {read} unread {unread}");
+    CAP.with(|c| c.set(unread));
+    TAKEN.with(|t| t.borrow_mut().clear());
+    let mut answered = 0;
+    for form in [
+        "(in:{Archive} is:read) OR from:s3",
+        "NOT (in:{Archive} is:read) OR subject:bravo",
+        "-(-(in:{Archive} is:read)) OR from:s3",
+        "(in:{Archive} is:read) OR (in:{Work} is:unread) OR from:s3",
+        "NOT (in:{Archive} is:read)",
+        "(in:{Archive} is:read) OR (in:{Archive} is:read) OR from:s3",
+    ] {
+        if check_path(&w, acct, &rows, &text_filter(form), &plain_sort(), WINDOWS[0], "F1 complement", false, true)
+            .await
+            .is_some()
+        {
+            answered += 1;
+        }
+    }
+    CAP.with(|c| c.set(COMBINE_CAP));
+    assert!(answered >= 4, "the complement branch must answer, not refuse: {answered}");
+}

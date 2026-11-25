@@ -486,9 +486,9 @@ impl MetaConj {
 
     /// The complement when this is exactly one negatable condition (a
     /// keyword, a pin, the follow-up marker), else `None`. A folder
-    /// restriction (`in_mailboxes`, the query's own folder scope) is kept: the
-    /// complement is then taken within those folders, which is exact because
-    /// the index query is ANDed with the same scope.
+    /// restriction (`in_mailboxes`) is kept: the complement is taken within
+    /// those folders, so its index form must restrict to them too
+    /// ([`complement_expr`]; t49pg-e5b F1).
     pub(crate) fn complement(&self) -> Option<Self> {
         let plain = self.not_in.is_empty()
             && self.after.is_none()
@@ -778,6 +778,22 @@ pub(crate) fn assemble(node: &Node, resolved: &mut std::vec::IntoIter<Expr>) -> 
     }
 }
 
+/// `conj` as an index condition from the ids of its complement (see
+/// [`MetaConj::complement`]): NOT IdSet(complement), and, when `conj` is
+/// restricted to folders, those folders as well. The complement is taken
+/// within the folders, so without them the negation would also select every
+/// message of every other folder (t49pg-e5b F1).
+pub(crate) fn complement_expr(conj: &MetaConj, complement_ids: Vec<String>) -> Expr {
+    let not = Expr::Not(Box::new(id_set(complement_ids)));
+    match &conj.in_mailboxes {
+        None => not,
+        Some(folders) => Expr::And(vec![
+            Expr::Or(folders.iter().map(|m| Expr::Clause(Clause::Mailbox(m.clone()))).collect()),
+            not,
+        ]),
+    }
+}
+
 /// An id set as an index condition.
 pub(crate) fn id_set(ids: Vec<String>) -> Expr {
     Expr::Clause(Clause::IdSet(IdSet::new(ids)))
@@ -965,7 +981,7 @@ impl crate::Engine {
         if let Some(complement) = conj.complement()
             && let Some(ids) = self.meta_ids(account_id, &complement).await?
         {
-            return Ok(Expr::Not(Box::new(id_set(ids))));
+            return Ok(complement_expr(conj, ids));
         }
         taken(Taken::TooBroad);
         Err(PlanFail::TooBroad)

@@ -1126,6 +1126,12 @@ pub(crate) fn text_forms() -> Vec<&'static str> {
         "from-domain:other.invalid -is:read",
         "has:calendar OR pinned:true",
         "in:{FOREIGN} is:unread",
+        // t49pg-e5b F1: a folder condition inside a nested metadata subtree.
+        "(in:{Archive} is:read) OR from:s3",
+        "NOT (in:{Archive} is:read) OR subject:bravo",
+        "-(-(in:{Archive} is:read)) OR from:s3",
+        "(in:{Archive} is:read) OR (in:{Work} is:unread) OR from:s3",
+        "NOT (in:{Archive} is:read)",
         "in:{FOREIGN} OR is:flagged",
         "is:unread is:read",
         "pinned:true pinned:false alpha",
