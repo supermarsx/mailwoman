@@ -30,14 +30,17 @@ pub(crate) fn router() -> Router<AppState> {
     )
 }
 
-async fn preview(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(body): Json<PreviewRequest>,
-) -> Response {
+async fn preview(State(state): State<AppState>, request: axum::extract::Request) -> Response {
+    // t63: authenticate before the (up to 6 MiB) body is read or parsed. The
+    // same Json extractor runs afterwards, so its rejections are unchanged.
+    let headers: HeaderMap = request.headers().clone();
     let session = match super::authed(&state, &headers).await {
         Ok(s) => s,
         Err(r) => return r,
+    };
+    let body = match <Json<PreviewRequest> as axum::extract::FromRequest<AppState>>::from_request(request, &state).await {
+        Ok(Json(body)) => body,
+        Err(rejection) => return rejection.into_response(),
     };
     let policy = match crate::attachment_policy::effective(&state, &session).await {
         Ok(p) => p,
@@ -173,4 +176,54 @@ async fn run(bin: &std::path::Path, request: &PreviewRequest) -> anyhow::Result<
         "worker format mismatch"
     );
     Ok(json!({"preview":preview}))
+}
+
+#[cfg(test)]
+mod body_before_auth_tests {
+    use super::*;
+    use axum::body::Body;
+    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+    use tower::ServiceExt;
+
+    /// t63 (3): an unauthenticated preview request is refused before its body
+    /// is read: not one chunk of a 6 MiB body is polled.
+    #[tokio::test]
+    async fn an_unauthenticated_preview_body_is_never_read() {
+        let (router, _push) = crate::build_app_full(
+            crate::AppConfig {
+                db_path: std::env::temp_dir().join(format!("mw-t63-preview-{}.db", uuid::Uuid::new_v4())).to_string_lossy().into_owned(),
+                server_key_hex: None,
+                web_dir: None,
+                cookie_secure: false,
+                mode: crate::ServerMode::Engine,
+                hardening: Default::default(),
+                security: Default::default(),
+            },
+            crate::V6Config { admin_enabled: false, ..Default::default() },
+        )
+        .await
+        .unwrap();
+        let polled = Arc::new(AtomicUsize::new(0));
+        let counter = polled.clone();
+        let chunks = futures_util::stream::iter((0..96).map(move |_| {
+            counter.fetch_add(1, Ordering::Relaxed);
+            Ok::<_, std::io::Error>(axum::body::Bytes::from(vec![b'a'; 64 * 1024]))
+        }));
+        let mut request = axum::http::Request::builder()
+            .method("POST")
+            .uri("/api/attachments/preview")
+            .header("host", "localhost")
+            .header("origin", "http://localhost")
+            .header("content-type", "application/json")
+            .header("cookie", "mw_session=not-a-session; mw_csrf=x")
+            .header("x-csrf-token", "x")
+            .body(Body::from_stream(chunks))
+            .unwrap();
+        request.extensions_mut().insert(axum::extract::ConnectInfo(
+            "127.0.0.1:48231".parse::<std::net::SocketAddr>().unwrap(),
+        ));
+        let response = router.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(polled.load(Ordering::Relaxed), 0, "body chunks read before authentication");
+    }
 }
