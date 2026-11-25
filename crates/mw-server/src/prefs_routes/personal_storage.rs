@@ -13,7 +13,12 @@ pub(crate) async fn owner(
     headers: &HeaderMap,
     mutation: bool,
 ) -> Result<String, Response> {
-    let authority = match state.store.session_storage_authority(&session.id).await {
+    // t50hp-e9: on published inputs the authority is the frame's (as /api/me).
+    let framed = crate::request_inputs::current(&state.store).await
+        .filter(|inputs| inputs.matches_session(session))
+        .map(|inputs| Ok(Some(inputs.storage_authority())));
+    let read = match framed { Some(framed) => framed, None => state.store.session_storage_authority(&session.id).await };
+    let authority = match read {
         Ok(Some(authority)) => authority,
         _ => return Err((StatusCode::SERVICE_UNAVAILABLE, Json(json!({"code":"storageAuthorityUnavailable","error":"Sign in again before loading personal settings."}))).into_response()),
     };

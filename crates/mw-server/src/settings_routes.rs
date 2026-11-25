@@ -1388,17 +1388,19 @@ pub(crate) async fn user_layer_rows(
     if account_id.is_empty() {
         return Ok(rows);
     }
-    if let Some(owner) = personal_owner
-        && let Some(prefs) = state
-            .store
-            .get_setting(&crate::prefs_routes::personal_storage::key(
-                "appearance",
-                owner,
-            ))
-            .await?
-            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-            .and_then(|env| env.get("prefs").cloned())
-            .filter(Value::is_object)
+    // t50hp-e9: the personal rows of this layer in ONE statement (they were
+    // two `get_setting` reads and a notification-rules read); same rows, same
+    // parsing below.
+    let appearance_key = personal_owner.map(|owner| crate::prefs_routes::personal_storage::key("appearance", owner));
+    let mdn_key = proxy_policy_owner.is_none().then(|| mw_engine::Engine::mdn_policy_key(account_id));
+    let keys: Vec<&str> = appearance_key.iter().chain(mdn_key.iter()).map(String::as_str).collect();
+    let (stored, notifications) = state.store.personal_layer(&keys, record_owner).await?;
+    if let Some(prefs) = appearance_key
+        .as_ref()
+        .and_then(|key| stored.get(key))
+        .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+        .and_then(|env| env.get("prefs").cloned())
+        .filter(Value::is_object)
     {
         let chosen = prefs.get("chosen").and_then(Value::as_bool) != Some(false);
         if chosen && let Some(theme) = prefs.get("theme").and_then(Value::as_str) {
@@ -1419,22 +1421,18 @@ pub(crate) async fn user_layer_rows(
             rows.push(user_row(account_id, "appearance.font", json!(font)));
         }
     }
-    if proxy_policy_owner.is_none()
-        && let Some(policy) = state
-            .store
-            .get_setting(&mw_engine::Engine::mdn_policy_key(account_id))
-            .await?
-            .filter(|p| mw_engine::Engine::MDN_POLICIES.contains(&p.as_str()))
+    if let Some(policy) = mdn_key
+        .as_ref()
+        .and_then(|key| stored.get(key))
+        .filter(|p| mw_engine::Engine::MDN_POLICIES.contains(&p.as_str()))
     {
         rows.push(user_row(account_id, "mail.readReceipts", json!(policy)));
     }
-    if let Some(owner) = record_owner
-        && let Some(n) = state.store.get_personal_notification_rules(owner).await?
-    {
+    if let Some(enabled) = notifications {
         rows.push(user_row(
             account_id,
             "notifications.enabled",
-            json!(n.enabled),
+            json!(enabled),
         ));
     }
     if let Some(owner) = proxy_policy_owner {
@@ -1557,6 +1555,11 @@ fn inherit_value(child:&mut Effective,parent:&Effective,groups:&[Value]){
 }
 async fn inherit_linked_settings(state:&AppState,session:&mw_store::Session,entries:&mut [Effective])->Result<(),mw_store::StoreError>{
     if session.id.is_empty(){return Ok(());}
+    // t50hp-e9: a published frame is a PRIMARY session: its fence selects the
+    // row only with `linked_internal=0`, and a linked context needs the row's
+    // `linked_internal=2` (linked_context_authority). A change of the column
+    // bumps the session epoch the frame matches, so there is nothing to inherit.
+    if let Some(inputs)=crate::request_inputs::current(&state.store).await && inputs.matches_session(session){inputs.consume();return Ok(());}
     let Some(authority)=state.store.linked_context_authority(&session.id).await? else{return Ok(());};
     let subject=UserSubject::resolved(&state.store,session).await?;
     let extra=user_layer_rows(state,&subject.account_id,subject.personal_owner.as_deref(),subject.record_owner.as_deref(),subject.proxy_policy_owner.as_deref()).await?;

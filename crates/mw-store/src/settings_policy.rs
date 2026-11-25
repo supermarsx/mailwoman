@@ -192,6 +192,23 @@ static POLICY_MEMO: ReadMemo<Option<SettingPolicyRow>> = ReadMemo::new();
 static VALUES_MEMO: ReadMemo<Vec<SettingValueRow>> = ReadMemo::new();
 static ALL_POLICIES_MEMO: ReadMemo<Vec<SettingPolicyRow>> = ReadMemo::new();
 static CONFIGURATION_MEMO: ReadMemo<bool> = ReadMemo::new();
+/// t50hp-e9: canonical domain + its aliases (`policy_domain_family`), keyed by
+/// the exact revision (0078: `domain_alias` writes bump it).
+static FAMILY_MEMO: ReadMemo<Vec<String>> = ReadMemo::new();
+
+tokio::task_local! {
+    /// t50hp-e9: the settings revision this request already observed in its
+    /// authority source (the published-input fence, read in the same statement
+    /// as the session or certified by the epoch mirror). Installed only by the
+    /// server for a GET handler on published inputs; it never crosses requests.
+    static REQUEST_REVISION: SettingsReadRevision;
+}
+/// Run `future` with `proof` as the settings revision of every settings read
+/// of this store inside it (no `settings_revision` statement). A proof of
+/// another store, or one without a number, is ignored.
+pub async fn with_request_revision<F: std::future::Future>(proof: SettingsReadRevision, future: F) -> F::Output {
+    REQUEST_REVISION.scope(proof, future).await
+}
 /// Fresh revision proof for one resolution/request boundary. Do not retain this
 /// across requests. Scope binding prevents reuse against a different database.
 #[derive(Clone, Debug)]
@@ -258,6 +275,11 @@ impl Store {
     /// The settings revision (migration 0078), or `None` when its row is
     /// missing, which turns every memo off rather than serving stale values.
     pub async fn settings_revision(&self) -> Result<Option<i64>, StoreError> {
+        if let Ok(Some(number)) = REQUEST_REVISION.try_with(|proof| {
+            (proof.scope == self.cache_scope()).then_some(proof.revision).flatten()
+        }) {
+            return Ok(Some(number));
+        }
         Ok(q("SELECT n FROM settings_revision WHERE id=1")
             .fetch_optional(&self.backend)
             .await?
@@ -493,6 +515,21 @@ impl Store {
     /// Domains belonging to the same configured mail namespace, for internal
     /// forwarding classification. Empty/bare identities have no domain family.
     pub async fn policy_domain_family(&self, domain: &str) -> Result<Vec<String>, StoreError> {
+        // t50hp-e9: memoised by exact revision, like the canonical subject.
+        let revision = self.settings_revision().await?;
+        let key = format!("family {domain}");
+        if let Some(revision) = revision
+            && let Some(hit) = FAMILY_MEMO.get(self.cache_scope(), &key, revision)
+        {
+            return Ok(hit);
+        }
+        let family = self.policy_domain_family_uncached(domain).await?;
+        if let Some(revision) = revision {
+            FAMILY_MEMO.put(self.cache_scope(), key, revision, family.clone());
+        }
+        Ok(family)
+    }
+    async fn policy_domain_family_uncached(&self, domain: &str) -> Result<Vec<String>, StoreError> {
         let canonical = self.canonical_policy_domain(domain).await?;
         if canonical.is_empty() {
             return Ok(Vec::new());

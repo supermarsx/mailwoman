@@ -565,7 +565,21 @@ pub(crate) async fn settle() -> Result<(), Response> {
 /// observation made after the last guard.
 pub(crate) async fn settle_layer(request: Request, next: Next) -> Response {
     if let Err(response) = settle().await { return response; }
+    // t50hp-e9 (N1): a GET handler on published inputs resolves its settings
+    // at the revision its source observation carries (read in the fence
+    // statement, or certified by the mirror), not with a statement of its own
+    // per resolution. GET handlers only; a request that may write settings
+    // keeps reading the revision itself.
+    if request.method() == Method::GET
+        && let Some(proof) = scope_revision().await
+    {
+        return mw_store::settings_policy::with_request_revision(proof, next.run(request)).await;
+    }
     next.run(request).await
+}
+async fn scope_revision() -> Option<mw_store::settings_policy::SettingsReadRevision> {
+    let scope = SCOPE.try_with(Arc::clone).ok()?;
+    revision(&scope.state.store, false).await.filter(|proof| proof.number().is_some())
 }
 
 /// [`refresh`] for an authentication point followed, on every path that can
@@ -752,6 +766,13 @@ impl Current {
     }
     pub(crate) fn prepared(&self) -> Result<&Prepared, mw_store::StoreError> {
         self.entry.request.as_deref().ok_or(mw_store::StoreError::Invalid("request input typed coverage"))
+    }
+    /// t50hp-e9: the session's personal storage authority from the entry
+    /// (published from the same source the fence certifies: session principal
+    /// and binding, whose epochs the entry matches), as `/api/me` uses it.
+    pub(crate) fn storage_authority(&self) -> String {
+        self.consume();
+        self.entry.guard_authority.clone()
     }
     pub(crate) fn subject(&self) -> Result<crate::settings_routes::UserSubject, mw_store::StoreError> {
         let source = &self.prepared()?.subject;

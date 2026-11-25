@@ -26,6 +26,42 @@ impl Store {
     }
 
     /// Read an account's notification configuration, if set.
+    /// t50hp-e9: one personal settings layer in ONE statement: the values of
+    /// `keys` in the key-value `settings` table (as `get_setting` per key) and
+    /// whether `rules_owner`'s notification rules are enabled (as
+    /// `get_personal_notification_rules(..).enabled`), from one snapshot.
+    /// Absent keys are absent from the map; no rules row is `None`.
+    pub async fn personal_layer(
+        &self,
+        keys: &[&str],
+        rules_owner: Option<&str>,
+    ) -> Result<(std::collections::HashMap<String, String>, Option<bool>), StoreError> {
+        if keys.len() > 16 {
+            return Err(StoreError::Invalid("personal layer key budget"));
+        }
+        let sql = match self.backend.dialect() {
+            crate::backend::Dialect::Sqlite => "SELECT 's' AS tag,key AS k,value AS v,CAST(NULL AS BIGINT) AS enabled FROM settings WHERE key IN (SELECT value FROM json_each(?1)) UNION ALL SELECT 'r' AS tag,CAST(NULL AS TEXT) AS k,CAST(NULL AS TEXT) AS v,CAST(enabled AS BIGINT) AS enabled FROM personal_notification_rules WHERE owner_subject=?2 AND ?3=1",
+            crate::backend::Dialect::Postgres => "SELECT 's' AS tag,key AS k,value AS v,CAST(NULL AS BIGINT) AS enabled FROM settings WHERE key IN (SELECT value FROM json_array_elements_text(?1::json)) UNION ALL SELECT 'r' AS tag,CAST(NULL AS TEXT) AS k,CAST(NULL AS TEXT) AS v,CAST(enabled AS BIGINT) AS enabled FROM personal_notification_rules WHERE owner_subject=?2 AND ?3=1",
+        };
+        let encoded = serde_json::to_string(keys)
+            .map_err(|error| StoreError::Corrupt(format!("setting keys could not serialize: {error}")))?;
+        let rows = q(sql)
+            .bind(encoded)
+            .bind(rules_owner.unwrap_or(""))
+            .bind(i64::from(rules_owner.is_some()))
+            .fetch_all(&self.backend)
+            .await?;
+        let mut values = std::collections::HashMap::new();
+        let mut enabled = None;
+        for row in rows {
+            if row.get_string("tag") == "r" {
+                enabled = Some(row.get_i64("enabled") != 0);
+            } else if let Some(key) = row.get_opt_string("k") {
+                values.insert(key, row.get_opt_string("v").unwrap_or_default());
+            }
+        }
+        Ok((values, enabled))
+    }
     pub async fn get_personal_notification_rules(
         &self,
         owner_subject: &str,
@@ -412,5 +448,46 @@ mod tests {
             .execute(&mut admin)
             .await
             .unwrap();
+    }
+}
+
+/// t50hp-e9: `personal_layer` answers what `get_setting` per key and
+/// `get_personal_notification_rules(..).enabled` answer, on both dialects.
+#[cfg(test)]
+mod personal_layer_tests {
+    use crate::{NotificationRulesRow, ServerKey, Store};
+    async fn exercise(store: Store) {
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+        let (a, b, owner) = (format!("e9:a:{suffix}"), format!("e9:b:{suffix}"), format!("owner-{suffix}"));
+        let (values, rules) = store.personal_layer(&[&a, &b], Some(&owner)).await.unwrap();
+        assert!(values.is_empty() && rules.is_none(), "nothing stored");
+        store.set_setting(&a, "{\"x\":1}").await.unwrap();
+        let (values, rules) = store.personal_layer(&[&a, &b], Some(&owner)).await.unwrap();
+        assert_eq!(values.get(&a), store.get_setting(&a).await.unwrap().as_ref());
+        assert!(!values.contains_key(&b) && rules.is_none());
+        for enabled in [true, false] {
+            store.put_personal_notification_rules(&NotificationRulesRow {
+                account_id: owner.clone(), rule_json: "{}".into(), quiet_hours_json: "{}".into(),
+                enabled, updated_at: "2026-11-25T00:00:00Z".into(),
+            }).await.unwrap();
+            let (_, rules) = store.personal_layer(&[&a], Some(&owner)).await.unwrap();
+            assert_eq!(rules, store.get_personal_notification_rules(&owner).await.unwrap().map(|r| r.enabled));
+            assert_eq!(rules, Some(enabled));
+        }
+        // No owner: the rules are not read.
+        let (_, rules) = store.personal_layer(&[&a], None).await.unwrap();
+        assert_eq!(rules, None);
+        // Another owner's rules never answer.
+        let (_, rules) = store.personal_layer(&[], Some("someone-else")).await.unwrap();
+        assert_eq!(rules, None);
+    }
+    #[tokio::test]
+    async fn sqlite_personal_layer_equals_the_separate_reads() {
+        exercise(Store::open_in_memory(ServerKey::generate()).await.unwrap()).await;
+    }
+    #[tokio::test]
+    async fn postgres_personal_layer_equals_the_separate_reads() {
+        let Some(url) = std::env::var("MW_TEST_PG").ok().filter(|url| !url.is_empty()) else { return };
+        exercise(Store::open(&url, ServerKey::generate()).await.unwrap()).await;
     }
 }

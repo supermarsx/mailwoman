@@ -321,6 +321,12 @@ fn statement_bound(path: &str) -> u64 {
 
 fn refused(sent: &Sent, path: &str, case: &str, same: bool) {
     let label = format!("{path} {case} same={same}");
+    // /api/me answers a held account (it is the one route that must).
+    if path == "/api/me" && case == "password-change" {
+        assert_eq!(sent.status, StatusCode::OK, "{label}: {}", sent.body);
+        assert_eq!(sent.body["passwordChangeRequired"], true, "{label}: {}", sent.body);
+        return;
+    }
     if path != "/api/bootstrap" {
         assert!(
             sent.status == StatusCode::UNAUTHORIZED || sent.status == StatusCode::FORBIDDEN,
@@ -363,8 +369,15 @@ fn refused(sent: &Sent, path: &str, case: &str, same: bool) {
     }
 }
 
-async fn case(url: String, path: &'static str, case: &'static str, same: bool) {
+async fn case(url: String, route: &'static str, case: &'static str, same: bool) {
     let m = Matrix::new(url).await;
+    // t50hp-e9: the customization read carries the account check.
+    let uri = if route == "customization" {
+        format!("/api/account/appearance/customization?accountId={}", m.account)
+    } else {
+        route.to_owned()
+    };
+    let path = uri.as_str();
     m.ready(&m.a).await;
     m.ready(&m.b).await;
     let mirror =
@@ -482,7 +495,9 @@ async fn case(url: String, path: &'static str, case: &'static str, same: bool) {
     }
 }
 
-const ROUTES: [&str; 5] = [
+const ROUTES: [&str; 7] = [
+    "/api/me",
+    "customization",
     "/api/bootstrap",
     "/api/settings",
     "/api/account/preferences",

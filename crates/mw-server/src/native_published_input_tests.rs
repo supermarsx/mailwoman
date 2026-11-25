@@ -1013,3 +1013,198 @@ fn postgres_bounded_native_admission_uses_published_entries_and_off_does_not() {
         assert!(reused, "a certified fence was reused on PostgreSQL");
     });
 }
+
+
+// ---------------------------------------------------------------------------
+// t50hp-e9 (t62 N1/N4): warm statement budgets per read shape, both backends.
+// Each statement is one database round trip. Budgets are upper bounds and
+// only go down. "bounded" = published inputs with a live, fresh mirror
+// (certified fences, no fence statement); "off" = SQLite published inputs
+// without a mirror (fresh fences). PostgreSQL without the mirror takes the
+// original readers; its numbers are printed, not budgeted here (see
+// guard_read_budget_tests).
+// ---------------------------------------------------------------------------
+mod n1_read_budgets {
+    use super::*;
+    use crate::request_inputs::snapshot::pg_tests;
+
+    fn get(f: &Fixture, uri: &str) -> Request<Body> {
+        let mut r = snapcase::me(f);
+        *r.uri_mut() = uri.parse().unwrap();
+        r
+    }
+    fn jmap(f: &Fixture, calls: Value) -> Request<Body> {
+        let mut r = snapcase::mail(f);
+        *r.body_mut() = Body::from(serde_json::to_vec(&json!({
+            "using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail"],"methodCalls":calls})).unwrap());
+        r.headers_mut().remove(axum::http::header::CONTENT_LENGTH);
+        r
+    }
+    pub(super) fn customization(f: &Fixture) -> String {
+        format!("/api/account/appearance/customization?accountId={}", f.account)
+    }
+    /// (route, bounded budget, off budget on SQLite).
+    const BUDGETS: [(&str, u64, u64); 8] = [
+        ("GET /api/me", 1, 4),
+        ("GET /jmap/session", 2, 50),
+        ("GET /api/settings", 2, 5),
+        ("GET /api/account/preferences", 2, 5),
+        ("GET customization", 3, 6),
+        ("Email/changes", 2, 7),
+        ("list batch", 4, 9),
+        // Engine: 3 reads + 3 WITH statements (focus, verdicts); t50hp-e31/e13.
+        ("Email/get ids", 6, 11),
+    ];
+    fn routes(f: &Fixture, state: String) -> Vec<(&'static str, Box<dyn Fn(&Fixture) -> Request<Body>>)> {
+        let _ = f;
+        vec![
+            ("GET /api/me", Box::new(|f: &Fixture| get(f, "/api/me"))),
+            ("GET /jmap/session", Box::new(|f: &Fixture| get(f, "/jmap/session"))),
+            ("GET /api/settings", Box::new(|f: &Fixture| get(f, "/api/settings"))),
+            ("GET /api/account/preferences", Box::new(|f: &Fixture| get(f, "/api/account/preferences"))),
+            ("GET customization", Box::new(|f: &Fixture| get(f, &customization(f)))),
+            ("Email/changes", Box::new(move |f: &Fixture| jmap(f, json!([["Email/changes",{"accountId":f.account,"sinceState":state,"maxChanges":100},"c"]])))),
+            ("list batch", Box::new(|f: &Fixture| jmap(f, json!([
+                ["Email/query",{"accountId":f.account,"limit":50},"q"],
+                ["Email/get",{"accountId":f.account,"#ids":{"resultOf":"q","name":"Email/query","path":"/ids"},"properties":["id","subject","receivedAt","keywords","mailboxIds"]},"g"]])))),
+            ("Email/get ids", Box::new(|f: &Fixture| snapcase::mail(f))),
+        ]
+    }
+    fn trips(sent: &snapcase::Sent) -> u64 {
+        sent.sql.read.calls + sent.sql.write.calls + sent.sql.other.calls
+    }
+    async fn measure(label: &str, url: Option<String>) {
+        let pg = url.is_some();
+        let f = Fixture::new_on(url).await;
+        if !pg { snapcase::published(&f).await; }
+        let state = snapcase::send(&f, jmap(&f, json!([["Email/get",{"accountId":f.account,"ids":[]},"g"]])), snapcase::OFF).await
+            .body["methodResponses"][0][1]["state"].as_str().unwrap_or("0").to_owned();
+        let routes = routes(&f, state);
+        for (mode_label, mode) in [("off", snapcase::OFF), ("bounded", snapcase::LONG)] {
+            if mode_label == "bounded" {
+                snapcase::started(&f, mode).await;
+            }
+            for (route, make) in &routes {
+                let (_, bounded, off) = BUDGETS.iter().find(|(name, ..)| name == route).copied().unwrap();
+                // Warm, then the best of a few certified requests (a request
+                // that raced the mirror's poll reads a fresh fence).
+                let mut best: Option<snapcase::Sent> = None;
+                for _ in 0..12 {
+                    let sent = snapcase::send(&f, make(&f), mode).await;
+                    assert!(sent.status.is_success(), "{label} {mode_label} {route}: {} {}", sent.status, sent.body);
+                    let better = best.as_ref().is_none_or(|b| trips(&sent) < trips(b));
+                    if better { best = Some(sent); }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                let best = best.unwrap();
+                eprintln!("{}", json!({"kind":"t50hp-e9-read-budget","backend":label,"mode":mode_label,"route":route,
+                    "reads":best.sql.read.calls,"writes":best.sql.write.calls,"other":best.sql.other.calls,
+                    "roundTrips":trips(&best),"framed":best.inputs.frames_ready,"fresh":best.snap.fresh}));
+                match (mode_label, pg) {
+                    ("bounded", _) => {
+                        assert_eq!(best.inputs.frames_ready, 1, "{label} {route}: published inputs");
+                        assert!(trips(&best) <= bounded, "{label} bounded {route}: {} round trips > {bounded}", trips(&best));
+                    }
+                    ("off", false) => assert!(trips(&best) <= off, "{label} off {route}: {} round trips > {off}", trips(&best)),
+                    _ => {}
+                }
+            }
+        }
+    }
+    /// Every source a removed statement read is still honoured on the next
+    /// request (off: at once; bounded: within the bound), through a SECOND
+    /// Store handle on the same database (no in-process expedite):
+    /// administrator policy (the request revision, the selected resolution),
+    /// the personal appearance document (the one personal-layer statement), a
+    /// lock (customization), and a domain alias (the family memo).
+    async fn second_handle_changes(label: &str, url: Option<String>) {
+        let pg = url.is_some();
+        let f = Fixture::new_on(url).await;
+        if !pg { snapcase::published(&f).await; }
+        let modes: Vec<crate::request_inputs::snapshot::Mode> = if pg { vec![snapcase::SHORT] } else { vec![snapcase::OFF, snapcase::SHORT] };
+        for (round, mode) in modes.into_iter().enumerate() {
+            if mode != snapcase::OFF { snapcase::started(&f, mode).await; }
+            let after = |mode| async move {
+                if mode != snapcase::OFF { tokio::time::sleep(Duration::from_millis(250)).await; }
+            };
+            let framed = |sent: &snapcase::Sent, what: &str| {
+                assert!(sent.status.is_success(), "{label} {what}: {} {}", sent.status, sent.body);
+            };
+            // 1. administrator policy -> /api/settings
+            let before = snapcase::send(&f, get(&f, "/api/settings"), mode).await;
+            framed(&before, "settings before");
+            policy(&f.writer, "appearance.density", json!(if round == 0 { "compact" } else { "comfortable" })).await;
+            after(mode).await;
+            let changed = snapcase::send(&f, get(&f, "/api/settings"), mode).await;
+            framed(&changed, "settings after policy");
+            assert_ne!(changed.body, before.body, "{label} {mode:?}: policy change seen by the next request");
+            // 2. personal appearance document -> /api/settings
+            let owner = f.writer.session_storage_authority(&f.session).await.unwrap().unwrap();
+            let key = crate::prefs_routes::personal_storage::key("appearance", &owner);
+            let doc = json!({"prefs":{"chosen":true,"theme":format!("e9-theme-{round}"),"accentId":"","badgeColor":"default","density":"compact","font":"default"}});
+            f.writer.set_setting(&key, &doc.to_string()).await.unwrap();
+            after(mode).await;
+            let personal = snapcase::send(&f, get(&f, "/api/settings"), mode).await;
+            framed(&personal, "settings after personal");
+            assert!(personal.body.to_string().contains(&format!("e9-theme-{round}")) || personal.body != changed.body,
+                "{label} {mode:?}: personal document change seen: {}", personal.body);
+            // 3. a lock -> customization
+            let custom_before = snapcase::send(&f, get(&f, &customization(&f)), mode).await;
+            framed(&custom_before, "customization before");
+            // A new lock per round (lockedFields lists the held keys).
+            if round == 0 {
+                policy(&f.writer, "appearance.accent", json!("e9-accent")).await;
+            } else {
+                policy(&f.writer, "appearance.font", json!("e9-font")).await;
+            }
+            after(mode).await;
+            let custom_after = snapcase::send(&f, get(&f, &customization(&f)), mode).await;
+            framed(&custom_after, "customization after lock");
+            assert_ne!(custom_after.body, custom_before.body, "{label} {mode:?}: lock seen by the next request");
+            // 4. a domain alias -> the family memo
+            let domain = f.writer.get_account(&f.account).await.unwrap().username.rsplit_once('@').unwrap().1.to_owned();
+            let family_before = f.measured.policy_domain_family(&domain).await.unwrap();
+            let alias = format!("e9-alias-{round}.example");
+            f.writer.put_domain_alias(&alias, &domain).await.unwrap();
+            let family_after = f.measured.policy_domain_family(&domain).await.unwrap();
+            assert!(!family_before.contains(&alias) && family_after.contains(&alias),
+                "{label}: alias seen through the other handle: {family_after:?}");
+        }
+    }
+    #[test]
+    fn sqlite_second_handle_changes_reach_the_next_request() {
+        run_fixture(|| async { second_handle_changes("sqlite", None).await });
+    }
+    #[test]
+    fn postgres_second_handle_changes_reach_the_next_request() {
+        let Some(dsn) = pg_tests::pg_dsn() else { return };
+        run_fixture(move || async move { second_handle_changes("postgres", Some(pg_tests::pg_schema(&dsn).await)).await });
+    }
+    /// The frame's shortcuts (storage authority, no linked context) rest on
+    /// the fence: a session row turned into an internal linked one through a
+    /// second handle is no longer a published primary session (SQLite raw SQL).
+    #[test]
+    fn sqlite_linked_internal_session_is_never_served_from_the_frame() {
+        run_fixture(|| async {
+            let f = Fixture::new().await;
+            snapcase::published(&f).await;
+            let before = snapcase::send(&f, get(&f, "/api/settings"), snapcase::OFF).await;
+            assert_eq!(before.status, StatusCode::OK);
+            assert_eq!(before.inputs.frames_ready, 1);
+            snapcase::raw(&f, "UPDATE sessions SET linked_internal=2 WHERE id=?1", &f.session).await;
+            let after = snapcase::send(&f, get(&f, "/api/settings"), snapcase::OFF).await;
+            assert_eq!(after.inputs.frames_ready, 0, "no frame for a non-primary row");
+            assert_ne!(after.status, StatusCode::OK, "{}", after.body);
+        });
+    }
+
+    #[test]
+    fn sqlite_warm_read_budgets() {
+        run_fixture(|| async { measure("sqlite", None).await });
+    }
+    #[test]
+    fn postgres_warm_read_budgets() {
+        let Some(dsn) = pg_tests::pg_dsn() else { return };
+        run_fixture(move || async move { measure("postgres", Some(pg_tests::pg_schema(&dsn).await)).await });
+    }
+}

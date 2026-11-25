@@ -18,6 +18,11 @@ pub(super) trait MemoFootprint {
 impl MemoFootprint for bool {
     fn heap_bytes(&self) -> usize { 0 }
 }
+impl MemoFootprint for Vec<String> {
+    fn heap_bytes(&self) -> usize {
+        self.capacity() * std::mem::size_of::<String>() + self.iter().map(String::capacity).sum::<usize>()
+    }
+}
 impl MemoFootprint for CanonicalSettingSubject {
     fn heap_bytes(&self) -> usize {
         self.personal_owner.as_ref().map_or(0, String::capacity)
