@@ -1466,6 +1466,38 @@ pub(crate) async fn effective_for_session(
     Ok(entry)
 }
 
+/// t50hp-e9: [`effective_for_session`] for several keys: one subject
+/// resolution, one user-layer read, one policy/value read at one revision
+/// (`effective_selected_for`, the same per-key resolver; it falls back to the
+/// per-key readers itself) and one linked-inheritance pass (the same
+/// per-entry rule, `inherit_value`). One result per input key, in order.
+pub(crate) async fn effective_selected_for_session(
+    state: &AppState,
+    session: &mw_store::Session,
+    keys: &[&str],
+) -> Result<Vec<Option<Effective>>, mw_store::StoreError> {
+    let subject = UserSubject::resolved(&state.store, session).await?;
+    let extra = user_layer_rows(
+        state,
+        &subject.account_id,
+        subject.personal_owner.as_deref(),
+        subject.record_owner.as_deref(),
+        subject.proxy_policy_owner.as_deref(),
+    )
+    .await?;
+    let entries = registry::effective_selected_for(&state.store, keys, &subject.as_subject(), &extra).await?;
+    let positions: Vec<usize> = entries.iter().enumerate().filter(|(_, e)| e.is_some()).map(|(i, _)| i).collect();
+    let mut present: Vec<Effective> = entries.iter().flatten().cloned().collect();
+    if !present.is_empty() {
+        inherit_linked_settings(state, session, &mut present).await?;
+    }
+    let mut out = entries;
+    for (position, entry) in positions.into_iter().zip(present) {
+        out[position] = Some(entry);
+    }
+    Ok(out)
+}
+
 async fn user_list(State(state): State<AppState>, headers: HeaderMap) -> Response {
     let session = match crate::authed(&state, &headers).await {
         Ok(s) => s,

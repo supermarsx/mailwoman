@@ -1513,13 +1513,18 @@ pub(crate) async fn appearance_locks(
     state: &AppState,
     session: &mw_store::Session,
 ) -> Result<Vec<(&'static str, serde_json::Value)>, Response> {
-    let mut out = Vec::new();
-    for (key, _) in APPEARANCE_FIELDS {
-        if let Some(e) = held(state, session, key).await? {
-            out.push((key, e.value));
-        }
-    }
-    Ok(out)
+    // t50hp-e9: one resolution for the five keys instead of one per key
+    // (each `held` re-read the subject, user layer, revision, policy and
+    // linked authority); same per-key resolver and lock test.
+    let keys = APPEARANCE_FIELDS.map(|(key, _)| key);
+    let effective = crate::settings_routes::effective_selected_for_session(state, session, &keys)
+        .await
+        .map_err(|e| server_error("read setting", e))?;
+    Ok(keys
+        .into_iter()
+        .zip(effective)
+        .filter_map(|(key, e)| e.filter(|e| e.locked()).map(|e| (key, e.value)))
+        .collect())
 }
 
 fn locked_field_names(locks: &[(&'static str, serde_json::Value)]) -> Vec<&'static str> {
@@ -1581,16 +1586,17 @@ async fn deployment_default(
     };
     let store = &state.store;
     let s = subject.as_subject();
-    let theme =
-        value(crate::settings_registry::effective_for(store, "appearance.theme", &s).await?);
-    let brand =
-        value(crate::settings_registry::effective_for(store, "appearance.brandName", &s).await?);
-    let accent =
-        value(crate::settings_registry::effective_for(store, "appearance.accent", &s).await?);
+    // t50hp-e9: the five keys in one resolution (was one revision + policy
+    // read per key); same resolver, no user rows, as `effective_for`.
+    let [theme, brand, accent, font, badge_color]: [Option<crate::settings_registry::Effective>; 5] =
+        crate::settings_registry::effective_selected_for(store, &["appearance.theme",
+            "appearance.brandName", "appearance.accent", "appearance.font", "appearance.badgeColor"], &s, &[])
+            .await?
+            .try_into()
+            .map_err(|_| StoreError::Invalid("appearance defaults"))?;
+    let (theme, brand, accent, font, badge_color) =
+        (value(theme), value(brand), value(accent), value(font), value(badge_color));
     let fallback = mw_admin::Appearance::default();
-    let font = value(crate::settings_registry::effective_for(store, "appearance.font", &s).await?);
-    let badge_color =
-        value(crate::settings_registry::effective_for(store, "appearance.badgeColor", &s).await?);
     Ok(DeploymentAppearanceDto {
         theme: theme.unwrap_or(fallback.theme),
         font: font.unwrap_or_else(|| "default".into()),

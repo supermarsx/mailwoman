@@ -431,17 +431,19 @@ fn realistic_rate_requests_use_published_inputs() {
 
 /// Reads per warm request on published inputs, touch due, SQLite (measured
 /// 2026-11-24; original readers in parentheses). Upper bounds.
+// t50hp-e9: the guards' decision-only boundaries are deferred to one
+// observation (request_inputs::decision_boundary). (t50hp-e22 published value)
 const WARM_BUDGETS: &[(&str, u64)] = &[
-    ("GET /api/me", 11),                               // (17)
-    ("POST /jmap/api list batch", 18),                 // (40)
-    ("GET /api/account/preferences", 12),              // (18)
-    ("GET /api/account/appearance", 44),               // (62)
-    ("GET /api/account/notifications", 42),            // (52)
-    ("GET /api/account/notification-center", 13),      // (19)
-    ("GET /api/settings", 15),                         // (23)
-    ("GET /api/features", 11),                         // (19)
-    ("GET /api/policy", 14),                           // (22)
-    ("GET /api/account/appearance/customization", 39), // (55)
+    ("GET /api/me", 5),                                // (11)
+    ("POST /jmap/api list batch", 10),                 // (18)
+    ("GET /api/account/preferences", 7),               // (12)
+    ("GET /api/account/appearance", 16),               // (44; locks + defaults folded)
+    ("GET /api/account/notifications", 37),            // (42)
+    ("GET /api/account/notification-center", 8),       // (13)
+    ("GET /api/settings", 10),                         // (15)
+    ("GET /api/features", 6),                          // (11)
+    ("GET /api/policy", 9),                            // (14)
+    ("GET /api/account/appearance/customization", 14), // (39; locks folded)
 ];
 
 /// Statements per warm request (reads, writes), original readers versus
@@ -634,3 +636,4 @@ fn bootstrap_after_account_disable_is_bounded() {
 fn bootstrap_after_password_change_is_bounded() {
     run_fixture(|| async { bootstrap_after_revocation("password-change").await });
 }
+
