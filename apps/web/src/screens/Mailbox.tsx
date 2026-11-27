@@ -202,13 +202,20 @@ export function MailboxScreen(): JSX.Element {
     subTabs.move('mail', 0);
   }
   seedMailTab();
-  interface Pane { draftPreview?:StoredDraft; sourceMailboxId?:string; autoDetach?:boolean; opener?:string; refresh?:()=>void; detach?:DetachedPaneHandle; beforeClose?:(discard?:boolean)=>Promise<boolean>; dirty?:()=>boolean; id:string; kind:'messages'|'composer'|'settings'|'attachment'|'module'|'outbox'|'attachments'|'sharing'|'folder'; title:string; surface?:ShellSurface; reference?:string; draftId?:string; accountId?:string; view?:MessageView; initial?:ComposeInitial; navigation?:SettingsNavigation; attachment?:AttachmentTabItem }
+  interface Pane { focusOnly?:boolean; draftPreview?:StoredDraft; sourceMailboxId?:string; autoDetach?:boolean; opener?:string; refresh?:()=>void; detach?:DetachedPaneHandle; beforeClose?:(discard?:boolean)=>Promise<boolean>; dirty?:()=>boolean; id:string; kind:'messages'|'composer'|'settings'|'attachment'|'module'|'outbox'|'attachments'|'sharing'|'folder'; title:string; surface?:ShellSurface; reference?:string; draftId?:string; accountId?:string; view?:MessageView; initial?:ComposeInitial; navigation?:SettingsNavigation; attachment?:AttachmentTabItem }
   const [panes,setPanes]=createSignal<Pane[]>([]);
+  const activePane=createMemo(()=>panes().find(pane=>pane.id===subTabs.activeId()));
   const [workspaceReady,setWorkspaceReady]=createSignal(false);
   const [draftRevision,setDraftRevision]=createSignal(0);
   const [workspaceOwner,setWorkspaceOwner]=createSignal(preferenceAccount());
   const workspaceLayout=()=>parseWorkspaceLayout(accountUiPreferences().workspaceLayout);
-  const setWorkspaceLayout=(value:WorkspaceLayout):void=>setAccountUiPreferences({workspaceLayout:value});
+  const setWorkspaceLayout=(value:WorkspaceLayout):void=>{
+    const active=activePane();
+    batch(()=>{
+      if(active?.focusOnly){active.focusOnly=false;setPaneWindowRevision(value=>value+1);}
+      setAccountUiPreferences({workspaceLayout:value});
+    });
+  };
   const folderMode=()=>accountUiPreferences().folderSidebarMode ?? 'expanded';
   const [folderDrag,setFolderDrag]=createSignal<number|null>(null);
   const [dropFolder,setDropFolder]=createSignal<string|null>(null);
@@ -249,9 +256,10 @@ export function MailboxScreen(): JSX.Element {
   // <For> move the other panes' nodes, and moving a node drops its focus (t51).
   const orderedPanes=createMemo(()=>{const order=subTabs.tabs().map(tab=>tab.id);const at=(id:string):number=>{const index=order.indexOf(id);return index<0?Number.MAX_SAFE_INTEGER:index;};return [...panes()].sort((a,b)=>at(a.id)-at(b.id));});
   const [paneWindowRevision,setPaneWindowRevision]=createSignal(0);
-  const views=createWorkspaceViews({ids:()=>{paneWindowRevision();return orderedPanes().filter(pane=>!pane.detach?.isDetached()).map(pane=>pane.id);},activeId:subTabs.activeId,owner:()=>{const owner=workspaceOwner();return owner?.storageAuthority?JSON.stringify([owner.id,owner.storageAuthority,owner.generation]):null;},activate:subTabs.activate});
-  const effectiveLayout=():WorkspaceLayout=>narrow()?'tabs':workspaceLayout();
-  const paneVisible=(id:string):boolean=>{paneWindowRevision();if(subTabs.activeId()==='mail')return false;if(effectiveLayout()==='tabs')return subTabs.activeId()===id||companion()===id;return !panes().find(pane=>pane.id===id)?.detach?.isDetached()&&(!isSplitLayout(effectiveLayout())||views.slot(id)!==null);};
+  const views=createWorkspaceViews({ids:()=>{paneWindowRevision();return orderedPanes().filter(pane=>!pane.focusOnly&&!pane.detach?.isDetached()).map(pane=>pane.id);},activeId:subTabs.activeId,owner:()=>{const owner=workspaceOwner();return owner?.storageAuthority?JSON.stringify([owner.id,owner.storageAuthority,owner.generation]):null;},activate:subTabs.activate});
+  // Notification opens focus their reader without rearranging the saved split views.
+  const effectiveLayout=():WorkspaceLayout=>{paneWindowRevision();return narrow()||activePane()?.focusOnly?'tabs':workspaceLayout();};
+  const paneVisible=(id:string):boolean=>{paneWindowRevision();if(subTabs.activeId()==='mail')return false;if(effectiveLayout()==='tabs')return subTabs.activeId()===id||companion()===id;const pane=panes().find(pane=>pane.id===id);return !pane?.focusOnly&&!pane?.detach?.isDetached()&&(!isSplitLayout(effectiveLayout())||views.slot(id)!==null);};
   const [dropView,setDropView]=createSignal<WorkspaceViewSlot|null>(null);
   function dragView(event:DragEvent,slot:WorkspaceViewSlot|null,drop=false):void {
     if(slot===null||!isSplitLayout(effectiveLayout()))return;
@@ -263,7 +271,6 @@ export function MailboxScreen(): JSX.Element {
     else {setDropView(slot);if(event.dataTransfer)event.dataTransfer.dropEffect='move';}
   }
   onMount(()=>{const clear=()=>setDropView(null);window.addEventListener('dragend',clear);onCleanup(()=>window.removeEventListener('dragend',clear));});
-  const activePane=createMemo(()=>panes().find(pane=>pane.id===subTabs.activeId()));
   // The phone-width switch (t28-e6; the narrow shell below). Declared here: the
   // companion memo reads it on its first run.
   const narrow = createNarrowViewport();
@@ -323,7 +330,7 @@ export function MailboxScreen(): JSX.Element {
   createEffect(()=>{const id=recalledDraftId();if(id){takeRecalledDraft();openComposer(undefined,id);}});
   // Another module (Contacts: send a contact by email) asked for a composer.
   createEffect(()=>{if(pendingCompose()){const draft=takePendingCompose();if(draft)openComposer(draft);}});
-  createEffect(()=>{if(messageOpenRequest()){const id=takeMessageOpenRequest();if(id)untrack(()=>{void openDraftOrMessage(id,undefined,'tab');});}});
+  createEffect(()=>{if(messageOpenRequest()){const id=takeMessageOpenRequest();if(id)untrack(()=>{void openDraftOrMessage(id,undefined,'tab',true);});}});
   createEffect(()=>{if(draftPreviewRequest()){const request=takeDraftPreviewRequest();if(request)untrack(()=>{if(request.message){if(readingPane()!=='off'&&!narrow())openPreview(request.id);else openMessageTab(request.id);}else void viewReplyDraft(request.id);});}});
   async function viewReplyDraft(draftId:string):Promise<void>{
     const owner=preferenceAccount();if(!owner||owner.id!==app.accountId())return;
@@ -466,13 +473,13 @@ export function MailboxScreen(): JSX.Element {
     catch{if(!preferenceAccountIsCurrent(owner))return;}
     toast.error(t('mail-draft-edit-failed'));
   }
-  async function openDraftOrMessage(messageId:string,opener?:string,target:'pane'|'tab'='tab'):Promise<void>{
+  async function openDraftOrMessage(messageId:string,opener?:string,target:'pane'|'tab'='tab',focusOnly=false):Promise<void>{
     const owner=preferenceAccount(),message=app.messages().find(item=>item.id===messageId);
     if(owner?.storageAuthority&&message?.keywords?.['$draft']){
       try{const result=await accountDraftApi(owner).resolve(messageId);if(!preferenceAccountIsCurrent(owner))return;if(result.draft?.state){const draft=localAccountDraft(result.draft);saveDraft(draft);openComposer(undefined,draft.id);return;}}
       catch{if(!preferenceAccountIsCurrent(owner))return;}
     }
-    if(target==='pane')openPreview(messageId);else openMessageTab(messageId,false,opener);
+    if(target==='pane')openPreview(messageId);else openMessageTab(messageId,false,opener,focusOnly);
   }
   function openPreview(messageId:string):void {
     setPreviewDraft(null);
@@ -619,14 +626,14 @@ export function MailboxScreen(): JSX.Element {
       if(loading)void loading.then(say,()=>undefined);else say();
     });
   }
-  function openMessageTab(messageId:string,restoring=false,opener?:string):void {
+  function openMessageTab(messageId:string,restoring=false,opener?:string,focusOnly=false):void {
     if(!restoring)noteWorkspaceIntent();
     router.navigate('mail');
     const id=`message:${app.accountId() ?? ''}:${messageId}`;if(!canOpenPane(id))return;
     const sourceMailboxId=panes().find(pane=>pane.id===opener&&pane.kind==='folder')?.reference??(previewId===messageId?previewSourceMailboxId:app.selectedMailboxId()??undefined);
     const existing=panes().find(pane=>pane.id===id);
-    if(opener&&isSplitLayout(effectiveLayout()))views.openBeside(opener);
-    if(existing) {if(!restoring){if(sourceMailboxId)existing.sourceMailboxId=sourceMailboxId;else delete existing.sourceMailboxId;if(opener)existing.opener=opener;else delete existing.opener;}subTabs.activate(id);if(!restoring&&existing.view)announceOpen(existing.view);return;}
+    if(!focusOnly&&opener&&isSplitLayout(effectiveLayout()))views.openBeside(opener);
+    if(existing) {batch(()=>{if(!restoring){if(sourceMailboxId)existing.sourceMailboxId=sourceMailboxId;else delete existing.sourceMailboxId;if(opener)existing.opener=opener;else delete existing.opener;if(existing.focusOnly!==focusOnly){existing.focusOnly=focusOnly;setPaneWindowRevision(value=>value+1);}}subTabs.activate(id);});if(!restoring&&existing.view)announceOpen(existing.view);return;}
     const title=app.messages().find(message=>message.id===messageId)?.subject || rawT('mail-workspace-message');
     // t74: the reading pane's message asked for a tab takes the pane's view with
     // it, loaded or loading; the pane is empty after. One batch, so no frame
@@ -636,7 +643,7 @@ export function MailboxScreen(): JSX.Element {
     const loading=adopted?previewLoading:undefined;
     batch(()=>{
       if(adopted){previewId=null;setPreviewMessage(null);previewLoading=undefined;setPreview(null);}
-      setPanes(old=>[...old,{id,kind:'messages',title,view,reference:messageId,...(sourceMailboxId?{sourceMailboxId}:{}),...(opener?{opener}:{})}]);
+      setPanes(old=>[...old,{id,kind:'messages',title,view,reference:messageId,...(focusOnly?{focusOnly:true}:{}),...(sourceMailboxId?{sourceMailboxId}:{}),...(opener?{opener}:{})}]);
       subTabs.open({id,kind:'messages',title});
     });
     if(!restoring)announceOpen(view,adopted?loading:view.openMessage(messageId));

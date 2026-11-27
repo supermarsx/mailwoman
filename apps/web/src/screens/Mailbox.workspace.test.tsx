@@ -1,3 +1,4 @@
+import {requestMessageOpen} from '../state/messageOpenRequest.ts';
 import {createRoot,createSignal} from 'solid-js';
 import {setImmediate as yieldToNode} from 'node:timers/promises';
 import {requestUnifiedMailbox,unifiedAvailable,unifiedMailboxActive,setUnifiedVirtualMode,setUnifiedFolderCounts,unifiedFolderRole} from '../state/unifiedMailbox.ts';
@@ -264,6 +265,39 @@ describe('retained mailbox workspace',()=>{
     fireEvent.dblClick(screen.getByText('Subject a',{selector:'.list__subject'}));
     await waitFor(()=>expect(screen.getByRole('tab',{name:'Subject a'})).toHaveAttribute('aria-selected','true'));
     expect(within(toolbar).queryByRole('button',{name:'Select messages'})).not.toBeInTheDocument();
+  });
+  it.each(['right','bottom'] as const)('opens notification requests in a full message tab with the %s reading pane configured',async mode=>{
+    const {app,realtime,container}=mount();await app.login({username:'me@example.org',password:'p'});
+    setReadingPane(mode);
+    await waitFor(()=>expect(container.querySelector('.workspace-body')).toHaveAttribute('data-reading-pane',mode));
+    requestMessageOpen('a');
+    await waitFor(()=>expect(screen.getByRole('tab',{name:'Subject a'})).toHaveAttribute('aria-selected','true'));
+    expect(container.querySelector('.workspace-body')).not.toHaveClass('workspace-body--split');
+    expect(screen.getByTestId('reading-pane')).not.toBeVisible();
+    expect(container.querySelector('.mail-pane')).not.toBeVisible();
+    expect(container.querySelector('.workspace-panes')).toHaveAttribute('data-layout','tabs');
+    expect(realtime.subTabs.activeId()).toBe('message:acct1:a');
+  });
+  it('focuses a notification message without putting it below retained tabs in a stacked workspace',async()=>{
+    const {app,container}=mount();await app.login({username:'me@example.org',password:'p'});
+    fireEvent.click(screen.getByRole('button',{name:'Compose'}));
+    const composer=screen.getByRole('tabpanel',{name:'Compose'});
+    setAccountUiPreferences({workspaceLayout:'stack'});
+    requestMessageOpen('a');
+    await waitFor(()=>expect(screen.getByRole('tab',{name:'Subject a'})).toHaveAttribute('aria-selected','true'));
+    expect(container.querySelector('.workspace-panes')).toHaveAttribute('data-layout','tabs');
+    expect(accountUiPreferences().workspaceLayout).toBe('stack');
+    expect(composer).not.toBeVisible();
+    fireEvent.click(screen.getByRole('tab',{name:'Compose'}));
+    expect(container.querySelector('.workspace-panes')).toHaveAttribute('data-layout','stack');
+    requestMessageOpen('a');
+    await waitFor(()=>expect(screen.getByRole('tab',{name:'Subject a'})).toHaveAttribute('aria-selected','true'));
+    expect(container.querySelector('.workspace-panes')).toHaveAttribute('data-layout','tabs');
+    expect(screen.getAllByRole('tab',{name:'Subject a'})).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button',{name:'View arrangement'}));
+    fireEvent.click(await screen.findByRole('menuitemradio',{name:'Stacked'}));
+    expect(container.querySelector('.workspace-panes')).toHaveAttribute('data-layout','stack');
+    expect(composer).toBeVisible();
   });
   it('hides message-list and reading-pane controls in full message tabs',async()=>{
     const {app}=mount();await app.login({username:'me@example.org',password:'p'});
