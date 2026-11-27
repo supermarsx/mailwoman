@@ -137,7 +137,7 @@ Cached mail keeps recently visited folders and messages ready to open. By defaul
 | **Memory budget (bytes)** | 65536 to 268435456. | 16777216 | [`mail.cache.maxBytes`](/admin/settings#mail.cache.maxBytes) |
 | **Folders excluded from preloading** | One rule per line: `role:trash`, `role:junk`, `role:inbox`, `role:drafts`, `role:sent`, `role:archive`, or `id:` followed by an exact folder ID. | `role:trash`, `role:junk` | [`mail.cache.excludedFolders`](/admin/settings#mail.cache.excludedFolders) |
 
-The **Prefetching** card loads messages ahead of time, which uses more data. It needs the session cache.
+The **Prefetching** card loads messages ahead of time, which uses more data. It needs the session cache. Body preloading is on by default: after the idle delay it warms a bounded set of visible messages, and pointer, keyboard focus and opening a message also warm likely next messages. Cached text appears immediately while the normal opening refresh runs. Administrators can set defaults or lock these controls for all users or a domain; users can adjust unlocked controls here.
 
 | Label | What it does | Default | Setting |
 |---|---|---|---|
@@ -149,8 +149,20 @@ The **Prefetching** card loads messages ahead of time, which uses more data. It 
 | **Preload folders while idle** | Prepares nearby folders when you are not interacting with the app. | On | [`mail.cache.idleEnabled`](/admin/settings#mail.cache.idleEnabled) |
 | **Idle delay (milliseconds)** | Wait after your last interaction, 100 to 60000. | 1500 | [`mail.cache.idleDelayMs`](/admin/settings#mail.cache.idleDelayMs) |
 | **Maximum simultaneous preloads** | 1 to 4. Lower values use less bandwidth and server capacity. | 1 | [`mail.cache.maxConcurrency`](/admin/settings#mail.cache.maxConcurrency) |
-| **Maximum queued preloads** | 1 to 64. Requests beyond the limit are dropped; running jobs continue. | 8 | [`mail.cache.maxQueued`](/admin/settings#mail.cache.maxQueued) |
-| **Allow speculative message bodies** | Also fetches message content in advance. Uses more data and cache space. | Off | [`mail.cache.preloadMessages`](/admin/settings#mail.cache.preloadMessages) |
+| **Maximum queued preloads** | 1 to 64. Body preloads and pointer or focus hints take priority over idle folder preloads when the queue is full. Running jobs continue. | 8 | [`mail.cache.maxQueued`](/admin/settings#mail.cache.maxQueued) |
+| **Allow speculative message bodies** | Preloads visible and nearby message bodies in the background for faster opening. Uses more data and cache space. | On | [`mail.cache.preloadMessages`](/admin/settings#mail.cache.preloadMessages) |
+
+### Smart Archive
+
+Smart Archive files a message where related mail has already been stored. It is **off by default**. Enable it in the **Smart Archive** card in Mail and reader settings. It appears as a separate quick action beside Archive. **Replace the main Archive action** is a separate switch, also off by default; it changes the toolbar, Archive shortcut and bulk Archive action. Ordinary Archive is always retained in context menus.
+
+The context menu offers the latest message from the same sender, the latest message from the sender domain, the latest message in the conversation, and the folder most often used for that sender. Exact addresses and domain boundaries are checked; including subdomains is optional. Folder paths, matching-message counts and latest dates help identify the destinations.
+
+By default, multiple matching folders ask you to choose. You can instead choose the most recent or most-used folder automatically. Confirmation previews can be always on, shown when needed, or off. Required folder choices still ask. Cancelling makes no changes. When history has no match, choose between the ordinary Archive folder, picking a folder, or skipping the message. Skipped messages stay where they are.
+
+The history limit defaults to 100 recent matching messages, adjustable from 10 to 500. Only metadata is fetched. All default folders, including Archive, are always excluded from matching and folder suggestions. Edit additional exclusion rules as `role:name` or `id:folder-id`; current folders, search folders and non-writable folders are also excluded. Ordinary Archive remains available only as the separately configured fallback; adding `role:archive` also excludes that fallback. Selected messages are not used as evidence for their own destination. Bulk messages with the same matching history share a destination choice. Moves support Undo. No automatic filing rules are created.
+
+Administrators can set and lock all `mail.smartArchive.*` defaults at server or domain scope. Users can change unlocked preferences. Existing quick-action and reader-action placement settings can move Smart Archive to More or hide it.
 
 ## Composing and replies
 

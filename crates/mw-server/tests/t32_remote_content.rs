@@ -1387,7 +1387,7 @@ async fn a_signed_image_loads_without_a_cookie_and_forwards_nothing_of_the_reade
     assert_eq!(r.status(), 200);
     assert_eq!(r.headers()["content-type"], "image/png");
     assert_eq!(r.headers()["cross-origin-resource-policy"], "cross-origin");
-    assert_eq!(r.headers()["cache-control"], "private, max-age=600");
+    assert_eq!(r.headers()["cache-control"], "private, max-age=600, must-revalidate");
     assert!(r.headers().get("x-mw-remote-content").is_none());
     let body = r.bytes().await.unwrap();
     assert_eq!(png_size(&body), (4, 4), "re-encoded, same size");
@@ -1431,7 +1431,7 @@ async fn signing_returns_short_handles_that_resolve_for_the_owner_only() {
     let claims = claims_of(&f.db, &token).await;
     assert_eq!(claims["u"], json!(long));
     let ttl = claims["x"].as_i64().unwrap() - chrono::Utc::now().timestamp();
-    assert!(ttl <= 3600 && ttl > 3590, "{ttl}");
+    assert!(ttl <= 3600 && ttl >= 3000, "{ttl}");
     assert_eq!(f.load(&src).await.status(), 200);
 
     // A handle holding another account's or session's claims is refused, as is
@@ -1968,14 +1968,14 @@ async fn signing_refuses_trackers_and_non_http_urls_and_parts_load_without_a_coo
     let claims = claims_of(&f.db, &token_of(&part)).await;
     let ttl = claims["x"].as_i64().unwrap() - chrono::Utc::now().timestamp();
     assert!(
-        ttl <= 300 && ttl > 290,
-        "part tokens live five minutes: {ttl}"
+        ttl <= 3600 && ttl >= 3000,
+        "cacheable inline image links stay bounded to one hour: {ttl}"
     );
     let img = claims_of(&f.db, &token_of(signed["images"][0]["src"].as_str().unwrap())).await;
     let ttl = img["x"].as_i64().unwrap() - chrono::Utc::now().timestamp();
     assert!(
-        ttl <= 3600 && ttl > 3590,
-        "image tokens live an hour: {ttl}"
+        ttl <= 3600 && ttl >= 3000,
+        "image links retain at least the cache window: {ttl}"
     );
 }
 
@@ -2049,6 +2049,57 @@ async fn locked_policy(f: &Fixture, key: &str, value: Value) {
         })
         .await
         .unwrap();
+}
+
+#[tokio::test]
+async fn body_image_browser_cache_covers_remote_inline_revalidation_and_policy_changes() {
+    let (proxy, seen) = standin_proxy(vec![("image/png".into(), png(4, 4))]).await;
+    let mut f=fixture_with_protection(proxy,"mw-browser-image-cache",&[],true).await;
+    f.email_id="e1".into();f.grant().await;
+    let me=f.user.get(format!("{}/api/me",f.base)).send().await.unwrap().json::<Value>().await.unwrap();
+    let authority=me["storageAuthority"].as_str().expect("verified settings authority");
+    let url="http://1.2.3.4/browser-cache.png";
+    let (status,signed)=f.sign(&[url],&["Mblob1"]).await;assert_eq!(status,200,"{signed}");
+    let first_expiry=claims_of(&f.db,&token_of(&image_src(&signed))).await["x"].as_i64().unwrap();
+    // Cross a signing timestamp: stable URLs must not only match within one second.
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    let (_,again)=f.sign(&[url],&["Mblob1"]).await;
+    assert_eq!(signed["images"],again["images"]);assert_eq!(signed["parts"],again["parts"]);
+    assert!(claims_of(&f.db,&token_of(&image_src(&again))).await["x"].as_i64().unwrap()>first_expiry);
+    for kind in ["images","parts"] {
+        let src=signed[kind][0]["src"].as_str().unwrap();
+        let response=f.load(src).await;assert_eq!(response.status(),200);
+        assert_eq!(response.headers()["cache-control"],"private, max-age=600, must-revalidate");
+        let etag=response.headers()["etag"].clone();assert!(!response.bytes().await.unwrap().is_empty());
+        let conditional=f.anon.get(format!("{}{src}",f.base)).header("if-none-match",etag).send().await.unwrap();
+        assert_eq!(conditional.status(),304);assert_eq!(conditional.headers()["cache-control"],"private, max-age=600, must-revalidate");assert!(conditional.bytes().await.unwrap().is_empty());
+    }
+    let write=f.user.put(format!("{}/api/settings/privacy.bodyImageCacheTtlSecs",f.base)).header("x-mailwoman-storage-authority",authority).json(&json!({"value":120})).send().await.unwrap();
+    assert_eq!(write.status(),200,"{}",write.text().await.unwrap());
+    let (_,shorter)=f.sign(&[url],&["Mblob1"]).await;assert_ne!(image_src(&signed),image_src(&shorter));
+    assert_eq!(f.load(&image_src(&shorter)).await.headers()["cache-control"],"private, max-age=120, must-revalidate");
+    let invalid=f.user.put(format!("{}/api/settings/privacy.bodyImageCacheTtlSecs",f.base)).header("x-mailwoman-storage-authority",authority).json(&json!({"value":94608001})).send().await.unwrap();assert_eq!(invalid.status(),422);
+    let maximum=f.user.put(format!("{}/api/settings/privacy.bodyImageCacheTtlSecs",f.base)).header("x-mailwoman-storage-authority",authority).json(&json!({"value":94608000})).send().await.unwrap();assert_eq!(maximum.status(),200);
+    let (_,long_lived)=f.sign(&[url],&["Mblob1"]).await;
+    for kind in ["images","parts"] {
+        let src=long_lived[kind][0]["src"].as_str().unwrap();
+        assert_eq!(f.load(src).await.headers()["cache-control"],"private, max-age=94608000, must-revalidate");
+        let claims=claims_of(&f.db,&token_of(src)).await;
+        assert!(claims["x"].as_i64().unwrap()<=chrono::Utc::now().timestamp()+3600);
+    }
+    locked_policy(&f,"privacy.bodyImageCacheTtlSecs",json!(300)).await;
+    let locked=f.user.put(format!("{}/api/settings/privacy.bodyImageCacheTtlSecs",f.base)).header("x-mailwoman-storage-authority",authority).json(&json!({"value":60})).send().await.unwrap();assert_eq!(locked.status(),403);
+    let (_,admin)=f.sign(&[url],&["Mblob1"]).await;
+    assert_eq!(f.load(&image_src(&admin)).await.headers()["cache-control"],"private, max-age=300, must-revalidate");
+    locked_policy(&f,"privacy.bodyImageCacheEnabled",json!(false)).await;
+    let (_,disabled)=f.sign(&[url],&["Mblob1"]).await;
+    assert_ne!(image_src(&shorter),image_src(&disabled));
+    for kind in ["images","parts"] {
+        let response=f.load(disabled[kind][0]["src"].as_str().unwrap()).await;
+        assert_eq!(response.status(),200);assert_eq!(response.headers()["cache-control"],"private, no-store");
+    }
+    // Browser preferences never turn off or duplicate the server image cache.
+    assert_eq!(seen.lock().unwrap().connections,1);
 }
 
 #[tokio::test]

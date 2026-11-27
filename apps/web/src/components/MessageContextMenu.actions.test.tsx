@@ -23,6 +23,17 @@ async function open(values:Record<string,boolean>={},options:{message?:Partial<E
  return app;
 }
 describe('message context menu: reply, forward, print, copy',()=>{
+ it('keeps ordinary Archive and every Smart Archive strategy available independently of replacement',async()=>{
+  const app=await open({'mail.smartArchive.enabled':true,'mail.smartArchive.replaceArchive':true});
+  const archive=vi.spyOn(app,'archiveMessage').mockResolvedValue();
+  const smart=vi.spyOn(app,'smartArchiveMessage').mockResolvedValue();
+  fireEvent.click(screen.getByRole('menuitem',{name:'Smart Archive'}));
+  fireEvent.click(screen.getByRole('menuitem',{name:'Folder of the latest email from this sender domain'}));
+  expect(smart).toHaveBeenCalledWith('m1','domain');expect(archive).not.toHaveBeenCalled();
+  fireEvent.contextMenu(screen.getByText('Quarterly report').closest('button')!);
+  fireEvent.click(screen.getByRole('menuitem',{name:'Archive'}));
+  expect(archive).toHaveBeenCalledWith('m1',{standard:true});
+ });
  it('offers Reply, Reply all, Forward, Copy and Quick print next to the existing items',async()=>{
   await open();
   const labels=screen.getAllByRole('menuitem').map(item=>item.textContent);

@@ -2796,3 +2796,7 @@ admin-settings-key-folders-user-section-collapsible = Allow collapsing User fold
 admin-settings-help-folders-user-section-collapsible = When disabled, the section stays expanded and its toggle is hidden.
 admin-settings-key-mail-message-list-filter-query = Filter
 admin-settings-help-mail-message-list-filter-query = Inherit account settings. Changes apply only to this folder and respect administrator locks.
+admin-settings-key-privacy-body-image-cache-enabled = Cache body images in the browser
+admin-settings-help-privacy-body-image-cache-enabled = On by default. Allow private browser HTTP caching of downloaded remote and inline message images. Users may override this unless locked. This does not change the server image cache.
+admin-settings-key-privacy-body-image-cache-ttl-secs = Browser body image cache lifetime
+admin-settings-help-privacy-body-image-cache-ttl-secs = Maximum private browser cache lifetime in seconds. Range 60–94608000 (three 365-day years); default 600. Users may override this unless locked. Setting changes use new image URLs on the next message load. Server image-link authorization remains short-lived.

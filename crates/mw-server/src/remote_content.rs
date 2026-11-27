@@ -25,8 +25,9 @@
 //! with the key derived from the server key under the label
 //! `mw-remote-content-v1` (`mw_store::Store::derive_key`). The claims bind the
 //! account, the session (as an HMAC tag of its id, never the id itself), the
-//! message, the URL or blob, the kind, and an expiry: one hour for a remote image,
-//! five minutes for a part or a linked file (M10). Nothing in a token can be changed without the
+//! message, the URL or blob, the kind, and an expiry: at most one hour for display
+//! images (remote or inline), five minutes for a deliberate file download.
+//! Nothing in a token can be changed without the
 //! key, so a token cannot be pointed at another URL, message or account.
 //!
 //! # What is checked when a token is used, in this order
@@ -76,7 +77,7 @@ use crate::AppState;
 pub(crate) const KEY_LABEL: &str = "mw-remote-content-v1";
 /// How long a remote-image token is valid.
 pub(crate) const IMAGE_TTL_SECS: i64 = 3600;
-/// How long a part token is valid (M10).
+/// How long a deliberate file/image download token is valid.
 pub(crate) const PART_TTL_SECS: i64 = 300;
 /// Most URLs or parts one sign request may ask for.
 const MAX_SIGN: usize = 256;
@@ -613,10 +614,20 @@ pub(crate) const MAX_LIVE_HANDLES: usize = 100_000;
 
 /// The short opaque handle for `claims`: 16 bytes of an HMAC over the claims,
 /// url-safe base64 (22 characters). Deterministic, so signing the same claims
-/// in the same second yields the same URL (browser caches and the fetch-outcome
-/// bookkeeping rely on that); the retry nonce `n` makes a retry a new handle.
+/// gives the same URL. Cacheable display handles retain their identity across
+/// expiry renewal; the retry nonce `n` always makes a retry a new handle.
 /// The server key keeps handles unguessable.
 pub(crate) fn handle_for(key: &[u8; 32], claims: &Claims) -> String {
+    // Cache identity is stable across authorized signing requests. The stored
+    // capability still expires within an hour and is renewed only after all
+    // normal account/message/grant checks in `sign` have passed.
+    if matches!(claims.k,Kind::Image|Kind::Part)
+        && claims.n.as_deref().is_some_and(|nonce|nonce.starts_with("browser-cache:"))
+    {
+        let mut canonical=claims.clone();
+        canonical.x=0;
+        return URL_SAFE_NO_PAD.encode(&mac(key,b"mw-rc-browser-cache-handle\0",&serde_json::to_vec(&canonical).expect("claims serialize")).finalize().into_bytes()[..16]);
+    }
     let tag = mac(
         key,
         b"mw-rc-handle ",
@@ -686,9 +697,9 @@ pub(crate) async fn resolve(
     Ok(claims)
 }
 
-/// In-memory LRU of resolved handles. A handle row is immutable once written (the
-/// insert never overwrites), so a resolved claims document stays correct until its
-/// own expiry; the only way a row disappears early is cap eviction, so an entry
+/// In-memory LRU of resolved handles. Authorized signing may extend a stable
+/// cache handle's expiry; a kept document expires earlier, never later, than
+/// its renewed row. All account/message/grant checks still run. An entry
 /// is also dropped after [`TTL_SECS`]. Only successful lookups are kept, so an
 /// unknown handle never occupies a slot and a handle written on another replica
 /// is found on its first request.
@@ -893,9 +904,13 @@ pub(crate) async fn sign(
         e: body.email_id.clone(),
         u: u.to_string(),
         x: now + ttl,
-        n: body
-            .retry
-            .then(|| format!("{:032x}", rand::random::<u128>())),
+        n: if body.retry || !policy.body_image_cache_enabled {
+            Some(format!("{:032x}", rand::random::<u128>()))
+        } else if matches!(k, Kind::Image | Kind::Part) {
+            Some(format!("browser-cache:{}", policy.body_image_cache_ttl_secs))
+        } else {
+            None
+        },
     };
 
     let mut handles = HandleBatch::default();
@@ -1016,7 +1031,7 @@ pub(crate) async fn sign(
             refused.push(json!({"blobId":blob,"reason":"notMessagePart"}));
             continue;
         }
-        let token = handles.add(&key, &claims(Kind::Part, blob, PART_TTL_SECS));
+        let token = handles.add(&key, &claims(Kind::Part, blob, IMAGE_TTL_SECS));
         parts.push(json!({
             "blobId": blob,
             "src": format!("{}/api/rc/p/{token}", state.base_path),
@@ -1453,7 +1468,32 @@ async fn image_inner(
         (claims, session, policy)
     };
 
-    Box::pin(fetch_image(state, session, claims, policy, headers, width_hint)).await
+    let response = Box::pin(fetch_image(state, session, claims, policy.clone(), headers, width_hint)).await;
+    cache_display_response(response, &policy)
+}
+
+pub(super) fn cache_display_response(
+    mut response: Response,
+    policy: &crate::remote_policy::PrivacyPolicy,
+) -> Response {
+    if !policy.body_image_cache_enabled
+        || response.status() == StatusCode::OK
+        || response.status() == StatusCode::NOT_MODIFIED
+    {
+        let value = mw_remote_content::browser_cache::cache_control(
+            policy.body_image_cache_enabled, policy.body_image_cache_ttl_secs,
+        );
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_str(&value).expect("bounded image cache policy"),
+        );
+        // The legacy cookie-authenticated URL is shared across signed-in accounts.
+        response.headers_mut().insert(
+            header::VARY,
+            HeaderValue::from_static("Cookie, Authorization, X-Mailwoman-Account"),
+        );
+    }
+    response
 }
 
 async fn fetch_image(
@@ -2046,6 +2086,7 @@ fn charge_fetch(
 /// re-encoded image. Only image parts are served; anything else is `415`.
 pub(crate) async fn part(
     State(state): State<AppState>,
+    headers: HeaderMap,
     UrlPath(token): UrlPath<String>,
     proof: Option<Extension<DisplayProof>>,
 ) -> Response {
@@ -2165,7 +2206,17 @@ pub(crate) async fn part(
     if bytes.len() > policy.max_bytes {
         return refusal_response(mw_egress::Refusal::TooLarge);
     }
-    reencode_and_answer(bytes, None, &policy, deadline, admission, None, None).await
+    let mut response = reencode_and_answer(bytes, None, &policy, deadline, admission, None, None).await;
+    if response.status() == StatusCode::OK
+        && response.headers().get(header::ETAG)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|etag| if_none_match(&headers, etag))
+    {
+        *response.status_mut() = StatusCode::NOT_MODIFIED;
+        *response.body_mut() = axum::body::Body::empty();
+        response.headers_mut().remove(header::CONTENT_LENGTH);
+    }
+    cache_display_response(response, &policy)
 }
 
 /// `GET /api/rc/f/{token}` — a remote file linked from the message, downloaded
@@ -2720,6 +2771,21 @@ mod tests {
         assert_eq!(verify(&KEY, &t, 999), Ok(claims(1_000)));
         assert_eq!(verify(&KEY, &t, 1_000), Ok(claims(1_000)));
         assert_eq!(verify(&KEY, &t, 1_001), Err(()));
+    }
+
+    #[test]
+    fn browser_cache_handles_survive_renewal_but_not_account_policy_or_retry_changes() {
+        let mut first=claims(1000);first.n=Some("browser-cache:94608000".into());
+        let mut renewed=first.clone();renewed.x=2000;
+        assert_eq!(handle_for(&KEY,&first),handle_for(&KEY,&renewed));
+        assert_ne!(mint(&KEY,&first),mint(&KEY,&renewed));
+        for changed in [
+            Claims { a:"another-account".into(),..renewed.clone() },
+            Claims { s:"another-session".into(),..renewed.clone() },
+            Claims { n:Some("browser-cache:600".into()),..renewed.clone() },
+            Claims { n:Some("explicit-retry".into()),..renewed.clone() },
+        ] { assert_ne!(handle_for(&KEY,&first),handle_for(&KEY,&changed)); }
+        assert!(verify(&KEY,&mint(&KEY,&first),1001).is_err());
     }
 
     #[test]

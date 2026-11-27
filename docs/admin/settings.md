@@ -3492,8 +3492,54 @@ and allocator overhead is not included in that number.
 <a id="mail.cache.preloadHeaders"></a>
 `mail.cache.preloadHeaders` — Fetch envelope, delivery and reply headers with folder/search lists, including speculative folder reads. Does not fetch message bodies or attachment files. Default: `true`.
 
+<a id="privacy.bodyImageCacheEnabled"></a>
+`privacy.bodyImageCacheEnabled` — Enable private browser caching of message-body images. Default: `true`. See [Body image browser cache](body-image-browser-cache.md).
+
+<a id="privacy.bodyImageCacheTtlSecs"></a>
+`privacy.bodyImageCacheTtlSecs` — Browser freshness lifetime from 60 to 94608000 seconds (three years). Default: `600`. User settings and administrator locks apply.
+
+<a id="time.messageYear"></a>
+`time.messageYear` — Show the message date's year: `auto` (show it for dates outside the current year), `always` or `never`. Default: `auto`. Configurable at server, domain and user scope.
+
+<a id="time.messageShowTime"></a>
+`time.messageShowTime` — Include the time in the message-list date. Default: `true`. Configurable at server, domain and user scope.
+
+### Smart Archive
+
+Smart Archive is disabled by default, and replacing normal Archive is separately disabled. Settings apply at server, domain and user scope; administrators can lock them. Context menus retain ordinary Archive and offer every matching strategy. Matching uses metadata only, checks exact sender addresses or domain boundaries, and excludes the selected messages from its evidence. Unmatched messages use the configured fallback. Confirmation cancellation makes no changes. Smart moves support Undo.
+
+<a id="mail.smartArchive.enabled"></a>
+`mail.smartArchive.enabled` — Enable Smart Archive. Off by default. Default: `false`.
+
+<a id="mail.smartArchive.replaceArchive"></a>
+`mail.smartArchive.replaceArchive` — Replace the main Archive action. Ordinary Archive remains in context menus. Off by default. Default: `false`.
+
+<a id="mail.smartArchive.strategy"></a>
+`mail.smartArchive.strategy` — Matching: sender, domain, conversation or sender-frequency. Default: `"sender"`.
+
+<a id="mail.smartArchive.multipleFolders"></a>
+`mail.smartArchive.multipleFolders` — Ask, latest or most-used when related messages occupy several folders. Default: `"ask"`.
+
+<a id="mail.smartArchive.confirmation"></a>
+`mail.smartArchive.confirmation` — always, when-needed or never. Required destination choices still ask. Default: `"when-needed"`.
+
+<a id="mail.smartArchive.fallback"></a>
+`mail.smartArchive.fallback` — archive, choose or cancel when no filed history matches. Default: `"archive"`.
+
+<a id="mail.smartArchive.historyLimit"></a>
+`mail.smartArchive.historyLimit` — Inspect 10 to 500 recent matching metadata records per sender, domain or conversation. Default: `100`.
+
+<a id="mail.smartArchive.includeSubdomains"></a>
+`mail.smartArchive.includeSubdomains` — Include child domains when matching a sender domain. Off by default. Default: `false`.
+
+<a id="mail.smartArchive.excludedFolders"></a>
+`mail.smartArchive.excludedFolders` — Additional role:name or id:folder-id exclusions. Default folders (including Archive), current, virtual and non-writable folders never count as matching destinations. Ordinary Archive is allowed only as the configured fallback. Default: `["role:inbox","role:sent","role:drafts","role:junk","role:trash"]`.
+
+<a id="reader.actions.smart-archive"></a>
+`reader.actions.smart-archive` — `toolbar`, `menu` or `hidden`. Default: `toolbar`; shown only while Smart Archive is enabled and replacement is off. Row actions accept `quick:smart-archive` or `more:smart-archive` in `mail.rowActions`.
+
 <a id="mail.cache.preloadMessages"></a>
-`mail.cache.preloadMessages` — Allow speculative message payload reads. Default: `false`.
+`mail.cache.preloadMessages` — Preload visible and nearby message bodies during idle, hover and focus. Default: `true`.
 
 <a id="mail.cache.excludedFolders"></a>
 `mail.cache.excludedFolders` — Exact role:<role> or id:<folder ID> exclusions, up to100rules. Default: `["role:trash","role:junk"]`.
@@ -4530,7 +4576,7 @@ Every key in the settings registry, generated from the registry and checked agai
 | <a id="mail.showspam"></a>[`mail.showSpam`](#mail.showSpam) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
 | <a id="mail.showauthstatus"></a>[`mail.showAuthStatus`](#mail.showAuthStatus) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
 | <a id="mail.closeondelete"></a>[`mail.closeOnDelete`](#mail.closeOnDelete) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
-| <a id="mail.rowactions"></a>[`mail.rowActions`](#mail.rowActions) | list of up to 7 strings, each up to 32 characters | `["quick:view-draft","quick:pin","quick:snooze","quick:label","quick:flag","quick:archive","quick:delete"]` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.rowactions"></a>[`mail.rowActions`](#mail.rowActions) | list of up to 8 strings, each up to 32 characters | `["quick:view-draft","quick:pin","quick:snooze","quick:label","quick:flag","quick:archive","quick:delete"]` | server, domain, user |  | Applied by the web app only. |
 | <a id="mail.rowactionsmode"></a>[`mail.rowActionsMode`](#mail.rowActionsMode) | one of `open`, `hover`, `click`, `off` | `"open"` | server, domain, user |  | Applied by the web app only. |
 | <a id="mail.showgototop"></a>[`mail.showGoToTop`](#mail.showGoToTop) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
 | <a id="mail.showcreatefolderbutton"></a>[`mail.showCreateFolderButton`](#mail.showCreateFolderButton) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
@@ -4552,7 +4598,7 @@ Every key in the settings registry, generated from the registry and checked agai
 | <a id="mail.cache.maxconcurrency"></a>[`mail.cache.maxConcurrency`](#mail.cache.maxConcurrency) | integer, 1 to 4 | `1` | server, domain, user |  | Applied by the web app only. |
 | <a id="mail.cache.maxqueued"></a>[`mail.cache.maxQueued`](#mail.cache.maxQueued) | integer, 1 to 64 | `8` | server, domain, user |  | Applied by the web app only. |
 | <a id="mail.cache.preloadheaders"></a>[`mail.cache.preloadHeaders`](#mail.cache.preloadHeaders) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
-| <a id="mail.cache.preloadmessages"></a>[`mail.cache.preloadMessages`](#mail.cache.preloadMessages) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.cache.preloadmessages"></a>[`mail.cache.preloadMessages`](#mail.cache.preloadMessages) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
 | <a id="mail.cache.excludedfolders"></a>[`mail.cache.excludedFolders`](#mail.cache.excludedFolders) | list of up to 100 strings, each up to 256 characters | `["role:trash","role:junk"]` | server, domain, user |  | Applied by the web app only. |
 | [`mail.notices.enabled`](#mail.notices.enabled) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
 | [`mail.notices.templates`](#mail.notices.templates) | list of up to 20 notices | `[]` | server, domain, user |  | Applied by the web app only. |

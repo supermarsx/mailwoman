@@ -58,7 +58,9 @@ impl Store {
                 .await?;
         }
         for (h, x, json) in entries {
-            q("INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO NOTHING")
+            // A stable browser-cache handle can be renewed by an authorized
+            // signing request. Never shorten an existing capability lifetime.
+            q("INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE substr(settings.value,1,12)<substr(excluded.value,1,12)")
                 .bind(format!("{PREFIX}{h}"))
                 .bind(format!("{x:012}|{json}"))
                 .execute_tx(&mut tx)

@@ -1,11 +1,20 @@
 import {afterEach,expect,it,vi} from 'vitest';
 import {activateAccountPreferences,preferenceAccount,suspendAccountPreferences} from './accountPreferenceLifecycle.ts';
 import {apiFetch} from './http.ts';
-import {readWorkspaceNotifications,readLinkedMailboxIdentity,transferWorkspaceMessage,workspaceMessages,updateWorkspaceMessages,type WorkspaceMailbox} from './workspaceMail.ts';
+import {readWorkspaceNotifications,readLinkedMailboxIdentity,transferWorkspaceMessage,workspaceMessages,updateWorkspaceMessages,workspaceEffectiveSettings,replayWorkspaceFolders,type WorkspaceMailbox} from './workspaceMail.ts';
 import type {Email,Mailbox} from './jmap-types.ts';
 
 vi.mock('./http.ts',()=>({apiFetch:vi.fn()}));
 const mock=vi.mocked(apiFetch);
+it('keeps Smart Archive settings and membership replay bound to the source and refuses later user moves',async()=>{
+ activateAccountPreferences('account','primary_authority_1234');const source:WorkspaceMailbox={linkId:'linked-b',accountId:'b',storageAuthority:'linked_authority_12345',owner:preferenceAccount()!,label:'Other',current:false};
+ const signal=new AbortController().signal;
+ mock.mockImplementation(async(path,init)=>{expect(init).toMatchObject({mailboxTarget:source,signal,redirect:'error'});if(path.endsWith('/api/settings'))return Response.json({settings:{'mail.smartArchive.enabled':{value:false,locked:true,source:'global'}}});const body=JSON.parse(String(init?.body));if(body.methodCalls[0][0]==='Email/get')return Response.json({methodResponses:[['Email/get',{accountId:'b',list:[{id:'same',mailboxIds:{work:true}}]},'smart-replay-get']]});expect(body.methodCalls[0][1]).toMatchObject({accountId:'b',update:{same:{mailboxIds:{inbox:true,label:true}}}});return Response.json({methodResponses:[['Email/set',{updated:{same:null}},'smart-replay-set']]});});
+ expect((await workspaceEffectiveSettings(source,signal))['mail.smartArchive.enabled']).toMatchObject({value:false,locked:true});
+ await replayWorkspaceFolders(source,[{id:'same',expected:{work:true},folders:{inbox:true,label:true}}],signal);
+ mock.mockClear();mock.mockResolvedValue(Response.json({methodResponses:[['Email/get',{accountId:'b',list:[{id:'same',mailboxIds:{movedElsewhere:true}}]},'smart-replay-get']]}));
+ await expect(replayWorkspaceFolders(source,[{id:'same',expected:{work:true},folders:{inbox:true}}],signal)).rejects.toThrow('moved');expect(mock).toHaveBeenCalledOnce();
+});
 it('keeps inactive identity probes scoped, abortable and out of durable offline clients',async()=>{
  activateAccountPreferences('account','primary_authority_1234');
  const signal=new AbortController().signal;

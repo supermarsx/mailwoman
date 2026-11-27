@@ -876,7 +876,7 @@ cache-idleEnabled-help = Precarga carpetas cercanas mientras no interactúas con
 cache-idleDelayMs-help = Espera tras la última interacción antes de precargar por inactividad.
 cache-maxConcurrency-help = Máximo de solicitudes simultáneas en segundo plano. Un valor menor reduce tráfico y carga del servidor.
 cache-maxQueued-help = Máximo de tareas de precarga pendientes. Las adicionales se descartan; las iniciadas continúan.
-cache-preloadMessages-help = Precarga también el contenido de los mensajes. Desactivado por defecto; consume más datos y caché. Se mantienen las exclusiones y límites.
+cache-preloadMessages-help = Precarga también el contenido de los mensajes. Activado por defecto; consume más datos y caché. Se mantienen las exclusiones y límites.
 
 settings-badge-auth-sent = Autenticación de mensajes enviados
 settings-badge-spam-sent = Puntuaciones de spam de mensajes enviados

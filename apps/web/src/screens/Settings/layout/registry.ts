@@ -13,6 +13,7 @@ import { INTERFACE_CARD } from '../InterfacePreferences.tsx';
 import { FOLDER_COUNT_CARD } from '../FolderCountPreferences.tsx';
 import { PROPERTIES_CARD } from '../PropertiesPreferences.tsx';
 import { CACHE_CARDS } from '../CachePreferences.tsx';
+import {SMART_ARCHIVE_CARD} from '../SmartArchivePreferences.tsx';
 import { AVATAR_CARD } from '../ContactAppearance.tsx';
 import { SAVE_CONTACTS_CARD } from '../SaveContactsSettings.tsx';
 import { UNDO_CARD } from '../UndoRedoPreferences.tsx';
@@ -31,6 +32,7 @@ import {REGIONAL_CARD} from '../RegionalFormats.tsx';
 
 export const SETTINGS_REGISTRY: readonly CardSpec[] = [
   REGIONAL_CARD,
+  SMART_ARCHIVE_CARD,
   SEARCH_SCOPE_CARD, SETTINGS_TRANSFER_CARD,
   ...READER_CARD_SPECS, ...MAIL_CARD_SPECS, ...COMPOSE_CARDS, COMPOSE_DEFAULTS_CARD, DRAFT_SAVE_CARD,
   COMPOSE_DELIVERY_CARD, COMPOSER_FEATURES_CARD,

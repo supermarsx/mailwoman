@@ -63,7 +63,7 @@ export type TrafficRow = PrivacyStats['traffic'][number];
 export const FETCH_LIMIT_KEYS: readonly string[] = ['privacy.fetchConnectTimeoutMs','privacy.fetchHeadersTimeoutMs','privacy.fetchIdleTimeoutMs','privacy.fetchTotalTimeoutMs','privacy.fetchQueueTimeoutMs','privacy.imageDecodeTimeoutMs','privacy.maxRedirects','privacy.maxConcurrentPerMessage','privacy.maxConcurrentPerAccount','privacy.maxConcurrentGlobal','privacy.maxConcurrentPipeline','privacy.maxConcurrentDecodes','privacy.maxQueuedRequests','privacy.ratePerMin','privacy.rateBurst','privacy.maxBytes','privacy.cacheBytes','privacy.cacheTtlSecs','privacy.negativeCacheTtlSecs','privacy.imageRetryAttempts','privacy.imageRetryDelayMs'];
 
 /** The remote-content and tracker policy keys, in the order the tab shows them. */
-export const REMOTE_KEYS: readonly string[] = ['privacy.remoteContent','privacy.remoteImageDownloads','privacy.remoteImagesToast','privacy.trackers','privacy.trackerOverrideAllowed','privacy.cleanLinks','privacy.allowDirect','privacy.stripMailerHeaders'];
+export const REMOTE_KEYS: readonly string[] = ['privacy.remoteContent','privacy.remoteImageDownloads','privacy.remoteImagesToast','privacy.bodyImageCacheEnabled','privacy.bodyImageCacheTtlSecs','privacy.trackers','privacy.trackerOverrideAllowed','privacy.cleanLinks','privacy.allowDirect','privacy.stripMailerHeaders'];
 
 export type PrivacyTabId = 'overview' | 'remote' | 'image-proxy' | 'fetch-limits' | 'traffic' | 'cookies';
 

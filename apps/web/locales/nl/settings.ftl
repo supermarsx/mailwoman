@@ -895,7 +895,7 @@ cache-idleEnabled-help = Laadt nabije mappen tijdens inactiviteit vooraf. Vereis
 cache-idleDelayMs-help = Wachttijd na de laatste interactie voordat vooraf laden bij inactiviteit begint.
 cache-maxConcurrency-help = Maximaal gelijktijdige achtergrondverzoeken. Lagere waarden besparen bandbreedte en servercapaciteit.
 cache-maxQueued-help = Maximaal wachtende laadopdrachten. Extra opdrachten vervallen; lopende gaan door.
-cache-preloadMessages-help = Laadt ook berichtinhoud vooraf. Standaard uit; gebruikt meer data en cache. Uitsluitingen en limieten blijven gelden.
+cache-preloadMessages-help = Laadt ook berichtinhoud vooraf. Standaard aan; gebruikt meer data en cache. Uitsluitingen en limieten blijven gelden.
 
 settings-badge-auth-sent = Authenticatie bij verzonden berichten
 settings-badge-spam-sent = Spamscores bij verzonden berichten

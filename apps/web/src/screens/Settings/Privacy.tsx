@@ -1,4 +1,4 @@
-import { createResource, For, onMount, type JSX } from 'solid-js';
+import { createResource, createSignal, For, onMount, type JSX } from 'solid-js';
 import { t, loadCatalog } from '../../i18n';
 import { useSetting } from './useSetting.ts';
 import { remotePolicy, type RemoteMode } from '../../api/remote-content.ts';
@@ -19,15 +19,23 @@ export function Privacy(): JSX.Element {
   const stripMailerHeaders = useSetting('privacy.stripMailerHeaders', true);
   const imageDownloads=useSetting('privacy.remoteImageDownloads',false);
   const imageToast=useSetting('privacy.remoteImagesToast',true);
+  const bodyImageCache=useSetting('privacy.bodyImageCacheEnabled',true);
+  const bodyImageCacheTtl=useSetting('privacy.bodyImageCacheTtlSecs',600);
+  const cacheUnits=[{id:'minutes',seconds:60},{id:'hours',seconds:3600},{id:'days',seconds:86400},{id:'years',seconds:31536000}] as const;
+  const [cacheUnitChoice,setCacheUnitChoice]=createSignal<string|null>(null);
+  const cacheUnit=()=>cacheUnits.find(unit=>unit.id===cacheUnitChoice())??[...cacheUnits].reverse().find(unit=>bodyImageCacheTtl.value()>=unit.seconds&&bodyImageCacheTtl.value()%unit.seconds===0)??cacheUnits[0];
   const imageRetryAttempts=useSetting('privacy.imageRetryAttempts',3);
   const imageRetryDelay=useSetting('privacy.imageRetryDelayMs',5000);
   const [policy] = createResource(async () => { try { return await remotePolicy(); } catch { return null; } });
   const canDirect = (): boolean => !isNativeAuth() && policy.state === 'ready' && policy.latest?.allowDirect === true;
-  const toggles = (): { setting: typeof trackers; id: string; label: string; help?: string }[] => [
+  const baseToggles: { setting: typeof trackers; id: string; label: string; help?: string }[] = [
     { setting: trackers, id: 'privacy-trackers', label: 'privacy-trackers' }, { setting: links, id: 'privacy-clean-links', label: 'privacy-clean-links' },
     { setting: imageDownloads, id: 'privacy-image-downloads', label: 'privacy-image-downloads' }, { setting: imageToast, id: 'privacy-image-toast', label: 'privacy-image-toast' },
-    ...(policy.state === 'ready' && policy.latest?.inlineParts === true ? [{ setting: stripMailerHeaders, id: 'privacy-strip-mailer-headers', label: 'privacy-strip-mailer-headers', help: 'privacy-strip-mailer-help' }] : []),
+    { setting: bodyImageCache, id: 'privacy-body-image-cache', label: 'privacy-body-image-cache', help: 'privacy-body-image-cache-help' },
   ];
+  const mailerToggle={ setting: stripMailerHeaders, id: 'privacy-strip-mailer-headers', label: 'privacy-strip-mailer-headers', help: 'privacy-strip-mailer-help' };
+  // Keep checkbox nodes (and focus) stable when the optional policy arrives.
+  const toggles=():typeof baseToggles=>policy.state==='ready'&&policy.latest?.inlineParts===true?[...baseToggles,mailerToggle]:baseToggles;
   const free = (h: { entry(): unknown; locked(): boolean; saving(): boolean }): boolean => !h.entry() || h.locked() || h.saving();
   return <>
     <SettingsCard id="privacy-card-remote" title={t('privacy-title')} description={t('privacy-help')}>
@@ -37,6 +45,10 @@ export function Privacy(): JSX.Element {
       <For each={toggles()}>{item => <SettingRow controlId={item.id} label={t(item.label)} {...(item.help ? { help: t(item.help) } : {})} handle={item.setting} resetLabel={t('privacy-inherit')}>{describedBy =>
         <input id={item.id} type="checkbox" checked={item.setting.value()} aria-describedby={describedBy()} disabled={free(item.setting)} onChange={e => void item.setting.set(e.currentTarget.checked)} />
       }</SettingRow>}</For>
+      <SettingRow controlId="privacy-body-image-cache-ttl" label={t('privacy-body-image-cache-ttl')} help={t('privacy-body-image-cache-ttl-help')} handle={bodyImageCacheTtl} resetLabel={t('privacy-inherit')}>{describedBy => <>
+        <input id="privacy-body-image-cache-ttl" class={css.input} type="number" min={60/cacheUnit().seconds} max={94608000/cacheUnit().seconds} step="any" value={bodyImageCacheTtl.value()/cacheUnit().seconds} disabled={free(bodyImageCacheTtl)||!bodyImageCache.value()} aria-describedby={describedBy()} onChange={event=>{const value=Math.round(event.currentTarget.valueAsNumber*cacheUnit().seconds);if(Number.isSafeInteger(value)&&value>=60&&value<=94608000)void bodyImageCacheTtl.set(value);}}/>
+        <select class={css.select} aria-label={t('privacy-body-image-cache-unit')} value={cacheUnit().id} disabled={free(bodyImageCacheTtl)||!bodyImageCache.value()} onChange={event=>setCacheUnitChoice(event.currentTarget.value)}><For each={cacheUnits}>{unit=><option value={unit.id}>{t(`privacy-body-image-cache-unit-${unit.id}`)}</option>}</For></select>
+      </>}</SettingRow>
       <SettingRow controlId="privacy-image-retries" label={t('privacy-image-retry-attempts')} help={t('privacy-image-retry-help')} handle={imageRetryAttempts} resetLabel={t('privacy-inherit')}>{describedBy =>
         <input id="privacy-image-retries" class={css.input} type="number" min="0" max="8" step="1" value={imageRetryAttempts.value()} disabled={free(imageRetryAttempts)} aria-describedby={describedBy()} onChange={event=>{const value=event.currentTarget.valueAsNumber;if(Number.isSafeInteger(value)&&value>=0&&value<=8)void imageRetryAttempts.set(value);}}/>
       }</SettingRow>

@@ -17,6 +17,7 @@ import {queueRuleDraft,senderRuleDraft} from '../state/ruleDraft.ts';
 import {requestSettings} from '../state/settingsRequest.ts';
 import type {MessageDialogActions} from './properties/MessageProperties.tsx';
 import {featureOn} from '../state/features.ts';
+import {replacesArchive} from '../state/smartArchive.ts';
 import {requestMessageTransfer,transfersEnabled} from '../state/messageTransferRequest.ts';
 import {createMessageTask} from './messageTask.ts';
 import {moveActions} from './ReaderMoveMenu.tsx';
@@ -72,6 +73,7 @@ export function notSpam(app:App,email:Email):Promise<void>|void {
 export function messageActionRows(app:App,email:Email,skip:ReadonlySet<string>=new Set()):ContextAction[] {
  const rows:ContextAction[]=[];
  const add=(row:ContextAction)=>{if(!skip.has(row.id))rows.push(row);};
+ if(replacesArchive())add({id:'standard-archive',label:t('mail-archive'),icon:'archiveDown',run:()=>app.archiveMessage(email.id,{standard:true})});
  add({id:'move-to',searchLabel:t('mail-move-search'),label:t('mail-reader-move-to'),icon:'moveTo',children:moveActions(email,app),run:()=>{}});
  if(inRole(email,app,'junk')&&app.mailboxes().some(box=>box.role==='inbox'))add({id:'not-spam',label:t('props-act-not-spam'),icon:'spam',run:()=>notSpam(app,email)});
  if(featureOn('tasks') && app.accountId?.())add({id:'create-task',label:t('message-task-action'),icon:'check',run:()=>createMessageTask(app,email)});

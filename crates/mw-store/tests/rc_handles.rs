@@ -71,3 +71,15 @@ async fn rewriting_a_handle_keeps_the_first_row() {
     s.rc_handles_put(&[(handle(1), 100, r#"{"a":1}"#.into())], 0, 10).await.unwrap();
     assert_eq!(s.rc_handle_count().await.unwrap(), 1);
 }
+
+#[tokio::test]
+async fn authorized_cache_handle_renewal_extends_but_never_shortens_expiry() {
+    let s=store().await;
+    s.rc_handles_put(&[(handle(1),100,r#"{"x":100}"#.into())],0,10).await.unwrap();
+    s.rc_handles_put(&[(handle(1),200,r#"{"x":200}"#.into())],50,10).await.unwrap();
+    assert_eq!(s.rc_handle_get(&handle(1),150).await.unwrap().as_deref(),Some(r#"{"x":200}"#));
+    s.rc_handles_put(&[(handle(1),160,r#"{"x":160}"#.into())],150,10).await.unwrap();
+    assert_eq!(s.rc_handle_get(&handle(1),190).await.unwrap().as_deref(),Some(r#"{"x":200}"#));
+    assert!(s.rc_handle_get(&handle(1),201).await.unwrap().is_none());
+    assert_eq!(s.rc_handle_count().await.unwrap(),1);
+}

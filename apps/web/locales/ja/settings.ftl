@@ -866,7 +866,7 @@ cache-idleEnabled-help = 操作していない間に近くのフォルダーを�
 cache-idleDelayMs-help = 最後の操作からアイドル時の先読みまでの待ち時間です。
 cache-maxConcurrency-help = 同時に実行するバックグラウンド要求の上限です。少ないほど通信量とサーバー負荷を抑えます。
 cache-maxQueued-help = 待機する先読みジョブの上限です。超過分は破棄し、実行中の処理は続けます。
-cache-preloadMessages-help = メッセージ本文も先読みします。既定は無効で、通信量とキャッシュ使用量が増えます。除外設定とサイズ制限は引き続き適用されます。
+cache-preloadMessages-help = メッセージ本文も先読みします。既定は有効で、通信量とキャッシュ使用量が増えます。除外設定とサイズ制限は引き続き適用されます。
 
 settings-badge-auth-sent = 送信済みメールの認証
 settings-badge-spam-sent = 送信済みメールの迷惑メールスコア

@@ -1,5 +1,7 @@
 import {rowActionLayout,type RowActionId} from '../state/rowActionLayout.ts';
 import {settings} from '../api/settings.ts';
+import {replacesArchive} from '../state/smartArchive.ts';
+import {smartArchiveAction} from './smartArchiveActions.ts';
 import {loadCatalog} from '../i18n/catalog.ts';
 void loadCatalog('snooze');
 import {followUpActions} from './followUpActions.ts';
@@ -134,7 +136,8 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
     snooze:{id:'snooze',icon:ACTION_ICONS.snooze,label:t('mail-snooze'),run:()=>{},children:[{id:'custom',label:t('snooze-custom'),icon:'snoozePick' as const,run:()=>requestCustomSnooze(until=>app.snoozeMessage(messageId,until))},...snoozePresets().map(preset=>({id:preset.id,label:snoozePresetLabel(preset),icon:snoozePresetIcon(preset.labelId),run:()=>{const at=resolveSnooze(preset);if(at)return app.snoozeMessage(messageId,at);}})),...(props.email.snoozedUntil?[{id:'unsnooze',label:t('mail-unsnooze'),icon:ACTION_ICONS.unsnooze,run:()=>app.unsnoozeMessage(messageId)}]:[])]},
     label:{id:'label',icon:'tag' as const,label:t('mail-label'),run:()=>{},children:app.tags().map(tag=>({id:tag.id,label:tag.name,icon:tagIconName(tag.icon),checked:hasKeyword(tag.id),run:()=>hasKeyword(tag.id)?app.removeTag(messageId,tag.id):app.applyTag(messageId,tag.id)}))},
     flag:{id:'flag',icon:ACTION_ICONS.followUp,label:t('mail-flag'),run:()=>{},children:followUpActions(until=>app.setFollowUp(messageId,until),hasFollowUp(),()=>app.completeFollowUp(messageId))},
-    archive:{id:'archive',icon:ACTION_ICONS.archive,label:t('mail-archive'),run:()=>app.archiveMessage(messageId)},
+    archive:{id:'archive',icon:replacesArchive()?'smartArchive' as const:ACTION_ICONS.archive,label:t(replacesArchive()?'mail-smart-archive':'mail-archive'),run:()=>app.archiveMessage(messageId)},
+    'smart-archive':smartArchiveAction(app,messageId),
     delete:{id:'delete',icon:'delete' as const,label:t('mail-delete'),run:()=>app.trashMessage(messageId)},
    };return rowActionLayout().more.map(id=>actions[id]);
   }});
@@ -247,11 +250,12 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
     'archive':()=>(<button
           type="button"
           class={`msg-actions__btn ${css.actionBtn} ${a11y.iconButton}`}
-          aria-label={t('mail-archive')}
+          aria-label={t(replacesArchive()?'mail-smart-archive':'mail-archive')}
           onClick={() => void app.archiveMessage(id())}
         >
-          <Icon name={ACTION_ICONS.archive} />
+          <Icon name={replacesArchive()?'smartArchive':ACTION_ICONS.archive} />
         </button>),
+    'smart-archive':()=>(<button type="button" class={`msg-actions__btn ${css.actionBtn} ${a11y.iconButton}`} aria-label={t('mail-smart-archive')} onClick={()=>void app.smartArchiveMessage(id())}><Icon name="smartArchive"/></button>),
     'delete':()=>(<button
           type="button"
           class={`msg-actions__btn ${css.actionBtn} ${a11y.iconButton}`}

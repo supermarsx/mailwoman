@@ -4,6 +4,7 @@ void loadCatalog('snooze');
 import {FilePreviewPreferences,FILE_PREVIEWS_CARD} from './FilePreviewPreferences.tsx';
 import {SnoozePreferences,SNOOZE_CARD,FOLLOW_UP_CARD} from './SnoozePreferences.tsx';
 import {SettingsSubtabs} from './SettingsSubtabs.tsx';
+import {SmartArchivePreferences,SMART_ARCHIVE_CARD} from './SmartArchivePreferences.tsx';
 import {ReaderActionPreferences,READER_ACTIONS_CARD} from './ReaderActionPreferences.tsx';
 import { MessageBadges, MESSAGE_BADGES_CARD } from './MessageBadges.tsx';
 import { For, Show, onMount, type JSX } from 'solid-js';
@@ -70,6 +71,7 @@ export function ReaderAppearanceSettings(props:{senders?:JSX.Element;cache?:JSX.
       {id:'actions',label:'reader-actions-title',cards:['reader-card-actions',READER_ACTIONS_CARD.id],content:<>{cardsFor(READER_CARDS.filter(card=>card.id==='reader-card-actions'))}<ReaderActionPreferences/></>},
       {id:'follow-up',label:'follow-up-title',cards:[FOLLOW_UP_CARD.id],content:<SnoozePreferences followUp/>},
       {id:'snooze',label:'mail-snooze',cards:[SNOOZE_CARD.id],content:<SnoozePreferences/>},
+      {id:'smart-archive',label:'smart-archive-title',cards:[SMART_ARCHIVE_CARD.id],content:<SmartArchivePreferences/>},
       {id:'attachments',label:ATTACHMENTS_BAR_CARD_SPEC.title,cards:[ATTACHMENTS_BAR_CARD_SPEC.id,ATTACHMENT_PREVIEW_CARD.id,FILE_PREVIEWS_CARD.id],content:<><AttachmentsBarSettings/><AttachmentPreviewPreferences/><FilePreviewPreferences/></>},
       {id:'badges',label:MESSAGE_BADGES_CARD.title,cards:[MESSAGE_BADGES_CARD.id],content:<MessageBadges/>},
       {id:'senders',label:'avatars-title',cards:['avatars-card','save-contacts-card'],content:props.senders},

@@ -5,6 +5,7 @@ import {StoragePersistencePrompt} from './components/StoragePersistencePrompt.ts
 import {startSharedToasts} from './components/toast/shared.ts';
 import {providerCallbackCandidate} from './api/providerOauth.ts';
 import {SnoozeDialog} from './components/SnoozeDialog.tsx';
+import {SmartArchiveDialog} from './components/SmartArchiveDialog.tsx';
 import {requestMessageOpen} from './state/messageOpenRequest.ts';
 import {startNotificationCenter} from './state/notificationCenter.ts';
 import {toast} from './components/toast/toast.ts';
@@ -369,6 +370,7 @@ export function App(): JSX.Element {
         </Switch>
       </Show>
       <SnoozeDialog/>
+      <SmartArchiveDialog/>
       <ToastRegion />
       <ConnectionToast />
       <NewVersionToast />

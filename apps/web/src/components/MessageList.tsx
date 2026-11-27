@@ -49,6 +49,7 @@ import { threadKey, type ThreadVisualRow } from './threads.ts';
 import {conversationsEnabled} from './conversationPreference.ts';
 import {ReadingPaneControl} from './ReadingPaneControl.tsx';
 import {settings} from '../api/settings.ts';
+import {readMailCachePolicy} from '../state/mailCachePolicy.ts';
 import {createContextMenu} from './ContextMenu.tsx';
 import {createMessageOrder,isMessageListOrder,MESSAGE_LIST_ORDERS,type MessageOrderController} from './messageOrder.ts';
 import {groupMessageRows,groupedWindow,groupedRowTop,groupedIndexAt} from './messageGrouping.ts';
@@ -1019,6 +1020,16 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   const slice = createMemo(() => {
     const s = split();
     return rows().slice(s.loadedStart, s.loadedEnd).map(rowId);
+  });
+  // Start at the viewport, ahead of overscan rows; scrolling cancels obsolete work.
+  // The read cache owns idle delay, exclusions, deduplication and pacing.
+  createEffect(()=>{
+    const policy=readMailCachePolicy();
+    if(app.listLoading()||!policy.prefetchEnabled||!policy.preloadMessages||!policy.idleEnabled)return;
+    const window=split(),start=Math.max(window.loadedStart,indexAt(scrollTop()));
+    const stops=rows().slice(start,Math.min(window.loadedEnd,start+policy.maxQueued))
+      .map(row=>app.prefetchMessage?.(row.email.id,'idle'));
+    onCleanup(()=>stops.forEach(stop=>stop?.()));
   });
   const motionIds=createMemo(()=>rows().map(rowId));
   const listMotion=createMessageListMotion();

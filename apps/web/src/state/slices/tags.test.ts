@@ -26,6 +26,7 @@ describe('isLabelKeyword', () => {
   it('rejects system $-flags, accepts user labels', () => {
     expect(isLabelKeyword('$seen')).toBe(false);
     expect(isLabelKeyword('$flagged')).toBe(false);
+    expect(isLabelKeyword('mw-followup-completed')).toBe(false);
     expect(isLabelKeyword('work')).toBe(true);
   });
 });

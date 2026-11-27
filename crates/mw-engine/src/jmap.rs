@@ -1880,12 +1880,14 @@ impl Engine {
         // Part descriptors alone are metadata, not evidence of reading a body.
         // Standards clients renew only when requesting actual body values;
         // Mailwoman's explicit intent also distinguishes reads from prefetch.
-        let body_use=args.get("mailwomanBodyUse").and_then(Value::as_bool).unwrap_or_else(||{
+        let wants_body_values =
             args.get("fetchHTMLBodyValues").and_then(Value::as_bool)==Some(true)
                 || args.get("fetchTextBodyValues").and_then(Value::as_bool)==Some(true)
-                || args.get("fetchAllBodyValues").and_then(Value::as_bool)==Some(true)
-        });
-        if body_use{
+                || args.get("fetchAllBodyValues").and_then(Value::as_bool)==Some(true);
+        let body_use=args.get("mailwomanBodyUse").and_then(Value::as_bool).unwrap_or(wants_body_values);
+        // Speculative reads fetch cold bodies too, without counting as reader
+        // activity or extending the body's last-used retention lease.
+        if body_use || wants_body_values {
             let ids: Vec<String> = requested.iter().map(|id| (*id).to_owned())
                 .collect::<std::collections::BTreeSet<_>>().into_iter().collect();
             let messages = match self.store().get_account_messages(account_id, &ids).await {
@@ -1896,7 +1898,7 @@ impl Engine {
                 let id = &message.stable_id;
                 if message.blob_ref.is_none(){if let Err(error)=self.message_raw(account_id,id).await{return server_fail(&error);}}
                 if let Err(error)=self.hydrate_reader_body_values(account_id,id).await{return server_fail(&error);}
-                if let Err(error)=self.record_cached_body_use(account_id,id).await{return server_fail(&error);}
+                if body_use && let Err(error)=self.record_cached_body_use(account_id,id).await{return server_fail(&error);}
             }
         }
 

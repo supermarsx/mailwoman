@@ -131,6 +131,12 @@ pub(crate) async fn effective(
         allow_direct,
         inline_parts: state.engine.is_some(),
         remote_image_downloads: boolean("privacy.remoteImageDownloads"),
+        body_image_cache_enabled: values
+            .get("privacy.bodyImageCacheEnabled")
+            .and_then(|v| v.value.as_bool())
+            .unwrap_or(true),
+        body_image_cache_ttl_secs: number("privacy.bodyImageCacheTtlSecs", 600)
+            .clamp(60, mw_remote_content::browser_cache::MAX_AGE_SECS),
         trusted_hosts: hosts("images.trustedHosts"),
         blocked_hosts: hosts("images.blockedHosts"),
         locked: Locks {

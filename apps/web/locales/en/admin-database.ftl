@@ -105,7 +105,8 @@ admin-resources-poll-help = Updates every 10 seconds while this page is visible.
 admin-resources-container = Container isolation detected. Capacity measurements include readable resource limits.
 
 admin-db-online-title = Online SQLite conversion
-admin-db-online-help = Builds a new SQLite generation while mail stays online. Database requests may queue briefly during switching. Extra disk space is required; the previous generation is retained.
+admin-db-online-purpose = Prepares an older SQLite database to return unused space to disk in small background steps after data is deleted. Use it when background database maintenance reports that conversion is required. This enables ongoing space recovery instead of leaving the database file at its previous size after deletions.
+admin-db-online-help = Copies and verifies the database while mail stays online, then switches to the new copy. Database requests may queue briefly during switching. Extra disk space is required; the previous copy is retained for verification.
 admin-db-online-start = Start conversion
 admin-db-online-cancel = Cancel conversion
 admin-db-online-none = No conversion has been started in this server process.

@@ -1,5 +1,6 @@
 void loadCatalog('snooze');
 import {followUpActions} from './followUpActions.ts';
+import {smartArchiveAction} from './smartArchiveActions.ts';
 import {requestDraftPreview,requestDraftMessagePreview} from './compose/draftPreview.ts';
 import {isDraftMessage} from './draftMessage.ts';
 import {resolveSnooze,snoozePresetLabel} from '../state/snooze.ts';
@@ -166,8 +167,9 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
   if(searches.length)rows.push({id:'search',label:t('search-refine-menu'),icon:'search',separatorBefore:true,children:searches,run:()=>{}});
   // t94: the sender's Focused inbox override; the current choice is checked.
   for(const row of focusActions(app,message))rows.push(row);
+  rows.push({id:'archive',label:t('mail-archive'),icon:ACTION_ICONS.archive,disabled:!app.mailboxes().some(box=>box.role==='archive'&&!message.mailboxIds[box.id]&&box.myRights?.mayAddItems!==false),run:()=>app.archiveMessage(id,{standard:true})});
+  {const selected=app.selectedIds();rows.push(smartArchiveAction(app,selected.has(id)&&selected.size>1?[...selected]:id));}
   for(const [role,label,icon,run] of [
-   ['archive','mail-archive',ACTION_ICONS.archive,()=>app.archiveMessage(id)],
    ['junk','mail-mark-spam','spam',()=>app.markSpam(id)],
    ['trash','mail-delete','delete',()=>app.trashMessage(id)],
   ] as const)if(app.mailboxes().some(box=>box.role===role&&!message.mailboxIds[box.id]&&!spamFolderHidden(box)))rows.push({id:role,label:t(label),icon,run});
@@ -184,7 +186,7 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
   rows.push({id:'followup',label:t('mail-flag'),icon:ACTION_ICONS.followUp,run:()=>{},children:followUpActions(until=>app.setFollowUp(id,until),!!message.followUpAt,()=>app.completeFollowUp(id))});
   if(app.tags().length)rows.push({id:'labels',label:t('mail-label'),icon:'tag',run:()=>{},children:app.tags().map(tag=>({id:`tag:${tag.id}`,label:tag.name,icon:message.keywords?.[tag.id]?'check':'tag',checked:message.keywords?.[tag.id]===true,run:()=>message.keywords?.[tag.id]?app.removeTag(id,tag.id):app.applyTag(id,tag.id)}))});
   if(mailFeature('allowDownload'))rows.push({id:'download' ,label:t('mail-context-download'),icon:ACTION_ICONS.export,run:()=>{if(!exportFromMenu(app,id,message))void app.exportMessage(id);}});
-  {const more=messageActionRows(app,message);if(more.length)rows.push({...more[0]!,separatorBefore:true},...more.slice(1));}
+  {const more=messageActionRows(app,message,new Set(['standard-archive']));if(more.length)rows.push({...more[0]!,separatorBefore:true},...more.slice(1));}
   rows.push(order.contextAction());
   if(messageDialogEnabled())rows.push({id:'properties',label:t('props-menu-properties'),icon:'info',separatorBefore:true,run:()=>{openMessageProperties(message,dialogActionsFor(app,message));}});
   // Keep marking commands together without changing their message/selection

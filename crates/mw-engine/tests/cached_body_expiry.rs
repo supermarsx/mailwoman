@@ -265,7 +265,7 @@ async fn explicit_reader_restores_expired_body_and_background_download_does_not_
     for name in ["textBody", "htmlBody", "futureMetadata"] {
         assert_eq!(expired[name], original[name], "expiry must preserve {name}");
     }
-    // Speculative/header reads never restore expired content.
+    // Header polling never restores expired content; explicit body prefetch does.
     let headers=engine.handle_jmap(&account,&json!({"methodCalls":[["Email/get",{"accountId":account,"ids":[id],"properties":["id","subject"]},"h"]]})).await;
     assert_eq!(headers["methodResponses"][0][0], "Email/get");
     assert_eq!(backend.calls.load(Ordering::SeqCst), 0);
@@ -297,10 +297,14 @@ async fn explicit_reader_restores_expired_body_and_background_download_does_not_
         );
         assert_eq!(backend.calls.load(Ordering::SeqCst), 0);
     }
+    *backend.flag_on_fetch.lock().unwrap() = Some(id.clone());
     let prefetch=engine.handle_jmap(&account,&json!({"methodCalls":[["Email/get",{"accountId":account,"ids":[id],"properties":["id","bodyValues"],"fetchHTMLBodyValues":true,"mailwomanBodyUse":false},"p"]]})).await;
     assert_eq!(prefetch["methodResponses"][0][0], "Email/get");
-    assert_eq!(backend.calls.load(Ordering::SeqCst), 0);
-    let still_expired: serde_json::Value = serde_json::from_slice(
+    assert_eq!(backend.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(prefetch["methodResponses"][0][1]["list"][0]["bodyValues"], original["bodyValues"]);
+    assert_eq!(store.cached_body_expiry_stats().await.unwrap().oldest_use_at, Some(1),
+        "speculation must not renew actual reader activity");
+    let prefetched: serde_json::Value = serde_json::from_slice(
         &store
             .get_account_envelope(&account, &id)
             .await
@@ -308,11 +312,8 @@ async fn explicit_reader_restores_expired_body_and_background_download_does_not_
             .unwrap(),
     )
     .unwrap();
-    assert!(
-        still_expired.get("bodyValues").is_none(),
-        "prefetch must not hydrate the sealed payload"
-    );
-    *backend.flag_on_fetch.lock().unwrap() = Some(id.clone());
+    assert_eq!(prefetched["bodyValues"], original["bodyValues"],
+        "prefetch must hydrate the sealed payload without extending retention");
     let standard=engine.handle_jmap(&account,&json!({"methodCalls":[["Email/get",{"accountId":account,"ids":[id],"properties":["id","bodyValues"],"fetchHTMLBodyValues":true},"s"]]})).await;
     assert_eq!(standard["methodResponses"][0][0], "Email/get");
     assert_eq!(
@@ -344,7 +345,7 @@ async fn explicit_reader_restores_expired_body_and_background_download_does_not_
     assert_eq!(
         backend.calls.load(Ordering::SeqCst),
         1,
-        "standard body reads must refetch"
+        "the actual reader must reuse the speculatively fetched body"
     );
     assert!(
         store

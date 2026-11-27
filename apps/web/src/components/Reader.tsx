@@ -1038,8 +1038,9 @@ function ReaderBody(props: ReaderProps): JSX.Element {
       let signed = EMPTY_SIGNED;
       if (urls.length || parts.length) { try { signed = await signContent(k.email.id, { urls, parts }, k.account); } catch { failed = true; } }
       if (!current()) return cancelled();
-      // One batched, authenticated request fetches the images into the server cache; the frame's own requests then hit it (best effort, silent).
-      if (signed.images.length > 0) { prewarmAbort?.abort(); prewarmAbort = new AbortController(); void prewarmSignedImages(signed.images, { signal: prewarmAbort.signal }); }
+      // Let the frame reuse its browser HTTP cache instead of fetching every
+      // image again through an unconditional server-side warmup request.
+      if (signed.images.length > 0 && effective.bodyImageCacheEnabled === false) { prewarmAbort?.abort(); prewarmAbort = new AbortController(); void prewarmSignedImages(signed.images, { signal: prewarmAbort.signal }); }
       return { blocked, restored, original:!!original,originalReview:originalHelpers?.reviewOriginalLinks,originalReport:original&&originalHelpers?originalHelpers.originalHtmlReport(original):undefined, scope:k.scope, emailId: k.email.id, account: k.account, html: original&&originalHelpers?originalHelpers.renderOriginalHtml(original,signed,effective,cidParts,remoteServerBase(),k.securityMode==='full-sanitized'):rewriteReaderContent(html, signed, effective, cidParts, undefined, window.innerWidth, window.devicePixelRatio), sanitized, refs,cidParts, policy: effective, failed, images: signed.images.length, imageSources:signed.images };
     },
   );
@@ -1588,6 +1589,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
               <Show when={badgeVisible('dates',!!email().sentAt&&email().sentAt!==email().receivedAt)}><MessageTimes sent={email().sentAt} received={email().receivedAt}/></Show>
               <Show when={badgeVisible('importance',priorityOf(email())!=='normal')}><BadgeContextMenu badge="importance"><PriorityMark priority={priorityOf(email())} badge/></BadgeContextMenu></Show>
               <Show when={email().followUpAt&&badgeVisible('follow-up',true)}><BadgeContextMenu badge="follow-up"><span class="mw-badge"><Icon name="flag"/>{t('mail-flag')}: {formatDateTime(email().followUpAt!)}</span></BadgeContextMenu></Show>
+              <Show when={email().keywords?.['mw-followup-completed']===true&&badgeVisible('follow-up',true)}><BadgeContextMenu badge="follow-up"><span class="mw-badge" data-testid="reader-followup-finished"><Icon name="check"/>{t('mail-follow-up-finished')}</span></BadgeContextMenu></Show>
               <Show when={email().snoozedUntil&&badgeVisible('snooze',true)}><BadgeContextMenu badge="snooze"><span class="mw-badge"><Icon name="clock"/>{t('mail-snooze')}: {formatDateTime(email().snoozedUntil!)}</span></BadgeContextMenu></Show>
               <Show when={folderNames().length>0&&badgeVisible('folder',folderNotable())}><BadgeContextMenu badge="folder"><FolderBadge names={folderNames()} role={folderRole()} onGo={goToFolder}/></BadgeContextMenu></Show>
               {/* Security chip → expandable panel: server verdict merged

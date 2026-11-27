@@ -1213,9 +1213,9 @@ async fn proxy_image_inner(
         let (etag, png) = (found.etag, found.png);
         record_cache(true);
         if if_none_match(&headers, &etag) {
-            return Some(not_modified(&etag));
+            return Some(remote_content::cache_display_response(not_modified(&etag), &policy));
         }
-        Some(image_response(png, etag))
+        Some(remote_content::cache_display_response(image_response(png, etag), &policy))
     };
     if let Some(response) = cached_response().await {
         return response;
@@ -1255,7 +1255,7 @@ async fn proxy_image_inner(
         if let Some((etag, png)) =
             swr::stale_on_error(tier, &key, policy.image_tier.max_stale_secs).await
         {
-            return image_response(png, etag);
+            return remote_content::cache_display_response(image_response(png, etag), &policy);
         }
         return remote_content::failed_response(failure.refusal(), policy.negative_cache_ttl);
     }
@@ -1320,7 +1320,7 @@ async fn proxy_image_inner(
             if let Some((etag, png)) =
                 swr::stale_on_error(tier, &key, policy.image_tier.max_stale_secs).await
             {
-                return image_response(png, etag);
+                return remote_content::cache_display_response(image_response(png, etag), &policy);
             }
             return response;
         }
@@ -1330,7 +1330,7 @@ async fn proxy_image_inner(
     if let Some(why) = remote_content::type_refusal(content_type.as_deref(), &raw) {
         return (StatusCode::UNSUPPORTED_MEDIA_TYPE, why).into_response();
     }
-    Box::pin(remote_content::reencode_and_answer(
+    let response=Box::pin(remote_content::reencode_and_answer(
         raw,
         Some(key),
         &policy,
@@ -1339,7 +1339,8 @@ async fn proxy_image_inner(
         Some((upstream, directives)),
         width,
     ))
-    .await
+    .await;
+    remote_content::cache_display_response(response, &policy)
 }
 
 /// Refuse without DNS or network I/O; preserve pure URL validation and throttling.
@@ -1383,13 +1384,10 @@ async fn ungranted_response(
         .into_response()
 }
 
-/// Browser caching of a proxied image. The URL carries the signed handle, which
-/// names one (account, source URL) pair and expires; the bytes behind a handle
-/// do not change while it lives, so a re-opened message or reply is answered
-/// from the browser's per-user cache for ten minutes (well inside the one-hour
-/// handle lifetime) and revalidated by `ETag` after that. `private`: never a
-/// shared cache. The web client sends `Clear-Site-Data: "cache"` on sign-out.
-pub const IMAGE_CACHE_CONTROL: &str = "private, max-age=600";
+/// Default for image response builders. Display handlers apply the effective
+/// user/admin browser policy before returning the response. Cache freshness
+/// does not extend network authorization. Server RAM/disk policy is independent.
+pub const IMAGE_CACHE_CONTROL: &str = "private, max-age=600, must-revalidate";
 
 /// Build a `200` image response with the content-hash `ETag` + private caching.
 fn image_response(png: bytes::Bytes, etag: String) -> Response {

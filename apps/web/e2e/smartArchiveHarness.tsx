@@ -1,0 +1,18 @@
+import {onMount} from 'solid-js';
+import {render} from 'solid-js/web';
+import {AppContext} from '../src/state/context.ts';
+import {createAppState} from '../src/state/store.ts';
+import {MessageList} from '../src/components/MessageList.tsx';
+import {SmartArchiveDialog} from '../src/components/SmartArchiveDialog.tsx';
+import {SmartArchivePreferences} from '../src/screens/Settings/SmartArchivePreferences.tsx';
+import {ToastRegion} from '../src/components/toast/ToastRegion.tsx';
+import {loadSettings} from '../src/api/settings.ts';
+import {loadCatalog} from '../src/i18n';
+import type {Client} from '../src/api/client.ts';
+import {CAP_MAIL} from '../src/api/jmap-types.ts';
+import '../src/styles/app.css';
+import '../src/theme/themes.css.ts';
+const identity={username:'reader@example.test',accountId:'acct1',storageAuthority:'smart-archive-fixture'};
+void loadCatalog('settings');
+const client:Client={login:async()=>identity,logout:async()=>{},me:async()=>identity,session:async()=>({capabilities:{},accounts:{acct1:{name:'Fixture',isPersonal:true,isReadOnly:false,accountCapabilities:{}}},primaryAccounts:{[CAP_MAIL]:'acct1'},username:identity.username,apiUrl:'/fixture-jmap',downloadUrl:'/d',uploadUrl:'/u',eventSourceUrl:'/e',state:'s'}),sanitize:async html=>html,onNetwork:()=>()=>{},jmap:async request=>(await fetch('/fixture-jmap',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(request)})).json()};
+render(()=>{const app=createAppState(client);onMount(()=>{void app.login({username:identity.username,password:'fixture'}).then(()=>loadSettings({refresh:true}));});return <AppContext.Provider value={app}><main style={{display:'grid','grid-template-columns':'minmax(400px,1fr) 380px',height:'90vh'}}><MessageList/><aside style={{overflow:'auto'}}><SmartArchivePreferences/></aside></main><SmartArchiveDialog/><ToastRegion/></AppContext.Provider>;},document.getElementById('root')!);

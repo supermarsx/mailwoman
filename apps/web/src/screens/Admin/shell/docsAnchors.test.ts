@@ -36,9 +36,9 @@ export function docsCalls(src: string, file = ''): Call[] {
 }
 
 describe('admin docs anchors', () => {
-  it('the link keeps the docs/admin/<area>.md#<id> path a link check reads', () => {
-    expect(adminDocsHref('sso', 'issuerUrl')).toMatch(/\/docs\/admin\/sso\.md#issuerUrl$/);
-    expect(adminDocsHref('sso')).toMatch(/\/docs\/admin\/sso\.md$/);
+  it('opens the themed manual and preserves the field anchor', () => {
+    expect(adminDocsHref('sso', 'issuerUrl')).toBe('https://supermarsx.github.io/mailwoman/admin/sso#issuerUrl');
+    expect(adminDocsHref('sso')).toBe('https://supermarsx.github.io/mailwoman/admin/sso');
   });
 
   it('finds literal and AREA calls', () => {

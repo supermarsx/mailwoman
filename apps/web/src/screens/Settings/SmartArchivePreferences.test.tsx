@@ -1,0 +1,8 @@
+import {afterEach,expect,it,vi} from 'vitest';
+import {cleanup,fireEvent,render,screen} from '@solidjs/testing-library';
+import {SmartArchivePreferences} from './SmartArchivePreferences.tsx';
+const fixture=vi.hoisted(()=>({locked:false,save:vi.fn(async(_key:string,_value:unknown)=>true)}));
+vi.mock('./useSetting.ts',()=>({useSetting:(key:string,fallback:unknown)=>({value:()=>fallback,entry:()=>({value:fallback}),locked:()=>fixture.locked,saving:()=>false,error:()=>'',reset:async()=>true,set:(value:unknown)=>fixture.save(key,value)})}));
+afterEach(()=>{cleanup();fixture.locked=false;fixture.save.mockClear();});
+it('leaves enablement and replacement off and saves every preference through user policy',()=>{render(()=><SmartArchivePreferences/>);expect(screen.getByLabelText('Enable Smart Archive')).not.toBeChecked();expect(screen.getByLabelText('Replace the main Archive action')).not.toBeChecked();fireEvent.click(screen.getByLabelText('Enable Smart Archive'));expect(fixture.save).toHaveBeenCalledWith('mail.smartArchive.enabled',true);fireEvent.change(screen.getByLabelText('Preferred matching strategy'),{target:{value:'domain'}});expect(fixture.save).toHaveBeenCalledWith('mail.smartArchive.strategy','domain');fireEvent.change(screen.getByLabelText('Maximum related messages to inspect'),{target:{value:'501'}});expect(fixture.save).not.toHaveBeenCalledWith('mail.smartArchive.historyLimit',501);});
+it('honors administrator locks on every Smart Archive control',()=>{fixture.locked=true;render(()=><SmartArchivePreferences/>);for(const control of [...screen.getAllByRole('checkbox'),...screen.getAllByRole('combobox'),...screen.getAllByRole('spinbutton'),...screen.getAllByRole('textbox')])expect(control).toBeDisabled();});

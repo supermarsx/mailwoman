@@ -15,10 +15,22 @@ beforeEach(() => {
     const body = init?.method === 'PUT' ? JSON.parse(String(init.body)) as {value:unknown} : null;
     if (body) { writes.push({ url, value: body.value }); return new Response(JSON.stringify(free(body.value))); }
     if(init?.method==='DELETE'){writes.push({url,reset:true});return new Response(JSON.stringify(free(false)));}
-    return new Response(JSON.stringify({ settings: {'privacy.imageRetryAttempts':free(3,held),'privacy.imageRetryDelayMs':free(5000,held), 'mail.reader.allowOriginalHtml':free(false,held),'privacy.trackerOverrideAllowed':free(true,held),'mail.reader.unsafeHtmlMode':free('ask',held),'privacy.remoteContent': free('ask', held), 'privacy.trackers': free(true, held), 'privacy.cleanLinks': free(true, held), 'privacy.stripMailerHeaders': free(true, held) } }));
+    return new Response(JSON.stringify({ settings: {'privacy.bodyImageCacheEnabled':free(true,held),'privacy.bodyImageCacheTtlSecs':free(600,held),'privacy.imageRetryAttempts':free(3,held),'privacy.imageRetryDelayMs':free(5000,held), 'mail.reader.allowOriginalHtml':free(false,held),'privacy.trackerOverrideAllowed':free(true,held),'mail.reader.unsafeHtmlMode':free('ask',held),'privacy.remoteContent': free('ask', held), 'privacy.trackers': free(true, held), 'privacy.cleanLinks': free(true, held), 'privacy.stripMailerHeaders': free(true, held) } }));
   }));
 });
 describe('Privacy settings', () => {
+  it('defaults browser image caching on and saves bounded lifetimes and disable choices',async()=>{
+    render(()=><Privacy/>);const enabled=await screen.findByLabelText('Cache message body images in this browser');const ttl=screen.getByLabelText('Body image cache lifetime');
+    await waitFor(()=>expect(enabled).toBeEnabled());expect(enabled).toBeChecked();expect(ttl).toHaveValue(10);
+    fireEvent.change(ttl,{target:{value:'30'}});await waitFor(()=>expect(writes).toContainEqual({url:'/api/settings/privacy.bodyImageCacheTtlSecs',value:1800}));
+    fireEvent.change(ttl,{target:{value:'1576801'}});expect(writes).toHaveLength(1);
+    await waitFor(()=>expect(ttl).toBeEnabled());fireEvent.change(screen.getByLabelText('Body image cache unit'),{target:{value:'years'}});fireEvent.change(ttl,{target:{value:'3'}});await waitFor(()=>expect(writes).toContainEqual({url:'/api/settings/privacy.bodyImageCacheTtlSecs',value:94608000}));
+    fireEvent.click(enabled);await waitFor(()=>expect(writes).toContainEqual({url:'/api/settings/privacy.bodyImageCacheEnabled',value:false}));expect(ttl).toBeDisabled();
+  });
+  it('honours administrator locks on browser image cache settings',async()=>{
+    held=true;
+    render(()=><Privacy/>);expect(await screen.findByLabelText('Cache message body images in this browser')).toBeDisabled();expect(screen.getByLabelText('Body image cache lifetime')).toBeDisabled();expect(writes).toEqual([]);
+  });
   it('saves bounded image retry preferences in seconds and allows inherited defaults',async()=>{
     render(()=><Privacy/>);const attempts=await screen.findByLabelText('Automatic image retry attempts');const delay=screen.getByLabelText('Image retry delay (seconds)');await waitFor(()=>expect(attempts).toBeEnabled());expect(attempts).toHaveValue(3);expect(delay).toHaveValue(5);
     fireEvent.change(attempts,{target:{value:'0'}});await waitFor(()=>expect(writes).toContainEqual({url:'/api/settings/privacy.imageRetryAttempts',value:0}));

@@ -1474,6 +1474,45 @@ mail-move-search = Search folders
 mail-mark-finished = Mark as finished
 
 mail-follow-up-finished = Follow-up finished
+mail-smart-archive = Smart Archive
+mail-smart-archive-strategy-sender = Folder of the latest email from this sender
+mail-smart-archive-strategy-domain = Folder of the latest email from this sender domain
+mail-smart-archive-strategy-conversation = Folder of the latest email in this conversation
+mail-smart-archive-strategy-sender-frequency = Folder used most often for this sender
+mail-smart-archive-default = Use preferred matching strategy
+mail-smart-archive-review = Review the destination folders before filing these messages. A folder choice is required when several destinations match. You can undo the move afterwards.
+mail-smart-archive-group =
+    { $count ->
+        [one] { $sender } · 1 message
+       *[other] { $sender } · { $count } messages
+    }
+mail-smart-archive-choose = Choose a destination folder
+mail-smart-archive-history =
+    { $count ->
+        [one] 1 matching message, latest { $date }
+       *[other] { $count } matching messages, latest { $date }
+    }
+mail-smart-archive-no-history = No matching filed messages were found within the configured history limit. These are your fallback destinations.
+mail-smart-archive-settings = Smart Archive settings
+mail-smart-archive-enable = Enable Smart Archive in settings
+mail-smart-archive-disabled = Smart Archive is disabled. Enable it in Settings to use sender-based filing.
+mail-smart-archive-no-destination = No eligible Smart Archive destination was found. No messages were moved.
+mail-smart-archive-folder-changed = A Smart Archive destination is no longer available. Review the folders and try again.
+mail-smart-archive-done =
+    { $count ->
+        [one] Smart archived 1 message to { $folder }
+       *[other] Smart archived { $count } messages to { $folder }
+    }
+mail-smart-archive-count =
+    { $count ->
+        [one] Smart archived 1 message
+       *[other] Smart archived { $count } messages
+    }
+mail-smart-archive-skipped =
+    { $count ->
+        [one] Skipped 1 message without an eligible Smart Archive destination.
+       *[other] Skipped { $count } messages without an eligible Smart Archive destination.
+    }
 
 mail-toast-follow-up-finished = Follow-up marked as finished
 

@@ -8,6 +8,7 @@ type Loader<T>=(signal:AbortSignal)=>Promise<T>;
 interface Entry<T>{value:T;at:number;bytes:number;kind:MailCacheKind;key:string}
 interface Job<T>{key:string;kind:MailCacheKind;owner:PreferenceAccount;loader:Loader<T>;controller:AbortController;promise:Promise<T>;resolve:(value:T)=>void;reject:(error:unknown)=>void;speculative:boolean;started:boolean;ready:boolean;timer?:ReturnType<typeof setTimeout>;options?:PrefetchOptions;epoch:number;waiters:number;publish:boolean}
 const aborted=()=>new DOMException('Mail cache request cancelled','AbortError');
+const priority=(kind:MailCacheKind,request:PrefetchOptions|undefined)=>(request?.trigger==='idle'?0:4)+(kind==='message'?2:0);
 const sameOwner=(a:PreferenceAccount|null,b:PreferenceAccount|null)=>a===b||!!a&&!!b&&a.id===b.id&&a.generation===b.generation&&a.storageAuthority===b.storageAuthority;
 /** Bounded session cache with optional encrypted, account-scoped offline snapshots.
  * All requests use caller-supplied authenticated transport. */
@@ -67,7 +68,7 @@ export function createMailReadCache<T>(options:{policy:()=>MailCachePolicy;curre
   const p=syncPolicy();if(disposed)return;
   if([...jobs.values(),...detached].some(job=>!job.speculative))return;
   let running=[...jobs.values()].filter(job=>job.started).length;
-  for(const job of [...jobs.values()]){
+  for(const job of [...jobs.values()].sort((a,b)=>priority(b.kind,b.options)-priority(a.kind,a.options))){
    if(job.started||!job.ready)continue;
    if(!job.options||!speculativeAllowed(job.kind,job.options,p)||!admitted(job.owner)){cancel(job);continue;}
    if(running>=p.maxConcurrency)break;running++;start(job);
@@ -97,7 +98,13 @@ export function createMailReadCache<T>(options:{policy:()=>MailCachePolicy;curre
  }
  function prefetch(captured:PreferenceAccount,key:string,kind:MailCacheKind,loader:Loader<T>,request:PrefetchOptions):()=>void{
   const p=syncPolicy();if(!admitted(captured)||!speculativeAllowed(kind,request,p)||peek(captured,key,kind)?.fresh||jobs.has(id(key,kind)))return ()=>undefined;
-  if([...jobs.values()].filter(job=>job.speculative&&!job.started).length>=p.maxQueued)return ()=>undefined;
+  const queued=[...jobs.values()].filter(job=>job.speculative&&!job.started);
+  if(queued.length>=p.maxQueued){
+   // Idle folder warming must leave room for bodies and actual pointer/focus hints.
+   const displaced=queued.find(job=>priority(job.kind,job.options)<priority(kind,request));
+   if(!displaced)return ()=>undefined;
+   cancel(displaced);
+  }
   const job=make(captured,key,kind,loader,true);job.options=request;
   job.timer=setTimeout(()=>{job.ready=true;pump();},request.trigger==='idle'?p.idleDelayMs:p.dwellMs);
   return ()=>{if(job.speculative){cancel(job);pump();}};

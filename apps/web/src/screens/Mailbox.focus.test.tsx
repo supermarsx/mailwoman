@@ -84,12 +84,26 @@ describe('opening a message keeps focus in the list (t51)',()=>{
 });
 
 describe('opening a message warms its neighbours',()=>{
+  it('warms the visible list while idle and stops when body preloading is disabled',async()=>{
+    const {app}=await mount();
+    const spy=vi.spyOn(app,'prefetchMessage').mockImplementation(()=>()=>undefined);
+    const policy=(enabled:boolean)=>loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{
+      'mail.cache.idleDelayMs':{value:100,source:'user',locked:false},
+      'mail.cache.maxQueued':{value:2,source:'user',locked:false},
+      'mail.cache.preloadMessages':{value:enabled,source:'user',locked:false},
+    }}))});
+    await policy(true);
+    await waitFor(()=>expect(new Set(spy.mock.calls.filter(call=>call[1]==='idle').map(call=>call[0]))).toEqual(new Set(['a','b'])));
+    expect(app.openEmail()).toBeNull();
+    await policy(false);spy.mockClear();
+    await settle();expect(spy.mock.calls.filter(call=>call[1]==='idle')).toHaveLength(0);
+  },15000);
   it('prefetches the next and previous list messages (bounded), never the open one',async()=>{
     const {app}=await mount();setReadingPane('right');
     const spy=vi.spyOn(app,'prefetchMessage');
     const second=row('Subject b');fireEvent.click(second);
     await waitFor(()=>expect(screen.getByTestId('reading-pane').querySelector('.reader__subject')?.textContent).toBe('Subject b'));
-    const ids=spy.mock.calls.map(call=>call[0]);
+    const ids=spy.mock.calls.filter(call=>call[1]==='focus').map(call=>call[0]);
     expect(ids).toContain('c');expect(ids).toContain('a');expect(ids).not.toContain('b');expect(ids.length).toBeLessThanOrEqual(3);
   });
 });

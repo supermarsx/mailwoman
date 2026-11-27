@@ -6,7 +6,7 @@ export const MAIL_CACHE_FIELDS = [
  ['maxEntries',32,1,512],['maxBytes',16777216,65536,268435456],
  ['prefetchEnabled',true],['preloadHeaders',true],['hoverEnabled',true],['focusEnabled',true],
  ['dwellMs',200,0,10000],['idleEnabled',true],['idleDelayMs',1500,100,60000],
- ['maxConcurrency',1,1,4],['maxQueued',8,1,64],['preloadMessages',false],
+ ['maxConcurrency',1,1,4],['maxQueued',8,1,64],['preloadMessages',true],
 ] as const;
 export type MailCacheField = typeof MAIL_CACHE_FIELDS[number][0];
 export interface MailCachePolicy {
@@ -18,7 +18,7 @@ export interface MailCachePolicy {
 export const DEFAULT_MAIL_CACHE_POLICY:MailCachePolicy={
  enabled:true,refreshOnOpen:true,mailboxes:true,messages:true,keepIndefinitely:false,freshSeconds:30,maxAgeSeconds:300,maxEntries:32,maxBytes:16777216,
  prefetchEnabled:true,preloadHeaders:true,hoverEnabled:true,focusEnabled:true,dwellMs:200,idleEnabled:true,idleDelayMs:1500,
- maxConcurrency:1,maxQueued:8,preloadMessages:false,excludedFolders:['role:trash','role:junk'],
+ maxConcurrency:1,maxQueued:8,preloadMessages:true,excludedFolders:['role:trash','role:junk'],
 };
 /** Unknown/unloaded effective policy never authorizes speculative work. */
 export function readMailCachePolicy():MailCachePolicy {

@@ -6,7 +6,7 @@ import {tokenize,TokenType as CssToken} from '@csstools/css-tokenizer';
 export function remoteServerBase(): string { return isNativeAuth() ? nativeServerBase() ?? location.origin : location.origin + basePath(); }
 
 export type RemoteMode = 'block' | 'ask' | 'proxy' | 'direct';
-export interface RemotePolicy { mode: RemoteMode; trackers: boolean; trackerOverrideAllowed?:boolean; imageLoadBudgetMs?:number; imageRetryAttempts?:number; imageRetryDelayMs?:number; imageResizeMaxWidth?: number | null; cleanLinks: boolean; allowDirect: boolean; inlineParts?: boolean; remoteImageDownloads?: boolean; locked: { mode: boolean; trackers: boolean; cleanLinks: boolean } }
+export interface RemotePolicy { mode: RemoteMode; trackers: boolean; trackerOverrideAllowed?:boolean; bodyImageCacheEnabled?:boolean; bodyImageCacheTtlSecs?:number; imageLoadBudgetMs?:number; imageRetryAttempts?:number; imageRetryDelayMs?:number; imageResizeMaxWidth?: number | null; cleanLinks: boolean; allowDirect: boolean; inlineParts?: boolean; remoteImageDownloads?: boolean; locked: { mode: boolean; trackers: boolean; cleanLinks: boolean } }
 export interface SignedContent { images: { url: string; src: string; ref?: string }[]; parts: { blobId: string; src: string }[]; files: { url: string; src: string }[]; imageDownloads?:{url:string;src:string}[]; refused: { url?: string; blobId?: string; reason: string }[] }
 export interface ReaderReferences { urls: string[]; cids: string[]; trackers: number; files: string[]; links: string[] }
 export const BLOCKED_POLICY: RemotePolicy = { mode: 'block', trackers: true, cleanLinks: true, allowDirect: false, locked: { mode: true, trackers: true, cleanLinks: true } };

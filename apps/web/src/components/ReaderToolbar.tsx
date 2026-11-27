@@ -19,6 +19,8 @@ import {ReaderMoveMenu,moveActions} from './ReaderMoveMenu.tsx';
 import {ReaderSearchMenu,relatedSearchActions} from './search/ReaderSearchMenu.tsx';
 import {useApp} from '../state/context.ts';
 import {settings} from '../api/settings.ts';
+import {replacesArchive,smartArchivePolicy} from '../state/smartArchive.ts';
+import {smartArchiveAction} from './smartArchiveActions.ts';
 import {createReplyDraftIndex} from './compose/replyDrafts.ts';
 import {mailFeature} from '../state/mailFeatures.ts';
 import type {Email} from '../api/jmap-types.ts';
@@ -60,7 +62,7 @@ void loadCatalog('properties'); void loadCatalog('search');
 
 /** Fold order: lower stays on the row longer. */
 export const PRIORITY: Record<string,number> = {
- reply:0,'reply-all':1,forward:2,'edit-draft':-1,'view-draft':2.4,'open-draft':2.5,delete:3,archive:4,move:4.5,conversation:5,links:6,read:7,flag:8,pin:9,spam:10,security:11,headers:11.5,sweep:12,print:13,export:14,properties:15,zoom:10.5,search:6.5,colors:10.7,
+ reply:0,'reply-all':1,forward:2,'edit-draft':-1,'view-draft':2.4,'open-draft':2.5,delete:3,archive:4,'smart-archive':4.1,move:4.5,conversation:5,links:6,read:7,flag:8,pin:9,spam:10,security:11,headers:11.5,sweep:12,print:13,export:14,properties:15,zoom:10.5,search:6.5,colors:10.7,
 };
 
 interface RowAction {id:string;groupEnd?:boolean;inline:()=>JSX.Element;menu:()=>ContextAction[]}
@@ -175,7 +177,8 @@ export function ReaderToolbar(props:{
   pin:plain({id:'pin',icon:icon('pin'),label:()=>pinned()?t('mail-unpin'):t('mail-pin'),help:()=>t('mail-action-help-pin'),pressed:pinned,run:()=>void app.pinMessage(id(),!pinned()),local:true}),
   read:plain({id:'read',icon:()=>unread()?ACTION_ICONS.markRead:ACTION_ICONS.markUnread,label:()=>unread()?t('mail-mark-read'):t('mail-mark-unread'),help:()=>t('mail-action-help-read'),testId:'reader-toggle-read',run:()=>void app.markRead(id(),unread()),local:true}),
   flag:{id:'flag',inline:()=><ReaderMenuAction id="flag" scope={()=>id()} onError={()=>app.showToast('error',t('mail-context-failed'))} action={()=>({id:'flag',label:t('mail-flag-message'),icon:ACTION_ICONS.flag,children:followUpActions(until=>app.setFollowUp(id(),until),!!props.email.followUpAt,()=>app.completeFollowUp(id())),run:()=>{}})}/>,menu:()=>[{id:'flag',label:t('mail-flag-message'),icon:ACTION_ICONS.flag,children:followUpActions(until=>app.setFollowUp(id(),until),!!props.email.followUpAt,()=>app.completeFollowUp(id())),run:()=>{}}]},
-  archive:plain({id:'archive',icon:icon(ACTION_ICONS.archive),label:()=>t('mail-archive'),help:()=>t('mail-action-help-archive'),run:()=>void app.archiveMessage(id())}),
+  archive:plain({id:'archive',icon:()=>replacesArchive()?'smartArchive':ACTION_ICONS.archive,label:()=>t(replacesArchive()?'mail-smart-archive':'mail-archive'),help:()=>t(replacesArchive()?'mail-smart-archive-review':'mail-action-help-archive'),run:()=>void app.archiveMessage(id())}),
+  'smart-archive':{id:'smart-archive',inline:()=><ReaderAction icon="smartArchive" label={t('mail-smart-archive')} help={t('mail-smart-archive-review')} onClick={()=>void app.smartArchiveMessage(id())}/>,menu:()=>[smartArchiveAction(app,id())]},
   move:{id:'move',inline:()=><ReaderMoveMenu email={props.email}/>,menu:()=>[{id:'move',searchLabel:t('mail-move-search'),label:t('mail-reader-move-to'),icon:ACTION_ICONS.moveTo,children:moveActions(props.email,app),run:()=>{}}]},
   delete:plain({id:'delete',icon:icon('delete'),label:()=>t('mail-delete'),help:()=>t('mail-action-help-delete'),run:()=>void app.trashMessage(id())}),
   spam:plain({id:'spam',icon:icon('spam'),label:()=>t('mail-spam'),help:()=>t('mail-action-help-spam'),run:()=>void app.markSpam(id())}),
@@ -197,7 +200,7 @@ export function ReaderToolbar(props:{
    inline:()=><ReaderAction icon="serverMetadata" label={t('mail-headers-title')} help={t('mail-headers-action-help')} testId="reader-headers" popup="dialog" expanded={headersOpen()} onClick={()=>setHeadersOpen(true)}/>,
    menu:()=>[{id:'headers',label:t('mail-headers-title'),icon:'serverMetadata',run:()=>{setHeadersOpen(true);}}]},
  };
- const primaryIds=createMemo(()=>[...(props.onQuickReply?['quick-reply']:[]),...(sender()!==''&&canDeleteSender()?['delete-sender']:[]),...((props.email.followUpAt||props.email.keywords?.['$flagged'])&&!props.email.keywords?.['mw-followup-completed']?['finish-followup']:[]),...(isDraft()?['edit-draft']:[]),...(mailFeature('allowReply')&&!isDraft()?['reply','reply-all']:[]),...(mailFeature('allowForward')&&!isDraft()?['forward']:[]),...(replyDraft()?['view-draft','open-draft']:[]),...(conversation.available()?['conversation']:[]),...(linkReview.count()>0?['links']:[]),'pin','read','flag','archive','move','delete',...(mailFeature('showSpam')?['spam']:[]),...(mailFeature('allowDownload')?['export']:[]),...(mailFeature('allowPrint')?['print']:[]),'zoom','search',...(sender()!==''?['sweep']:[]),'security',...(props.colors?['colors']:[]),...(props.headersUrl?['headers']:[]),...(messageDialogEnabled()?['properties']:[])],undefined,{equals:(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index])});
+ const primaryIds=createMemo(()=>[...(props.onQuickReply?['quick-reply']:[]),...(sender()!==''&&canDeleteSender()?['delete-sender']:[]),...((props.email.followUpAt||props.email.keywords?.['$flagged'])&&!props.email.keywords?.['mw-followup-completed']?['finish-followup']:[]),...(isDraft()?['edit-draft']:[]),...(mailFeature('allowReply')&&!isDraft()?['reply','reply-all']:[]),...(mailFeature('allowForward')&&!isDraft()?['forward']:[]),...(replyDraft()?['view-draft','open-draft']:[]),...(conversation.available()?['conversation']:[]),...(linkReview.count()>0?['links']:[]),'pin','read','flag','archive',...(smartArchivePolicy().enabled&&!replacesArchive()?['smart-archive']:[]),'move','delete',...(mailFeature('showSpam')?['spam']:[]),...(mailFeature('allowDownload')?['export']:[]),...(mailFeature('allowPrint')?['print']:[]),'zoom','search',...(sender()!==''?['sweep']:[]),'security',...(props.colors?['colors']:[]),...(props.headersUrl?['headers']:[]),...(messageDialogEnabled()?['properties']:[])],undefined,{equals:(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index])});
  const extraRows=createMemo(()=>[...saveRowsFor(app,[props.email]),...focusActions(app,props.email),...messageActionRows(app,props.email,new Set(['move-to']))]);
  const extraId=(value:ContextAction)=>readerMenuActionId(value.id)??value.id;
  const extraIds=createMemo(()=>[...new Set(extraRows().map(extraId))].filter(key=>!primaryIds().includes(key)));

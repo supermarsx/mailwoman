@@ -2,6 +2,9 @@ import {folderViewStyle} from '../components/folderViewPreferences.ts';
 import {messagePreviewLines} from '../components/messagePreview.ts';
 import {activeUnifiedGroup,unifiedAccountAllowed,unifiedFolderAllowed,unifiedPreference,unifiedName} from '../state/unifiedAccountPreferences.ts';
 import {SearchInput} from '../components/SearchInput.tsx';
+import {replacesArchive,smartArchivePolicy,type SmartArchiveStrategy} from '../state/smartArchive.ts';
+import {smartArchiveWorkspace} from '../state/workspaceSmartArchive.ts';
+import {smartArchiveAction} from '../components/smartArchiveActions.ts';
 import {settings} from '../api/settings.ts';
 import {classifyRowClick,dblClickOpensTab} from '../components/messageOpen.ts';
 import {modifierSelectionEnabled} from '../components/mailInteractions.ts';
@@ -142,12 +145,25 @@ export default function UnifiedMail(props:{activeLink:string|null;onOpenMessage?
    if(updated.size!==items.length)toast.error(t('unified-mail-action-failed',{count:items.length-updated.size}));else toast.success(t('unified-mail-updated',{count:updated.size}));
   }finally{setBusy(false);}
  }
+ async function smart(items:UnifiedRow[],strategy?:SmartArchiveStrategy):Promise<void>{
+  if(busy()||!controller||!items.length)return;const request=controller;setBusy(true);
+  try{
+   const moved=await smartArchiveWorkspace(items,boxesFor,request.signal,strategy,()=>setRefresh(value=>value+1));
+   if(request.signal.aborted)return;
+   const keys=new Set(moved.map(unifiedRowKey));
+   setPages(old=>old.map(page=>({...page,rows:page.rows.filter(row=>!keys.has(unifiedRowKey(row)))})));
+   setSelected(old=>new Set([...old].filter(key=>!keys.has(key))));
+   if(moved.length)setRefresh(value=>value+1);
+  }catch{if(!request.signal.aborted)toast.error(t('mail-context-failed'));}
+  finally{setBusy(false);}
+ }
  const actionsFor=(items:UnifiedRow[]):ContextAction[]=>{
   const first=items[0];if(!first)return [];const singleAccount=items.every(row=>row.target.storageAuthority===first.target.storageAuthority);
   return [
    {id:'open',label:t('mail-context-open-new-tab'),icon:'layoutTabs',disabled:items.length!==1,run:()=>open(first)},
    {id:'mark',label:t('mail-mark-as'),icon:'mailCheck',children:[['read','mail-mark-read','mailRead'],['unread','mail-mark-unread','mail'],['flag','mail-flag-message','flag'],['unflag','mail-unflag-message','flag']].map(([action,label,icon])=>({id:action!,label:t(label!),icon:icon as 'mail',run:()=>mutate(items,action as WorkspaceAction)})),run:()=>{}},
    {id:'archive',label:t('mail-archive'),icon:'archive',run:()=>mutate(items,'archive')},
+   smartArchiveAction({...app,smartArchiveMessage:(_ids,strategy)=>smart(items,strategy)},items.map(row=>row.email.id)),
    {id:'trash',label:t('mail-delete'),icon:'delete',run:()=>mutate(items,'trash')},
    {id:'spam',label:t('mail-spam'),icon:'spam',run:()=>mutate(items,'junk')},
    {id:'move',label:t('mail-reader-move-to'),icon:'moveTo',disabled:!singleAccount,searchLabel:t('mail-move-search'),children:singleAccount?boxesFor(first).filter(box=>box.myRights?.mayAddItems===true&&box.mailwomanSearchQuery===undefined).map(box=>({id:`move:${box.id}`,label:box.name,icon:'folder',run:()=>mutate(items,'move',box.id)})):[],run:()=>{}},
@@ -155,7 +171,7 @@ export default function UnifiedMail(props:{activeLink:string|null;onOpenMessage?
   ];
  };
  const menu=createContextMenu({label:()=>t('mail-more-actions'),scope:()=>JSON.stringify([props.activeLink,role(),account(),unreadOnly(),query(),order.value(),[...selected()].sort()]),actions:()=>actionsFor(actionRows()).map(action=>({...action,disabled:busy()||action.disabled===true})),onError:()=>toast.error(t('mail-context-failed'))});
- const bulkActions=():SelectionAction[]=>actionsFor(chosen()).filter(action=>action.id!=='open').map(action=>({id:action.id,label:action.label,icon:action.icon,disabled:action.disabled===true,...(action.children?.length?{menu:()=>action.children!}:{run:action.run})}));
+ const bulkActions=():SelectionAction[]=>actionsFor(chosen()).filter(action=>action.id!=='open'&&(action.id!=='smart-archive'||smartArchivePolicy().enabled&&!replacesArchive())).map(action=>action.id==='archive'&&replacesArchive()?{id:action.id,label:t('mail-smart-archive'),icon:'smartArchive',run:()=>smart(chosen())}:{id:action.id,label:action.label,icon:action.icon,disabled:action.disabled===true,...(action.children?.length?{menu:()=>action.children!}:{run:action.run})});
  return <section class={`list ${css.root}`} style={folderViewStyle(app.density(),'')} aria-label={t('unified-mail-title')} data-mw-surface data-testid="unified-mail" data-list-style={tableMode()?'table':'cards'} data-selecting={selecting()?'true':undefined}>
   <header class={css.bar}><Icon name="mailboxes"/><h2 class={css.title}>{unifiedVirtualMode()&&unifiedName()?unifiedName():t('unified-mail-title')}</h2><div class={css.counts} role="status"><span>{t('unified-mail-total',{count:counter(total())})}</span><span>{t('unified-mail-unread',{count:counter(unread())})}</span><span>{t('unified-mail-loaded',{count:rows().length})}</span></div><button type="button" class={threadCss.segBtn} aria-label={t('mail-select-messages')} aria-pressed={selecting()} onClick={()=>{setSelecting(value=>!value);setSelected(new Set<string>());}}><Icon name="bulkSelect"/></button><MessageOrderMenu order={order} scope={()=>JSON.stringify([props.activeLink,role(),query()])} class="btn btn--ghost"/><button type="button" class="btn btn--ghost" disabled={loading()||busy()} title={t('unified-mail-refresh')} aria-label={t('unified-mail-refresh')} onClick={()=>setRefresh(value=>value+1)}><Icon name="refresh"/></button></header>
   <form class={css.bar} onSubmit={event=>{event.preventDefault();setQuery(search().trim());}}>
@@ -176,7 +192,7 @@ export default function UnifiedMail(props:{activeLink:string|null;onOpenMessage?
         <Show when={selecting()}><input class={css.checkbox} type="checkbox" checked={members(visual).every(item=>selected().has(unifiedRowKey(item)))} aria-label={`${t('mail-selected')}: ${row().email.subject??t('mail-no-subject')}`} onChange={()=>toggleVisual(visual)}/></Show>
         <div class={rowCss.more}><div class={`msg-actions ${rowCss.actions} ${rowCss.actionsFade}`}>
          <button type="button" class={rowCss.actionBtn} disabled={busy()} aria-label={t(row().email.keywords?.['$seen']?'mail-mark-unread':'mail-mark-read')} onClick={()=>void mutate(members(visual),row().email.keywords?.['$seen']?'unread':'read')}><Icon name={row().email.keywords?.['$seen']?'mail':'mailRead'}/></button>
-         <button type="button" class={rowCss.actionBtn} disabled={busy()} aria-label={t('mail-archive')} onClick={()=>void mutate(members(visual),'archive')}><Icon name="archive"/></button>
+         <button type="button" class={rowCss.actionBtn} disabled={busy()} aria-label={t(replacesArchive()?'mail-smart-archive':'mail-archive')} onClick={()=>void (replacesArchive()?smart(members(visual)):mutate(members(visual),'archive'))}><Icon name={replacesArchive()?'smartArchive':'archive'}/></button><Show when={smartArchivePolicy().enabled&&!replacesArchive()}><button type="button" class={rowCss.actionBtn} disabled={busy()} aria-label={t('mail-smart-archive')} onClick={()=>void smart(members(visual))}><Icon name="smartArchive"/></button></Show>
          <button type="button" class={rowCss.actionBtn} disabled={busy()} aria-label={t('mail-delete')} onClick={()=>void mutate(members(visual),'trash')}><Icon name="delete"/></button>
          <button type="button" class={rowCss.actionBtn} aria-label={t('mail-more-actions')} onClick={event=>{setContext(members(visual));menu.toggleBelow(event.currentTarget);}}><Icon name="more"/></button>
         </div><button type="button" class={rowCss.moreToggle} title={t('mail-more-actions')} aria-label={t('mail-more-actions')} onClick={event=>{setContext(members(visual));menu.toggleBelow(event.currentTarget);}}><Icon name="more"/></button></div>

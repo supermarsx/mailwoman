@@ -2048,6 +2048,22 @@ describe('mail bootstrap authority', () => {
 });
 
 describe('session mail cache integration',()=>{
+ it('paints a default-policy prefetched body immediately while foreground refresh is pending',async()=>{
+  const message=email('snappy',{htmlBody:[part('body','text/html')],bodyValues:{body:{value:'<p>Ready before the click</p>'}}});
+  await withInbox([message],async(mail,{jmap})=>{
+   await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'mail.cache.dwellMs':{value:0,source:'user',locked:false}}}))});
+   mail.clearMailCache();const stop=mail.prefetchMessage('snappy','hover');
+   await vi.waitFor(()=>expect(mail.mailCacheStats().entries).toBe(1));stop();
+   let finish!:(value:JmapResponse)=>void;
+   jmap.mockImplementationOnce(()=>new Promise<JmapResponse>(resolve=>{finish=resolve;}));
+   const opening=mail.openMessage('snappy');
+   expect(mail.sanitizedHtml()).toContain('Ready before the click');
+   expect(mail.readLoading()).toBe(false);
+   await vi.waitFor(()=>expect(finish).toBeDefined());
+   finish({methodResponses:[['Email/get',{accountId:'acct1',list:[message]},'g']],sessionState:'s'});
+   await opening;
+  });
+ });
  it('retries a promoted metadata-only prefetch as an actual reader request',async()=>{
   const metadata=email('expired',{htmlBody:[part('body','text/html')]});
   await withInbox([metadata],async(mail,{jmap,setSeed})=>{

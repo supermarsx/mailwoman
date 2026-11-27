@@ -876,7 +876,7 @@ cache-idleEnabled-help = Lädt benachbarte Ordner während Inaktivität vor. Ben
 cache-idleDelayMs-help = Wartezeit nach der letzten Interaktion bis zum Vorladen bei Inaktivität.
 cache-maxConcurrency-help = Maximal gleichzeitig laufende Hintergrundanfragen. Kleinere Werte sparen Bandbreite und Serverleistung.
 cache-maxQueued-help = Maximal wartende Vorladeaufträge. Weitere Aufträge entfallen; laufende werden fortgesetzt.
-cache-preloadMessages-help = Lädt auch Nachrichteninhalte vorab. Standardmäßig aus; benötigt mehr Daten und Cache. Ausschlüsse und Größenlimits gelten weiterhin.
+cache-preloadMessages-help = Lädt auch Nachrichteninhalte vorab. Standardmäßig ein; benötigt mehr Daten und Cache. Ausschlüsse und Größenlimits gelten weiterhin.
 
 settings-badge-auth-sent = Authentifizierung gesendeter Nachrichten
 settings-badge-spam-sent = Spamwerte gesendeter Nachrichten

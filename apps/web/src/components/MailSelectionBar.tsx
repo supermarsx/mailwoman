@@ -1,3 +1,4 @@
+import {replacesArchive,smartArchivePolicy} from '../state/smartArchive.ts';
 // The message list's selection bar (t58; the actions were the inline bulk bar of
 // t28-e16). Every action applies to the whole selection in ONE request (see
 // `mail.ts` `updateEmails`) and raises the shared undo toast, as before; the bar
@@ -88,7 +89,8 @@ export function MailSelectionBar(props: {
     const anyUnread = list.some((m) => m.keywords?.['$seen'] !== true);
     const allFlagged = list.length > 0 && list.every((m) => m.keywords?.['$flagged'] === true);
     const out: SelectionAction[] = [
-      { id: 'archive', label: t('mail-archive'), icon: ACTION_ICONS.archive, testId: 'bulk-archive', run: () => app.archiveMessage(targets()) },
+      { id: 'archive', label: t(replacesArchive()?'mail-smart-archive':'mail-archive'), icon: replacesArchive()?'smartArchive':ACTION_ICONS.archive, testId: 'bulk-archive', run: () => app.archiveMessage(targets()) },
+      ...(smartArchivePolicy().enabled&&!replacesArchive()?[{id:'smart-archive',label:t('mail-smart-archive'),icon:'smartArchive' as const,testId:'bulk-smart-archive',run:()=>app.smartArchiveMessage(targets())}]:[]),
       { id: 'delete', label: t('mail-delete'), icon: 'delete', testId: 'bulk-delete', run: () => app.trashMessage(targets()) },
       { id: 'move', label: t('selection-bar-move'), icon: ACTION_ICONS.moveTo, testId: 'bulk-move', menu: moveItems },
       anyUnread

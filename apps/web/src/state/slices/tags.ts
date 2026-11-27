@@ -33,6 +33,7 @@ export const SYSTEM_KEYWORDS = new Set([
   '$forwarded',
   '$junk',
   '$notjunk',
+  'mw-followup-completed',
 ]);
 
 /** Is `keyword` a user label (vs. a system `$`-flag)? */

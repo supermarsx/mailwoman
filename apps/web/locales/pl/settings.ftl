@@ -897,7 +897,7 @@ cache-idleEnabled-help = Pobiera pobliskie foldery podczas bezczynności. Wymaga
 cache-idleDelayMs-help = Czas oczekiwania od ostatniej interakcji do pobierania podczas bezczynności.
 cache-maxConcurrency-help = Maksymalna liczba równoległych żądań w tle. Niższe wartości oszczędzają łącze i serwer.
 cache-maxQueued-help = Maksymalna liczba oczekujących zadań. Nadmiarowe są odrzucane; uruchomione trwają dalej.
-cache-preloadMessages-help = Pobiera też treść wiadomości. Domyślnie wyłączone; zużywa więcej danych i pamięci. Wykluczenia i limity nadal obowiązują.
+cache-preloadMessages-help = Pobiera też treść wiadomości. Domyślnie włączone; zużywa więcej danych i pamięci. Wykluczenia i limity nadal obowiązują.
 
 settings-badge-auth-sent = Uwierzytelnianie wysłanych wiadomości
 settings-badge-spam-sent = Oceny spamu wysłanych wiadomości

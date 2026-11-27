@@ -4,6 +4,7 @@ pub const MAX_CACHE_BYTES: usize = 32 * 1024 * 1024;
 pub const CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(3600);
 pub use mw_observability::resources;
 pub mod adaptive;
+pub mod browser_cache;
 pub mod capacity;
 pub mod demand;
 pub mod fetch_limits;

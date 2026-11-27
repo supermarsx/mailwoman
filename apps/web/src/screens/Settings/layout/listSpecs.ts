@@ -41,6 +41,8 @@ export const PRIVACY_CARDS: readonly CardSpec[] = [
   { id: 'privacy-card-remote', section: 'privacy', title: 'privacy-title', help: 'privacy-help', rows: [
     { id: 'privacy-mode', label: 'privacy-remote-mode' }, { id: 'privacy-trackers', label: 'privacy-trackers' }, { id: 'privacy-clean-links', label: 'privacy-clean-links' },
     { id: 'privacy-image-downloads', label: 'privacy-image-downloads' }, { id: 'privacy-image-toast', label: 'privacy-image-toast' },
+    { id: 'privacy-body-image-cache', label: 'privacy-body-image-cache', help: 'privacy-body-image-cache-help', keywords:'browser cache body inline remote images' },
+    { id: 'privacy-body-image-cache-ttl', label: 'privacy-body-image-cache-ttl', help: 'privacy-body-image-cache-ttl-help' },
     { id: 'privacy-strip-mailer-headers', label: 'privacy-strip-mailer-headers', help: 'privacy-strip-mailer-help' },
     { id: 'privacy-image-retries', label: 'privacy-image-retry-attempts', help: 'privacy-image-retry-help' }, { id: 'privacy-image-retry-delay', label: 'privacy-image-retry-delay' },
     { id: 'privacy-unsafe-html', label: 'privacy-unsafe-html', help: 'privacy-unsafe-html-help' }, { id: 'privacy-tracker-choice', label: 'privacy-tracker-choice', help: 'privacy-tracker-choice-help' },

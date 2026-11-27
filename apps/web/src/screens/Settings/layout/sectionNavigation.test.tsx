@@ -26,7 +26,7 @@ it('keeps every message display setting exactly once within its grouped subtabs'
  for(const key of ALL_KEYS)expect(await screen.findAllByText(t(`reader-${key}`),{selector:'label'})).toHaveLength(1);
  expect(READER_CARDS.flatMap(c=>[...c.keys,...(c.leading?[c.leading]:[])]).sort()).toEqual([...ALL_KEYS].sort());
  for(const card of READER_CARDS)expect(document.querySelectorAll(`section[id="${card.id}"]`)).toHaveLength(1);
- expect(screen.getAllByRole('tab')).toHaveLength(8);
+ expect(screen.getAllByRole('tab')).toHaveLength(9);
  expect(screen.queryByRole('search')).toBeNull();
  expect(screen.queryByRole('textbox',{name:/search/i})).toBeNull();
  expect(document.querySelector('[data-kit-toggle],[data-kit-card],[data-kit-grid]')).toBeNull();
@@ -48,6 +48,13 @@ it('scrolls to and outlines the card named by the route',async()=>{
  render(()=><SettingsNavigationContext.Provider value={nav}><RetainedSettingsSection name="reader" active accountBound={false}>{()=><ReaderAppearanceSettings/>}</RetainedSettingsSection></SettingsNavigationContext.Provider>);
  await waitFor(()=>expect(scroll).toHaveBeenCalled());
  expect(document.getElementById('reader-card-loading')).toHaveAttribute('data-card-flash');
+});
+it('opens the dedicated Smart Archive tab from its context-menu card link',async()=>{
+ const nav=createSettingsNavigation({section:'reader',card:'settings-card-smart-archive'});
+ Element.prototype.scrollIntoView=vi.fn();
+ render(()=><SettingsNavigationContext.Provider value={nav}><RetainedSettingsSection name="reader" active accountBound={false}>{()=><ReaderAppearanceSettings/>}</RetainedSettingsSection></SettingsNavigationContext.Provider>);
+ await waitFor(()=>expect(screen.getByRole('tab',{name:'Smart Archive'})).toHaveAttribute('aria-selected','true'));
+ expect(document.getElementById('settings-card-smart-archive')).toBeVisible();
 });
 it('the section search lists matching settings rows from every section and opens the card',async()=>{
  const open=vi.fn();

@@ -101,6 +101,8 @@ import { effectiveRecallSeconds } from '../sendDelay.ts';
 import { recallQueued, sendQueuedNow, type QueuedSend } from '../queuedSend.ts';
 import { beginMessageLoad } from '../../perf/clientTiming.ts';
 import { prefetchSanitized, sanitizeStrip, setSanitizeFallbacks } from '../../sanitize/index.ts';
+import {eligibleSmartArchiveFolders,needsSmartArchiveReview,planSmartArchive,replacesArchive,smartArchivePolicy,type SmartArchiveStrategy} from '../smartArchive.ts';
+import {requestSmartArchive} from '../smartArchiveRequest.ts';
 import { clearUndoHistory, recordUndoable, undoOnly, undoReplaying, UndoUnavailable } from '../undoHistory.ts';
 
 /**
@@ -337,7 +339,8 @@ export interface MailSlice {
   completeFollowUp(id:Id):Promise<void>;
   // The relocations and the read/flag marks take one id or many. Many ids are
   // ONE `Email/set` request (t28-e16), and one undo puts every message back.
-  archiveMessage(ids: Id | readonly Id[]): Promise<void>;
+  archiveMessage(ids: Id | readonly Id[], options?:{standard?:boolean}): Promise<void>;
+  smartArchiveMessage(ids: Id | readonly Id[], strategy?:SmartArchiveStrategy): Promise<void>;
   trashMessage(ids: Id | readonly Id[], knownEmails?: readonly Email[]): Promise<void>;
   moveMessage(ids: Id | readonly Id[], mailboxId: Id): Promise<void>;
   markSpam(ids: Id | readonly Id[]): Promise<void>;
@@ -1673,7 +1676,52 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     for (const id of ids) for (const view of readerViews) if (!refused.has(id)) view.patch(id, { mailboxIds: { [targetMailboxId]: true },...(markMovedRead?{keywords:{...(view.openEmail()?.keywords??{}),$seen:true}}:{}) });
     ctx.broadcastChange?.();
   }
-  async function archiveMessage(ids: Id | readonly Id[]): Promise<void> {
+  const smartArchiveFlights=new Map<string,Promise<void>>();
+  function smartArchiveMessage(ids:Id|readonly Id[],strategy?:SmartArchiveStrategy):Promise<void>{
+    const key=JSON.stringify([accountId(),preferenceAccount()?.generation,asIds(ids).sort(),strategy??smartArchivePolicy().strategy]);
+    const existing=smartArchiveFlights.get(key);if(existing)return existing;
+    const task=performSmartArchive(ids,strategy).finally(()=>{if(smartArchiveFlights.get(key)===task)smartArchiveFlights.delete(key);});
+    smartArchiveFlights.set(key,task);return task;
+  }
+  async function performSmartArchive(ids:Id|readonly Id[],strategy?:SmartArchiveStrategy):Promise<void>{
+    const policy=smartArchivePolicy(),current=captureMailAuthority(),account=accountId(),owner=preferenceAccount();
+    if(!policy.enabled){showToast('info',t('mail-smart-archive-disabled'));return;}
+    if(!current()||!account||!owner)return;
+    const targets=asIds(ids);if(!targets.length)return;
+    try{
+      const known=targets.map(findEmail).filter((email):email is Email=>email!==null);
+      const missing=targets.filter(id=>!known.some(email=>email.id===id));
+      if(missing.length){
+        const result=responseFor<EmailGetResponse>(await jmapCall({using:[CAP_CORE,CAP_MAIL],methodCalls:[['Email/get',{accountId:account,ids:missing,properties:['id','from','subject','threadId','receivedAt','mailboxIds','keywords'],fetchHTMLBodyValues:false,fetchTextBodyValues:false,mailwomanBodyUse:false},'smart-input']]}),'smart-input');
+        if(!current()||result.accountId!==account)return;
+        known.push(...result.list.filter(email=>missing.includes(email.id)));
+      }
+      if(known.length!==targets.length){showToast('error',t('mail-context-failed'));return;}
+      let groups=await planSmartArchive(known,mailboxes(),policy,strategy??policy.strategy,account,async request=>{
+        if(!current())throw new DOMException('Account changed','AbortError');
+        const response=await jmapCall(request);if(!current())throw new DOMException('Account changed','AbortError');return response;
+      });
+      if(!current())return;
+      if(!groups.length){showToast('info',t('mail-smart-archive-no-destination'));return;}
+      if(needsSmartArchiveReview(groups,policy)){
+        const reviewed=await requestSmartArchive(owner,groups);if(!reviewed||!current())return;groups=reviewed;
+      }
+      const latest=smartArchivePolicy(),allowed=new Set(eligibleSmartArchiveFolders(mailboxes(),latest,latest.fallback==='archive').map(box=>box.id));
+      if(!latest.enabled||!current())return;
+      if(groups.some(group=>!allowed.has(group.target)||!group.candidates.some(candidate=>candidate.id===group.target))){showToast('error',t('mail-smart-archive-folder-changed'));return;}
+      const destinations=new Map<string,string[]>();
+      for(const group of groups)destinations.set(group.target,[...(destinations.get(group.target)??[]),...group.ids]);
+      for(const [target,messageIds] of destinations){
+        if(!current()||!smartArchivePolicy().enabled)return;
+        const folder=mailboxes().find(box=>box.id===target)?.name??'';
+        await relocateWithUndo(messageIds,target,count=>t('mail-smart-archive-done',{count,folder}),false,undefined,known);
+      }
+      const skipped=targets.length-groups.reduce((total,group)=>total+group.ids.length,0);
+      if(skipped&&current())showToast('info',t('mail-smart-archive-skipped',{count:skipped}));
+    }catch{if(current())showToast('error',t('mail-context-failed'));}
+  }
+  async function archiveMessage(ids: Id | readonly Id[],options?:{standard?:boolean}): Promise<void> {
+    if(!options?.standard&&replacesArchive()){await smartArchiveMessage(ids);return;}
     const target = roleOf(mailboxes(), 'archive');
     if (target === null) {
       showToast('error', t('mail-toast-no-archive-folder'));
@@ -2991,6 +3039,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     setFollowUp,
     completeFollowUp,
     archiveMessage,
+    smartArchiveMessage,
     trashMessage,
     moveMessage,
     markSpam,

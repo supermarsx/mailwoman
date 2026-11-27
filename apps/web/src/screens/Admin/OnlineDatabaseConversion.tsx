@@ -30,6 +30,7 @@ export function OnlineDatabaseConversion(props:{onCompleted?:()=>void}={}):JSX.E
  const measured=(value:number|null|undefined,format:(n:number)=>string):string=>typeof value==='number'&&Number.isFinite(value)&&value>=0?format(value):t('admin-db-online-unavailable');
  return <Show when={canRead()}><section class={css.card} aria-label={t('admin-db-online-title')}>
   <div class={css.headingRow}><h3 class={css.heading}>{t('admin-db-online-title')}</h3><div class={css.headingRow}><button type="button" class="btn" disabled={busy()||loading()||active()||!canRun()} onClick={()=>void start()}><Icon name="database"/>{t('admin-db-online-start')}</button><Show when={active()}><button type="button" class="btn btn--ghost" disabled={busy()||loading()||!cancellable()||!canRun()} onClick={()=>void cancel()}><Icon name="close"/>{t('admin-db-online-cancel')}</button></Show><button type="button" class="btn btn--ghost" disabled={loading()||busy()} onClick={()=>void reload()}><Icon name="refresh"/>{t('admin-db-refresh')}</button></div></div>
+  <p class={css.note}>{t('admin-db-online-purpose')}</p>
   <p class={css.note}>{t('admin-db-online-help')}</p><Feedback kind="error" as="toast" message={failure()}/>
   <Show when={report()} fallback={<p class={css.note}>{t('admin-db-online-none')}</p>}>{value=><>
    <p role="status">{t('admin-db-online-phase')}: {phases[value().phase]?t(`admin-db-online-phase-${phases[value().phase]}`):value().phase}</p>

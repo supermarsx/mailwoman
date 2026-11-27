@@ -1,6 +1,6 @@
 # Mailwoman documentation
 
-Start here. The [browsable manual](./index.md) includes a topic sidebar, local full-text search and a dark-first theme.
+Start here. The [browsable manual](https://supermarsx.github.io/mailwoman/) includes a topic sidebar, local full-text search and the app's dark-first theme. [Browse the source pages](./index.md) when editing the documentation.
 
 ## Working on the manual site
 
@@ -17,6 +17,11 @@ pnpm preview     # serve the built site
 Set `DOCS_BASE` when hosting under a subdirectory (for example `/mailwoman/` on
 GitHub Pages); the `Documentation` workflow (`.github/workflows/docs.yml`) builds
 with it on every change under `docs/`.
+
+In the repository's **Settings → Pages**, set **Source** to **GitHub Actions**.
+The workflow publishes the built `.vitepress/dist` artifact. Publishing the
+`master` branch's `/docs` folder runs Jekyll instead, bypasses the manual theme,
+and can replace a themed deployment after an unrelated app commit.
 
 - **Sidebar**: groups and page order are set in `.vitepress/sidebar.mjs`, labelled by
   each page's `# heading`. A page missing from that list still appears: in "More"

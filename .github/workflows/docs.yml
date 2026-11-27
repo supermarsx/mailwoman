@@ -46,6 +46,15 @@ jobs:
       name: github-pages
       url: ${{ steps.publish.outputs.page_url }}
     steps:
+      - name: Require the themed Pages publishing source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          source=$(gh api "repos/${{ github.repository }}/pages" --jq '.build_type')
+          if [ "$source" != "workflow" ]; then
+            echo "::error::Set repository Settings > Pages > Source to GitHub Actions. Publishing master:/docs runs Jekyll and bypasses the manual theme."
+            exit 1
+          fi
       - name: Publish manual
         id: publish
         uses: actions/deploy-pages@v4

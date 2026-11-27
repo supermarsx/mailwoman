@@ -52,6 +52,19 @@ export async function readWorkspaceJmap(target:WorkspaceMailbox,body:JmapRequest
  if(!body.methodCalls.every(([method])=>/\/(get|query|changes|queryChanges)$/.test(method)))throw new Error('Preload requires read-only methods');
  return json(await apiFetch(withBase('/jmap/api'),{mailboxTarget:target,method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),signal,pace:'background',redirect:'error'}));
 }
+export async function workspaceEffectiveSettings(target:WorkspaceMailbox,signal:AbortSignal):Promise<Record<string,{value:unknown}>>{
+ const result=await json<{settings:Record<string,{value:unknown}>}>(await request(target,'/api/settings',signal));return result.settings;
+}
+/** Compare current membership before replaying a smart move, preserving later moves. */
+export async function replayWorkspaceFolders(target:WorkspaceMailbox,changes:{id:string;expected:Record<string,boolean>;folders:Record<string,boolean>}[],signal:AbortSignal):Promise<void>{
+ const response=await jmap(target,[['Email/get',{accountId:target.accountId,ids:changes.map(change=>change.id),properties:['id','mailboxIds']},'smart-replay-get']],signal);
+ const result=responseFor<{accountId:string;list:Email[]}>(response,'smart-replay-get');
+ if(result.accountId!==target.accountId||result.list.length!==changes.length)throw new Error('Smart Archive messages changed');
+ const membership=(value:Record<string,boolean>)=>Object.keys(value).filter(id=>value[id]).sort().join('\0');
+ if(changes.some(change=>membership(result.list.find(email=>email.id===change.id)?.mailboxIds??{})!==membership(change.expected)))throw new Error('Smart Archive messages moved');
+ const written=responseFor<{updated?:Record<string,unknown>}>(await jmap(target,[['Email/set',{accountId:target.accountId,update:Object.fromEntries(changes.map(change=>[change.id,{mailboxIds:change.folders}]))},'smart-replay-set']],signal),'smart-replay-set');
+ if(changes.some(change=>!Object.hasOwn(written.updated??{},change.id)))throw new Error('Smart Archive replay refused');
+}
 async function jmap(target:WorkspaceMailbox,methodCalls:JmapRequest['methodCalls'],signal:AbortSignal):Promise<JmapResponse>{
   return json(await request(target,'/jmap/api',signal,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({using:[CAP_CORE,CAP_MAIL],methodCalls})}));
 }

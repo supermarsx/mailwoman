@@ -12,6 +12,9 @@ pub struct PrivacyPolicy {
     pub allow_direct: bool,
     pub inline_parts: bool,
     pub remote_image_downloads: bool,
+    /// Browser HTTP cache only; independent of the server's image tiers.
+    pub body_image_cache_enabled: bool,
+    pub body_image_cache_ttl_secs: usize,
     /// The user's `images.trustedHosts` / `images.blockedHosts` (canonical
     /// lowercase domains). Blocked wins; trusted never overrides `block` mode.
     #[serde(skip)]
@@ -161,6 +164,8 @@ impl PrivacyPolicy {
 }
 
 pub const POLICY_KEYS: &[&str] = &[
+    "privacy.bodyImageCacheEnabled",
+    "privacy.bodyImageCacheTtlSecs",
     "privacy.imageConcurrencyMode",
     "privacy.remoteContent",
     "images.trustedHosts",

@@ -362,6 +362,16 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="mail.showspam"></a>`mail.showSpam` | mail | global+domain+user | true | plain |  | yes | Show the Spam folder and messages marked as spam |
 | <a id="mail.showauthstatus"></a>`mail.showAuthStatus` | mail | global+domain+user | true | plain |  | yes | Show SPF, DKIM and DMARC results in the reader |
 | <a id="mail.closeondelete"></a>`mail.closeOnDelete` | mail | global+domain+user | true | plain |  | yes | Close the open message when it is deleted |
+| <a id="mail.smartarchive.enabled"></a>`mail.smartArchive.enabled` | mail | global+domain+user | false | plain |  | yes | Enable Smart Archive. Off by default. |
+| <a id="mail.smartarchive.replacearchive"></a>`mail.smartArchive.replaceArchive` | mail | global+domain+user | false | plain |  | yes | Replace the main Archive action. Ordinary Archive remains in context menus. Off by default. |
+| <a id="mail.smartarchive.strategy"></a>`mail.smartArchive.strategy` | mail | global+domain+user | "sender" | plain |  | yes | Matching: sender, domain, conversation or sender-frequency. |
+| <a id="mail.smartarchive.multiplefolders"></a>`mail.smartArchive.multipleFolders` | mail | global+domain+user | "ask" | plain |  | yes | Ask, latest or most-used when related messages occupy several folders. |
+| <a id="mail.smartarchive.confirmation"></a>`mail.smartArchive.confirmation` | mail | global+domain+user | "when-needed" | plain |  | yes | always, when-needed or never. Required destination choices still ask. |
+| <a id="mail.smartarchive.fallback"></a>`mail.smartArchive.fallback` | mail | global+domain+user | "archive" | plain |  | yes | archive, choose or cancel when no filed history matches. |
+| <a id="mail.smartarchive.historylimit"></a>`mail.smartArchive.historyLimit` | mail | global+domain+user | 100 | plain |  | yes | Inspect 10 to 500 recent matching metadata records per sender, domain or conversation. |
+| <a id="mail.smartarchive.includesubdomains"></a>`mail.smartArchive.includeSubdomains` | mail | global+domain+user | false | plain |  | yes | Include child domains when matching a sender domain. Off by default. |
+| <a id="mail.smartarchive.excludedfolders"></a>`mail.smartArchive.excludedFolders` | mail | global+domain+user | ["role:inbox","role:sent","role:drafts","role:junk","role:trash"] | plain |  | yes | Excluded role:name or id:folder-id rules. Current, virtual and non-writable folders are always excluded. |
+| <a id="reader.actions.smart-archive"></a>`reader.actions.smart-archive` | reader | global+domain+user | "toolbar" | plain |  | yes | Smart Archive placement while enabled and not replacing Archive |
 | <a id="mail.rowactions"></a>`mail.rowActions` | mail | global+domain+user | ["quick:view-draft","quick:pin","quick:snooze","quick:label","quick:flag","quick:archive","quick:delete"] | plain |  | yes | Ordered message-list quick actions: quick: or more: placement; omitted actions are hidden |
 | <a id="mail.rowactionsmode"></a>`mail.rowActionsMode` | mail | global+domain+user | "open" | plain |  | yes | How the quick actions on message list rows are shown |
 | <a id="mail.showgototop"></a>`mail.showGoToTop` | mail | global+domain+user | false | plain |  | yes | Show a Go to top button in the message list |
@@ -384,7 +394,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="mail.cache.maxconcurrency"></a>`mail.cache.maxConcurrency` | mail | global+domain+user | 1 | plain |  | yes | Browser session mail cache: maxConcurrency |
 | <a id="mail.cache.maxqueued"></a>`mail.cache.maxQueued` | mail | global+domain+user | 8 | plain |  | yes | Browser session mail cache: maxQueued |
 | <a id="mail.cache.preloadheaders"></a>`mail.cache.preloadHeaders` | mail | global+domain+user | true | plain |  | yes | Preload message envelope headers with message lists |
-| <a id="mail.cache.preloadmessages"></a>`mail.cache.preloadMessages` | mail | global+domain+user | false | plain |  | yes | Browser session mail cache: preloadMessages |
+| <a id="mail.cache.preloadmessages"></a>`mail.cache.preloadMessages` | mail | global+domain+user | true | plain |  | yes | Preload message bodies into the bounded browser cache during idle, hover and focus |
 | <a id="mail.cache.excludedfolders"></a>`mail.cache.excludedFolders` | mail | global+domain+user | ["role:trash","role:junk"] | plain |  | yes | Browser session mail cache: excludedFolders |
 | <a id="mail.notices.enabled"></a>`mail.notices.enabled` | mail | global+domain+user | true | plain |  | yes | Enable separate post-signature message notices |
 | <a id="mail.notices.templates"></a>`mail.notices.templates` | mail | global+domain+user | [] | plain |  | yes | Notice templates and automatic applicability rules |

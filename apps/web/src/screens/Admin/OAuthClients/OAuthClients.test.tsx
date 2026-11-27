@@ -25,7 +25,7 @@ describe('OAuth clients screen (dynamic client registration)', () => {
     const enabled = await screen.findByRole('checkbox', { name: 'Let apps register themselves' });
     expect(enabled).not.toBeChecked();
     expect(enabled).toHaveAccessibleDescription(/RFC 7591/);
-    expect(screen.getByRole('link', { name: 'Learn more about Allowed redirect hosts' }).getAttribute('href')).toMatch(/docs\/admin\/oauth-clients\.md#allowedRedirectHostSuffixes$/);
+    expect(screen.getByRole('link', { name: 'Learn more about Allowed redirect hosts' }).getAttribute('href')).toBe('https://supermarsx.github.io/mailwoman/admin/oauth-clients#allowedRedirectHostSuffixes');
     expect(screen.getByText('No host: every registration is refused.')).toBeInTheDocument();
     expect(stripIsolates(screen.getByTestId('field-history').textContent ?? '')).toMatch(/Not changed from the console/);
   });

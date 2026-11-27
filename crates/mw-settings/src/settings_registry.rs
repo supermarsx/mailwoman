@@ -621,7 +621,17 @@ pub static REGISTRY: &[SettingDef] = &[
         "mail",
         "Close the open message when it is deleted"
     ),
-    def!("mail.rowActions",Kind::StringList{max_len:7,max_item:32},r#"["quick:view-draft","quick:pin","quick:snooze","quick:label","quick:flag","quick:archive","quick:delete"]"#,GDU,"mail","Ordered message-list quick actions: quick: or more: placement; omitted actions are hidden"),
+    def!("mail.rowActions",Kind::StringList{max_len:8,max_item:32},r#"["quick:view-draft","quick:pin","quick:snooze","quick:label","quick:flag","quick:archive","quick:delete"]"#,GDU,"mail","Ordered message-list quick actions: quick: or more: placement; omitted actions are hidden"),
+    def!("mail.smartArchive.enabled",Kind::Bool,"false",GDU,"mail","Enable sender, domain and conversation based Smart Archive suggestions"),
+    def!("mail.smartArchive.replaceArchive",Kind::Bool,"false",GDU,"mail","Replace the main Archive action with Smart Archive; ordinary Archive remains in context menus"),
+    def!("mail.smartArchive.strategy",Kind::Enum(&["sender","domain","conversation","sender-frequency"]),"\"sender\"",GDU,"mail","Default Smart Archive matching strategy"),
+    def!("mail.smartArchive.multipleFolders",Kind::Enum(&["ask","latest","most-used"]),"\"ask\"",GDU,"mail","How Smart Archive resolves multiple matching destination folders"),
+    def!("mail.smartArchive.confirmation",Kind::Enum(&["always","when-needed","never"]),"\"when-needed\"",GDU,"mail","Smart Archive confirmation policy; required folder choices still ask"),
+    def!("mail.smartArchive.fallback",Kind::Enum(&["archive","choose","cancel"]),"\"archive\"",GDU,"mail","Smart Archive behavior when no matching filed messages are found"),
+    def!("mail.smartArchive.historyLimit",int(10,500),"100",GDU,"mail","Maximum message metadata records searched per Smart Archive sender, domain or conversation"),
+    def!("mail.smartArchive.includeSubdomains",Kind::Bool,"false",GDU,"mail","Include subdomains when Smart Archive matches a sender domain"),
+    def!("mail.smartArchive.excludedFolders",Kind::StringList{max_len:100,max_item:256},r#"["role:inbox","role:sent","role:drafts","role:junk","role:trash"]"#,GDU,"mail","Folders excluded from Smart Archive suggestions: role:name or id:folder-id"),
+    def!("reader.actions.smart-archive",Kind::Enum(&["toolbar","menu","hidden"]),"\"toolbar\"",GDU,"reader","Smart Archive placement while enabled and not replacing Archive"),
     def!(
         "mail.rowActionsMode",
         Kind::Enum(&["open", "hover", "click", "off"]),
@@ -793,10 +803,10 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "mail.cache.preloadMessages",
         Kind::Bool,
-        r#"false"#,
+        r#"true"#,
         GDU,
         "mail",
-        "Browser session mail cache: preloadMessages"
+        "Preload message bodies into the bounded browser cache during idle, hover and focus"
     ),
     def!(
         "mail.cache.excludedFolders",
@@ -1451,6 +1461,22 @@ pub static REGISTRY: &[SettingDef] = &[
         GDU,
         "privacy",
         "Reader remote-content mode"
+    ),
+    def!(
+        "privacy.bodyImageCacheEnabled",
+        Kind::Bool,
+        "true",
+        GDU,
+        "privacy",
+        "Reuse downloaded message body images in the private browser HTTP cache; independent of the server image cache"
+    ),
+    def!(
+        "privacy.bodyImageCacheTtlSecs",
+        Kind::Int { min: 60, max: 94_608_000 },
+        "600",
+        GDU,
+        "privacy",
+        "Maximum private browser cache lifetime for message body images in seconds. Range 60-94608000 (three 365-day years); default 600. Server image-link authorization stays short-lived"
     ),
     def!(
         "privacy.trackers",
@@ -9167,7 +9193,7 @@ fn valid_shortcut(value: &str) -> bool {
 pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, Refusal> {
     if def.key=="mail.rowActions" {
         let mut ids=std::collections::HashSet::new();
-        let valid=value.as_array().is_some_and(|rows|rows.len()<=7&&rows.iter().all(|row|row.as_str().and_then(|row|row.split_once(':')).is_some_and(|(place,id)|["quick","more"].contains(&place)&&["view-draft","pin","snooze","label","flag","archive","delete"].contains(&id)&&ids.insert(id))));
+        let valid=value.as_array().is_some_and(|rows|rows.len()<=8&&rows.iter().all(|row|row.as_str().and_then(|row|row.split_once(':')).is_some_and(|(place,id)|["quick","more"].contains(&place)&&["view-draft","pin","snooze","label","flag","archive","smart-archive","delete"].contains(&id)&&ids.insert(id))));
         if !valid{return Err(Refusal::invalid(field,"expected distinct quick: or more: row action identifiers"));}
     }
     if def.key == "session.absoluteSecs" && value.as_u64().is_some_and(|value| value > 0 && value < 300) {
@@ -9273,7 +9299,7 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
     {
         return bad("must contain uppercase two-letter country codes".into());
     }
-    if def.key == "mail.cache.excludedFolders"
+    if matches!(def.key,"mail.cache.excludedFolders"|"mail.smartArchive.excludedFolders")
         && !value.as_array().is_some_and(|items| {
             items.iter().all(|item| {
                 item.as_str().is_some_and(|v| {
@@ -9531,7 +9557,7 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                             !b.is_ascii_control()
                         } else if matches!(
                             def.key,
-                            "mail.cache.excludedFolders"
+                            "mail.cache.excludedFolders" | "mail.smartArchive.excludedFolders"
                                 | "retention.user.mandatory"
                                 | "retention.user.protectedFolders"
                                 | "security.protection.exemptClients"
@@ -10269,7 +10295,7 @@ mod tests {
     }
 
     #[test]
-    fn mail_cache_policy_is_bounded_and_bodies_remain_opt_in() {
+    fn mail_cache_policy_is_bounded_and_bodies_preload_by_default() {
         for key in [
             "keepIndefinitely",
             "enabled",
@@ -10311,7 +10337,7 @@ mod tests {
             lookup("mail.cache.preloadMessages")
                 .unwrap()
                 .default_value(),
-            json!(false)
+            json!(true)
         );
         assert!(
             validate(
@@ -11618,5 +11644,29 @@ mod message_date_policy_tests {
         assert_eq!(clock.default_value(),serde_json::json!(true));
         assert!(validate(clock,&serde_json::json!(false),"value").is_ok());
         assert!(validate(clock,&serde_json::json!("false"),"value").is_err());
+    }
+}
+
+#[cfg(test)]
+mod smart_archive_settings_tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn smart_archive_defaults_scopes_locks_and_bounds() {
+        for key in ["enabled","replaceArchive","strategy","multipleFolders","confirmation","fallback","historyLimit","includeSubdomains","excludedFolders"] {
+            let key=format!("mail.smartArchive.{key}");let def=lookup(&key).unwrap();
+            assert_eq!(def.scopes,Scopes::GlobalDomainUser);assert!(def.user_visible());
+            assert!(validate(def,&def.default_value(),"value").is_ok(),"{key}");
+        }
+        for key in ["mail.smartArchive.enabled","mail.smartArchive.replaceArchive","mail.smartArchive.includeSubdomains"] {assert_eq!(lookup(key).unwrap().default_value(),json!(false));}
+        for (key,good,bad) in [
+            ("mail.smartArchive.strategy",json!("domain"),json!("anything")),
+            ("mail.smartArchive.multipleFolders",json!("ask"),json!("silent")),
+            ("mail.smartArchive.confirmation",json!("never"),json!(false)),
+            ("mail.smartArchive.historyLimit",json!(500),json!(501)),
+            ("mail.smartArchive.excludedFolders",json!(["role:trash","id:Projects/One"]),json!(["role:unknown"])),
+        ] {let def=lookup(key).unwrap();assert!(validate(def,&good,"value").is_ok(),"{key}");assert!(validate(def,&bad,"value").is_err(),"{key}");}
+        assert!(validate(lookup("mail.rowActions").unwrap(),&json!(["quick:archive","quick:smart-archive"]),"value").is_ok());
+        assert_eq!(lookup("reader.actions.smart-archive").unwrap().scopes,Scopes::GlobalDomainUser);
     }
 }
